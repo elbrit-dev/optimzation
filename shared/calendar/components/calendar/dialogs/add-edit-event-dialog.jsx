@@ -65,7 +65,7 @@ import {
 	saveLeaveApplication,
 	updateLeaveAttachment,
 } from "@calendar/components/calendar/module/leave/services/leave.service";
-import { resolveLoggedInRoleId, resolveOwnHqOptions, resolveSeatHqs, resolveSuperiorShareUserIds, resolveSuperiorShareUserIdsUpTo } from "@calendar/lib/employeeHeirachy";
+import { resolveLoggedInRoleId, resolveOwnHqOptions, resolveSeatHqs, resolveSuperiorShareUserIds, resolveSuperiorShareUserIdsAboveSm, resolveSuperiorShareUserIdsUpTo } from "@calendar/lib/employeeHeirachy";
 import { resolvePobDepartments } from "@calendar/lib/calendar/pobDepartments";
 import { saveDocToErp } from "@calendar/components/calendar/module/todo/services/todo.service";
 import { uploadFileToDoc, uploadLeaveMedicalCertificate } from "@calendar/lib/file.service";
@@ -756,6 +756,24 @@ export function AddEditEventDialog({
 		);
 		return approverIsInTeam ? superiors : [leaveApproverEmail];
 	}, [resolvedLoggedInRoleId, elbritRoleEdges, isOwnEvent, shareUsers, leaveApproverEmail]);
+	// A NEW Event of a seat below an SM is shared up to the SM by ERP itself, in
+	// the same save (Server Script "Elbrit Event Upline Share") — from the whole
+	// tree, so it also reaches the managers in another department that this
+	// browser cannot see. The app adds only what ERP does not: managers above the
+	// SM. Sharing the rest again here would write every share twice, and cost the
+	// phone 3–5 serial requests per save. An SM's own event, and a seat outside
+	// the sales tree, keep the whole chain (ERP shares nothing for them); so do
+	// edits, which repair older events, and ToDos, which ERP does not share.
+	const newEventSuperiorUserIds = useMemo(() => {
+		if (!isOwnEvent) return [];
+		const aboveSm = resolveSuperiorShareUserIdsAboveSm(
+			elbritRoleEdges,
+			shareUsers,
+			resolvedLoggedInRoleId
+		);
+		if (aboveSm === null) return superiorUserIds;
+		return aboveSm.filter((userId) => userId !== LOGGED_IN_USER.email);
+	}, [resolvedLoggedInRoleId, elbritRoleEdges, isOwnEvent, shareUsers, superiorUserIds]);
 	// A leave is shared up the owner's chain like any event, but only as far as
 	// the SM. With the team list incomplete it falls back, as above, to the leave
 	// approver alone.
@@ -820,12 +838,12 @@ export function AddEditEventDialog({
 
 		return [...emails];
 	};
-	const getShareUserIds = (values) =>
+	const getShareUserIds = (values, superiors = superiorUserIds) =>
 		isAutoShareableTag(values.tags)
 			? Array.from(
 					new Set(
 						[
-							...superiorUserIds.filter(Boolean),
+							...superiors.filter(Boolean),
 							...collectParticipantShareEmails(values),
 							...(values.tags === TAG_IDS.HQ_TOUR_PLAN
 								? collectManualShareEmails(values)
@@ -1970,7 +1988,10 @@ export function AddEditEventDialog({
 		}
 
 		const savedEvent = await createEventAdoptingPreviousAttempt(workingDoc, {
-			shareWithUserIds: getShareUserIds(values),
+			shareWithUserIds: getShareUserIds(
+				values,
+				event?.erpName ? superiorUserIds : newEventSuperiorUserIds
+			),
 			// Sharing is follow-up work on a document ERP has already committed,
 			// so it must not hold up the save the user is waiting on.
 			deferShareSync: true,
@@ -2048,7 +2069,7 @@ export function AddEditEventDialog({
 
 			try {
 				const savedEvent = await createEventAdoptingPreviousAttempt(erpDoc, {
-					shareWithUserIds: superiorUserIds,
+					shareWithUserIds: newEventSuperiorUserIds,
 					// The Event is committed by the time this runs; sharing is
 					// follow-up work and must not hold up the user's save.
 					deferShareSync: true,

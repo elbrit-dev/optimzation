@@ -241,6 +241,35 @@ export function resolveSuperiorShareUserIdsUpTo(
     .map((user) => user.email);
 }
 
+// Seats below an SM, by role profile prefix. ERP shares a new Event of theirs
+// up to and including their SM itself (Server Script "Elbrit Event Upline
+// Share", After Insert), from the whole tree — including the managers in
+// another department that this browser cannot see.
+const SERVER_SHARED_SEAT_CODES = ["BE", "ABM", "RBM", "SRBM", "KAM"];
+
+// The managers a NEW Event still needs the app to share with, given that ERP
+// has already shared it up to the SM: only those above the SM. `null` when ERP
+// shares nothing for this seat (an SM, or a seat outside the sales tree) — the
+// caller then shares with the whole chain itself, as before.
+// A chain with no SM in sight belongs to a sales seat whose managers are
+// hidden by Department permissions: ERP covers all of them, so nothing is left.
+export function resolveSuperiorShareUserIdsAboveSm(elbritEdges = [], users = [], roleId) {
+  if (!roleId) return null;
+  const ownCode = roleCodeFromProfile(roleId);
+  if (ownCode === "SM") return null;
+  const chain = resolveSuperiorRoleIds(elbritEdges, roleId);
+  const smAt = chain.findIndex((id) => roleCodeFromProfile(id) === "SM");
+  let above;
+  if (smAt !== -1) above = chain.slice(smAt + 1);
+  else if (SERVER_SHARED_SEAT_CODES.includes(ownCode)) above = [];
+  else return null;
+
+  const aboveRoleIds = new Set(above);
+  return users
+    .filter((user) => user.email && user.roleId && aboveRoleIds.has(user.roleId))
+    .map((user) => user.email);
+}
+
 export function resolveVisibleEmployeeIds(elbritEdges, users) {
   // ✅ ADMIN (roleId === "Admin") → see ALL users
   if (LOGGED_IN_USER?.roleId === "Admin") {
