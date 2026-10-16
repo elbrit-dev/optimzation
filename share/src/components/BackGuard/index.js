@@ -7,10 +7,21 @@
      useBackLayer(open, onBack)   while this is open, back closes it
      useExitGuard({ isRoot })     the app root: back again to leave
      ExitHint                     what the first press at the root answers with
-     setFallback(fn)              app-level rules for unclaimed presses */
+     setFallback(fn)              app-level rules for unclaimed presses
+     holdBase()                   an overlay with its own history entry is up */
 
 export { useBackLayer } from './useBackLayer';
 export { useExitGuard } from './useExitGuard';
 export { ExitHint } from './ExitHint';
-export { pushLayer, releaseLayer, setFallback, rearmTop, BACK_LAYER_FLAG } from './backStack';
+export {
+  pushLayer,
+  pushBase,
+  holdBase,
+  releaseLayer,
+  setFallback,
+  rearmTop,
+  collapseHistory,
+  backLeavesApp,
+  BACK_LAYER_FLAG,
+} from './backStack';
 export { AppExitGuard } from './AppExitGuard';

@@ -1,16 +1,24 @@
 'use client';
 
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { pushLayer, rearmTop } from './backStack';
+import { collapseHistory, pushBase, rearmTop } from './backStack';
 
-/* useExitGuard — the bottom layer of the back stack: the app's root.
+/* useExitGuard — the bottom of the back stack: the app's root.
 
    PRESS BACK AGAIN TO LEAVE, and it is the only shape that actually works.
-   The first press is caught and answered with a hint; the layer then stays
+   The first press is caught and answered with a hint; the guard then stays
    registered but DISARMED, so a second press within the grace window is not
    consumed and the browser performs a real back — which at the root of an
    installed app is what the OS turns into "close". After the window expires
-   the layer re-arms and the next press asks again.
+   the guard re-arms and the next press asks again.
+
+   The guard is the stack's BASE (backStack.pushBase): a close watcher where
+   the browser has one, so re-arming after a back press — no gesture behind
+   it — still holds the next press instead of being skipped by Chromium.
+
+   When the hint goes up the history behind the root is folded away
+   (collapseHistory): the second press only closes the app on the first
+   entry, and by now there is usually /login or a page or two behind home.
 
    This is why there is no "Quit" button. A button cannot do what the second
    press does: `window.close()` is refused by Chromium unless the window has
@@ -39,12 +47,13 @@ export function useExitGuard({ enabled = true, isRoot, graceMs = 3000, onPrompt 
   useEffect(() => {
     if (!enabled || !isRoot) return undefined;
 
-    const layer = pushLayer({
+    const layer = pushBase({
       name: 'app-root',
       onBack: () => {
         /* Disarmed on purpose. The next press is the one that leaves. */
         layer.disarm();
         setHintOpen(true);
+        collapseHistory();
         onPromptRef.current?.();
 
         clearTimer();

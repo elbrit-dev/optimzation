@@ -1,4 +1,4 @@
-import { useEffect, useRef } from "react";
+import { useCallback, useEffect, useRef } from "react";
 import { useRouter } from "next/router";
 import { AppExitGuard, setFallback } from "@/components/BackGuard";
 
@@ -12,8 +12,11 @@ import { AppExitGuard, setFallback } from "@/components/BackGuard";
  * under the SAME history-state key. Back is a single, serial gesture; it has a
  * single, serial owner now, and this is just the app-level policy on top of it:
  *
- *   1. Which route is the root        -> useExitGuard({ isRoot })
- *   2. Where back must never go       -> setFallback, below
+ *   1. Which route is the root        -> AppExitGuard rootPaths
+ *   2. Where back must never go       -> AppExitGuard blockedPaths, and
+ *                                        setFallback / the pageshow check below
+ *   3. Where back goes instead of out -> home (AppExitGuard onLeave), so the
+ *                                        app is only ever left through the hint
  *
  * WHY "PRESS BACK AGAIN" AND NOT A PROMPT WITH AN EXIT BUTTON. There was an
  * "Exit Elbrit One?" dialog here once and it was removed because its Exit
@@ -24,7 +27,9 @@ import { AppExitGuard, setFallback } from "@/components/BackGuard";
  * second press is left unconsumed and does the closing itself. A button still
  * cannot do this. Do not re-add one without a mechanism proven on a device.
  *
- * Anywhere but the root, back is ordinary and untouched.
+ * Anywhere but the root, back is ordinary — except where it would leave the
+ * app (a page opened from a notification, after a reload) or land on /login:
+ * there it goes home, and home's hint is what leaves.
  */
 
 /** Routes the back gesture treats as the app's root. */
@@ -96,18 +101,61 @@ export default function PwaBackGuard() {
      re-runs the sign-in flow — the "it logged me out on its own" report
      (the old notification bell also tore down push there).
 
-     Swallowing the event means Next never routes and the page the user was
-     looking at stays mounted; all that is left is to put its URL back onto the
-     entry the browser just moved us to. */
+     Most of that is now prevented before the press: AppExitGuard sends back
+     home from any page with /login right behind it (`blockedPaths`). This is
+     the net for the rest (no Navigation API to look behind the page): the
+     event is swallowed so Next never routes to /login, and the entry the
+     browser moved us to becomes home — the one place back leaves from. */
   useEffect(() => {
     return setFallback((event) => {
       if (!isLoginRoute(window.location.pathname) || !isAuthed()) return false;
       event.stopImmediatePropagation();
-      const current = routerRef.current;
-      const safe = current?.asPath && !isLoginRoute(current.asPath) ? current.asPath : "/";
-      Promise.resolve(current?.replace(safe, undefined, { shallow: true })).catch(() => {});
+      Promise.resolve(routerRef.current?.replace("/")).catch(() => {});
       return true;
     });
+  }, []);
+
+  /* The same refusal for a back press that crossed into an OLDER document
+     (the login happened before a reload or a full-page sign-in redirect): the
+     login page then loads for real, and no popstate ever reaches us. Arriving
+     on /login by back/forward is never the sign-in flow — that arrives by
+     navigation — so once the session is known to be live, go home. */
+  useEffect(() => {
+    if (typeof window === "undefined") return undefined;
+    let pending = false;
+    const cameBack = (persisted) => {
+      if (persisted) return true;
+      const entry = window.performance?.getEntriesByType?.("navigation")?.[0];
+      return entry?.type === "back_forward";
+    };
+    const check = (persisted) => {
+      if (!isLoginRoute(window.location.pathname) || !cameBack(persisted)) return;
+      pending = true;
+    };
+    const leaveIfSignedIn = () => {
+      if (!pending || !authResolvedRef.current || !authedRef.current) return;
+      if (!isLoginRoute(window.location.pathname)) return;
+      pending = false;
+      Promise.resolve(routerRef.current?.replace("/")).catch(() => {});
+    };
+    const onPageShow = (event) => {
+      check(event.persisted);
+      leaveIfSignedIn();
+    };
+    check(false);
+    const auth = window.firebaseAuth;
+    const stopAuth = auth?.onAuthStateChanged?.(() => leaveIfSignedIn());
+    window.addEventListener("pageshow", onPageShow);
+    return () => {
+      window.removeEventListener("pageshow", onPageShow);
+      if (typeof stopAuth === "function") stopAuth();
+    };
+  }, []);
+
+  /* Back that would leave the app from anywhere but home goes home instead,
+     so leaving always passes the "press back again" hint. */
+  const goHome = useCallback(() => {
+    Promise.resolve(routerRef.current?.replace("/")).catch(() => {});
   }, []);
 
   /* A way to answer "is the guard even on?" from a phone over chrome://inspect
@@ -131,5 +179,12 @@ export default function PwaBackGuard() {
   /* The root policy itself. The path is passed in rather than read inside,
      because the same component serves the App Router app next door, where
      this router does not exist. */
-  return <AppExitGuard pathname={router.asPath ?? router.pathname} rootPaths={HOME_ROUTES} />;
+  return (
+    <AppExitGuard
+      pathname={router.asPath ?? router.pathname}
+      rootPaths={HOME_ROUTES}
+      onLeave={goHome}
+      blockedPaths={LOGIN_ROUTES}
+    />
+  );
 }

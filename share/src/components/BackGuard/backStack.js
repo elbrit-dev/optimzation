@@ -28,33 +28,80 @@
    simply does not re-arm, and `armed: false` is the whole mechanism: the next
    press finds no sentinel, is not consumed, and leaves for real.
 
-   CHROMIUM SKIPS SENTINELS PUSHED WITHOUT A GESTURE. The history-manipulation
-   intervention flags every same-document entry of a document that pushed one
-   with no user activation behind it, and back skips the lot — which on a cold
-   start meant the app closed with an unused sentinel sitting there. The flag
-   is cleared for those entries the moment the document gets ANY gesture, so
-   the fix is to arm early and re-arm on the first touch, which is what the
-   gesture listeners below do. Do not remove them because they look redundant;
-   they are the difference between this working on a cold start and not. */
+   CHROMIUM SKIPS ENTRIES PUSHED WITHOUT A GESTURE. The history-manipulation
+   intervention marks the entry a page was on when it pushed a new one with no
+   user activation behind it, and the back button skips marked entries. That
+   is fine for a dialog (it opens on a tap) and fatal for the app's root: the
+   root re-arms after a BACK press (returning home by back, or the hint's
+   grace window running out), and a back press is not a user activation. The
+   root's freshly pushed sentinel then marks home as skippable, and the next
+   press jumps straight past the hint and closes the app — "press back again
+   to exit" showing only sometimes. Two answers, used together:
+
+     1. THE BASE (the root's exit guard, or "back goes home" on a page with
+        nothing behind it) is a CloseWatcher where the browser has one
+        (Chromium 120+, i.e. every Android Chrome / installed app). A close
+        watcher takes the back press BEFORE history does and costs no history
+        entry, so it can be re-armed at any time, gesture or not. It is only
+        alive while nothing else is: any layer above it, or a foreign overlay
+        holding the base (holdBase), takes it down, because a close watcher
+        would otherwise get the press ahead of their history entries.
+     2. A sentinel that has outlived its layer (left behind under the next
+        page by a navigation) is ADOPTED by the next layer that arms on it,
+        not stacked on with another push.
+
+   Gesture listeners below still re-arm on the first touch, for sentinels
+   pushed before any gesture (a cold start, browsers with no CloseWatcher):
+   Chromium clears the skip mark on an entry once its document gets a gesture.
+   Do not remove them because they look redundant.
+
+   FOLDING HISTORY AT THE ROOT (collapseHistory). The second press only closes
+   the app when it is made on the FIRST history entry. By then there are
+   usually entries behind home — /login, the pages visited, a stale sentinel —
+   and the "exit" press walks back into those instead. Where the Navigation
+   API can see them, the root folds them away when the hint goes up: one
+   silent traversal back to the first entry of this document, which is then
+   rewritten to be home. Nothing re-renders; the press after it leaves. */
 
 /** One key for every layer. The id in the value is who owns the entry. */
 const LAYER_FLAG = '__elbritBackLayer';
 
 let layers = [];
+let base = null;
+let holds = 0;
 let fallback = null;
+let collapsing = null;
+/* Sentinels on their way out (releaseLayer's own back()): dead, but not
+   adoptable — the pop already in flight would take the adopter's entry. */
+const leaving = new Set();
 let listening = false;
 let nextId = 1;
 
 const isBrowser = () => typeof window !== 'undefined';
 
+const hasCloseWatcher = () => isBrowser() && typeof window.CloseWatcher === 'function';
+
 const topLayer = () => layers[layers.length - 1] ?? null;
+
+const isLive = (id) => layers.some((layer) => layer.id === id);
 
 /** Pushes the top layer's sentinel, unless it is already the current entry. */
 function armTop() {
   if (!isBrowser()) return;
   const top = topLayer();
   if (!top || !top.wantsArm) return;
-  if (window.history.state?.[LAYER_FLAG] === top.id) {
+  const current = window.history.state?.[LAYER_FLAG];
+  if (current === top.id) {
+    top.armed = true;
+    return;
+  }
+  /* A sentinel whose layer is gone (a dialog or the root that was up when the
+     app navigated away, now back under the page we returned to) already sits
+     where this one would go. Taking it over costs no new entry — and a new
+     entry pushed here, after a back press, would be pushed without a gesture
+     and make Chromium skip the page beneath it. */
+  if (current && !isLive(current) && !leaving.has(current)) {
+    window.history.replaceState({ ...window.history.state, [LAYER_FLAG]: top.id }, '');
     top.armed = true;
     return;
   }
@@ -62,7 +109,55 @@ function armTop() {
   top.armed = true;
 }
 
+/* The base's close watcher lives exactly while nothing else wants the press:
+   no layer above it, no foreign overlay holding it, and the base itself armed. */
+function syncBase() {
+  if (!base || base.kind !== 'watcher') return;
+  const wanted = base.wantsArm && layers.length === 0 && holds === 0;
+  if (wanted && !base.watcher) {
+    const owner = base;
+    let watcher;
+    try {
+      watcher = new window.CloseWatcher();
+    } catch {
+      return; // the document is not fully active; the next sync tries again
+    }
+    watcher.onclose = () => {
+      if (owner.watcher !== watcher) return;
+      owner.watcher = null;
+      owner.wantsArm = false;
+      owner.onBack({ rearm: () => owner.handle.rearm(), release: () => owner.handle.release() });
+    };
+    owner.watcher = watcher;
+  } else if (!wanted && base.watcher) {
+    dropWatcher(base);
+  }
+}
+
+function dropWatcher(owner) {
+  const watcher = owner.watcher;
+  owner.watcher = null;
+  if (!watcher) return;
+  watcher.onclose = null;
+  try {
+    watcher.destroy();
+  } catch {
+    /* already gone */
+  }
+}
+
 function onPopState(event) {
+  /* Our own fold back to the first entry (collapseHistory): the page on screen
+     is already the right one, so the router must not hear it, and the entry we
+     landed on is rewritten to be the one we left. */
+  if (collapsing) {
+    const fold = collapsing;
+    collapsing = null;
+    event.stopImmediatePropagation();
+    window.history.replaceState(fold.state, '', fold.url);
+    return;
+  }
+
   const top = topLayer();
 
   /* Our own sentinel is STILL the current entry, so whatever was popped sat
@@ -114,6 +209,10 @@ function stopListening() {
   listening = false;
 }
 
+function maybeStopListening() {
+  if (layers.length === 0 && !fallback && !base) stopListening();
+}
+
 /**
  * Adds a layer on top and arms it.
  *
@@ -122,15 +221,17 @@ function stopListening() {
  * `rearm()` to keep holding the gesture (another sub-layer closed, or the
  * root's grace window expiring), `release()` to drop out of the stack, or
  * neither — which leaves the next press unconsumed.
- *
- * `wantsArm: false` registers a layer that never holds a sentinel, used by the
- * root guard while it is deliberately letting go.
  */
 export function pushLayer({ onBack, name = 'layer' }) {
   const layer = { id: `${name}-${nextId++}`, onBack, armed: false, wantsArm: true };
   layers.push(layer);
   startListening();
+  syncBase();
   armTop();
+  return handleFor(layer);
+}
+
+function handleFor(layer) {
   return {
     id: layer.id,
     rearm: () => {
@@ -142,6 +243,75 @@ export function pushLayer({ onBack, name = 'layer' }) {
       layer.armed = false;
     },
     release: () => releaseLayer(layer.id),
+  };
+}
+
+/**
+ * The bottom of the stack: the press nothing above has claimed. One at a time
+ * — a new base replaces the old. The app root's exit guard is one; so is "back
+ * goes home" on a page with nothing behind it.
+ *
+ * Same contract as pushLayer, and the same handle. Where the browser has a
+ * CloseWatcher it is one (see the top of this file for why); elsewhere it is
+ * an ordinary layer, slid in UNDER whatever is already on the stack.
+ */
+export function pushBase({ onBack, name = 'base' }) {
+  if (base) base.handle.release();
+  startListening();
+
+  if (!hasCloseWatcher()) {
+    const layer = { id: `${name}-${nextId++}`, onBack, armed: false, wantsArm: true };
+    layers.unshift(layer);
+    armTop();
+    const handle = handleFor(layer);
+    const owner = { kind: 'layer', handle };
+    base = owner;
+    handle.release = () => {
+      if (base === owner) base = null;
+      releaseLayer(layer.id);
+    };
+    return handle;
+  }
+
+  const owner = { kind: 'watcher', id: `${name}-${nextId++}`, onBack, wantsArm: true, watcher: null };
+  owner.handle = {
+    id: owner.id,
+    rearm: () => {
+      if (base !== owner) return;
+      owner.wantsArm = true;
+      syncBase();
+    },
+    disarm: () => {
+      owner.wantsArm = false;
+      if (base === owner) syncBase();
+    },
+    release: () => {
+      if (base !== owner) return;
+      dropWatcher(owner);
+      base = null;
+      maybeStopListening();
+    },
+  };
+  base = owner;
+  syncBase();
+  return owner.handle;
+}
+
+/**
+ * For overlays that keep their own history entry instead of a layer (the
+ * calendar's dialogs, Secondary Entry's unsaved guard): while held, the base
+ * stands down, so the press reaches their entry rather than a close watcher
+ * that would otherwise get it first. Returns the release.
+ */
+export function holdBase() {
+  holds += 1;
+  syncBase();
+  let released = false;
+  return () => {
+    if (released) return;
+    released = true;
+    holds = Math.max(0, holds - 1);
+    syncBase();
   };
 }
 
@@ -162,16 +332,22 @@ export function releaseLayer(id) {
        a fixed window also eats whatever back press happens to land inside it,
        which is a real press by a real person. The timeout is only the escape
        hatch for when `back()` has nothing to pop and no event ever arrives. */
+    leaving.add(id);
     const swallow = (event) => {
       event.stopImmediatePropagation();
       window.removeEventListener('popstate', swallow, true);
+      leaving.delete(id);
     };
     window.addEventListener('popstate', swallow, true);
     window.history.back();
-    window.setTimeout(() => window.removeEventListener('popstate', swallow, true), 500);
+    window.setTimeout(() => {
+      window.removeEventListener('popstate', swallow, true);
+      leaving.delete(id);
+    }, 500);
   }
 
-  if (layers.length === 0 && !fallback) stopListening();
+  syncBase();
+  maybeStopListening();
 }
 
 /**
@@ -181,21 +357,94 @@ export function releaseLayer(id) {
 export function setFallback(handler) {
   fallback = handler;
   if (handler) startListening();
-  else if (layers.length === 0) stopListening();
+  else maybeStopListening();
   return () => {
     if (fallback === handler) fallback = null;
-    if (layers.length === 0 && !fallback) stopListening();
+    maybeStopListening();
   };
 }
 
-/** Re-arms the top layer. Call after a navigation: landing back on a guarded
-    route has to leave the guard up. */
-export { armTop as rearmTop };
+/**
+ * Folds the history behind the current page away, so the next back press is
+ * made on the first entry and closes the app. Silent: one traversal back to
+ * the first entry of THIS document (an older document would load, not fold),
+ * whose state and URL are then rewritten to the current page's. Needs the
+ * Navigation API to see where it is; without it, does nothing.
+ *
+ * Returns whether a fold was started.
+ */
+export function collapseHistory() {
+  if (!isBrowser()) return false;
+  const nav = window.navigation;
+  const current = nav?.currentEntry;
+  if (!current || typeof current.index !== 'number' || current.index <= 0) return false;
+  const entries = typeof nav.entries === 'function' ? nav.entries() : [];
+  let start = current.index;
+  while (start > 0 && entries[start - 1]?.sameDocument) start -= 1;
+  if (start === current.index) return false;
+
+  const state = { ...(window.history.state ?? {}) };
+  delete state[LAYER_FLAG];
+  collapsing = { state, url: window.location.href };
+  startListening();
+  window.history.go(start - current.index);
+  /* Escape hatch: a traversal that never fires must not leave the next real
+     press mistaken for our own. */
+  const fold = collapsing;
+  window.setTimeout(() => {
+    if (collapsing === fold) collapsing = null;
+  }, 1000);
+  return true;
+}
+
+/**
+ * Whether a back press here would leave the app or land somewhere it must
+ * not: this is the first entry, or the one before it is on `blockedPaths`
+ * (the login page). Undefined where the Navigation API is missing — then
+ * nobody can tell, and the caller should leave back alone.
+ */
+export function backLeavesApp(blockedPaths = []) {
+  if (!isBrowser()) return undefined;
+  const nav = window.navigation;
+  const current = nav?.currentEntry;
+  if (!current || typeof current.index !== 'number') return undefined;
+  if (current.index === 0) return true;
+  const entries = typeof nav.entries === 'function' ? nav.entries() : [];
+  const before = entries[current.index - 1];
+  if (!before?.url) return false;
+  let path;
+  try {
+    path = normalisePath(new URL(before.url).pathname);
+  } catch {
+    return false;
+  }
+  return blockedPaths.some((blocked) => normalisePath(blocked) === path);
+}
+
+/** Trailing slash, query and hash are not part of "which route is this". */
+export function normalisePath(pathname) {
+  if (!pathname) return '/';
+  const path = String(pathname).split('?')[0].split('#')[0];
+  if (path.length > 1 && path.endsWith('/')) return path.slice(0, -1);
+  return path;
+}
+
+/** Re-arms whatever holds the press at the bottom or the top. Call after a
+    navigation: landing back on a guarded route has to leave the guard up. */
+export function rearmTop() {
+  armTop();
+  syncBase();
+}
 
 /** Test seam. Nothing in the app calls this. */
 export function __resetBackStack() {
+  if (base?.kind === 'watcher') dropWatcher(base);
   layers = [];
+  base = null;
+  holds = 0;
   fallback = null;
+  collapsing = null;
+  leaving.clear();
   nextId = 1;
   stopListening();
 }

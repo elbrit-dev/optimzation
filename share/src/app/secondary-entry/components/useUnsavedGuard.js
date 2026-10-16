@@ -1,6 +1,7 @@
 'use client';
 
 import { useCallback, useEffect, useRef, useState } from 'react';
+import { holdBase } from '@/components/BackGuard';
 
 /* useUnsavedGuard — "you have unsaved changes" for Secondary Entry as a
  * whole, on the same mechanism as Navigation's useExitConfirm.
@@ -36,9 +37,11 @@ export function useUnsavedGuard({ dirty, onBack }) {
   const onBackRef = useRef(onBack);
   onBackRef.current = onBack;
 
-  /* 2. Back press. */
+  /* 2. Back press. The app's base guard (a close watcher, which would get the
+     press ahead of this entry) stands down while we hold it. */
   useEffect(() => {
     if (!dirty || typeof window === 'undefined') return undefined;
+    const releaseBase = holdBase();
     const pushGuard = () => {
       if (window.history.state?.[GUARD_KEY]) return;
       window.history.pushState({ ...window.history.state, [GUARD_KEY]: true }, '');
@@ -62,6 +65,7 @@ export function useUnsavedGuard({ dirty, onBack }) {
           bypassRef.current = false;
         }, 0);
       }
+      releaseBase();
     };
   }, [dirty]);
 

@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { TAG_IDS } from "@calendar/components/calendar/constants";
 import { useRef } from "react";
 import { toast } from "sonner";
+import { holdBase } from "@/components/BackGuard";
 import { deleteEventFromErp } from "@calendar/components/calendar/module/event/services/event.service";
 import { deleteTravelRequest } from "@calendar/components/calendar/module/travel-request/services/travel-request.service";
 const OVERLAY_HISTORY_FLAG = "__calendarOverlayLayer";
@@ -204,11 +205,15 @@ export function useBackToClose(isOpen, onBack) {
       onBackRef.current?.();
     };
 
+    // The app's base back guard (a close watcher, which would get the press
+    // ahead of this entry) stands down while the overlay is open.
+    const releaseBase = holdBase();
     pushLayerEntry();
     window.addEventListener("popstate", handlePop, true);
 
     return () => {
       window.removeEventListener("popstate", handlePop, true);
+      releaseBase();
 
       // Closing through the UI (Cancel / Update / X) has to drop the entry too,
       // or the next back press is spent on a layer that is already gone. Guarded
