@@ -15,9 +15,19 @@
 #         an SM / ZSM: their OWN allocation, across their own departments;
 #         IT (role or IT role profile) may pass "employee" to split an SM's
 #         allocation on their behalf (the comment says it was IT)
+#     { "month": "2026-10", "kind": "request", "amount": 50000, "reason": "..." }
+#         an SM / ZSM asks the GM for more (IT may pass "employee"). One
+#         pending request at a time. Open ALL month, after the 20th too; a
+#         request with nothing allocated yet starts the record at 0.
+#     { "month": "2026-10", "kind": "decide", "employee": "E00010",
+#       "request": "<request row name>", "action": "approve" | "reject",
+#       "amount": 40000, "note": "..." }
+#         the GM / CEO / IT: approve the amount asked or a revised "amount"
+#         (it is ADDED to the allocation), or reject. Any time.
 #
-# Both only until the month's CUTOFF_DAY (the 20th); later the month is
-# locked. A split may be up to the allocation -- over is allowed (the app shows
+# Allocating only until the month's CUTOFF_DAY (the 20th). Splitting too,
+# unless a request was approved after the 20th: that sets "reopened" so the
+# SM can split the extra; it clears once fully split. A split may be up to the allocation -- over is allowed (the app shows
 # it red) -- and decides the status: nothing split = "Not split", the whole
 # allocation = "Split", else "Partly split".
 #
@@ -80,14 +90,39 @@ kind = str(body.get("kind") or "").strip()
 rows = as_list(body.get("rows"))
 if len(month) != 7 or month[4] != "-" or not (month[:4].isdigit() and month[5:].isdigit()):
     frappe.throw("month must be YYYY-MM")
-if kind not in ["allocate", "split"]:
-    frappe.throw("kind must be allocate or split")
+if kind not in ["allocate", "split", "request", "decide"]:
+    frappe.throw("kind must be allocate, split, request or decide")
 today = frappe.utils.nowdate()
 cutoff = month + "-" + ("0" if CUTOFF_DAY < 10 else "") + str(CUTOFF_DAY)
-if today > cutoff:
-    frappe.throw("This month is locked: changes were open until the " + str(CUTOFF_DAY) + "th.")
+locked = today > cutoff
+LOCKED_MSG = "This month is locked: changes were open until the " + str(CUTOFF_DAY) + "th."
+# Allocating stays locked after the 20th. A split then needs the allocation
+# reopened (an extra amount approved late); a request is open all month; a
+# decision any time.
+if kind == "allocate" and locked:
+    frappe.throw(LOCKED_MSG)
+if kind == "request" and month < today[:7]:
+    frappe.throw("Requests for " + month + " are closed: the month is over.")
 month_first = month + "-01"
 now = frappe.utils.now()
+is_it = me == "Administrator" or "IT" in roles or it_profile
+
+
+def sm_target():
+    # The SM a split / request is for: the caller, or (IT only) the
+    # "employee" passed. Returns [employee dict, on_behalf].
+    target = str(body.get("employee") or "").strip()
+    if target and target != emp.get("name"):
+        if not is_it:
+            frappe.throw("Only IT can act on someone else's allocation on their behalf.")
+        t = frappe.db.get_value("Employee", target, ["name", "employee_name", "custom_role_profile", "status"],
+                                as_dict=True)
+        if not t or t.get("status") != "Active" or (t.get("custom_role_profile") or "")[:3].upper() != "SM-":
+            frappe.throw(target + " is not an active Sales Manager / ZSM.")
+        return [t, True]
+    if not is_sm:
+        frappe.throw("Only a Sales Manager / ZSM works on their own allocation.")
+    return [emp, False]
 
 
 def sync_budget(dept):
@@ -151,27 +186,98 @@ if kind == "allocate":
                         + money(amount) + " for " + month)
         done = done + 1
     frappe.response["message"] = {"ok": True, "saved": done}
-else:
-    is_it = me == "Administrator" or "IT" in roles or it_profile
-    target = str(body.get("employee") or "").strip()
-    if target and target != emp.get("name"):
-        # IT splitting on an SM's behalf (the IT switch to the SM view).
-        if not is_it:
-            frappe.throw("Only IT can split an allocation on someone else's behalf.")
-        t = frappe.db.get_value("Employee", target, ["name", "employee_name", "custom_role_profile", "status"],
-                                as_dict=True)
-        if not t or t.get("status") != "Active" or (t.get("custom_role_profile") or "")[:3].upper() != "SM-":
-            frappe.throw(target + " is not an active Sales Manager / ZSM.")
-        emp = t
-        on_behalf = True
+elif kind == "request":
+    # An SM / ZSM asks the GM for more (IT may ask on their behalf).
+    pair = sm_target()
+    emp = pair[0]
+    on_behalf = pair[1]
+    amount = float(body.get("amount") or 0)
+    reason = str(body.get("reason") or "").strip()
+    if amount <= 0:
+        frappe.throw("Enter the extra amount you need.")
+    if not reason:
+        frappe.throw("Say why you need more.")
+    name = "SA-" + month + "-" + emp.get("name")
+    if frappe.db.exists(PARENT, name):
+        doc = frappe.get_doc(PARENT, name)
+        for r in doc.requests or []:
+            if r.status == "Pending":
+                frappe.throw("A request for " + money(r.amount_requested) + " is still waiting for the GM. "
+                             "Wait for that decision before asking again.")
     else:
-        if not is_sm:
-            frappe.throw("Only a Sales Manager / ZSM splits their own allocation.")
-        on_behalf = False
+        # Nothing allocated yet: the request starts the month's record at 0.
+        doc = frappe.get_doc({"doctype": PARENT, "employee": emp.get("name"),
+                              "employee_name": emp.get("employee_name"), "seat": emp.get("custom_role_profile"),
+                              "month": month_first, "month_key": month, "amount": 0, "split_total": 0,
+                              "status": "Not split"})
+    doc.append("requests", {"amount_requested": amount, "reason": reason, "status": "Pending",
+                            "requested_by": me, "requested_at": now})
+    if doc.is_new():
+        doc.insert(ignore_permissions=True)
+    else:
+        doc.save(ignore_permissions=True)
+    doc.add_comment("Comment", "Asked for " + money(amount) + " more: " + reason
+                    + (" -- by IT on their behalf" if on_behalf else ""))
+    frappe.response["message"] = {"ok": True, "requested": amount}
+elif kind == "decide":
+    # The GM / CEO / IT approves (the amount asked, or a revised one) or rejects.
+    if not can_allocate:
+        frappe.throw("Only the GM, the CEO or IT can decide on a request.")
+    target = str(body.get("employee") or "").strip()
+    req = str(body.get("request") or "").strip()
+    action = str(body.get("action") or "").strip().lower()
+    note = str(body.get("note") or "").strip()
+    if action not in ["approve", "reject"]:
+        frappe.throw("action must be approve or reject")
+    name = "SA-" + month + "-" + target
+    if not target or not frappe.db.exists(PARENT, name):
+        frappe.throw("No allocation record for " + (target or "that employee") + " in " + month + ".")
+    doc = frappe.get_doc(PARENT, name)
+    row = None
+    for r in doc.requests or []:
+        if r.name == req:
+            row = r
+    if not row:
+        frappe.throw("That request was not found; reload the page.")
+    if row.status != "Pending":
+        frappe.throw("That request was already " + (row.status or "").lower() + ".")
+    row.decided_by = me
+    row.decided_at = now
+    row.decision_note = note
+    if action == "approve":
+        granted = float(body.get("amount") if body.get("amount") not in [None, ""] else row.amount_requested or 0)
+        if granted <= 0:
+            frappe.throw("Approve an amount above zero, or reject the request.")
+        row.status = "Approved"
+        row.amount_approved = granted
+        before = float(doc.amount or 0)
+        doc.amount = before + granted
+        doc.status = status_of(float(doc.amount or 0), float(doc.split_total or 0))
+        if locked:
+            # past the 20th: let the SM split the extra
+            doc.reopened = 1
+        doc.save(ignore_permissions=True)
+        doc.add_comment("Comment", "Request approved: " + money(granted)
+                        + (" (asked " + money(row.amount_requested) + ")" if granted != float(row.amount_requested or 0) else "")
+                        + "; allocation " + money(before) + " -> " + money(doc.amount)
+                        + (". Note: " + note if note else ""))
+    else:
+        row.status = "Rejected"
+        row.amount_approved = 0
+        doc.save(ignore_permissions=True)
+        doc.add_comment("Comment", "Request for " + money(row.amount_requested) + " rejected"
+                        + (": " + note if note else ""))
+    frappe.response["message"] = {"ok": True, "status": row.status, "amount": float(doc.amount or 0)}
+else:
+    pair = sm_target()
+    emp = pair[0]
+    on_behalf = pair[1]
     name = "SA-" + month + "-" + emp.get("name")
     if not frappe.db.exists(PARENT, name):
         frappe.throw(("Nothing has been allocated to " + (emp.get("employee_name") or emp.get("name")) if on_behalf
                       else "Nothing has been allocated to you") + " for " + month + " yet.")
+    if locked and not frappe.db.get_value(PARENT, name, "reopened"):
+        frappe.throw(LOCKED_MSG)
     # the departments under this SM, as the read script lists them
     staff = frappe.get_all("Employee", filters={"status": "Active"},
                            fields=["name", "reports_to", "custom_role_profile"], limit_page_length=0)
@@ -229,6 +335,8 @@ else:
     doc.split_by = me
     doc.split_at = now
     doc.status = status_of(float(doc.amount or 0), total)
+    if doc.status == "Split" and doc.get("reopened"):
+        doc.reopened = 0
     doc.save(ignore_permissions=True)
     doc.add_comment("Comment", "Split " + money(total) + " of " + money(doc.amount) + " across " +
                     str(len(doc.splits)) + " department(s)" + (" -- by IT on their behalf" if on_behalf else ""))

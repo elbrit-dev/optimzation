@@ -1024,16 +1024,34 @@ def allocation_tiles():
             elif a and a.get("status") == "Partly split":
                 partly = partly + 1
         pending = sms - done
+        # SMs asking for more (Service Allocation Request rows still Pending)
+        asks = 0
+        if frappe.db.exists("DocType", "Service Allocation Request"):
+            parents = frappe.get_all("Service Allocation", filters={"month_key": alloc_month}, pluck="name",
+                                     limit_page_length=0)
+            if parents:
+                asks = len(frappe.get_all("Service Allocation Request",
+                                          filters=[["parenttype", "=", "Service Allocation"],
+                                                   ["parent", "in", parents], ["status", "=", "Pending"]],
+                                          pluck="name", limit_page_length=0))
+        if asks:
+            caption = str(asks) + (" request" if asks == 1 else " requests")
+            caption_tone = "danger"
+        else:
+            caption = ("locked" if alloc_locked else SERVICE_DUE_LABEL) if pending else "All split"
+            caption_tone = "neutral" if alloc_locked else ("danger" if pending else "success")
         items.append({
             "id": "service-allocation",
             "label": "Allocation",
             "href": HREFS["service-allocation"],
             "icon": "wallet",
             "statusIcon": "users",
-            "count": pending,
+            # a request waiting is the GM's job right now; otherwise the
+            # SMs still to split
+            "count": asks if asks else pending,
             "countTone": "danger",
-            "caption": ("locked" if alloc_locked else SERVICE_DUE_LABEL) if pending else "All split",
-            "captionTone": "neutral" if alloc_locked else ("danger" if pending else "success"),
+            "caption": caption,
+            "captionTone": caption_tone,
             "segments": service_ring([
                 {"key": "split", "value": done, "tone": "success", "label": "Split"},
                 {"key": "partly", "value": partly, "tone": "warning", "label": "Partly split"},

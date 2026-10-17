@@ -81,6 +81,16 @@ export function makeClient({ endpointUrl, token, fetchImpl = (...a) => fetch(...
       method: 'POST',
       body: employee ? { month, kind, rows, employee } : { month, kind, rows },
     }).then((j) => j.message),
+    /* An SM / ZSM asks the GM for more ({ amount, reason }; IT adds `employee`). */
+    requestAllocation: (month, { amount, reason, employee }) => call('/api/method/elbrit_service_allocation_save', {
+      method: 'POST',
+      body: { month, kind: 'request', amount, reason, ...(employee ? { employee } : {}) },
+    }).then((j) => j.message),
+    /* GM / CEO / IT on a request: action approve (amount = as asked or revised) | reject. */
+    decideRequest: (month, { employee, request, action, amount, note }) => call('/api/method/elbrit_service_allocation_save', {
+      method: 'POST',
+      body: { month, kind: 'decide', employee, request, action, amount, note },
+    }).then((j) => j.message),
     create: (fields) => call(resource(), { method: 'POST', body: { ...fields, custom_via_app: 1 } }).then((j) => j.data),
     update: (name, fields) => call(resource(name), { method: 'PUT', body: fields }).then((j) => j.data),
     /* A sent-back service: saving it again resubmits it (the guard). */

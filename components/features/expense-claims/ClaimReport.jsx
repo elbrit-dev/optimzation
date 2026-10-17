@@ -3,8 +3,8 @@
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import Router from "next/router";
 import { useClaims } from "./data/useClaims";
-import { CSS, ClaimForm, DayCard, DaySheet, FONT_HREF, IC, Icon, Note, Spinner, btn, card, ell, tabNum } from "./ui";
-import { STATUS, groupDays, inr, monthKey, monthLabel, statusOf, totals } from "./model";
+import { CSS, ClaimForm, DayCard, DaySheet, FONT_HREF, IC, Icon, Note, Spinner, btn, card, ell, tabNum, TypeDot } from "./ui";
+import { STATUS, groupDays, inr, monthKey, monthLabel, statusOf, totals, MON, kInr, typeColor } from "./model";
 
 /* Expense claims -- the month's claims, day by day, and the way to file one.
  *
@@ -95,6 +95,20 @@ export default function ClaimReport({
   const lastDay = new Date(y, m, 0).getDate();
   const kicker = isCur ? `${monthLabel(month)} · day ${today.getDate()} of ${lastDay}` : `${monthLabel(month)} · full month`;
 
+  /* Wide desktop: a side column beside the month -- the split by claim type,
+     the last six months, and quick-add by type -- so the width is used. */
+  const wide = isDesk && w >= 1180;
+  const listTwoCols = wide ? w - 420 >= 760 : isDesk && w >= 900;
+  const typeRows = Object.entries(T.byType).sort((a, b) => b[1] - a[1]);
+  const typeSum = typeRows.reduce((s, [, v]) => s + v, 0) || 1;
+  const trend = useMemo(() => Array.from({ length: 6 }, (_, i) => {
+    const k = monthKey(new Date(today.getFullYear(), today.getMonth() - 5 + i, 1));
+    const t = totals(claims, (l) => l.date.slice(0, 7) === k);
+    return { k, cl: t.claimed, sa: t.sanctioned };
+  }), [claims, today]);
+  const trendMax = Math.max(1, ...trend.map((x) => x.cl));
+  const pickMonth = (k) => { if (months.includes(k)) { setMonth(k); setFilter(null); } };
+
   const openHistory = () => (onOpenHistory ? onOpenHistory() : go(historyPath));
   const back = () => (onBack ? onBack() : go(homePath));
   const pad = isDesk ? 32 : 16;
@@ -111,7 +125,7 @@ export default function ClaimReport({
     <div ref={rootRef} className={"ec-root" + (className ? " " + className : "")} style={{ background: "#f4f5f7", width: "100%", minHeight: "100%" }}>
       <link rel="stylesheet" href={FONT_HREF} />
       <style>{CSS}</style>
-      <main style={{ display: "flex", flexDirection: "column", gap: 18, padding: `${isDesk ? 20 : 12}px ${pad}px ${isDesk ? 64 : 28}px`, maxWidth: 1240 }}>
+      <main style={{ display: "flex", flexDirection: "column", gap: 18, padding: `${isDesk ? 20 : 12}px ${pad}px ${isDesk ? 64 : 28}px`, maxWidth: 1600 }}>
         <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
           <button type="button" aria-label="Back" className="ec-ghost" onClick={back} style={{ ...btn.icon, width: 38, height: 38, background: "#fff", boxShadow: "0 0 0 1px #e4e7ec", color: "#344054" }}><Icon d={IC.back} size={18} /></button>
           <div style={{ flex: 1, minWidth: 0 }}>
@@ -122,12 +136,13 @@ export default function ClaimReport({
           <button type="button" className="ec-cta" disabled={data.status !== "ready"} onClick={() => setForm({})} style={{ ...btn.primary, height: 40, padding: "0 16px 0 12px", display: "flex", alignItems: "center", gap: 6, flex: "none", boxShadow: "0 6px 14px -8px rgba(37,99,235,.8)", opacity: data.status === "ready" ? 1 : 0.5 }}><Icon d={IC.plus} sw={2.4} />{isDesk ? "New claim" : "New"}</button>
         </div>
 
-        {data.status === "idle" && <Note tone="info">Pass the ERP GraphQL URL and the signed-in user's token to load claims.</Note>}
+        {data.status === "idle" && <Note tone="info">Pass the ERP GraphQL URL and the signed-in user’s token to load claims.</Note>}
         {data.status === "error" && <Note>{data.error}</Note>}
         {data.status === "hidden" && <Note tone="info">Expense claims are not open for your role yet.</Note>}
         {data.status === "loading" && <div aria-busy="true" style={{ ...card, height: 220, display: "grid", placeItems: "center" }}><Spinner size={24} /></div>}
 
-        {data.status === "ready" && <>
+        {data.status === "ready" && <div style={{ display: "grid", gridTemplateColumns: wide ? "minmax(0,1fr) 340px" : "minmax(0,1fr)", gap: 18, alignItems: "start" }}>
+          <div style={{ display: "flex", flexDirection: "column", gap: 18, minWidth: 0 }}>
           <section style={{ ...card, boxShadow: "0 0 0 1px #e4e7ec,0 12px 28px -24px rgba(16,24,40,.35)", padding: "20px 22px", display: "flex", flexDirection: "column", gap: 18 }}>
             <div style={{ display: "flex", alignItems: "center", gap: "8px 12px", flexWrap: "wrap" }}>
               <button type="button" aria-label="Previous month" className="ec-ghost" disabled={mi <= 0} onClick={() => { setMonth(months[mi - 1]); setFilter(null); }} style={{ ...btn.icon, width: 30, height: 30, opacity: mi <= 0 ? 0.3 : 1 }}><Icon d={IC.back} /></button>
@@ -181,7 +196,7 @@ export default function ClaimReport({
               <span style={{ fontSize: 15, fontWeight: 600 }}>{filter ? statusOf(filter).label : "Day by day"} · {days.length} {days.length === 1 ? "day" : "days"}</span>
               {filter && <button type="button" className="ec-link" onClick={() => setFilter(null)} style={{ height: 32, padding: "0 10px", borderRadius: 8, border: 0, background: "transparent", color: "#1d4ed8", fontSize: 13, fontWeight: 600, cursor: "pointer" }}>Show all</button>}
             </div>
-            <div style={{ display: "grid", gridTemplateColumns: isDesk && w >= 900 ? "repeat(2,minmax(0,1fr))" : "minmax(0,1fr)", gap: 8 }}>
+            <div style={{ display: "grid", gridTemplateColumns: listTwoCols ? "repeat(2,minmax(0,1fr))" : "minmax(0,1fr)", gap: 8 }}>
               {days.map((d) => <DayCard key={d.key} day={d} onOpen={() => setDay(d)} />)}
             </div>
             {!days.length && (
@@ -191,11 +206,75 @@ export default function ClaimReport({
               </div>
             )}
           </section>
-        </>}
+          </div>
+
+          {wide && (
+            <aside style={{ display: "flex", flexDirection: "column", gap: 12, position: "sticky", top: 16 }}>
+              <section style={{ ...card, padding: "16px 18px", display: "flex", flexDirection: "column", gap: 12 }}>
+                <div style={{ display: "flex", alignItems: "baseline", justifyContent: "space-between", gap: 8 }}>
+                  <span style={{ fontSize: 15, fontWeight: 600 }}>By claim type</span>
+                  <span style={{ fontSize: 12, color: "#8a93a3" }}>{monthLabel(month)}</span>
+                </div>
+                {typeRows.length ? <>
+                  <div style={{ display: "flex", height: 8, borderRadius: 99, overflow: "hidden", background: "#eef1f5", gap: 2 }}>
+                    {typeRows.map(([t, v]) => <span key={t} style={{ width: (v / typeSum) * 100 + "%", background: typeColor(t).c }} />)}
+                  </div>
+                  <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+                    {typeRows.map(([t, v]) => (
+                      <div key={t} style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 13 }}>
+                        <TypeDot type={t} /><span style={{ flex: 1, color: "#344054", fontWeight: 600 }}>{t}</span>
+                        <span style={{ color: "#8a93a3", fontSize: 12 }}>{Math.round((v / typeSum) * 100)}%</span>
+                        <span style={{ minWidth: 76, textAlign: "right", fontWeight: 700, ...tabNum }}>{inr(v)}</span>
+                      </div>
+                    ))}
+                  </div>
+                </> : <span style={{ fontSize: 13, color: "#8a93a3" }}>Nothing claimed this month.</span>}
+              </section>
+
+              <section style={{ ...card, padding: "16px 18px", display: "flex", flexDirection: "column", gap: 10 }}>
+                <div style={{ display: "flex", alignItems: "baseline", justifyContent: "space-between", gap: 8 }}>
+                  <span style={{ fontSize: 15, fontWeight: 600 }}>Last 6 months</span>
+                  <span style={{ display: "flex", alignItems: "center", gap: 10, fontSize: 11, color: "#5b6576" }}>
+                    <span style={{ display: "flex", alignItems: "center", gap: 4 }}><span style={{ width: 8, height: 8, borderRadius: 2, background: "#d6e2fb" }} />Claimed</span>
+                    <span style={{ display: "flex", alignItems: "center", gap: 4 }}><span style={{ width: 8, height: 8, borderRadius: 2, background: "#2563eb" }} />Sanctioned</span>
+                  </span>
+                </div>
+                <div style={{ display: "flex", alignItems: "flex-end", gap: 6, height: 132 }}>
+                  {trend.map(({ k, cl, sa }) => {
+                    const on = k === month;
+                    const has = months.includes(k);
+                    return (
+                      <button key={k} type="button" disabled={!has} aria-pressed={on} onClick={() => pickMonth(k)} className="ec-ghost" title={`${monthLabel(k)} · claimed ${inr(cl)} · sanctioned ${inr(sa)}`} style={{ flex: 1, height: "100%", display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "flex-end", gap: 5, border: 0, borderRadius: 8, padding: "4px 0 0", background: on ? "#eef3fe" : "transparent", cursor: has ? "pointer" : "default" }}>
+                        <span style={{ fontSize: 10, fontWeight: 600, color: "#5b6576" }}>{cl ? kInr(cl) : ""}</span>
+                        <span style={{ position: "relative", width: "58%", height: Math.max(2, (cl / trendMax) * 82), borderRadius: "5px 5px 0 0", background: "#d6e2fb" }}>
+                          <span style={{ position: "absolute", left: 0, right: 0, bottom: 0, height: cl ? (sa / cl) * 100 + "%" : 0, borderRadius: "5px 5px 0 0", background: "#2563eb" }} />
+                        </span>
+                        <span style={{ fontSize: 11, fontWeight: on ? 700 : 500, color: on ? "#1d4ed8" : "#8a93a3" }}>{MON[+k.slice(5) - 1]}</span>
+                      </button>
+                    );
+                  })}
+                </div>
+                <button type="button" className="ec-link" onClick={openHistory} style={{ alignSelf: "flex-start", height: 30, padding: "0 8px", marginLeft: -8, borderRadius: 8, border: 0, background: "transparent", color: "#1d4ed8", fontSize: 13, fontWeight: 600, cursor: "pointer" }}>All past claims →</button>
+              </section>
+
+              <section style={{ ...card, padding: "16px 18px", display: "flex", flexDirection: "column", gap: 10 }}>
+                <span style={{ fontSize: 15, fontWeight: 600 }}>Quick add</span>
+                <span style={{ fontSize: 12, color: "#8a93a3" }}>Opens a new claim with today’s row of that type.</span>
+                <div style={{ display: "grid", gridTemplateColumns: "repeat(2,minmax(0,1fr))", gap: 8 }}>
+                  {[...(types?.length ? types : ["Travel", "Food", "Calls", "Medical", "Others"])].sort((a, b) => { const o = ["Travel", "Food", "Calls", "Medical", "Others"]; return (o.indexOf(a) + 1 || 99) - (o.indexOf(b) + 1 || 99); }).map((t) => (
+                    <button key={t} type="button" className="ec-ghost" onClick={() => setForm({ copyFrom: { lines: [{ type: t, note: "", amount: "" }] } })} style={{ display: "flex", alignItems: "center", gap: 8, height: 40, padding: "0 12px", borderRadius: 10, border: "1px solid #e4e7ec", background: "#fff", fontSize: 13, fontWeight: 600, color: "#344054", cursor: "pointer", textAlign: "left" }}>
+                      <TypeDot type={t} size={8} />{t}<span style={{ flex: 1 }} /><Icon d={IC.plus} size={14} />
+                    </button>
+                  ))}
+                </div>
+              </section>
+            </aside>
+          )}
+        </div>}
       </main>
 
       {day && <DaySheet conn={conn} day={day} onClose={() => setDay(null)} onEdit={(c) => { setDay(null); setForm({ claim: c }); }} />}
-      {form && conn && me && <ClaimForm conn={conn} me={me} types={types} claim={form.claim} today={today} desk={isDesk && w >= 900} onClose={() => setForm(null)} onSaved={saved} />}
+      {form && conn && me && <ClaimForm conn={conn} me={me} types={types} claim={form.claim} copyFrom={form.copyFrom} today={today} desk={isDesk && w >= 900} onClose={() => setForm(null)} onSaved={saved} />}
       {toast && (
         <div role="status" aria-live="polite" style={{ position: "fixed", left: "50%", bottom: isDesk ? 32 : 96, transform: "translateX(-50%)", zIndex: 95, maxWidth: "calc(100vw - 32px)", padding: "11px 18px", borderRadius: 10, background: toast.tone === "error" ? "#b42318" : "#101828", color: "#fff", fontSize: 13, fontWeight: 500, boxShadow: "0 12px 30px -10px rgba(16,24,40,.5)" }}>{toast.m}</div>
       )}

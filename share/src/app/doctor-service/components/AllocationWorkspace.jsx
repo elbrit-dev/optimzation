@@ -12,8 +12,15 @@
  *              The split becomes each department's Service Budget for the
  *              month, which the service approval shows against what is used.
  *
- * Both can change a month until its 20th; then it is locked. Saving goes
- * through elbrit_service_allocation_save, which checks who is asking. */
+ * Both can change a month until its 20th; then it is locked.
+ *
+ * NEED MORE? An SM / ZSM can ask the GM for more any time in the month (one
+ * request waiting at a time). The GM / CEO / IT approve the amount asked or a
+ * revised one — it is added to the allocation — or reject, with a note. An
+ * approval after the 20th reopens that SM's split so they can split the extra.
+ *
+ * Saving goes through elbrit_service_allocation_save, which checks who is
+ * asking. */
 
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { makeAllocationSample } from '../data/allocationSample';
@@ -54,6 +61,20 @@ const CSS = `
 .dsa-note{font-size:12.5px;color:var(--mute)}
 .dsa-lock{font-size:12px;font-weight:600;padding:5px 10px;border-radius:999px}
 .dsa-sel{height:42px;border:1px solid #E1E5EB;border-radius:12px;padding:0 12px;background:#fff;font-size:14px}
+.dsa-ask{border:1px solid #F5D9A8;background:#FFFAF0;border-radius:12px;padding:10px 12px;display:flex;flex-direction:column;gap:8px}
+.dsa-ask p{margin:0;font-size:13px;color:var(--ink2)}
+.dsa-ask .why{color:var(--ink3);font-size:12.5px;white-space:pre-wrap;overflow-wrap:anywhere}
+.dsa-txt{width:100%;min-height:64px;border:1px solid #D5DAE1;border-radius:10px;padding:8px 10px;font:inherit;font-size:14px;resize:vertical;box-sizing:border-box}
+.dsa-line{flex:1 1 160px;min-width:0;height:38px;border:1px solid #D5DAE1;border-radius:10px;padding:0 10px;font-size:14px;box-sizing:border-box}
+.dsa-ok{height:36px;padding:0 14px;border-radius:10px;border:0;background:#15803D;color:#fff;font-weight:600;font-size:13px;cursor:pointer}
+.dsa-no{height:36px;padding:0 14px;border-radius:10px;border:1px solid #F3C2C2;background:#fff;color:#B91C1C;font-weight:600;font-size:13px;cursor:pointer}
+.dsa-ok:disabled,.dsa-no:disabled{opacity:.5;cursor:default}
+.dsa-hist{display:flex;flex-direction:column}
+.dsa-hrow{display:flex;gap:10px;align-items:flex-start;padding:7px 0;border-bottom:1px solid #F2F4F7;font-size:12.5px}
+.dsa-hrow:last-child{border-bottom:0}
+.dsa-hrow .t{flex:1;min-width:0;display:flex;flex-direction:column;gap:2px;color:var(--ink3);overflow-wrap:anywhere}
+.dsa-hrow .t b{color:var(--ink);font-weight:600}
+@media (max-width:520px){.dsa-in{width:120px}}
 `;
 let injected = false;
 function ensureAllocStyles() {
@@ -71,7 +92,11 @@ const TONE = {
   'Partly split': ['#FEF3E2', '#B45309'],
   'Not split': ['#FDECEC', '#B91C1C'],
   'Not allocated': ['#F1F3F6', '#4B5563'],
+  Pending: ['#FEF3E2', '#B45309'],
+  Approved: ['#E5F6EC', '#15803D'],
+  Rejected: ['#FDECEC', '#B91C1C'],
 };
+const pendingOf = (p) => (p?.requests || []).find((r) => r.status === 'Pending') || null;
 const statusOf = (p) => (p.allocation ? p.allocation.status || 'Not split' : 'Not allocated');
 const num = (v) => {
   const n = Number(String(v ?? '').replace(/[^0-9.]/g, ''));
@@ -98,8 +123,65 @@ function Bar({ split, of }) {
   );
 }
 
+/* Requests for more, newest first: what was asked, why, and what the GM did. */
+function RequestHistory({ requests }) {
+  if (!requests?.length) return null;
+  return (
+    <div className="dsa-hist">
+      {requests.map((r) => (
+        <div key={r.name} className="dsa-hrow">
+          <div className="t">
+            <span>
+              <b>{money(r.amount_requested)}</b> asked {fD(r.requested_at)}
+              {r.status === 'Approved' ? <> · <b style={{ color: '#15803D' }}>{money(r.amount_approved)}</b> approved</> : null}
+              {r.decided_by ? ` by ${r.decided_by}` : ''}
+            </span>
+            {r.reason ? <span>{r.reason}</span> : null}
+            {r.decision_note ? <span>GM: {r.decision_note}</span> : null}
+          </div>
+          <Pill status={r.status} />
+        </div>
+      ))}
+    </div>
+  );
+}
+
+/* GM / CEO / IT on one waiting request: approve as asked, approve a revised
+   amount, or reject — with an optional note the SM sees. */
+function DecideRequest({ person, request, busy, onDecide }) {
+  const [amount, setAmount] = useState(String(request.amount_requested));
+  const [note, setNote] = useState('');
+  const n = num(amount);
+  const revised = n !== request.amount_requested;
+  return (
+    <div className="dsa-ask" role="group" aria-label={`Request from ${person.name}`}>
+      <p>
+        <b>Asks for {money(request.amount_requested)} more</b> · {fD(request.requested_at)}
+        {request.requested_by && request.requested_by !== person.name ? ` · sent by ${request.requested_by}` : ''}
+      </p>
+      {request.reason ? <p className="why">{request.reason}</p> : null}
+      <div className="dsa-row">
+        <input className="dsa-in" inputMode="numeric" aria-label={`Amount to approve for ${person.name}`}
+          value={amount} onChange={(e) => setAmount(e.target.value)} />
+        <input className="dsa-line" placeholder="Note to the SM (optional)" aria-label="Note" value={note} onChange={(e) => setNote(e.target.value)} />
+      </div>
+      <div className="dsa-row">
+        <button type="button" className="dsa-ok" disabled={busy || n <= 0}
+          onClick={() => onDecide({ employee: person.employee, request: request.name, action: 'approve', amount: n, note })}>
+          {revised && n > 0 ? `Approve ${money(n)}` : 'Approve as asked'}
+        </button>
+        <button type="button" className="dsa-no" disabled={busy}
+          onClick={() => onDecide({ employee: person.employee, request: request.name, action: 'reject', note })}>
+          Reject
+        </button>
+        <span className="dsa-note">Approved amount is added to the allocation{person.allocation ? ` (now ${money(person.allocation.amount)})` : ''}.</span>
+      </div>
+    </div>
+  );
+}
+
 /* ---- GM / CEO: allocate to every SM / ZSM, and track their splits */
-function GmView({ data, editable, months, month, onSave, saving }) {
+function GmView({ data, editable, months, month, onSave, saving, onDecide }) {
   const [draft, setDraft] = useState({});
   const [tab, setTab] = useState('all');
   const [open, setOpen] = useState(null);
@@ -107,11 +189,14 @@ function GmView({ data, editable, months, month, onSave, saving }) {
 
   const people = useMemo(() => data.people || [], [data.people]);
   const counts = useMemo(() => {
-    const c = { all: people.length, 'Not allocated': 0, 'Not split': 0, 'Partly split': 0, Split: 0 };
-    people.forEach((p) => { c[statusOf(p)] += 1; });
+    const c = { all: people.length, requests: 0, 'Not allocated': 0, 'Not split': 0, 'Partly split': 0, Split: 0 };
+    people.forEach((p) => { c[statusOf(p)] += 1; if (pendingOf(p)) c.requests += 1; });
     return c;
   }, [people]);
+  // The Requests tab goes once the last one is decided: fall back to All.
+  useEffect(() => { if (tab === 'requests' && !counts.requests) setTab('all'); }, [tab, counts.requests]);
   const shown = tab === 'all' ? people
+    : tab === 'requests' ? people.filter((p) => pendingOf(p))
     : tab === 'pending' ? people.filter((p) => statusOf(p) !== 'Split')
       : people.filter((p) => statusOf(p) === tab);
   const totalAlloc = people.reduce((s, p) => s + (p.allocation?.amount || 0), 0);
@@ -134,9 +219,10 @@ function GmView({ data, editable, months, month, onSave, saving }) {
         <div className="dsa-stat"><span>Allocated</span><b>{money(totalAlloc)}</b></div>
         <div className="dsa-stat"><span>Split by SMs</span><b>{money(totalSplit)}</b></div>
         <div className="dsa-stat"><span>Fully split</span><b>{counts.Split} / {people.length}</b></div>
+        <div className="dsa-stat"><span>Asking for more</span><b style={{ color: counts.requests ? '#B45309' : undefined }}>{counts.requests}</b></div>
       </div>
       <div className="dsa-tabs" role="tablist" aria-label="Filter">
-        {[['all', 'All'], ['pending', 'Not done'], ['Not allocated', 'Not allocated'], ['Not split', 'Not split'], ['Partly split', 'Partly split'], ['Split', 'Split']].map(([k, l]) => (
+        {[['all', 'All'], ...(counts.requests ? [['requests', 'Requests']] : []), ['pending', 'Not done'], ['Not allocated', 'Not allocated'], ['Not split', 'Not split'], ['Partly split', 'Partly split'], ['Split', 'Split']].map(([k, l]) => (
           <button key={k} type="button" className={`dsa-tab${tab === k ? ' on' : ''}`} onClick={() => setTab(k)}>
             {l} · {k === 'pending' ? people.length - counts.Split : counts[k]}
           </button>
@@ -148,6 +234,8 @@ function GmView({ data, editable, months, month, onSave, saving }) {
         const st = statusOf(p);
         const value = draft[p.employee] ?? (a ? String(a.amount) : '');
         const isOpen = open === p.employee;
+        const ask = pendingOf(p);
+        const history = (p.requests || []).filter((r) => r.status !== 'Pending');
         return (
           <div key={p.employee} className="dsa-person">
             <div className="dsa-ph">
@@ -163,6 +251,11 @@ function GmView({ data, editable, months, month, onSave, saving }) {
                 {isOpen ? 'Hide split' : 'See split'}
               </button>
             </div>
+            {ask ? (
+              <div style={{ padding: '0 14px 10px' }}>
+                <DecideRequest key={ask.name} person={p} request={ask} busy={saving} onDecide={onDecide} />
+              </div>
+            ) : null}
             {a ? (
               <div style={{ padding: '0 14px 10px', display: 'flex', flexDirection: 'column', gap: 6 }}>
                 <Bar split={a.split_total} of={a.amount} />
@@ -182,6 +275,12 @@ function GmView({ data, editable, months, month, onSave, saving }) {
                     <span className="v" style={{ color: d.amount ? 'var(--ink)' : 'var(--faint)' }}>{d.amount ? money(d.amount) : 'not split'}</span>
                   </div>
                 ))}
+                {history.length ? (
+                  <>
+                    <span className="dsv-eyebrow" style={{ marginTop: 10 }}>Requests for more</span>
+                    <RequestHistory requests={history} />
+                  </>
+                ) : null}
               </div>
             ) : null}
           </div>
@@ -193,11 +292,20 @@ function GmView({ data, editable, months, month, onSave, saving }) {
 
 /* ---- SM / ZSM: split their own allocation across their departments.
    `asName`: IT looking at (and saving for) someone else's split. */
-function SmView({ mine, editable, months, month, onSave, saving, asName }) {
+function SmView({ mine, editable, canRequest, months, month, onSave, onRequest, saving, asName }) {
   const [draft, setDraft] = useState({});
+  const [asking, setAsking] = useState(false);
+  const [askAmount, setAskAmount] = useState('');
+  const [askWhy, setAskWhy] = useState('');
   useEffect(() => { setDraft({}); }, [month, mine]);
+  useEffect(() => { setAsking(false); setAskAmount(''); setAskWhy(''); }, [month, mine]);
   if (!mine) return null;
   const a = mine.allocation;
+  // A late approval reopens the split after the 20th.
+  const canSplit = mine.can_split ?? editable;
+  const waiting = pendingOf(mine);
+  // A record made only by a request (nothing allocated, nothing split yet).
+  const nothingYet = !a || (!a.amount && !mine.departments.some((d) => d.amount));
   const valueOf = (d) => draft[d.department] ?? (d.amount ? String(d.amount) : '');
   const total = mine.departments.reduce((s, d) => s + num(valueOf(d)), 0);
   const left = (a?.amount || 0) - total;
@@ -208,14 +316,17 @@ function SmView({ mine, editable, months, month, onSave, saving, asName }) {
     <div className="dsa-card">
       <div className="dsa-row" style={{ justifyContent: 'space-between' }}>
         <span className="dsv-eyebrow">{asName ? `${asName}'s split` : 'Your split'} · {monthLabel(months, month)}</span>
-        {a ? (
-          <button className="dsa-btn" type="button" disabled={!editable || !dirty || saving}
+        {!nothingYet ? (
+          <button className="dsa-btn" type="button" disabled={!canSplit || !dirty || saving}
             onClick={() => onSave('split', mine.departments.map((d) => ({ department: d.department, amount: num(valueOf(d)) })))}>
             {saving ? 'Saving…' : 'Save split'}
           </button>
         ) : null}
       </div>
-      {!a ? (
+      {a?.reopened && !editable ? (
+        <p className="dsa-note" style={{ color: '#15803D', fontWeight: 600 }}>Extra amount approved after the 20th — split it now. This closes once it is fully split.</p>
+      ) : null}
+      {nothingYet ? (
         <p className="dsa-note">The GM has not allocated an amount to {asName || 'you'} for {monthLabel(months, month)} yet.</p>
       ) : (
         <>
@@ -232,7 +343,7 @@ function SmView({ mine, editable, months, month, onSave, saving, asName }) {
               <div key={d.department} className="dsa-dept">
                 <span className="d">{short(d.department)}</span>
                 <input className={`dsa-in${over ? ' over' : ''}`} inputMode="numeric" placeholder="₹0" aria-label={`Amount for ${d.department}`}
-                  value={valueOf(d)} disabled={!editable}
+                  value={valueOf(d)} disabled={!canSplit}
                   onChange={(e) => setDraft({ ...draft, [d.department]: e.target.value })} />
               </div>
             ))}
@@ -242,6 +353,45 @@ function SmView({ mine, editable, months, month, onSave, saving, asName }) {
           </span>
         </>
       )}
+
+      {/* Need more than the GM gave? Ask — any time in the month. */}
+      <div style={{ borderTop: '1px solid var(--line2)', paddingTop: 12, display: 'flex', flexDirection: 'column', gap: 10 }}>
+        <div className="dsa-row" style={{ justifyContent: 'space-between' }}>
+          <span className="dsv-eyebrow">Need more?</span>
+          {canRequest && !waiting && !asking ? (
+            <button type="button" className="dsa-ghost" onClick={() => setAsking(true)}>Request more</button>
+          ) : null}
+        </div>
+        {waiting ? (
+          <div className="dsa-ask">
+            <p><b>{money(waiting.amount_requested)}</b> asked {fD(waiting.requested_at)} — waiting for the GM.</p>
+            {waiting.reason ? <p className="why">{waiting.reason}</p> : null}
+          </div>
+        ) : null}
+        {asking ? (
+          <div className="dsa-ask">
+            <div className="dsa-row">
+              <input className="dsa-in" inputMode="numeric" placeholder="₹ extra" aria-label="Extra amount needed"
+                value={askAmount} onChange={(e) => setAskAmount(e.target.value)} />
+              <span className="dsa-note">on top of {money(a?.amount || 0)}</span>
+            </div>
+            <textarea className="dsa-txt" placeholder="Why is more needed? (the GM sees this)" aria-label="Reason"
+              value={askWhy} onChange={(e) => setAskWhy(e.target.value)} />
+            <div className="dsa-row">
+              <button type="button" className="dsa-btn" disabled={saving || num(askAmount) <= 0 || !askWhy.trim()}
+                onClick={() => onRequest({ amount: num(askAmount), reason: askWhy.trim() })}>
+                {saving ? 'Sending…' : 'Send request'}
+              </button>
+              <button type="button" className="dsa-ghost" onClick={() => setAsking(false)}>Cancel</button>
+            </div>
+          </div>
+        ) : null}
+        {!canRequest && !waiting ? <span className="dsa-note">Requests are closed for {monthLabel(months, month)}.</span> : null}
+        {canRequest && !waiting && !asking && !(mine.requests || []).length ? (
+          <span className="dsa-note">Need more than the allocation? Ask the GM here — any time in the month.</span>
+        ) : null}
+        <RequestHistory requests={(mine.requests || []).filter((r) => r.status !== 'Pending')} />
+      </div>
     </div>
   );
 }
@@ -294,6 +444,32 @@ export function AllocationWorkspace({
     }
   }, [client, month, show]);
 
+  const request = useCallback(async (payload, employee) => {
+    setSaving(true);
+    try {
+      await client.requestAllocation(month, { ...payload, employee });
+      show('Request sent to the GM');
+      setAttempt((a) => a + 1);
+    } catch (err) {
+      show(err.message || 'Could not send the request', true);
+    } finally {
+      setSaving(false);
+    }
+  }, [client, month, show]);
+
+  const decide = useCallback(async (payload) => {
+    setSaving(true);
+    try {
+      await client.decideRequest(month, payload);
+      show(payload.action === 'approve' ? `Approved ${money(payload.amount)} — added to the allocation` : 'Request rejected');
+      setAttempt((a) => a + 1);
+    } catch (err) {
+      show(err.message || 'Could not save the decision', true);
+    } finally {
+      setSaving(false);
+    }
+  }, [client, month, show]);
+
   const data = state.data;
   const months = data?.months || [];
   const isIt = !!data?.viewer?.is_it;
@@ -301,6 +477,7 @@ export function AllocationWorkspace({
   // IT's SM view: the picked SM (default the first), from the list IT already has.
   const picked = isIt ? people.find((p) => p.employee === asSm) || people[0] || null : null;
   const editable = !!data?.editable;
+  const canRequest = !!data?.can_request;
   const cutoff = data ? `${data.cutoff_day} ${monthLabel(months, month).split(' ')[0]}` : '';
 
   return (
@@ -325,6 +502,7 @@ export function AllocationWorkspace({
           <span className="dsa-lock" style={editable ? { background: '#E5F6EC', color: '#15803D' } : { background: '#F1F3F6', color: '#4B5563' }}>
             {editable ? `Open for changes till ${cutoff}` : `Locked — changes closed after ${cutoff}`}
           </span>
+          {!editable && canRequest ? <span className="dsa-note">Requests for more stay open all month.</span> : null}
         </div>
       ) : null}
 
@@ -353,14 +531,16 @@ export function AllocationWorkspace({
       ) : null}
 
       {data?.viewer?.can_allocate && (!isIt || itView === 'gm') ? (
-        <GmView data={data} editable={editable} months={months} month={month} onSave={save} saving={saving} />
+        <GmView data={data} editable={editable} months={months} month={month} onSave={save} saving={saving} onDecide={decide} />
       ) : null}
       {isIt && itView === 'sm' ? (
-        <SmView key={picked?.employee || 'none'} mine={picked} editable={editable} months={months} month={month} saving={saving}
-          asName={picked?.name} onSave={(kind, rows) => save(kind, rows, picked?.employee)} />
+        <SmView key={picked?.employee || 'none'} mine={picked} editable={editable} canRequest={canRequest} months={months} month={month} saving={saving}
+          asName={picked?.name} onSave={(kind, rows) => save(kind, rows, picked?.employee)}
+          onRequest={(payload) => request(payload, picked?.employee)} />
       ) : null}
       {data?.viewer?.is_sm && !isIt ? (
-        <SmView mine={data.mine} editable={editable} months={months} month={month} onSave={save} saving={saving} />
+        <SmView mine={data.mine} editable={editable} canRequest={canRequest} months={months} month={month} onSave={save} saving={saving}
+          onRequest={(payload) => request(payload)} />
       ) : null}
 
       <Toast toast={toast} />
