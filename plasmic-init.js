@@ -3113,19 +3113,13 @@ PLASMIC.registerComponent(HomeOverview, {
       type: "boolean",
       displayName: "Claims strip",
       defaultValue: true,
-      description: "Shows the Expense claims strip at the top: this month's claims (ERP Expense Claim, as the token's own Employee) as a ticker that opens the Claims page, and a + that opens it straight on a new claim. Needs the URL and token.",
+      description: "Shows the Expense claims strip at the top: this month's claims (ERP Expense Claim, as the token's own Employee) as a ticker. Clicking it fires On open Claims; its + opens the claim form on this page and saves to the ERP. Needs the URL and token.",
     },
-    claimsPath: { type: "string", displayName: "Claims page", defaultValue: "/claims", description: "The page holding the Claim Report component. The + goes there with ?new=1, which opens the form." },
+    claimsPath: { type: "string", displayName: "Claims page", defaultValue: "/claims", description: "Where the claims strip goes when On open Claims is not wired. The strip's + never navigates: it opens the claim form on this page." },
     onOpenClaims: {
       type: "eventHandler",
       displayName: "On open Claims",
-      description: "Fires when the claims ticker is clicked. In Interactions, add a Go to page action pointing at the page that holds Claim Report. Once wired, the built-in redirect to Claims page is off.",
-      argTypes: [],
-    },
-    onNewClaim: {
-      type: "eventHandler",
-      displayName: "On new claim",
-      description: "Fires when the claims strip's + is clicked. In Interactions, add a Go to page action pointing at the Claims page - the form opens there by itself (no ?new=1 needed). Once wired, the built-in redirect is off.",
+      description: "Fires when the claims strip is clicked anywhere except its + (the + opens the claim form right here). In Interactions, add a Go to page action to the page that holds Claim Report. Once wired, the built-in redirect to Claims page is off.",
       argTypes: [],
     },
     onOpen: {

@@ -3,7 +3,6 @@
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import Router from "next/router";
 import { useClaims } from "./data/useClaims";
-import { takeNewClaimFlag } from "./ClaimsStrip";
 import { CSS, ClaimForm, DayCard, DaySheet, FONT_HREF, IC, Icon, Note, Spinner, btn, card, ell, tabNum } from "./ui";
 import { STATUS, groupDays, inr, monthKey, monthLabel, statusOf, totals } from "./model";
 
@@ -19,8 +18,7 @@ import { STATUS, groupDays, inr, monthKey, monthLabel, statusOf, totals } from "
  * claims, since HR often posts last month's travel in the first week. Older
  * history lives on the profile's "Expense & claims" tab (historyPath).
  *
- * `?new=1` in the URL, or newClaim, opens the form straight away -- the Home
- * strip's "+" lands here that way. */
+ * `?new=1` in the URL, or newClaim, opens the form straight away. */
 
 function useWidth(ref) {
   const [w, setW] = useState(1024);
@@ -72,16 +70,13 @@ export default function ClaimReport({
   const say = (m, tone = "ok") => { setToast({ m, tone }); clearTimeout(tt.current); tt.current = setTimeout(() => setToast(null), 3200); };
   useEffect(() => () => clearTimeout(tt.current), []);
 
-  /* The Home strip's "+" arrives as ?new=1, or -- when Studio's "Go to page"
-     did the navigating and could not add a query -- as the strip's short-lived
-     session flag. Opened once, then both are dropped so a refresh does not
-     reopen it. */
+  /* ?new=1 (or newClaim) opens the form straight away. Opened once, then the
+     query is dropped so a refresh does not reopen it. */
   const asked = useRef(false);
   useEffect(() => {
     if (asked.current || data.status !== "ready") return;
     const q = typeof window !== "undefined" ? new URLSearchParams(window.location.search) : null;
-    const flagged = takeNewClaimFlag();
-    if (newClaim || flagged || q?.get("new") === "1") {
+    if (newClaim || q?.get("new") === "1") {
       asked.current = true;
       setForm({});
       if (q?.get("new")) { q.delete("new"); const s = q.toString(); window.history.replaceState(null, "", window.location.pathname + (s ? "?" + s : "")); }

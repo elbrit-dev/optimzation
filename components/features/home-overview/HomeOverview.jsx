@@ -921,7 +921,7 @@ export default function HomeOverview({
   primaryPath = "/home/primary", secondaryPath = "/home/secondary", visitPath = "/home/visit", supportPath = "/home/support",
   onOpenPrimary, onOpenSecondary, onOpenVisit, onOpenSupport,
   reviewPath = "/review-report", onOpenReview, showReview = true,
-  showClaims = true, claimsPath = "/claims", onOpenClaims, onNewClaim,
+  showClaims = true, claimsPath = "/claims", onOpenClaims,
 }) {
   const rootRef = useRef(null);
   const topRef = useRef(null);
@@ -1019,12 +1019,12 @@ export default function HomeOverview({
       <link rel="stylesheet" href={FONT_HREF} />
       <style>{CSS}</style>
 
-      {/* Expense claims: this month's as a ticker, "+" files a new one. The
-          Claims page opens its form by itself when it sees ?new=1. */}
+      {/* Expense claims: this month's as a ticker. "+" opens the claim form
+          right here; anywhere else on the strip is On open Claims -- the one
+          event the page redirects with (Claims page when it is not wired). */}
       {showClaims && (live || useSample) && (
-        <ClaimsStrip url={url} token={token} today={today} pad={L.pad} sample={useSample}
-          onOpen={() => (onOpenClaims ? onOpenClaims() : nav(claimsPath))}
-          onNew={() => (onNewClaim ? onNewClaim() : nav(claimsPath + (claimsPath.includes("?") ? "&" : "?") + "new=1"))} />
+        <ClaimsStrip url={url} token={token} today={today} pad={L.pad} sample={useSample} desk={isDesk && cw >= 900}
+          onOpen={() => (onOpenClaims ? onOpenClaims() : nav(claimsPath))} />
       )}
 
       {isDesk ? (
