@@ -206,7 +206,17 @@ export async function saveClaim(conn, { claim, employee, postingDate, remark, li
     })),
   };
   if (claim) Object.assign(doc, { name: claim.id, modified: claim.modified });
-  const d = await gql(conn, SAVE_MUTATION, { doc: JSON.stringify(doc) });
+  let d;
+  try {
+    d = await gql(conn, SAVE_MUTATION, { doc: JSON.stringify(doc) });
+  } catch (e) {
+    /* A claim type with no default account in the ERP refuses the whole
+       claim -- an ERP setup gap (Expense Claim Type → Accounts), not
+       something the person filing can fix. Say so in their words. */
+    const t = /default account for the\s+(?:<[^>]*>)?\s*Expense Claim Type\s*(?:<[^>]*>)?\s*(?:<a[^>]*>)?\s*([^<.\n]+)/i.exec(e.message);
+    if (t) throw new Error(`The ERP is not set up for ${t[1].trim()} claims yet (no account on that claim type). Ask IT / MIS to set it, or file this row under a type that works.`);
+    throw e;
+  }
   const name = d.saveDoc?.doc?.name;
   if (!name) throw new Error("The ERP did not return the claim number.");
   return name;
