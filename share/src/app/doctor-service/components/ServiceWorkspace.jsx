@@ -230,7 +230,17 @@ export function ServiceWorkspace({
     const kindFor = (row) => (kind === 'approve' && row?.state === CEO ? 'final' : kind);
     const allGm = ids.every((id) => rowOf(id)?.state === GM);
     const res = await each(ids, async (n) => {
-      await client.decide(rowOf(n)?.tracker, kindFor(rowOf(n)), reasoned ? note : '');
+      const row = rowOf(n);
+      // THE CEO'S APPROVE (kind "ceo") is always the CEO's final approval. At
+      // the GM step it first passes the GM step (the CEO holds GM too), so the
+      // service ends "CEO Approved and Verified", in the CEO's name — never a
+      // GM approval taken by the CEO, and never "Send to CEO" from the CEO.
+      if (kind === 'ceo') {
+        if (row?.state === GM) await client.decide(row?.tracker, 'approve', '');
+        await client.decide(row?.tracker, 'final', '');
+      } else {
+        await client.decide(row?.tracker, kindFor(row), reasoned ? note : '');
+      }
       if (note && !reasoned) await client.comment(n, note).catch(() => {});
     });
     setBusy(null);
@@ -245,11 +255,14 @@ export function ServiceWorkspace({
       revisit: `Sent ${label} back to the MIS team`,
       approve: allGm ? `Sent ${label} to CEO` : `Approved ${label}`,
       final: allGm ? `Approved ${label} as final · CEO not needed` : `Approved ${label}`,
+      ceo: `Approved ${label}`,
     }[kind];
     const fail = { reject: 'not rejected', revisit: 'not sent back' }[kind] || 'not approved';
     after(res, msg, fail);
   }
-  const approveKind = () => 'approve';
+  // The CEO (role) always approves as the CEO: Approve / Send back / Reject.
+  const isCeo = approverRoles(viewer).includes('CEO');
+  const approveKind = () => (isCeo ? 'ceo' : 'approve');
   /* Every approval asks first: approve (GM: send to CEO; CEO: approve) and
      approve as final. */
   const confirmApprove = (ids, kind, note) => setModal({ kind: 'confirm', action: kind, ids, note: note || '' });
@@ -432,6 +445,7 @@ export function ServiceWorkspace({
       onResubmit={() => submit([shown.id])}
       onApprove={() => confirmApprove([shown.id], 'approve', comment.trim())}
       onFinal={() => confirmApprove([shown.id], 'final', comment.trim())}
+      onCeoApprove={() => confirmApprove([shown.id], 'ceo', comment.trim())}
       onReject={() => setModal({ kind: 'reject', ids: [shown.id], note: comment })}
       onRevisit={() => setModal({ kind: 'revisit', ids: [shown.id], note: comment })}
     />
@@ -536,10 +550,10 @@ export function ServiceWorkspace({
                 <button type="button" className="rej" disabled={!!busy} onClick={() => setModal({ kind: 'reject', ids: chosen.map((e) => e.id), note: '' })}>Reject</button>
               ) : null}
               {approval ? <button type="button" className="ghost" disabled={!!busy} onClick={() => setModal({ kind: 'revisit', ids: chosen.map((e) => e.id), note: '' })}>Send back</button> : null}
-              {approval && chosen.every((e) => e.state === GM) ? <button type="button" className="fin" disabled={!!busy} onClick={() => confirmApprove(chosen.map((e) => e.id), 'final', '')}>Approve as final</button> : null}
+              {approval && !isCeo && chosen.every((e) => e.state === GM) ? <button type="button" className="fin" disabled={!!busy} onClick={() => confirmApprove(chosen.map((e) => e.id), 'final', '')}>Approve as final</button> : null}
               <button type="button" className="pri" disabled={!!busy}
                 onClick={() => (approval ? confirmApprove(chosen.map((e) => e.id), approveKind(), '') : submit(chosen.map((e) => e.id)))}>
-                {busy ? 'Working…' : approval ? (chosen.every((e) => e.state === GM) ? `Send ${chosen.length} to CEO` : `Approve ${chosen.length}`) : `Resubmit ${chosen.length}`}
+                {busy ? 'Working…' : approval ? (!isCeo && chosen.every((e) => e.state === GM) ? `Send ${chosen.length} to CEO` : `Approve ${chosen.length}`) : `Resubmit ${chosen.length}`}
               </button>
             </div>
           ) : null}
@@ -601,11 +615,12 @@ export function ServiceWorkspace({
         // ends it and hands it to MIS to carry out: "Ready to execute?".
         // Send to CEO is only a step on.
         const isFinal = !(atGm && modal.action === 'approve');
+        const asCeo = modal.action === 'ceo';
         const what = one ? `${one.doctorName} · ${one.service} · ${money(one.amount)}` : `${rows.length} services · ${money(sum(rows))}`;
-        const by = atGm ? 'GM' : 'CEO';
+        const by = asCeo ? 'CEO' : atGm ? 'GM' : 'CEO';
         const title = isFinal ? 'Ready to execute?' : 'Send to CEO?';
         const desc = isFinal
-          ? `${what}. This is the final approval (${by} Approved and Verified)${atGm ? ' — CEO approval is not needed' : ''}. The MIS team then carries it out.`
+          ? `${what}. This is the final approval (${by} Approved and Verified)${atGm && !asCeo ? ' — CEO approval is not needed' : ''}. The MIS team then carries it out.`
           : `${what}. It goes on to the CEO for the final approval.`;
         return (
           <Modal

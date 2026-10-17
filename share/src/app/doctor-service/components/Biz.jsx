@@ -7,12 +7,116 @@
 
 import { useMemo, useState } from 'react';
 import { bizView, ROLE_C } from '../data/insight';
+import { MON, money } from '../data/workflow';
 
-export function Biz({ insight, request, department, loading }) {
+/* Support and service, month by month — a small table, 6 months at a time:
+ *   Month | Service | Support, newest first, with the 6 months' total.
+ * Presets (Last 6 / Previous 6 / Earlier 6) and an "Ending" month picker
+ * move the 6-month window over the insight's months (18, to last month).
+ * The DEPARTMENT the figures are for is the service's own; the approvers
+ * (GM / CEO / IT, on the approval page) may switch it to any department
+ * the doctor has support or services in, for this table only.
+ * Service = services GIVEN (paid / finally approved) dated in the month. */
+const GIVEN = ['Paid', 'Approved'];
+const PAGE = 6;
+const mLabel = (k) => `${MON[Number(k.slice(5, 7)) - 1]} ${k.slice(0, 4)}`;
+
+function MonthTable({ insight, department, canSwitchDept }) {
+  const months = useMemo(() => insight?.months || [], [insight]);
+  const keys = months.map((m) => m.month);
+  const depts = useMemo(() => {
+    const out = new Set();
+    months.forEach((m) => Object.keys(m.by_dept || {}).forEach((d) => d && out.add(d)));
+    (insight?.services || []).forEach((s) => s.department && out.add(s.department));
+    if (department) out.add(department);
+    return [...out].sort();
+  }, [insight, months, department]);
+  const [dept, setDept] = useState(department || '');
+  const [end, setEnd] = useState(keys.length - 1);
+  const hasSplit = months.some((m) => m.by_dept && typeof m.by_dept === 'object');
+  const d = hasSplit ? dept : '';
+
+  if (!keys.length) return null;
+  const last = keys.length - 1;
+  const e = Math.min(Math.max(end, Math.min(PAGE - 1, last)), last);
+  const from = Math.max(0, e - PAGE + 1);
+  const rows = [];
+  for (let i = e; i >= from; i -= 1) {
+    const k = keys[i];
+    const m = months[i];
+    const support = d ? Number((m.by_dept || {})[d]) || 0 : Number(m.support) || 0;
+    const service = (insight.services || [])
+      .filter((s) => GIVEN.includes(s.status) && String(s.date || '').slice(0, 7) === k && (!d || s.department === d))
+      .reduce((a, s) => a + (Number(s.amount) || 0), 0);
+    rows.push({ k, support, service });
+  }
+  const tot = rows.reduce((a, r) => ({ s: a.s + r.service, p: a.p + r.support }), { s: 0, p: 0 });
+  const presets = [['Last 6 months', last], ['Previous 6', last - PAGE], ['Earlier 6', last - 2 * PAGE]].filter(([, i]) => i >= 0);
+  const chip = (on) => ({
+    height: 28, padding: '0 10px', borderRadius: 999, fontSize: 12, fontWeight: 600, cursor: 'pointer',
+    border: '1px solid ' + (on ? '#111827' : '#E1E5EB'), background: on ? '#111827' : '#fff', color: on ? '#fff' : '#374151',
+  });
+  const sel = { height: 30, border: '1px solid #E1E5EB', borderRadius: 8, padding: '0 8px', fontSize: 12.5, background: '#fff', maxWidth: '100%' };
+  const cell = { padding: '7px 10px', fontSize: 13, borderBottom: '1px solid #F1F3F6' };
+  const num = { ...cell, textAlign: 'right', fontVariantNumeric: 'tabular-nums' };
+
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+      <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, alignItems: 'center' }}>
+        {presets.map(([l, i]) => (
+          <button key={l} type="button" style={chip(e === i)} onClick={() => setEnd(i)}>{l}</button>
+        ))}
+        <label style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 12, color: '#6B7280' }}>
+          Ending
+          <select style={sel} aria-label="Show 6 months ending" value={keys[e]} onChange={(ev) => setEnd(keys.indexOf(ev.target.value))}>
+            {[...keys].reverse().map((k) => <option key={k} value={k}>{mLabel(k)}</option>)}
+          </select>
+        </label>
+        {canSwitchDept && hasSplit && depts.length > 1 ? (
+          <label style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 12, color: '#6B7280' }}>
+            Department
+            <select style={sel} aria-label="Department" value={dept} onChange={(ev) => setDept(ev.target.value)}>
+              {depts.map((x) => <option key={x} value={x}>{x.replace(/\s*-\s*[A-Z]{2,6}\s*$/, '')}{x === department ? ' (this service)' : ''}</option>)}
+            </select>
+          </label>
+        ) : null}
+      </div>
+      <div style={{ border: '1px solid #E6E9EF', borderRadius: 12, overflow: 'hidden' }}>
+        <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+          <thead>
+            <tr style={{ background: '#F8F9FB' }}>
+              <th style={{ ...cell, textAlign: 'left', fontSize: 11, color: '#6B7280', fontWeight: 600 }}>Month</th>
+              <th style={{ ...num, fontSize: 11, color: '#6B7280', fontWeight: 600 }}>Service</th>
+              <th style={{ ...num, fontSize: 11, color: '#6B7280', fontWeight: 600 }}>Support</th>
+            </tr>
+          </thead>
+          <tbody>
+            {rows.map((r) => (
+              <tr key={r.k}>
+                <td style={cell}>{mLabel(r.k)}</td>
+                <td style={{ ...num, color: r.service ? '#B45309' : '#9CA3AF' }}>{r.service ? money(r.service) : '—'}</td>
+                <td style={{ ...num, color: r.support ? '#1E3A8A' : '#9CA3AF' }}>{r.support ? money(r.support) : '—'}</td>
+              </tr>
+            ))}
+            <tr style={{ background: '#F8F9FB' }}>
+              <td style={{ ...cell, fontWeight: 700, borderBottom: 0 }}>{rows.length} months</td>
+              <td style={{ ...num, fontWeight: 700, borderBottom: 0 }}>{money(tot.s)}</td>
+              <td style={{ ...num, fontWeight: 700, borderBottom: 0, color: '#1E3A8A' }}>{money(tot.p)}</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+      {d && d !== department ? (
+        <span style={{ fontSize: 11.5, color: '#6B7280' }}>Showing {d.replace(/\s*-\s*[A-Z]{2,6}\s*$/, '')} — this service is for {String(department || '').replace(/\s*-\s*[A-Z]{2,6}\s*$/, '')}.</span>
+      ) : null}
+    </div>
+  );
+}
+
+export function Biz({ insight, request, department, loading, canSwitchDept = false }) {
   const [open, setOpen] = useState(false);
-  const [sel, setSel] = useState(null);
   // Judged on the service's own department: its support and its services only.
-  const b = useMemo(() => bizView(insight, request, sel, department || null), [insight, request, sel, department]);
+  const b = useMemo(() => bizView(insight, request, null, department || null), [insight, request, department]);
 
   if (loading && !b) {
     return (
@@ -72,33 +176,7 @@ export function Biz({ insight, request, department, loading }) {
         <div className="dsv-plan"><span>This request {b.request}</span><span style={{ color: b.planC }}>{b.planSub}</span></div>
       ) : null}
 
-      <div className="dsv-chart">
-        <div className="bars">
-          {b.months.map((mo, i) => (
-            <button key={mo.key} type="button" className="col" title={mo.tip} style={{ background: mo.colBg }} onClick={() => setSel(sel === i ? null : i)}>
-              <i style={{ width: '55%', maxWidth: 12, height: mo.bh, background: mo.bc }} />
-              <i style={{ width: '30%', maxWidth: 6, height: mo.sh, background: mo.sc }} />
-            </button>
-          ))}
-        </div>
-        <div className="labs">{b.months.map((mo) => <span key={mo.key} style={{ color: mo.lc, fontWeight: mo.lw }}>{mo.label}</span>)}</div>
-        <div className="dsv-legend">
-          <span><i style={{ background: '#3B82F6' }} />Support each month</span>
-          <span><i style={{ background: '#F59E0B' }} />Service given</span>
-          <span className="tap">Tap a month</span>
-        </div>
-        {b.sel ? (
-          <div className="dsv-selbox">
-            <div className="h"><span>{b.sel.head}</span><button type="button" onClick={() => setSel(null)}>Clear ✕</button></div>
-            <div className="g">
-              <div><span>{b.sel.supL}</span><b style={{ color: '#1E3A8A' }}>{b.sel.sup}</b></div>
-              <div><span>{b.sel.svcL}</span><b>{b.sel.svc}</b></div>
-              <div><span>ROI</span><b style={{ color: '#B91C1C' }}>{b.sel.roi}</b></div>
-            </div>
-            <div className="l"><span>{b.sel.lastLbl}</span><b>{b.sel.lastTxt}</b></div>
-          </div>
-        ) : null}
-      </div>
+      <MonthTable insight={insight} department={department} canSwitchDept={canSwitchDept} />
 
       <div style={{ display: 'flex', flexDirection: 'column' }}>
         <div style={{ paddingBottom: 4 }}><b style={{ fontSize: 13, fontWeight: 700 }}>Last 3 visits by role</b></div>

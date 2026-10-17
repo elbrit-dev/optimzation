@@ -7,14 +7,14 @@
  * activity; the footer carries what THIS viewer may do with it. */
 
 import {
-  CEO, GM, NOT_SUBMITTED, REJECTED, REWORK, activity, budgetView, canDecide, canEdit, fDY, money, short, statusOf, stepper, stoppedBy,
+  CEO, GM, NOT_SUBMITTED, REJECTED, REWORK, activity, approverRoles, budgetView, canDecide, canEdit, fDY, money, short, statusOf, stepper, stoppedBy,
 } from '../data/workflow';
 import { Biz } from './Biz';
 import { Icon, extOf } from './parts';
 
 export function Detail({
   e, viewer, sheet, pos, insight, insightLoading, comment, setComment, busy, fileUrl,
-  onClose, onOpenDoctor, onEdit, onResubmit, onApprove, onFinal, onReject, onRevisit,
+  onClose, onOpenDoctor, onEdit, onResubmit, onApprove, onFinal, onCeoApprove, onReject, onRevisit,
   // What this PAGE offers: approving belongs to Service approval only;
   // editing and resubmitting to the MIS team's Services page.
   mayDecide = true, mayEnter = true,
@@ -22,7 +22,11 @@ export function Detail({
   const st = statusOf(e);
   const decide = mayDecide && canDecide(e, viewer);
   const edit = mayEnter && canEdit(e, viewer);
-  const gmCanClose = decide && e.state === GM;
+  // The CEO (role) always decides as the CEO — Approve / Send back / Reject —
+  // even on a service still at the GM step (the CEO holds GM too). Never
+  // "Send to CEO" or "Approve as final" for the CEO.
+  const isCeo = approverRoles(viewer).includes('CEO');
+  const gmCanClose = decide && e.state === GM && !isCeo;
   const stop = e.state === REJECTED || e.state === REWORK ? stoppedBy(e) : null;
   const stopRole = stop?.role === 'MIS' ? 'verification' : stop?.role;
   const ax = e.att ? extOf(e.att) : null;
@@ -64,9 +68,9 @@ export function Detail({
               <Icon name="check" size={15} color="#15803D" width={3} />{busy === 'final' ? 'Approving…' : 'Approve as final'}
             </button>
           ) : null}
-          <button type="button" className="dsv-btn pri" onClick={e.state === GM ? onApprove : onFinal} disabled={!!busy}>
+          <button type="button" className="dsv-btn pri" onClick={isCeo ? (onCeoApprove || onFinal) : e.state === GM ? onApprove : onFinal} disabled={!!busy}>
             <Icon name="check" size={16} color="#fff" width={3} />
-            {busy === 'approve' || (busy === 'final' && !gmCanClose) ? 'Working…' : e.state === GM ? 'Send to CEO' : 'Approve'}
+            {busy === 'approve' || busy === 'ceo' || (busy === 'final' && !gmCanClose) ? 'Working…' : !isCeo && e.state === GM ? 'Send to CEO' : 'Approve'}
             {!sheet ? <span className="k">A</span> : null}
           </button>
         </div>
@@ -156,7 +160,8 @@ export function Detail({
           </div>
         ) : null}
 
-        <Biz key={e.id} insight={insight} request={e.amount} department={e.deptKey || e.dept} loading={insightLoading} />
+        <Biz key={e.id} insight={insight} request={e.amount} department={e.deptKey || e.dept} loading={insightLoading}
+          canSwitchDept={mayDecide} />
 
         <div className="dsv-sec">
           <div className="dsv-fields">
@@ -196,7 +201,7 @@ export function Detail({
         {decide ? (
           <div className="dsv-comment">
             <label htmlFor={'dsv-c-' + e.id}>
-              Comment · {e.state === GM ? 'send it on to CEO, or approve as final here' : e.state === CEO ? 'your approval marks it Approved' : ''}
+              Comment · {isCeo ? 'your approval marks it Approved' : e.state === GM ? 'send it on to CEO, or approve as final here' : e.state === CEO ? 'your approval marks it Approved' : ''}
             </label>
             <textarea id={'dsv-c-' + e.id} className="dsv-ta" rows={2} value={comment} onChange={(ev) => setComment(ev.target.value)} placeholder="Optional for approve · required to reject or send back" />
           </div>

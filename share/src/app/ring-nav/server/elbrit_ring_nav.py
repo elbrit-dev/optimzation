@@ -990,6 +990,10 @@ def service_tiles(entry):
 #                   allocation is not fully split
 # Both say "locked" once the month's cutoff (the 20th) has passed.
 HREFS["service-allocation"] = "/service/allocation"
+# The SM / ZSM "Budget split" tile is HIDDEN for now (16 Oct 2026): set True to
+# give it back. The GM / CEO / IT "Allocation" tile is unaffected, and the
+# page itself still works for an SM opening it directly.
+SHOW_SPLIT_TILE = False
 ALLOC_CUTOFF_DAY = SERVICE_DUE_DAY
 alloc_month = today[:7]
 alloc_locked = today > alloc_month + "-" + str(ALLOC_CUTOFF_DAY)
@@ -1036,7 +1040,7 @@ def allocation_tiles():
                 {"key": "not", "value": pending - partly, "tone": "danger", "label": "Not split / not allocated"},
             ]),
         })
-    if (seat or "")[:3].upper() == "SM-":
+    if SHOW_SPLIT_TILE and (seat or "")[:3].upper() == "SM-":
         my = None
         emp_id = frappe.db.get_value("Employee", {"user_id": me, "status": "Active"}, "name")
         if emp_id:

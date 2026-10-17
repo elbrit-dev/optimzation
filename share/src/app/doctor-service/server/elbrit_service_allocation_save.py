@@ -201,6 +201,10 @@ else:
                 d = seat_dept.get(k.get("custom_role_profile"))
                 if d:
                     allowed[d] = 1
+        # Down a level. Missing at first, so only direct reports' departments
+        # were allowed: an SM's department two levels down (Sanjay Kumar's
+        # Elbrit Mysore, 17 Oct 2026) was refused though the page listed it.
+        frontier = nxt
     doc = frappe.get_doc(PARENT, name)
     touched = []
     for s in doc.splits or []:

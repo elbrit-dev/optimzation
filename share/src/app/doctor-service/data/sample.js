@@ -120,7 +120,7 @@ function seed() {
 const VIEWERS = {
   MIS: { user: MIS.user, employee: 'E01400', employee_name: MIS.name, can_enter: true, can_view: true, approver: null, verifier: true },
   GM: { user: GM_P.user, employee: 'E00003', employee_name: GM_P.name, can_enter: false, can_view: true, approver: 'GM', approvers: ['GM'], verifier: false },
-  CEO: { user: CEO_P.user, employee: 'E00015', employee_name: CEO_P.name, can_enter: false, can_view: true, approver: 'CEO', approvers: ['CEO'], verifier: false },
+  CEO: { user: CEO_P.user, employee: 'E00015', employee_name: CEO_P.name, can_enter: false, can_view: true, approver: 'CEO', approvers: ['GM', 'CEO'], verifier: false },
   IT: { user: 'it@elbrit.org', employee: 'E00900', employee_name: 'IT Team', can_enter: false, can_view: true, approver: null, verifier: false },
 };
 
@@ -201,7 +201,14 @@ export function makeSampleClient(role = 'MIS') {
     list: () => delay({ viewer, setup: { missing: [] }, rows: rows.map((r) => ({ ...r, doctor_avg: avg(r.doctor) })) }),
     insight: (doctor, exclude) => delay({
       doctor: { id: doctor, name: DOCTORS[doctor] || doctor },
-      months: MK.map((month, i) => ({ month, support: (SUPPORT[doctor] || [])[i] || 0 })),
+      // Split by department as the live script does (by_dept): most of it the
+      // service's own department, the rest Elbrit Coimbatore — so the
+      // approval page's department switch has two to show.
+      months: MK.map((month, i) => {
+        const support = (SUPPORT[doctor] || [])[i] || 0;
+        const own = Math.round(support * 0.7);
+        return { month, support, by_dept: { [CND]: own, 'Elbrit Coimbatore - ELPL': support - own } };
+      }),
       services: [
         ...rows.filter((r) => r.doctor === doctor && r.name !== exclude).map((r) => ({ name: r.name, date: r.service_date, service: r.service_name, amount: r.service_amount, department: r.department, by_name: r.by_name, status: /Verified$|Waiting for Verification$/.test(r.state) ? 'Approved' : /Rejected$/.test(r.state) ? 'Rejected' : r.state, via_app: true })),
         // The seeded app rows ARE some of these payments: drop the copy, as live ERP holds each once.
