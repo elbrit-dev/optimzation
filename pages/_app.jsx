@@ -41,6 +41,7 @@ import 'graphiql/style.css';
 import "../share/src/app/graphql-playground/styles/graphql-playground.css";
 
 import "@calendar/styles/globals.css";
+import { APP_ICON_DIR, APP_NAME } from "../lib/appName";
 
 /* Elbrit Design System fonts. Roboto is the product face, Work Sans the
    display face; next/font self-hosts both, so there is no render-blocking
@@ -452,7 +453,7 @@ function MyApp({ Component, pageProps }) {
           <meta name="theme-color" content="#ffffff" />
           <meta name="apple-mobile-web-app-capable" content="yes" />
           <meta name="apple-mobile-web-app-status-bar-style" content="default" />
-          <meta name="apple-mobile-web-app-title" content="Elbrit One" />
+          <meta name="apple-mobile-web-app-title" content={APP_NAME} />
           <meta name="format-detection" content="telephone=no" />
           <meta name="mobile-web-app-capable" content="yes" />
           <meta name="msapplication-TileColor" content="#ffffff" />
@@ -463,7 +464,7 @@ function MyApp({ Component, pageProps }) {
               apple-touch-icon completely and falls back to a screenshot of the
               page, which is why the home-screen tile looked blank on iPhone.
               180x180 is the size iOS asks for and scales down from. */}
-          <link rel="apple-touch-icon" sizes="180x180" href="/apple-touch-icon.png" />
+          <link rel="apple-touch-icon" sizes="180x180" href={`${APP_ICON_DIR}/apple-touch-icon.png`} />
           <link rel="icon" type="image/png" sizes="192x192" href="/icon-192.png" />
           <link rel="shortcut icon" href="/favicon.ico" />
         </Head>

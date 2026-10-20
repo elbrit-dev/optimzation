@@ -1,4 +1,5 @@
 import Document, { Html, Head, Main, NextScript } from 'next/document';
+import { APP_NAME } from "../lib/appName";
 
 class MyDocument extends Document {
   render() {
@@ -105,7 +106,7 @@ class MyDocument extends Document {
           />
 
           {/* Static Application Metadata */}
-          <meta name="application-name" content="Elbrit One" />
+          <meta name="application-name" content={APP_NAME} />
           <link rel="icon" type="image/svg+xml" href="/logo.svg" />
         </Head>
         <body>

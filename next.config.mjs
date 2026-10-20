@@ -59,6 +59,10 @@ const nextConfig = {
     config.resolve.alias['../shared/components/src/components'] = path.resolve(__dirname, 'components/DataTable');
     return config;
   },
+  // The PWA manifest names the app after its site (pages/api/manifest.js).
+  async rewrites() {
+    return [{ source: '/manifest.webmanifest', destination: '/api/manifest' }];
+  },
   async headers() {
     return [
       {
