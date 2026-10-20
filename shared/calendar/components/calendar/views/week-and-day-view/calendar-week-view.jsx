@@ -19,6 +19,8 @@ import {
 import { useMemo } from "react";
 import { LOGGED_IN_USER } from "@calendar/components/auth/calendar-users";
 import { isEmployeeOnApprovedLeave } from "@calendar/lib/calendar/leaveDay";
+import { HOLIDAY_STYLES, holidayOn } from "@calendar/lib/calendar/holidays";
+import { cn } from "@calendar/lib/utils";
 
 export function CalendarWeekView({
     singleDayEvents,
@@ -88,7 +90,10 @@ export function CalendarWeekView({
                             {weekDays.map((day, index) => (
                                 <motion.span
                                     key={index}
-                                    className="py-1 sm:py-2 text-center text-xs font-medium text-t-quaternary"
+                                    className={cn(
+                                        "py-1 sm:py-2 text-center text-xs font-medium text-t-quaternary",
+                                        holidayOn(holidaysByDate, day) && HOLIDAY_STYLES.wash
+                                    )}
                                     initial={{opacity: 0, y: -10}}
                                     animate={{opacity: 1, y: 0}}
                                     transition={{delay: index * 0.05, ...transition}}>
@@ -107,11 +112,11 @@ export function CalendarWeekView({
 									</span>
 								</span>
                                     {/* Holiday from the user's ERP Holiday List */}
-                                    {holidaysByDate?.[format(day, "yyyy-MM-dd")] ? (
+                                    {holidayOn(holidaysByDate, day) ? (
                                         <span
-                                            title={holidaysByDate[format(day, "yyyy-MM-dd")]}
-                                            className="block truncate px-0.5 text-[9px] sm:text-[11px] font-medium text-amber-700 dark:text-amber-400">
-                                            {holidaysByDate[format(day, "yyyy-MM-dd")]}
+                                            title={holidayOn(holidaysByDate, day)}
+                                            className={cn("block truncate px-0.5 text-[9px] sm:text-[11px] font-medium", HOLIDAY_STYLES.text)}>
+                                            {holidayOn(holidaysByDate, day)}
                                         </span>
                                     ) : null}
                                 </motion.span>
@@ -172,7 +177,7 @@ export function CalendarWeekView({
                                     return (
                                         <motion.div
                                             key={dayIndex}
-                                            className="relative"
+                                            className={cn("relative", holidayOn(holidaysByDate, day) && HOLIDAY_STYLES.wash)}
                                             initial={{opacity: 0}}
                                             animate={{opacity: 1}}
                                             transition={{delay: dayIndex * 0.1, ...transition}}>

@@ -1,6 +1,6 @@
 "use client";;
 import { createContext, useContext, useState, useEffect, useMemo, useCallback, useRef } from "react";
-import { endOfYear, startOfYear } from "date-fns";
+import { endOfYear, isSunday, parseISO, startOfYear } from "date-fns";
 import { useLocalStorage } from "@calendar/components/calendar/hooks";
 import { fetchEventsByRange } from "@calendar/components/calendar/module/event/services/event.service";
 import { invalidateCalendarData } from "@calendar/lib/calendar/invalidate";
@@ -177,7 +177,8 @@ export function CalendarProvider({
 	const [agendaVisitFilter, setAgendaVisitFilter] = useState(VISIT_FILTER.ALL);
 	const [territoryDoctors, setTerritoryDoctors] = useState([]);
 	// The logged-in employee's holidays from their ERP Holiday List, as
-	// { "yyyy-MM-dd": "Diwali" }, shown on the calendar's days.
+	// { "yyyy-MM-dd": "Diwali" }, shown on the calendar's days. Sundays are
+	// left out: they are off anyway, so a holiday on one is not shown.
 	const [holidaysByDate, setHolidaysByDate] = useState({});
 	const holidayEmployeeId = LOGGED_IN_USER.id;
 	useEffect(() => {
@@ -188,6 +189,7 @@ export function CalendarProvider({
 				if (!alive) return;
 				const byDate = {};
 				list.forEach((holiday) => {
+					if (isSunday(parseISO(holiday.date))) return;
 					byDate[holiday.date] = byDate[holiday.date]
 						? `${byDate[holiday.date]}, ${holiday.name}`
 						: holiday.name;

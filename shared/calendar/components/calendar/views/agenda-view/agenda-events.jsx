@@ -7,6 +7,8 @@ import {
   startOfDay,
   endOfDay,
   endOfWeek,
+  startOfMonth,
+  endOfMonth,
   isWithinInterval,
   addDays,
 } from "date-fns";
@@ -50,6 +52,7 @@ import {
 import { getEventIcon } from "@calendar/components/calendar/mobile/MobileAddEventBar";
 import { STATUS, TAG_IDS } from "@calendar/components/calendar/constants";
 import { VISIT_FILTER, matchesVisitFilter } from "@calendar/lib/calendar/visit-filter";
+import { HOLIDAY_STYLES } from "@calendar/lib/calendar/holidays";
 import {
   DoctorPlanGroupLabel,
   getPlanGroupKey,
@@ -73,6 +76,7 @@ export const AgendaEvents = ({ scope = "all"}) => {
     view,showOnlyApprovedLeaves,showOnlyTodoList,
     agendaVisitFilter,
     setAgendaVisitFilter,
+    holidaysByDate,
   } = useCalendar();
 
   const isMobile = useMediaQuery("(max-width: 768px)");
@@ -239,6 +243,23 @@ export const AgendaEvents = ({ scope = "all"}) => {
     activeVisitFilter,
   ]);
 
+  // The employee's holidays in the same day / week / month this list covers.
+  const scopedHolidays = useMemo(() => {
+    if (!holidaysByDate) return [];
+
+    const interval =
+      scope === "day"
+        ? { start: startOfDay(selectedDate), end: endOfDay(selectedDate) }
+        : scope === "week"
+          ? { start: startOfWeek(selectedDate), end: endOfWeek(selectedDate) }
+          : { start: startOfMonth(selectedDate), end: endOfMonth(selectedDate) };
+
+    return Object.entries(holidaysByDate)
+      .map(([date, name]) => ({ date: parseISO(date), name }))
+      .filter(({ date }) => isWithinInterval(date, interval))
+      .sort((a, b) => a.date - b.date);
+  }, [holidaysByDate, selectedDate, scope]);
+
   /* ===============================
      GROUP EVENTS
   =============================== */
@@ -354,6 +375,25 @@ export const AgendaEvents = ({ scope = "all"}) => {
         {scope === "all" && (
           <div className="mb-4 mx-4">
             <CommandInput placeholder="Type a command or search..." />
+          </div>
+        )}
+
+        {scopedHolidays.length > 0 && (
+          <div className="flex flex-wrap gap-1.5 px-4 pb-3">
+            {scopedHolidays.map(({ date, name }) => (
+              <span
+                key={date.getTime()}
+                className={cn(
+                  "rounded-full px-2.5 py-0.5 text-xs font-medium",
+                  HOLIDAY_STYLES.chip
+                )}
+              >
+                {name}
+                {scope !== "day" && (
+                  <span className="opacity-70"> · {format(date, "EEE, d MMM")}</span>
+                )}
+              </span>
+            ))}
           </div>
         )}
 
