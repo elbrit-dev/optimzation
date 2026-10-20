@@ -133,7 +133,6 @@ export default function ClaimReport({
             <div style={{ fontSize: 13, color: "#5b6576", ...ell }}>{[me?.name, me?.department, "claims go to HR"].filter(Boolean).join(" · ")}</div>
           </div>
           <button type="button" className="ec-ghost" onClick={openHistory} style={{ ...btn.ghost, height: 40, padding: "0 14px", display: "flex", alignItems: "center", gap: 6, flex: "none" }}><Icon d={IC.hist} />{isDesk ? "Past claims" : "History"}</button>
-          <button type="button" className="ec-cta" disabled={data.status !== "ready"} onClick={() => setForm({})} style={{ ...btn.primary, height: 40, padding: "0 16px 0 12px", display: "flex", alignItems: "center", gap: 6, flex: "none", boxShadow: "0 6px 14px -8px rgba(37,99,235,.8)", opacity: data.status === "ready" ? 1 : 0.5 }}><Icon d={IC.plus} sw={2.4} />{isDesk ? "New claim" : "New"}</button>
         </div>
 
         {data.status === "idle" && <Note tone="info">Pass the ERP GraphQL URL and the signed-in user’s token to load claims.</Note>}

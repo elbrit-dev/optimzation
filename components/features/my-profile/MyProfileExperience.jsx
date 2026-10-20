@@ -1230,7 +1230,7 @@ export default function MyProfileExperience({
     onOpenClaims,
   };
 
-  // Claims are open to IT and MIS only (canUseClaims). Everyone else never
+  // Claims are open to whoever canUseClaims lets in (CLAIMS_ROLE_PROFILES). Anyone else never
   // sees the tab, and a `?tab=claims` link lands them on Personal info.
   const claimsOpen = useClaimsAccess(claims);
   const tabs = claimsOpen ? TABS : TABS.filter((tab) => tab.id !== "claims");

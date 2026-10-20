@@ -145,11 +145,14 @@ export function fetchMe(conn, employee) {
   });
 }
 
-/* Claims are being tried out by IT and MIS first (asked 2026-10-15): everyone
-   else gets no strip, no profile tab and no claims read at all. Decided by the
-   signed-in person's own Employee role profile. Widen by adding to the list. */
-export const CLAIMS_ROLE_PROFILES = ["IT", "MIS"];
-export const canUseClaims = (me) => CLAIMS_ROLE_PROFILES.includes(String(me?.roleProfile || "").trim());
+/* Who gets claims (the strip, the profile tab, the Claims page), by the
+   signed-in person's own Employee role profile. null = every employee --
+   open since 2026-10-20, once the ERP let every employee create their own
+   claims and scoped each person to their own. To trial with a few again,
+   list their role profiles, e.g. ["IT", "MIS"]. */
+export const CLAIMS_ROLE_PROFILES = null;
+export const canUseClaims = (me) =>
+  !!me && (!CLAIMS_ROLE_PROFILES || CLAIMS_ROLE_PROFILES.includes(String(me.roleProfile || "").trim()));
 
 export function fetchClaims(conn, employee) {
   return cached(conn, `ec-claims|${employee}`, async () => {
