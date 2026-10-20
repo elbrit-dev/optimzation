@@ -4,6 +4,8 @@ import { AnimatePresence,motion } from "framer-motion";
 import { useEffect, useMemo, useRef, startTransition } from "react";
 import { LOGGED_IN_USER } from "@calendar/components/auth/calendar-users";
 import { isEmployeeOnApprovedLeave } from "@calendar/lib/calendar/leaveDay";
+import { HOLIDAY_STYLES } from "@calendar/lib/calendar/holidays";
+import { cn } from "@calendar/lib/utils";
 import { DayPicker } from "@calendar/components/ui/day-picker";
 import { ScrollArea } from "@calendar/components/ui/scroll-area";
 import { useCalendar } from "@calendar/components/calendar/contexts/calendar-context";
@@ -105,13 +107,16 @@ export function CalendarDayView({
 					<div className="relative z-20 flex border-b">
 						<div className="w-18"></div>
 						<span
-							className="flex-1 border-l py-2 text-center text-xs font-medium text-t-quaternary">
+							className={cn(
+								"flex-1 border-l py-2 text-center text-xs font-medium text-t-quaternary",
+								holiday && HOLIDAY_STYLES.wash
+							)}>
 							{format(selectedDate, "EE")}{" "}
 							<span className="font-semibold text-t-secondary">
 								{format(selectedDate, "d")}
 							</span>
 							{holiday ? (
-								<span className="block truncate px-2 text-[11px] font-medium text-amber-700 dark:text-amber-400">
+								<span className={cn("block truncate px-2 text-[11px] font-medium", HOLIDAY_STYLES.text)}>
 									{holiday}
 								</span>
 							) : null}
@@ -137,7 +142,7 @@ export function CalendarDayView({
 						</div>
 
 						{/* Day grid */}
-						<div className="relative flex-1 border-l">
+						<div className={cn("relative flex-1 border-l", holiday && HOLIDAY_STYLES.wash)}>
 							<div className="relative">
 								{hours.map((hour, index) => (
 									<div key={hour} className="relative" style={{ height: "96px" }}>
