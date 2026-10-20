@@ -194,17 +194,6 @@ export function ServiceForm({ client, doctor, entry, viewer, onClose, onSaved })
               <span className="x"><b>{doctor.name}</b><span>{doctor.id}</span></span>
               <span className="lk"><Icon name="lock" size={12} color="#6B7280" width={2.2} />{editing ? 'Fixed' : 'From doctor page'}</span>
             </div>
-            {cells ? (
-              <div className="dsv-mini">
-                <div className="h"><b>{judgeDept ? short(judgeDept) : 'This doctor'}</b><span>{biz.window}</span></div>
-                <div className="g">
-                  <div><span>Total service</span><b className="num">{money(cells.service)}</b></div>
-                  <div><span>Total support</span><b className="num" style={{ color: '#1E3A8A' }}>{money(cells.support)}</b></div>
-                  <div><span>ROI</span><b className="num" style={{ color: '#B91C1C' }}>{roiTxt(cells.roi)}</b></div>
-                </div>
-                <div className="f">All departments · support {cmp(cells.allSupport)} · service {cmp(cells.all)} · ROI {roiTxt(cells.allRoi)}</div>
-              </div>
-            ) : null}
           </div>
 
           <div className="dsv-field">
@@ -245,6 +234,20 @@ export function ServiceForm({ client, doctor, entry, viewer, onClose, onSaved })
               </>
             ) : null}
           </div>
+
+          {/* The doctor's numbers come after "On behalf of": picking the
+              RBM / SM picks the department they are shown for. */}
+          {cells ? (
+            <div className="dsv-mini">
+              <div className="h"><b>{judgeDept ? short(judgeDept) : 'This doctor'}</b><span>{biz.window}</span></div>
+              <div className="g">
+                <div><span>Total service</span><b className="num">{money(cells.service)}</b></div>
+                <div><span>Total support</span><b className="num" style={{ color: '#1E3A8A' }}>{money(cells.support)}</b></div>
+                <div><span>ROI</span><b className="num" style={{ color: '#B91C1C' }}>{roiTxt(cells.roi)}</b></div>
+              </div>
+              <div className="f">All departments · support {cmp(cells.allSupport)} · service {cmp(cells.all)} · ROI {roiTxt(cells.allRoi)}</div>
+            </div>
+          ) : null}
 
           <div className="dsv-field">
             <span className="lab">Service type <i>*</i></span>
