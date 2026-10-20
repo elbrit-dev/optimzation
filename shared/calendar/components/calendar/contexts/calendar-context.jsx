@@ -11,6 +11,7 @@ import { useEmployeeResolvers } from "@calendar/lib/employeeResolver";
 import { fetchCalendarBootstrapData } from "@calendar/components/calendar/contexts/calendar-context/bootstrapping";
 import { fetchHQTerritories } from "@calendar/components/calendar/module/event/services/master-data.service";
 import { getCached } from "@calendar/lib/data-cache";
+import { fetchEmployeeHolidayList } from "@calendar/components/calendar/module/leave/services/leave.service";
 import { AUTH_CONFIG } from "@calendar/components/auth/calendar-users";
 import { LOGGED_IN_USER } from "@calendar/components/auth/calendar-users";
 import {
@@ -175,6 +176,29 @@ export function CalendarProvider({
 	const [showOnlyTodoList, setShowOnlyTodoList] = useState(false);
 	const [agendaVisitFilter, setAgendaVisitFilter] = useState(VISIT_FILTER.ALL);
 	const [territoryDoctors, setTerritoryDoctors] = useState([]);
+	// The logged-in employee's holidays from their ERP Holiday List, as
+	// { "yyyy-MM-dd": "Diwali" }, shown on the calendar's days.
+	const [holidaysByDate, setHolidaysByDate] = useState({});
+	const holidayEmployeeId = LOGGED_IN_USER.id;
+	useEffect(() => {
+		if (!holidayEmployeeId) return undefined;
+		let alive = true;
+		fetchEmployeeHolidayList(holidayEmployeeId)
+			.then((list) => {
+				if (!alive) return;
+				const byDate = {};
+				list.forEach((holiday) => {
+					byDate[holiday.date] = byDate[holiday.date]
+						? `${byDate[holiday.date]}, ${holiday.name}`
+						: holiday.name;
+				});
+				setHolidaysByDate(byDate);
+			})
+			.catch((err) => console.warn("Holiday list could not be loaded", err));
+		return () => {
+			alive = false;
+		};
+	}, [holidayEmployeeId]);
 	const updateSettings = (newPartialSettings) => {
 		setSettings({
 			...settings,
@@ -684,6 +708,7 @@ export function CalendarProvider({
 		setShowOnlyApprovedLeaves, showOnlyTodoList, setShowOnlyTodoList,
 		agendaVisitFilter, setAgendaVisitFilter,
 		enableGoogleCalendarSync,
+		holidaysByDate,
 	};
 
 	return (

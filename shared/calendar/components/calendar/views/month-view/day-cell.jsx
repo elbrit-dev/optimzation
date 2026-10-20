@@ -1,6 +1,6 @@
 "use client";;
 import { cva } from "class-variance-authority";
-import { isToday, startOfDay, isSunday, isSameMonth } from "date-fns";
+import { format, isToday, startOfDay, isSunday, isSameMonth } from "date-fns";
 import { motion } from "framer-motion";
 import { useMemo, useCallback } from "react";
 import { isBefore } from "date-fns";
@@ -52,7 +52,9 @@ export function DayCell({
 }) {
   const { day, currentMonth, date } = cell;
   const isMobile = useMediaQuery("(max-width: 768px)");
-  const { setEventListDate, isEventListOpen, setSelectedDate, activeDate, setActiveDate, setMobileLayer, mobileLayer, allEvents } = useCalendar();
+  const { setEventListDate, isEventListOpen, setSelectedDate, activeDate, setActiveDate, setMobileLayer, mobileLayer, allEvents, holidaysByDate } = useCalendar();
+  // The holiday on this day from the user's ERP Holiday List, e.g. "Diwali".
+  const holiday = currentMonth ? holidaysByDate?.[format(date, "yyyy-MM-dd")] : undefined;
   const isSelected =
     activeDate &&
     startOfDay(activeDate).getTime() === startOfDay(date).getTime();
@@ -136,6 +138,7 @@ export function DayCell({
         "flex h-full flex-col gap-1 border-l border-t transition-colors",
         isSunday(date) && "border-l-0",
         currentMonth && !isSelected && "lg:hover:bg-muted/40",
+        holiday && !isSelected && "bg-amber-50/70 dark:bg-amber-950/20",
         isSelected &&
         "ring-1 ring-inset ring-gray-400 dark:ring-gray-600 bg-gray-50/60 dark:bg-gray-900/40"
       )}
@@ -157,6 +160,14 @@ export function DayCell({
         >
           {day}
         </motion.span>
+        {holiday ? (
+          <span
+            title={holiday}
+            className="block truncate px-1 text-[7px] font-medium leading-tight text-amber-700 lg:px-2 lg:text-[11px] dark:text-amber-400"
+          >
+            {holiday}
+          </span>
+        ) : null}
         <motion.div
           className={cn(
             "flex gap-0 px-0  lg:h-max-content overflow-hidden lg:flex-col lg:gap-1 w-full",
@@ -238,6 +249,7 @@ export function DayCell({
     currentMonth,
     cellEvents,
     isLeaveDay,
+    holiday,
     showMobileMore,
     showDesktopMore,
     showMoreCount,

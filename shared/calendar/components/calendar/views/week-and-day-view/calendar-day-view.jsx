@@ -19,8 +19,10 @@ export function CalendarDayView({
 	singleDayEvents,
 	multiDayEvents
 }) {
-	const { selectedDate, setSelectedDate, users, use24HourFormat, allEvents } =
+	const { selectedDate, setSelectedDate, users, use24HourFormat, allEvents, holidaysByDate } =
 		useCalendar();
+	// The holiday on this day from the user's ERP Holiday List, e.g. "Diwali".
+	const holiday = holidaysByDate?.[format(selectedDate, "yyyy-MM-dd")];
 	const scrollAreaRef = useRef(null);
 	// Own approved leave on this day blocks the click-to-add slots, same rule
 	// as the header's Add Event button.
@@ -108,6 +110,11 @@ export function CalendarDayView({
 							<span className="font-semibold text-t-secondary">
 								{format(selectedDate, "d")}
 							</span>
+							{holiday ? (
+								<span className="block truncate px-2 text-[11px] font-medium text-amber-700 dark:text-amber-400">
+									{holiday}
+								</span>
+							) : null}
 						</span>
 					</div>
 				</div>

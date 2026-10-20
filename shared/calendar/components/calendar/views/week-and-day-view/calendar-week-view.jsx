@@ -24,7 +24,7 @@ export function CalendarWeekView({
     singleDayEvents,
     multiDayEvents
 }) {
-    const {selectedDate,setSelectedDate, use24HourFormat, allEvents} = useCalendar();
+    const {selectedDate,setSelectedDate, use24HourFormat, allEvents, holidaysByDate} = useCalendar();
 
     const weekStart = startOfWeek(selectedDate);
     const weekDays = Array.from({length: 7}, (_, i) => addDays(weekStart, i));
@@ -106,6 +106,14 @@ export function CalendarWeekView({
 										{format(day, "d")}
 									</span>
 								</span>
+                                    {/* Holiday from the user's ERP Holiday List */}
+                                    {holidaysByDate?.[format(day, "yyyy-MM-dd")] ? (
+                                        <span
+                                            title={holidaysByDate[format(day, "yyyy-MM-dd")]}
+                                            className="block truncate px-0.5 text-[9px] sm:text-[11px] font-medium text-amber-700 dark:text-amber-400">
+                                            {holidaysByDate[format(day, "yyyy-MM-dd")]}
+                                        </span>
+                                    ) : null}
                                 </motion.span>
                             ))}
                         </div>

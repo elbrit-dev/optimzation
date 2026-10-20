@@ -397,24 +397,39 @@ const LEAVE_WITHOUT_PAY_NAMES = new Set([
   "LWP",
 ]);
 
-// Holidays on the employee's ERP Holiday List, as a Set of "yyyy-MM-dd".
-// hrms.api.get_holidays_for_employee resolves the list from the Employee record
-// and needs no Holiday List read permission, so any logged-in user can call it
-// for themselves. It leaves out weekly offs — Sundays are skipped separately.
-export async function fetchEmployeeHolidays(employeeId) {
-  if (!employeeId) return new Set();
+// Holidays on the employee's ERP Holiday List (e.g. "TamilNadu Holidays 2026"),
+// as [{ date: "yyyy-MM-dd", name }]. hrms.api.get_holidays_for_employee resolves
+// the list from the Employee record and needs no Holiday List read permission,
+// so any logged-in user can call it for themselves. It leaves out weekly offs —
+// Sundays are handled separately.
+export async function fetchEmployeeHolidayList(employeeId) {
+  if (!employeeId) return [];
 
   return getCached(`EMPLOYEE_HOLIDAYS_${employeeId}`, async () => {
     const json = await erpJsonRequest(
       `/api/method/hrms.api.get_holidays_for_employee?employee=${encodeURIComponent(employeeId)}`
     );
 
-    return new Set(
-      (Array.isArray(json?.message) ? json.message : [])
-        .map((holiday) => holiday?.holiday_date)
-        .filter(Boolean)
-    );
+    return (Array.isArray(json?.message) ? json.message : [])
+      .filter((holiday) => holiday?.holiday_date)
+      .map((holiday) => ({
+        date: String(holiday.holiday_date).slice(0, 10),
+        // ERP stores the name as editor HTML: <div …><p>Pongal</p></div>
+        name:
+          String(holiday.description ?? "")
+            .replace(/<[^>]*>/g, " ")
+            .replace(/&nbsp;/g, " ")
+            .replace(/&amp;/g, "&")
+            .replace(/\s+/g, " ")
+            .trim() || "Holiday",
+      }));
   });
+}
+
+// The same holidays as a Set of "yyyy-MM-dd" (leave day counts).
+export async function fetchEmployeeHolidays(employeeId) {
+  const holidays = await fetchEmployeeHolidayList(employeeId);
+  return new Set(holidays.map((holiday) => holiday.date));
 }
 
 export async function fetchLeaveTypes() {
