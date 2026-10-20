@@ -1,5 +1,6 @@
 import { DEFAULT_COLORS, TAG_IDS } from "@calendar/components/calendar/constants";
 import { startOfDay, isBefore } from "date-fns";
+import { isBackdateOpen } from "./backdate";
 export const TAG_FORM_CONFIG = {
   [TAG_IDS.LEAVE]: {
     hide: [
@@ -222,8 +223,8 @@ export const TAG_FORM_CONFIG = {
           startOfDay(new Date())
         );
       
-        if (isPast) return false;
-      
+        if (isPast && !isBackdateOpen(event.startDate)) return false;
+
         return !(
           event.attending === "Yes" ||
           Number(event.pob_given) === 1 ||
@@ -238,7 +239,9 @@ export const TAG_FORM_CONFIG = {
           startOfDay(new Date())
         );
       
-        return !isPast;
+        // A past day ERP opened for backdated entry stays editable, so the
+        // visit can be marked.
+        return !isPast || isBackdateOpen(event.startDate);
       },
     },
 

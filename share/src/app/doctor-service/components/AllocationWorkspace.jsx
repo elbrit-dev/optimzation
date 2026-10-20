@@ -22,7 +22,8 @@
  * Saving goes through elbrit_service_allocation_save, which checks who is
  * asking. */
 
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { PinnedBar, PinnedBarSpacer } from '../../secondary-entry/components/PinnedBar';
 import { makeAllocationSample } from '../data/allocationSample';
 import { useServiceClient } from '../data/useClient';
 import { fD, money, short } from '../data/workflow';
@@ -74,7 +75,19 @@ const CSS = `
 .dsa-hrow:last-child{border-bottom:0}
 .dsa-hrow .t{flex:1;min-width:0;display:flex;flex-direction:column;gap:2px;color:var(--ink3);overflow-wrap:anywhere}
 .dsa-hrow .t b{color:var(--ink);font-weight:600}
+.dsa-hit{cursor:pointer}
+.dsa-savebar{display:flex;align-items:center;gap:10px;padding:10px 12px;background:#fff;border:1px solid var(--line);border-radius:14px;box-shadow:0 10px 28px -12px rgba(16,24,40,.35)}
+.dsa-ph.dsa-hit:focus-visible{outline:2px solid var(--blue);outline-offset:-2px}
+.dsa-bar{height:8px}
+.dsa-bar i+i{box-shadow:inset 2px 0 0 #fff}
+.dsa-dot{width:10px;height:10px;border-radius:50%;flex:none}
+.dsa-amt{display:inline-flex;align-items:center;gap:4px;font-size:15px;font-variant-numeric:tabular-nums}
+.dsa-amt b{font-weight:700}
+.dsa-pen{width:30px;height:30px;border-radius:8px;border:1px solid var(--line);background:#fff;display:grid;place-items:center;cursor:pointer}
+.dsa-pen:hover{background:#F4F6F9}
 @media (max-width:520px){.dsa-in{width:120px}}
+:root{--dsa-bar-gap:12px}
+@media (max-width:767px){:root{--dsa-bar-gap:calc(4rem + 12px)}}
 `;
 let injected = false;
 function ensureAllocStyles() {
@@ -113,9 +126,31 @@ function Pill({ status }) {
   return <span className="dsa-pill" style={{ background: bg, color: fg }}>{status}</span>;
 }
 
-function Bar({ split, of }) {
-  const w = of > 0 ? Math.min(100, (split / of) * 100) : 0;
+/* One colour per department, by its place in the person's list — the bar's
+   segments and the dots beside the departments match. No orange, red or
+   green here: those mean "not split", "over" and "done". */
+const DEPT_COLORS = ['#2563EB', '#7C3AED', '#0D9488', '#DB2777', '#4F46E5', '#0891B2', '#65A30D', '#9333EA', '#0F766E', '#475569'];
+const deptColor = (i) => DEPT_COLORS[i % DEPT_COLORS.length];
+const UNSPLIT = '#F59E0B';
+
+/* The split as a bar. With `parts` (the departments): a segment per
+   department in its colour, then what is not split yet in orange; a split
+   over the allocation gets a red edge. Without: one plain fill. */
+function Bar({ split, of, parts }) {
   const over = of > 0 && split > of;
+  if (parts) {
+    const base = Math.max(of, split) || 1;
+    const left = Math.max(0, of - split);
+    return (
+      <div className="dsa-bar" aria-hidden="true" style={over ? { boxShadow: '0 0 0 2px #DC2626' } : undefined}>
+        {parts.map((d, i) => (d.amount > 0
+          ? <i key={d.department} title={`${short(d.department)} · ${money(d.amount)}`} style={{ width: `${(d.amount / base) * 100}%`, background: deptColor(i) }} />
+          : null))}
+        {left > 0 ? <i title={`Not split · ${money(left)}`} style={{ width: `${(left / base) * 100}%`, background: UNSPLIT }} /> : null}
+      </div>
+    );
+  }
+  const w = of > 0 ? Math.min(100, (split / of) * 100) : 0;
   return (
     <div className="dsa-bar" aria-hidden="true">
       <i style={{ width: `${w}%`, background: over ? '#DC2626' : w >= 100 ? '#22A06B' : '#F59E0B' }} />
@@ -181,11 +216,14 @@ function DecideRequest({ person, request, busy, onDecide }) {
 }
 
 /* ---- GM / CEO: allocate to every SM / ZSM, and track their splits */
-function GmView({ data, editable, months, month, onSave, saving, onDecide }) {
+function GmView({ data, editable, months, month, onSave, saving, onDecide, bottomGap }) {
+  const cardRef = useRef(null);
+  const [barHeight, setBarHeight] = useState(0);
   const [draft, setDraft] = useState({});
   const [tab, setTab] = useState('all');
   const [open, setOpen] = useState(null);
-  useEffect(() => { setDraft({}); setOpen(null); }, [month, data]);
+  const [editing, setEditing] = useState({});
+  useEffect(() => { setDraft({}); setEditing({}); setOpen(null); }, [month, data]);
 
   const people = useMemo(() => data.people || [], [data.people]);
   const counts = useMemo(() => {
@@ -207,13 +245,9 @@ function GmView({ data, editable, months, month, onSave, saving, onDecide }) {
   });
 
   return (
-    <div className="dsa-card">
+    <div className="dsa-card" ref={cardRef}>
       <div className="dsa-row" style={{ justifyContent: 'space-between' }}>
         <span className="dsv-eyebrow">Allocate · {monthLabel(months, month)}</span>
-        <button className="dsa-btn" type="button" disabled={!editable || !changed.length || saving}
-          onClick={() => onSave('allocate', changed.map(([employee, v]) => ({ employee, amount: num(v) })))}>
-          {saving ? 'Saving…' : changed.length ? `Save ${changed.length} allocation${changed.length === 1 ? '' : 's'}` : 'Save'}
-        </button>
       </div>
       <div className="dsa-row">
         <div className="dsa-stat"><span>Allocated</span><b>{money(totalAlloc)}</b></div>
@@ -236,56 +270,92 @@ function GmView({ data, editable, months, month, onSave, saving, onDecide }) {
         const isOpen = open === p.employee;
         const ask = pendingOf(p);
         const history = (p.requests || []).filter((r) => r.status !== 'Pending');
+        const isEditing = !!editing[p.employee];
+        // The whole card opens and closes the split; the amount, its pencil
+        // and the request panel keep their own clicks.
+        const toggle = () => setOpen(isOpen ? null : p.employee);
+        const stop = (e) => e.stopPropagation();
         return (
-          <div key={p.employee} className="dsa-person">
-            <div className="dsa-ph">
+          <div key={p.employee} className={`dsa-person${isOpen ? ' open' : ''}`}>
+            <div className="dsa-ph dsa-hit" role="button" tabIndex={0} aria-expanded={isOpen}
+              aria-label={`${p.name}: ${isOpen ? 'hide' : 'show'} the split`} onClick={toggle}
+              onKeyDown={(e) => { if (e.target === e.currentTarget && (e.key === 'Enter' || e.key === ' ')) { e.preventDefault(); toggle(); } }}>
               <div className="dsa-name">
                 <b>{p.name}</b>
                 <span>{p.designation || 'Sales Manager'} · {p.departments.length} department{p.departments.length === 1 ? '' : 's'}</span>
               </div>
-              <input className="dsa-in" inputMode="numeric" aria-label={`Allocation for ${p.name}`} placeholder="₹0"
-                value={value} disabled={!editable}
-                onChange={(e) => setDraft({ ...draft, [p.employee]: e.target.value })} />
-              <Pill status={st} />
-              <button type="button" className="dsa-ghost" aria-expanded={isOpen} onClick={() => setOpen(isOpen ? null : p.employee)}>
-                {isOpen ? 'Hide split' : 'See split'}
-              </button>
-            </div>
-            {ask ? (
-              <div style={{ padding: '0 14px 10px' }}>
-                <DecideRequest key={ask.name} person={p} request={ask} busy={saving} onDecide={onDecide} />
-              </div>
-            ) : null}
-            {a ? (
-              <div style={{ padding: '0 14px 10px', display: 'flex', flexDirection: 'column', gap: 6 }}>
-                <Bar split={a.split_total} of={a.amount} />
-                <span className="dsa-note">
-                  {money(a.split_total)} of {money(a.amount)} split
-                  {a.split_at ? ` · last split ${fD(a.split_at)}` : ''}
-                  {a.allocated_by ? ` · allocated by ${a.allocated_by}` : ''}
+              {isEditing ? (
+                <input className="dsa-in" inputMode="numeric" aria-label={`Allocation for ${p.name}`} placeholder="₹0" autoFocus
+                  value={value} onClick={stop} onKeyDown={stop}
+                  onChange={(e) => setDraft({ ...draft, [p.employee]: e.target.value })} />
+              ) : (
+                <span className="dsa-amt">
+                  <b>{a ? money(a.amount) : '—'}</b>
+                  {editable ? (
+                    <button type="button" className="dsa-pen" aria-label={`Edit the allocation for ${p.name}`}
+                      onClick={(e) => { stop(e); setEditing({ ...editing, [p.employee]: true }); }}>
+                      <Icon name="pencil" size={15} color="#475467" />
+                    </button>
+                  ) : null}
                 </span>
+              )}
+              <Pill status={st} />
+              <Icon name="down" size={16} color="#98A2B3" style={{ transform: isOpen ? 'rotate(180deg)' : 'none', transition: 'transform .15s' }} />
+            </div>
+            {a ? (
+              <div className="dsa-hit" style={{ padding: '0 14px 12px' }} onClick={toggle}>
+                <Bar split={a.split_total} of={a.amount} parts={p.departments} />
               </div>
             ) : null}
             {isOpen ? (
               <div className="dsa-depts">
                 {p.departments.length === 0 ? <span className="dsa-note">No departments found under this person.</span> : null}
-                {p.departments.map((d) => (
+                {p.departments.map((d, i) => (
                   <div key={d.department} className="dsa-dept">
+                    <span className="dsa-dot" style={{ background: deptColor(i) }} aria-hidden="true" />
                     <span className="d">{short(d.department)}</span>
                     <span className="v" style={{ color: d.amount ? 'var(--ink)' : 'var(--faint)' }}>{d.amount ? money(d.amount) : 'not split'}</span>
                   </div>
                 ))}
-                {history.length ? (
-                  <>
-                    <span className="dsv-eyebrow" style={{ marginTop: 10 }}>Requests for more</span>
-                    <RequestHistory requests={history} />
-                  </>
+                {a && a.amount > a.split_total ? (
+                  <div className="dsa-dept">
+                    <span className="dsa-dot" style={{ background: UNSPLIT }} aria-hidden="true" />
+                    <span className="d" style={{ color: 'var(--mute)' }}>Not split yet</span>
+                    <span className="v" style={{ color: '#B45309' }}>{money(a.amount - a.split_total)}</span>
+                  </div>
                 ) : null}
+              </div>
+            ) : null}
+            {/* Requests for more stay on the card itself, open or closed. */}
+            {ask || history.length ? (
+              <div style={{ padding: '10px 14px 12px', borderTop: '1px solid var(--line2)', display: 'flex', flexDirection: 'column', gap: 8 }}>
+                <span className="dsv-eyebrow">Requests for more</span>
+                {ask ? <DecideRequest key={ask.name} person={p} request={ask} busy={saving} onDecide={onDecide} /> : null}
+                <RequestHistory requests={history} />
               </div>
             ) : null}
           </div>
         );
       })}
+      {/* Save is pinned to the bottom of the SCREEN while there are edits, so
+          it is in reach from any card -- just above the app's bottom nav on a
+          phone. Fixed (Secondary's PinnedBar), not sticky: in the live page
+          an overflow ancestor left a sticky bar at the end of the list. */}
+      {changed.length ? <PinnedBarSpacer height={barHeight} bottomGap={bottomGap} /> : null}
+      {changed.length ? (
+        <PinnedBar anchorRef={cardRef} bottomGap={bottomGap} onHeight={setBarHeight}>
+        <div className="dsv dsa-savebar" role="region" aria-label="Unsaved allocations">
+          <span className="dsa-note" style={{ flex: 1, minWidth: 0 }}>
+            {changed.length} allocation{changed.length === 1 ? '' : 's'} changed
+          </span>
+          <button type="button" className="dsa-ghost" disabled={saving} onClick={() => { setDraft({}); setEditing({}); }}>Cancel</button>
+          <button className="dsa-btn" type="button" disabled={!editable || saving}
+            onClick={() => onSave('allocate', changed.map(([employee, v]) => ({ employee, amount: num(v) })))}>
+            {saving ? 'Saving…' : `Save ${changed.length} allocation${changed.length === 1 ? '' : 's'}`}
+          </button>
+        </div>
+        </PinnedBar>
+      ) : null}
     </div>
   );
 }
@@ -335,12 +405,13 @@ function SmView({ mine, editable, canRequest, months, month, onSave, onRequest, 
             <div className="dsa-stat"><span>Split</span><b style={{ color: over ? 'var(--red)' : undefined }}>{money(total)}</b></div>
             <div className="dsa-stat"><span>{over ? 'Over by' : 'Left'}</span><b style={{ color: over ? 'var(--red)' : left === 0 ? 'var(--green)' : undefined }}>{money(Math.abs(left))}</b></div>
           </div>
-          <Bar split={total} of={a.amount} />
+          <Bar split={total} of={a.amount} parts={mine.departments.map((d) => ({ department: d.department, amount: num(valueOf(d)) }))} />
           {over ? <p className="dsa-note" style={{ color: 'var(--red)' }}>The split is more than the allocation. You can still save it.</p> : null}
           <div className="dsa-depts" style={{ borderTop: 0, padding: 0 }}>
             {mine.departments.length === 0 ? <span className="dsa-note">No departments were found under you. Ask MIS to check your team in ERP.</span> : null}
-            {mine.departments.map((d) => (
+            {mine.departments.map((d, i) => (
               <div key={d.department} className="dsa-dept">
+                <span className="dsa-dot" style={{ background: deptColor(i) }} aria-hidden="true" />
                 <span className="d">{short(d.department)}</span>
                 <input className={`dsa-in${over ? ' over' : ''}`} inputMode="numeric" placeholder="₹0" aria-label={`Amount for ${d.department}`}
                   value={valueOf(d)} disabled={!canSplit}
@@ -405,6 +476,7 @@ export function AllocationWorkspace({
   onBack,
   className = '',
   style,
+  bottomGap = 'var(--dsa-bar-gap)',
 }) {
   ensureAllocStyles();
   const sample = useMemo(() => (sampleData ? makeAllocationSample(sampleRole) : null), [sampleData, sampleRole]);
@@ -531,7 +603,7 @@ export function AllocationWorkspace({
       ) : null}
 
       {data?.viewer?.can_allocate && (!isIt || itView === 'gm') ? (
-        <GmView data={data} editable={editable} months={months} month={month} onSave={save} saving={saving} onDecide={decide} />
+        <GmView data={data} editable={editable} months={months} month={month} onSave={save} saving={saving} onDecide={decide} bottomGap={bottomGap} />
       ) : null}
       {isIt && itView === 'sm' ? (
         <SmView key={picked?.employee || 'none'} mine={picked} editable={editable} canRequest={canRequest} months={months} month={month} saving={saving}

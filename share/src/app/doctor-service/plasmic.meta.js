@@ -107,6 +107,12 @@ export const doctorServiceAllocationMeta = {
       advanced: true,
       helpText: 'With sample data: who is looking (GM allocates, SM splits, IT can switch between both). Live, the ERP says who the token is.',
     },
+    bottomGap: {
+      type: 'string',
+      advanced: true,
+      helpText:
+        'Space under the "Save allocation" bar pinned to the bottom of the screen. Any CSS length. Default: just above the bottom nav on phones (calc(4rem + 12px)), 12px on wider screens.',
+    },
     onBack: shared.onBack,
     className: shared.className,
   },

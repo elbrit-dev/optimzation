@@ -35,6 +35,7 @@ import {
   TooltipTrigger,
 } from "@calendar/components/ui/tooltip";
 import { isParticipantVisitRecorded, isVisitDay } from "@calendar/lib/calendar/visit";
+import { useBackdateWindows } from "@calendar/lib/calendar/backdate";
 import { cn } from "@calendar/lib/utils";
 /* =====================================================
    PURE HELPERS (NO LOGIC CHANGE)
@@ -169,6 +170,9 @@ export function EventDoctorVisitDialog({
   // phones far more than on a mouse, so the reason tooltip is controlled: hover
   // drives it through onOpenChange, tapping the tag toggles it.
   const [openForceVisitReasonId, setOpenForceVisitReasonId] = useState(null);
+  // Fresh backdate windows each time the visit opens, so a past day ERP
+  // just opened shows its Visit / Edit actions (re-renders when they land).
+  const backdateVersion = useBackdateWindows(open);
   const tagConfig =
     TAG_FORM_CONFIG[event.tags] ?? TAG_FORM_CONFIG.DEFAULT;
 
@@ -208,6 +212,7 @@ export function EventDoctorVisitDialog({
     isEmployeeParticipant,
     tagConfig,
     event,
+    backdateVersion,
   ]);
 
   /* ================= Doctor Info ================= */

@@ -1,3 +1,5 @@
+import { isBackdateOpen } from "./backdate";
+
 /**
  * One definition of "this person has completed their visit".
  *
@@ -33,8 +35,21 @@ export function isParticipantVisitRecorded(participant) {
  * A planned visit can be marked only ON its day: not ahead of time (a plan for
  * the 16th marked on the 14th) and not after it (a missed plan stays missed).
  * Planning ahead is still allowed; only the visit itself waits for the day.
+ * The exception is a past day ERP has opened for backdated entry.
  */
 export function isVisitDay(plannedDate, now = new Date()) {
+  return isPlannedToday(plannedDate, now) || isBackdateOpen(plannedDate, now);
+}
+
+/**
+ * A visit marked after its day inside a backdate window: no 500 m check, so
+ * it is never a force visit.
+ */
+export function isBackdatedVisit(plannedDate, now = new Date()) {
+  return !isPlannedToday(plannedDate, now) && isBackdateOpen(plannedDate, now);
+}
+
+function isPlannedToday(plannedDate, now) {
   if (!plannedDate) return false;
   const day = new Date(plannedDate);
   if (Number.isNaN(day.getTime())) return false;

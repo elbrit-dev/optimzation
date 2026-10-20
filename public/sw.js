@@ -17,7 +17,7 @@
  * Bump CACHE_NAME whenever this file changes. Without it every browser that
  * already has the old cache keeps serving out of it.
  */
-const CACHE_NAME = 'app-cache-v9';
+const CACHE_NAME = 'app-cache-v10';
 
 const PRE_CACHE_URLS = [
   '/',

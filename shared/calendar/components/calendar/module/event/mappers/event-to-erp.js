@@ -4,6 +4,7 @@ import { LOGGED_IN_USER } from "@calendar/components/auth/calendar-users";
 import { TAG_IDS } from "@calendar/components/calendar/constants";
 import { ERP_EVENT_FIELDS } from "@calendar/components/calendar/module/event/graphql/field-config";
 import { otherWorkStatus } from "@calendar/lib/calendar/otherWork";
+import { isBackdatedVisit } from "@calendar/lib/calendar/visit";
 
 /**
  * Maps form values to an ERP Event document
@@ -326,10 +327,27 @@ export function mapFormToErpEvent(values, options = {}) {
   // it so the event never ends before it begins. Mirrors the calendar-state
   // clamp in buildCalendarEvent (add-edit-event-dialog).
   const startDate = values.startDate ? new Date(values.startDate) : null;
-  const resolvedEndDate =
-    startDate && computedEndDate && computedEndDate < startDate
-      ? startDate
+  // A backdated visit ends on its planned day (same clock time), not on the
+  // day it was entered; ERP moves its visit time there too (Event Backdate
+  // Stamp server script).
+  const visitEndDate =
+    startDate &&
+    computedEndDate &&
+    computedEndDate !== fallbackEndDate &&
+    isBackdatedVisit(values.startDate)
+      ? new Date(
+          startDate.getFullYear(),
+          startDate.getMonth(),
+          startDate.getDate(),
+          computedEndDate.getHours(),
+          computedEndDate.getMinutes(),
+          computedEndDate.getSeconds()
+        )
       : computedEndDate;
+  const resolvedEndDate =
+    startDate && visitEndDate && visitEndDate < startDate
+      ? startDate
+      : visitEndDate;
 
   const isBirthday = values.tags === "Birthday";
   const doctorId = resolveDoctorLinkId(values.doctor);

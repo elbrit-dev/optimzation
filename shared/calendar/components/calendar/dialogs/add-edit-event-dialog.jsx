@@ -40,7 +40,8 @@ import {
 } from "@calendar/components/calendar/module/event/services/master-data.service";
 import { buildParticipantsWithDetails, getAvailableItems, normalizeMeetingTimes, normalizeNonMeetingDates, resolveLatLong, showFirstFormErrorAsToast, syncPobItemRates, updatePobRow } from "@calendar/lib/helper";
 import { Button } from "@calendar/components/ui/button";
-import { isVisitDay } from "@calendar/lib/calendar/visit";
+import { isBackdatedVisit, isVisitDay } from "@calendar/lib/calendar/visit";
+import { useBackdateWindows } from "@calendar/lib/calendar/backdate";
 import { CircleAlert, ClipboardList, MapPin, Mic, Pill, Users, Video } from "lucide-react";
 
 const OTHER_WORK_TYPE_ICONS = {
@@ -121,6 +122,8 @@ export function AddEditEventDialog({
 	startDate: initialStartDate,
 }) {
 	const { isOpen, onClose, onOpen } = useDisclosure();
+	// Fresh backdate windows each time the form opens (see backdate.js).
+	const backdateVersion = useBackdateWindows(isOpen);
 	const { employeeOptions,
 		allEmployeeOptions,
 		doctorOptions, events, allEvents,
@@ -278,6 +281,14 @@ export function AddEditEventDialog({
 		// Distance and force-visit belong to the moment the visit was marked.
 		// Leave the recorded values alone on a later POB edit.
 		if (isVisitAlreadyRecorded) return;
+		// A backdated visit (a past day ERP opened) has no 500 m check: it is
+		// never a force visit.
+		if (isBackdatedVisit(event?.startDate)) {
+			setDistanceKm(null);
+			setShowReason(false);
+			form.setValue("forceVisit", false, { shouldValidate: true });
+			return;
+		}
 		const doctorId = Array.isArray(event?.doctor)
 			? event.doctor[0]
 			: event?.doctor;
@@ -355,7 +366,7 @@ export function AddEditEventDialog({
 			);
 		}
 
-	}, [currentLatitude, currentLongitude, doctorResolvers, event?.doctor, isEditing, isVisitAlreadyRecorded]);
+	}, [currentLatitude, currentLongitude, doctorResolvers, event?.doctor, isEditing, isVisitAlreadyRecorded, backdateVersion]);
 	const hasValidLocation =
 		Number(currentLatitude) !== 0 &&
 		Number(currentLongitude) !== 0 &&
@@ -965,7 +976,7 @@ export function AddEditEventDialog({
 		if (selectedTag === TAG_IDS.DOCTOR_VISIT_PLAN) {
 			resolveLatLong(form, isEditing, toast);
 		}
-	}, [isEditing, isOpen, selectedTag, isVisitAlreadyRecorded, event?.startDate]);
+	}, [isEditing, isOpen, selectedTag, isVisitAlreadyRecorded, event?.startDate, backdateVersion]);
 	/* ---------------------------------------------
 	  Load Calendar Google Calendar 
 	--------------------------------------------- */
@@ -3065,6 +3076,7 @@ export function AddEditEventDialog({
 											name="startDate"
 											label={getFieldLabel("startDate", "Date")}
 											hideTime
+											allowBackdate={selectedTag === TAG_IDS.DOCTOR_VISIT_PLAN}
 											/* Doctor Tour Plan restriction */
 											minDate={
 												(selectedTag === TAG_IDS.DOCTOR_VISIT_PLAN ||
