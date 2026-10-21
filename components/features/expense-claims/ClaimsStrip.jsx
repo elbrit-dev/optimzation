@@ -28,21 +28,21 @@ export default function ClaimsStrip({ url, token, employee, today = new Date(), 
   const [toast, setToast] = useState(null);
   const tt = useRef(null);
   useEffect(() => () => clearTimeout(tt.current), []);
-  const saved = ({ name, edited, warning }) => {
+  const saved = ({ name, edited, sent, warning }) => {
     setForm(false);
     data.reload();
-    setToast(warning ? { m: warning, error: true } : { m: `${name} ${edited ? "updated" : "sent to HR"}` });
+    setToast(warning ? { m: warning, error: true } : { m: !sent ? `${name} saved as a draft` : `${name} sent for approval` });
     clearTimeout(tt.current);
     tt.current = setTimeout(() => setToast(null), 3500);
   };
 
   const items = useMemo(() => {
-    if (sample) return [{ dot: "#0b1220", a: "₹4,860 claimed", b: `${mon} · 6 rows` }, { dot: "#d97706", a: "₹2,350 with hr", b: "1 claim" }, { dot: "#2563eb", a: "₹2,510 approved · unpaid", b: "1 claim" }];
+    if (sample) return [{ dot: "#0b1220", a: "₹4,860 claimed", b: `${mon} · 6 rows` }, { dot: "#d97706", a: "₹2,350 with reporting officer", b: "1 claim" }, { dot: "#12b76a", a: "₹2,510 verified · in payroll", b: "1 claim" }];
     if (data.status !== "ready") return [];
     const T = totals(data.claims, (l) => l.date.slice(0, 7) === key);
     const out = [{ dot: "#0b1220", a: `${inr(T.claimed)} claimed`, b: `${mon} · ${T.rows} ${T.rows === 1 ? "row" : "rows"}` }];
     if (T.sanctioned) out.push({ dot: "#2563eb", a: `${inr(T.sanctioned)} sanctioned`, b: "paid with salary" });
-    for (const s of ["Draft", "Unpaid", "Paid", "Rejected"]) {
+    for (const s of ["Draft", "Waiting for Approval", "In Review", "Verified", "Unpaid", "Paid", "Rejected"]) {
       const b = T.byStatus[s];
       if (b?.n) out.push({ dot: statusOf(s).dot, a: `${inr(b.amount)} ${statusOf(s).label.toLowerCase()}`, b: `${b.n} ${b.n === 1 ? "claim" : "claims"}` });
     }
@@ -83,7 +83,7 @@ export default function ClaimsStrip({ url, token, employee, today = new Date(), 
           <span style={{ width: 32, height: 32, borderRadius: 10, background: "#2563eb", color: "#fff", display: "grid", placeItems: "center", boxShadow: "0 4px 10px -4px rgba(37,99,235,.7)" }}><Icon d={IC.plus} sw={2.4} /></span>
         </button>
       </div>
-      {form && <ClaimForm conn={data.conn} me={data.me} types={data.types} today={today} desk={desk} onClose={() => setForm(false)} onSaved={saved} />}
+      {form && <ClaimForm conn={data.conn} me={data.me} types={data.typeInfo || data.types} claims={data.claims} today={today} desk={desk} onClose={() => setForm(false)} onSaved={saved} />}
       {toast && (
         <div role="status" aria-live="polite" style={{ position: "fixed", left: "50%", bottom: desk ? 32 : 96, transform: "translateX(-50%)", zIndex: 95, maxWidth: "calc(100vw - 32px)", padding: "11px 18px", borderRadius: 10, background: toast.error ? "#b42318" : "#101828", color: "#fff", fontSize: 13, fontWeight: 500, boxShadow: "0 12px 30px -10px rgba(16,24,40,.5)" }}>{toast.m}</div>
       )}

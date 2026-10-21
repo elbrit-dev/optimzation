@@ -20,10 +20,17 @@ export const kInr = (n) => Math.round(n).toLocaleString("en-IN");
 export const fyOf = (key) => (+key.slice(5, 7) >= 4 ? +key.slice(0, 4) : +key.slice(0, 4) - 1);
 export const fyLabel = (y) => `FY ${y}–${String(y + 1).slice(2)}`;
 
-/* The ERP's status, in the words the page shows. The app never approves or
-   rejects: Draft is a claim HR has not yet acted on. */
+/* The claim's state, in the words the page shows. Claims in the approval
+   flow (since 21 Oct 2026) go Draft -> Waiting for Approval (reporting
+   officer) -> In Review (verifier) or straight to Verified (AI score 90+) ->
+   paid with next month's salary; older HR-submitted ones keep the ERP's own
+   Unpaid / Paid / Cancelled. */
 export const STATUS = {
-  Draft: { label: "With HR", bg: "#fffaeb", fg: "#b54708", dot: "#d97706" },
+  Draft: { label: "Not sent", bg: "#f2f4f7", fg: "#475467", dot: "#98a2b3" },
+  "Waiting for Approval": { label: "With reporting officer", bg: "#fffaeb", fg: "#b54708", dot: "#d97706" },
+  Approved: { label: "Approved", bg: "#eef3fe", fg: "#1d4ed8", dot: "#2563eb" },
+  "In Review": { label: "Being verified", bg: "#eef3fe", fg: "#1d4ed8", dot: "#2563eb" },
+  Verified: { label: "Verified · in payroll", bg: "#ecfdf3", fg: "#067647", dot: "#12b76a" },
   Submitted: { label: "Approved", bg: "#eef3fe", fg: "#1d4ed8", dot: "#2563eb" },
   Unpaid: { label: "Approved · unpaid", bg: "#eef3fe", fg: "#1d4ed8", dot: "#2563eb" },
   Paid: { label: "Paid", bg: "#ecfdf3", fg: "#067647", dot: "#12b76a" },
@@ -31,6 +38,15 @@ export const STATUS = {
   Cancelled: { label: "Cancelled", bg: "#f2f4f7", fg: "#667085", dot: "#98a2b3" },
 };
 export const statusOf = (s) => STATUS[s] || { label: s, bg: "#f2f4f7", fg: "#475467", dot: "#98a2b3" };
+/* An advance is released, not paid through payroll. */
+export const claimStatusLabel = (c) => (c.isAdvance && c.status === "Verified" ? "Released" : statusOf(c.status).label);
+
+/* AI risk from the bill check: 90+ Low, 70-89 Medium, below 70 High. */
+export const RISK = {
+  Low: { label: "Low risk", bg: "#ecfdf3", fg: "#067647", dot: "#12b76a" },
+  Medium: { label: "Medium risk", bg: "#fffaeb", fg: "#b54708", dot: "#d97706" },
+  High: { label: "High risk", bg: "#fef3f2", fg: "#b42318", dot: "#dc2626" },
+};
 
 /* Known claim types get the design's colours; anything new the ERP adds gets
    a neutral one rather than breaking. */
@@ -40,9 +56,11 @@ const TYPE_COLORS = {
   Calls: ["#067647", "#ecfdf3", "#067647"],
   Medical: ["#dc2626", "#fef3f2", "#b42318"],
   Others: ["#8a93a3", "#f2f4f7", "#475467"],
+  Miscellaneous: ["#0e7490", "#ecfeff", "#155e75"],
+  Advance: ["#7c3aed", "#f4f0ff", "#5b21b6"],
 };
 export const typeColor = (t) => {
-  const [c, bg, fg] = TYPE_COLORS[t] || ["#7c3aed", "#f4f0ff", "#5b21b6"];
+  const [c, bg, fg] = TYPE_COLORS[t] || ["#64748b", "#f1f5f9", "#334155"];
   return { c, bg, fg };
 };
 

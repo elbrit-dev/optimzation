@@ -1,0 +1,28 @@
+# verify-doc on Firebase App Hosting (project elbrit-sso-d01d9). See README.md.
+# The backend's root directory must be services/verify-doc.
+
+scripts:
+  runCommand: node server.mjs
+
+runConfig:
+  minInstances: 0
+  maxInstances: 4
+  concurrency: 20
+  cpu: 1
+  memoryMiB: 1024
+
+env:
+  - variable: GEMINI_API_KEY
+    secret: verify-doc-gemini-key
+  # Server-to-server client keys ({"name": "key"}). Not needed by the app --
+  # it calls with the user's Firebase login; used by scripts/try.mjs.
+  - variable: VERIFY_DOC_CLIENTS
+    secret: verify-doc-clients
+  - variable: GEMINI_MODEL
+    value: gemini-2.5-pro
+  - variable: FIREBASE_PROJECT_ID
+    value: elbrit-sso-d01d9
+  - variable: ERP_URL
+    value: https://erp.elbrit.org
+  - variable: ALLOWED_DOC_HOSTS
+    value: erp.elbrit.org,uat.elbrit.org,firebasestorage.googleapis.com

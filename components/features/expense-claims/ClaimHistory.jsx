@@ -27,7 +27,7 @@ function useWidth(ref) {
   return w;
 }
 
-const STATUS_CHOICES = ["Draft", "Unpaid", "Paid", "Rejected", "Cancelled"];
+const STATUS_CHOICES = ["Draft", "Waiting for Approval", "In Review", "Verified", "Unpaid", "Paid", "Rejected", "Cancelled"];
 const csvCell = (v) => `"${String(v ?? "").replace(/"/g, '""')}"`;
 
 export default function ClaimHistory({ url, token, employee, asOf, claimsPath, onOpenClaims, embedded = false, className }) {
@@ -38,7 +38,7 @@ export default function ClaimHistory({ url, token, employee, asOf, claimsPath, o
   const curFy = fyOf(monthKey(today));
 
   const data = useClaims({ url, token, employee });
-  const { conn, me, claims = [], types } = data;
+  const { conn, me, claims = [], types, typeInfo } = data;
 
   const fys = useMemo(() => [...new Set([curFy, ...claims.map((c) => fyOf(claimMonth(c) || monthKey(today)))])].sort((a, b) => b - a), [claims, curFy]); // eslint-disable-line react-hooks/exhaustive-deps
   const [range, setRange] = useState(String(curFy));
@@ -209,9 +209,9 @@ export default function ClaimHistory({ url, token, employee, asOf, claimsPath, o
         <div style={{ display: "grid", gridTemplateColumns: isDesk ? "repeat(4,minmax(0,1fr))" : "repeat(2,minmax(0,1fr))", gap: 12 }}>
           {[
             { dot: "#0b1220", l: "Total claimed", v: inr(T.claimed), s: `${rows.length - cancelled.length} claims · ${T.rows} rows`, c: "#0b1220" },
-            { dot: "#2563eb", l: "Sanctioned by HR", v: inr(T.sanctioned), s: T.claimed ? `${Math.round((T.sanctioned / T.claimed) * 100)}% of claimed` : "—", c: "#1d4ed8" },
+            { dot: "#2563eb", l: "Sanctioned", v: inr(T.sanctioned), s: T.claimed ? `${Math.round((T.sanctioned / T.claimed) * 100)}% of claimed` : "—", c: "#1d4ed8" },
             { dot: "#12b76a", l: "Paid", v: inr(T.reimbursed), s: "credited with salary", c: "#067647" },
-            { dot: "#d97706", l: "With HR", v: inr(T.byStatus.Draft?.amount || 0), s: `${T.byStatus.Draft?.n || 0} not yet approved`, c: "#b54708" },
+            { dot: "#d97706", l: "Awaiting approval", v: inr(["Draft", "Waiting for Approval", "In Review"].reduce((s, k) => s + (T.byStatus[k]?.amount || 0), 0)), s: `${["Draft", "Waiting for Approval", "In Review"].reduce((s, k) => s + (T.byStatus[k]?.n || 0), 0)} not yet verified`, c: "#b54708" },
           ].map((k) => (
             <div key={k.l} style={{ ...card, borderRadius: 14, padding: "14px 16px", display: "flex", flexDirection: "column", gap: 4, minWidth: 0 }}>
               <span style={{ display: "flex", alignItems: "center", gap: 7, fontSize: 12, fontWeight: 600, color: "#5b6576" }}><span style={{ width: 6, height: 6, borderRadius: "50%", background: k.dot }} />{k.l}</span>
@@ -314,10 +314,10 @@ export default function ClaimHistory({ url, token, employee, asOf, claimsPath, o
         </section>
       </>}
 
-      {day && <DaySheet conn={conn} day={day} onClose={() => setDay(null)} onEdit={(c) => { setDay(null); setForm({ claim: c }); }} />}
+      {day && <DaySheet conn={conn} day={day} onClose={() => setDay(null)} onChanged={() => { setDay(null); data.reload(); }} onEdit={(c) => { setDay(null); setForm({ claim: c }); }} />}
       {form && conn && me && (
-        <ClaimForm conn={conn} me={me} types={types} claim={form.claim} today={today} desk={w >= 900} onClose={() => setForm(null)}
-          onSaved={({ name, edited, warning }) => { setForm(null); data.reload(); setNote(warning ? { tone: "error", m: warning } : { tone: "ok", m: edited ? `${name} updated.` : `${name} sent to HR.` }); }} />
+        <ClaimForm conn={conn} me={me} types={typeInfo || types} claims={claims} claim={form.claim} today={today} desk={w >= 900} onClose={() => setForm(null)}
+          onSaved={({ name, edited, sent, warning }) => { setForm(null); data.reload(); setNote(warning ? { tone: "error", m: warning } : { tone: "ok", m: !sent ? `${name} saved as a draft.` : edited ? `${name} sent for approval again.` : `${name} sent for approval.` }); }} />
       )}
     </div>
   );

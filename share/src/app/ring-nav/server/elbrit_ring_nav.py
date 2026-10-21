@@ -37,7 +37,8 @@
 #   statusTone, count, caption, captionTone, segments: [{ key, value,
 #   tone, label }] }. Entry tiles first, then approval tiles. More tasks
 #   are more tiles. SERVICE (Doctor Service) is apart: two tiles by role,
-#   every day -- see "SERVICE" near the end.
+#   every day -- see "SERVICE" near the end. So is EXPENSE (claim approval
+#   for reporting officers, verification for the verifier) -- see "EXPENSE".
 #
 # TWO TASKS, the same rules (TASKS below): SECONDARY (Secondary Data Entry,
 # per stockist) and DOCTOR SUPPORT (Doctor Support, per doctor). Each gets an
@@ -1093,6 +1094,79 @@ def allocation_tiles():
         })
 
 
+# ---------------------------------------------------------------- EXPENSE
+# Expense claims (workflow "Expense Claim Approval", 21 Oct 2026) -- the app's
+# /expense/approval page (ClaimApprovals), one page with two views:
+#   "Expense" approval  the REPORTING OFFICER: claims "Waiting for Approval"
+#                       whose expense_approver is the caller. Shown to anyone
+#                       with something waiting, and to every manager (someone
+#                       reports to them) even when clear; IT always.
+#                       -> ?view=approve
+# For now only IT and the verifiers get them at all (EXPENSE_TILES_FOR_ALL).
+#   "Verify" claims     the VERIFIER (EXPENSE_VERIFIERS; IT sees it too):
+#                       claims "In Review" -- below the AI score bar, or
+#                       advances to release. -> ?view=verify
+# Every day, no due date: a claim waits until someone acts. Counted AS THE
+# CALLER (frappe.get_list): the ERP shares each claim with whoever must act.
+# The claim form itself stays on the overview's claims strip -- no tile.
+HREFS["expense-approval"] = "/expense/approval?view=approve"
+HREFS["expense-verify"] = "/expense/approval?view=verify"
+EXPENSE_VERIFIERS = ["sathish.admin@elbrit.org"]
+# TRIAL (21 Oct 2026): the expense tiles go ONLY to the IT role profile (both
+# tiles, every day) and the verifiers. To open them to every reporting
+# officer, set EXPENSE_TILES_FOR_ALL = True.
+EXPENSE_TILES_FOR_ALL = False
+
+
+def expense_tiles():
+    if not (EXPENSE_TILES_FOR_ALL or always or me in EXPENSE_VERIFIERS):
+        return
+    month_start = today[:8] + "01"
+    open_states = ["Waiting for Approval"]
+    done_states = ["Approved", "In Review", "Verified"]
+
+    waiting = count("Expense Claim", [["docstatus", "=", 0], ["workflow_state", "in", open_states], ["expense_approver", "=", me]])
+    my_emp = frappe.db.get_value("Employee", {"user_id": me, "status": "Active"}, "name")
+    manager = bool(my_emp) and bool(frappe.db.exists("Employee", {"reports_to": my_emp, "status": "Active"}))
+    if waiting or manager or always:
+        approved = count("Expense Claim", [["docstatus", "=", 0], ["workflow_state", "in", done_states],
+                                           ["expense_approver", "=", me], ["modified", ">=", month_start]])
+        items.append({
+            "id": "expense-approval",
+            "label": "Expense",
+            "href": HREFS["expense-approval"],
+            "icon": "wallet",
+            "statusIcon": "check-square",
+            "statusTone": "neutral",
+            "count": waiting,
+            "caption": (str(waiting) + " to approve") if waiting else "Clear",
+            "captionTone": "danger" if waiting else "success",
+            "segments": service_ring([
+                {"key": "approved", "value": approved, "tone": "success", "label": "Approved this month"},
+                {"key": "waiting", "value": waiting, "tone": "danger", "label": "Waiting for you"},
+            ]),
+        })
+
+    if me in EXPENSE_VERIFIERS or always:
+        review = count("Expense Claim", [["docstatus", "=", 0], ["workflow_state", "=", "In Review"]])
+        verified = count("Expense Claim", [["docstatus", "=", 0], ["workflow_state", "=", "Verified"], ["modified", ">=", month_start]])
+        items.append({
+            "id": "expense-verify",
+            "label": "Verify",
+            "href": HREFS["expense-verify"],
+            "icon": "wallet",
+            "statusIcon": "verified",
+            "statusTone": "neutral",
+            "count": review,
+            "caption": (str(review) + " to verify") if review else "Clear",
+            "captionTone": "warning" if review else "success",
+            "segments": service_ring([
+                {"key": "verified", "value": verified, "tone": "success", "label": "Verified this month"},
+                {"key": "review", "value": review, "tone": "warning", "label": "Waiting to be verified"},
+            ]),
+        })
+
+
 # Entry tiles first, then approval tiles. A task that cannot be counted
 # (its doctype not set up on this ERP yet, say) is left off and logged —
 # it never takes the other tasks' tiles down with it.
@@ -1123,6 +1197,12 @@ if frappe.db.exists("DocType", "Service Allocation"):
         allocation_tiles()
     except Exception as err:
         frappe.log_error(title="Elbrit Ring Nav: service allocation tiles", message=str(err))
+
+if frappe.db.exists("Workflow", "Expense Claim Approval"):
+    try:
+        expense_tiles()
+    except Exception as err:
+        frappe.log_error(title="Elbrit Ring Nav: expense tiles", message=str(err))
 
 frappe.response["message"] = {
     "user": me,

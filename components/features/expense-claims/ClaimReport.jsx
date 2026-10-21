@@ -9,9 +9,10 @@ import { STATUS, groupDays, inr, monthKey, monthLabel, statusOf, totals, MON, kI
 /* Expense claims -- the month's claims, day by day, and the way to file one.
  *
  * Reads and writes the ERP's Expense Claim as the signed-in user (url +
- * token). There is no approval here: a claim is entered, goes to HR, and the
- * page shows the status HR gives it in the ERP (With HR, Approved, Paid).
- * A Draft can be edited until HR acts on it. Bills attach to the claim and
+ * token). A claim is entered with a bill on every row and sent for approval:
+ * the reporting officer approves, the bills' AI check (or a reviewer)
+ * verifies, and it is paid with next month's salary. Drafts and rejected
+ * claims can be edited and sent again; approving happens in ClaimApprovals. Bills attach to the claim and
  * open in a preview.
  *
  * Opens on this month; the arrows step back through months that have
@@ -39,7 +40,7 @@ export function go(to) {
   try { Router.push(to)?.catch?.(hard); } catch { hard(); }
 }
 
-const ORDER = ["Draft", "Submitted", "Unpaid", "Paid", "Rejected", "Cancelled"];
+const ORDER = ["Draft", "Waiting for Approval", "In Review", "Verified", "Submitted", "Unpaid", "Paid", "Rejected", "Cancelled"];
 
 export default function ClaimReport({
   url, token, employee, asOf, viewport = "auto", newClaim = false,
@@ -52,7 +53,7 @@ export default function ClaimReport({
   const cur = monthKey(today);
 
   const data = useClaims({ url, token, employee });
-  const { conn, me, claims = [], types } = data;
+  const { conn, me, claims = [], types, typeInfo } = data;
 
   const months = useMemo(() => {
     const set = new Set([cur]);
@@ -87,7 +88,7 @@ export default function ClaimReport({
   const T = useMemo(() => totals(claims, inMonth), [claims, month]); // eslint-disable-line react-hooks/exhaustive-deps
   const days = useMemo(() => groupDays(claims, (l, c) => inMonth(l) && (!filter || c.status === filter)), [claims, month, filter]); // eslint-disable-line react-hooks/exhaustive-deps
   const nClaims = Object.values(T.byStatus).reduce((s, b) => s + b.n, 0);
-  const statuses = ORDER.filter((s) => T.byStatus[s] || ["Draft", "Unpaid", "Paid"].includes(s));
+  const statuses = ORDER.filter((s) => T.byStatus[s] || ["Waiting for Approval", "Verified"].includes(s));
   const barTotal = statuses.reduce((s, k) => s + (T.byStatus[k]?.amount || 0), 0) || 1;
   const sanctionedCut = T.sanctioned && claims.some((c) => c.sanctioned != null && c.lines.some((l) => inMonth(l) && l.sanctioned !== l.amount));
   const [y, m] = month.split("-").map(Number);
@@ -113,12 +114,12 @@ export default function ClaimReport({
   const back = () => (onBack ? onBack() : go(homePath));
   const pad = isDesk ? 32 : 16;
 
-  const saved = ({ name, edited, warning }) => {
+  const saved = ({ name, edited, sent, warning }) => {
     setForm(null);
     setDay(null);
     data.reload();
     if (warning) say(warning, "error");
-    else say(edited ? `${name} updated` : `${name} sent to HR`);
+    else say(!sent ? `${name} saved as a draft` : edited ? `${name} sent for approval again` : `${name} sent for approval`);
   };
 
   return (
@@ -130,7 +131,7 @@ export default function ClaimReport({
           <button type="button" aria-label="Back" className="ec-ghost" onClick={back} style={{ ...btn.icon, width: 38, height: 38, background: "#fff", boxShadow: "0 0 0 1px #e4e7ec", color: "#344054" }}><Icon d={IC.back} size={18} /></button>
           <div style={{ flex: 1, minWidth: 0 }}>
             <div style={{ fontSize: isDesk ? 24 : 20, fontWeight: 700, letterSpacing: "-0.02em" }}>Expense claims</div>
-            <div style={{ fontSize: 13, color: "#5b6576", ...ell }}>{[me?.name, me?.department, "claims go to HR"].filter(Boolean).join(" · ")}</div>
+            <div style={{ fontSize: 13, color: "#5b6576", ...ell }}>{[me?.name, me?.department, "claims go to your reporting officer"].filter(Boolean).join(" · ")}</div>
           </div>
           <button type="button" className="ec-ghost" onClick={openHistory} style={{ ...btn.ghost, height: 40, padding: "0 14px", display: "flex", alignItems: "center", gap: 6, flex: "none" }}><Icon d={IC.hist} />{isDesk ? "Past claims" : "History"}</button>
         </div>
@@ -162,7 +163,7 @@ export default function ClaimReport({
                     <span style={{ flex: "none", width: 32, height: 32, borderRadius: "50%", background: "#2563eb", color: "#fff", display: "grid", placeItems: "center" }}><Icon d={IC.check} sw={2.4} /></span>
                     <span style={{ display: "flex", flexDirection: "column", gap: 1, minWidth: 0 }}>
                       <span style={{ fontSize: 18, fontWeight: 700, color: "#1d4ed8", ...tabNum }}>{inr(T.sanctioned)} sanctioned</span>
-                      <span style={{ fontSize: 12, color: "#5b6576" }}>{sanctionedCut ? "HR changed some amounts · " : ""}{T.reimbursed ? inr(T.reimbursed) + " already paid" : "paid with salary"}</span>
+                      <span style={{ fontSize: 12, color: "#5b6576" }}>{sanctionedCut ? "Some amounts were cut · " : ""}{T.reimbursed ? inr(T.reimbursed) + " already paid" : "paid with salary"}</span>
                     </span>
                   </div>
                 )}
@@ -260,7 +261,7 @@ export default function ClaimReport({
                 <span style={{ fontSize: 15, fontWeight: 600 }}>Quick add</span>
                 <span style={{ fontSize: 12, color: "#8a93a3" }}>Opens a new claim with today’s row of that type.</span>
                 <div style={{ display: "grid", gridTemplateColumns: "repeat(2,minmax(0,1fr))", gap: 8 }}>
-                  {[...(types?.length ? types : ["Travel", "Food", "Calls", "Medical", "Others"])].sort((a, b) => { const o = ["Travel", "Food", "Calls", "Medical", "Others"]; return (o.indexOf(a) + 1 || 99) - (o.indexOf(b) + 1 || 99); }).map((t) => (
+                  {[...(types?.length ? types : ["Travel", "Food", "Miscellaneous", "Advance"])].filter((t) => t !== "Advance").sort((a, b) => { const o = ["Travel", "Food", "Miscellaneous"]; return (o.indexOf(a) + 1 || 99) - (o.indexOf(b) + 1 || 99); }).map((t) => (
                     <button key={t} type="button" className="ec-ghost" onClick={() => setForm({ copyFrom: { lines: [{ type: t, note: "", amount: "" }] } })} style={{ display: "flex", alignItems: "center", gap: 8, height: 40, padding: "0 12px", borderRadius: 10, border: "1px solid #e4e7ec", background: "#fff", fontSize: 13, fontWeight: 600, color: "#344054", cursor: "pointer", textAlign: "left" }}>
                       <TypeDot type={t} size={8} />{t}<span style={{ flex: 1 }} /><Icon d={IC.plus} size={14} />
                     </button>
@@ -272,8 +273,8 @@ export default function ClaimReport({
         </div>}
       </main>
 
-      {day && <DaySheet conn={conn} day={day} onClose={() => setDay(null)} onEdit={(c) => { setDay(null); setForm({ claim: c }); }} />}
-      {form && conn && me && <ClaimForm conn={conn} me={me} types={types} claim={form.claim} copyFrom={form.copyFrom} today={today} desk={isDesk && w >= 900} onClose={() => setForm(null)} onSaved={saved} />}
+      {day && <DaySheet conn={conn} day={day} onClose={() => setDay(null)} onChanged={() => { setDay(null); data.reload(); }} onEdit={(c) => { setDay(null); setForm({ claim: c }); }} />}
+      {form && conn && me && <ClaimForm conn={conn} me={me} types={typeInfo || types} claims={claims} claim={form.claim} copyFrom={form.copyFrom} today={today} desk={isDesk && w >= 900} onClose={() => setForm(null)} onSaved={saved} />}
       {toast && (
         <div role="status" aria-live="polite" style={{ position: "fixed", left: "50%", bottom: isDesk ? 32 : 96, transform: "translateX(-50%)", zIndex: 95, maxWidth: "calc(100vw - 32px)", padding: "11px 18px", borderRadius: 10, background: toast.tone === "error" ? "#b42318" : "#101828", color: "#fff", fontSize: 13, fontWeight: 500, boxShadow: "0 12px 30px -10px rgba(16,24,40,.5)" }}>{toast.m}</div>
       )}

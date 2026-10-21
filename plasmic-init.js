@@ -12,7 +12,7 @@ import MyProfile from "./components/features/my-profile";
 import ProfileHeader from "./components/features/profile-header";
 import SummaryCard from "./components/features/summary-card";
 import HomeOverview from "./components/features/home-overview";
-import ClaimReport from "./components/features/expense-claims";
+import ClaimReport, { ClaimApprovals } from "./components/features/expense-claims";
 import SectionPage from "./components/features/section-page";
 import FirebaseUIComponent from "./components/FirebaseUIComponent";
 import LoginHelpForm from "./components/LoginHelpForm";
@@ -2746,7 +2746,7 @@ PLASMIC.registerComponent(ClaimReport, {
   name: "ClaimReport",
   displayName: "Claim Report",
   description:
-    "Expense claims page: the month's ERP Expense Claims day by day, totals by status (With HR, Approved, Paid - set by HR in the ERP; there is no approval here), and the New / Edit claim form with bill attachments and preview. Reads and writes as the token's own Employee. Opens on this month; arrows step back through months with claims. ?new=1 in the URL opens the form.",
+    "Expense claims page: the month's ERP Expense Claims day by day with their approval state and AI bill-check risk, and the New / Edit claim form (type + sub type, a bill on every row, advance requests, Send for approval). Approving happens in Claim Approvals. Reads and writes as the token's own Employee. Opens on this month; arrows step back through months with claims. ?new=1 in the URL opens the form.",
   props: {
     url: { type: "string", displayName: "GraphQL URL", description: "ERP GraphQL URL, e.g. https://erp.elbrit.org/api/method/graphql." },
     token: { type: "string", displayName: "Auth token", description: "The signed-in user's ERP token (key:secret). Claims are filed as this user." },
@@ -2761,6 +2761,24 @@ PLASMIC.registerComponent(ClaimReport, {
   },
   styleSections: true,
   importPath: "./components/features/expense-claims",
+});
+
+PLASMIC.registerComponent(ClaimApprovals, {
+  name: "ClaimApprovals",
+  displayName: "Claim Approvals",
+  description:
+    "Expense claims waiting on the signed-in person. Approve mode: the reporting officer's claims (Waiting for Approval, expense_approver = them) -> Approve / Reject with a reason; after Approve the ERP verifies AI score 90+ and sends the rest to review. Verify mode: claims In Review -> adjust sanctioned amounts, Verify (payroll entry next month) or Reject. Auto: both as tabs. Grouped by employee, with bills, AI risk and reasons; bulk approve for low-risk claims. Acts with the user's own ERP token; the ERP workflow decides who may act.",
+  props: {
+    url: { type: "string", displayName: "GraphQL URL", description: "ERP GraphQL URL, e.g. https://erp.elbrit.org/api/method/graphql." },
+    token: { type: "string", displayName: "Auth token", description: "The signed-in user's ERP token (key:secret)." },
+    mode: { type: "choice", displayName: "Mode", options: ["auto", "approve", "verify"], defaultValue: "auto", description: "auto (use this) = the views the signed-in person has, from their token: everyone 'To approve' (their own claims to approve); verifiers also 'To verify'; the IT role profile both, as an overview of everyone's. ?view=approve / ?view=verify in the URL picks the tab. approve / verify force one list." },
+    verifiers: { type: "object", displayName: "Verifiers", advanced: true, defaultValue: ["sathish.admin@elbrit.org"], description: "Logins that get the 'To verify' view and can Verify. Must match the ERP workflow's verifier." },
+    overviewRoleProfile: { type: "string", displayName: "Overview role profile", advanced: true, defaultValue: "IT", description: "Employees with this role profile see both views for everyone (read-only unless the ERP lets them act)." },
+    onCountChange: { type: "eventHandler", displayName: "On count change", description: "Called with how many claims are waiting (both lists) -- for a badge.", argTypes: [{ name: "count", type: "number" }] },
+  },
+  styleSections: true,
+  importPath: "./components/features/expense-claims",
+  importName: "ClaimApprovals",
 });
 
 PLASMIC.registerComponent(SummaryCard, {
