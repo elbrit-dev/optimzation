@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef } from "react";
 import { useRouter } from "next/router";
 import { AppExitGuard, claimPop, isUnderPath, setFallback } from "@/components/BackGuard";
+import LeaveConfirmGuard from "./LeaveConfirmGuard";
 
 /**
  * Makes the back gesture behave like a native app's: home is the root, and
@@ -17,6 +18,8 @@ import { AppExitGuard, claimPop, isUnderPath, setFallback } from "@/components/B
  *                                        setFallback / the pageshow check below
  *   3. Where back goes instead of out -> home (AppExitGuard onLeave), so the
  *                                        app is only ever left through the hint
+ *   4. Which pages ask before leaving -> LeaveConfirmGuard (full-screen pages
+ *                                        on a phone: Planner, Chat)
  *
  * WHY "PRESS BACK AGAIN" AND NOT A PROMPT WITH AN EXIT BUTTON. There was an
  * "Exit Elbrit One?" dialog here once and it was removed because its Exit
@@ -220,11 +223,14 @@ export default function PwaBackGuard() {
      because the same component serves the App Router app next door, where
      this router does not exist. */
   return (
-    <AppExitGuard
-      pathname={router.asPath ?? router.pathname}
-      rootPaths={HOME_ROUTES}
-      onLeave={goHome}
-      blockedPaths={LOGIN_ROUTES}
-    />
+    <>
+      <LeaveConfirmGuard router={router} pathname={router.asPath ?? router.pathname} />
+      <AppExitGuard
+        pathname={router.asPath ?? router.pathname}
+        rootPaths={HOME_ROUTES}
+        onLeave={goHome}
+        blockedPaths={LOGIN_ROUTES}
+      />
+    </>
   );
 }

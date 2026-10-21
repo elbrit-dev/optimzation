@@ -1,8 +1,7 @@
 'use client';
 
 import { useState, useEffect, useRef, useCallback, useMemo } from 'react';
-import { Sidebar } from 'primereact/sidebar';
-import { Field, Icon } from '@/design-system';
+import { Field, Icon, Sheet } from '@/design-system';
 import { LoadingOverlay } from './TableSkeleton';
 import { logSmartDataEvent } from './smartDataLogger.js';
 import { filterIcon } from './filterIcons.js';
@@ -290,26 +289,22 @@ export default function FilterSortSidebar({
   // ── Render ────────────────────────────────────────────────────────────────
 
   return (
-    <Sidebar
-unstyled
-      /* Selector contract for e2e/pages/SmartTablePage.js. `.p-sidebar` and
-         `.p-sidebar-close` used to stand in for these, and both vanish under
-         `unstyled`; these attributes do not. */
-      pt={{
-        root: { 'data-testid': 'filter-sidebar' },
-        closeButton: { 'data-testid': 'filter-sidebar-close' },
-      }}
-      visible={visible}
-      onHide={onHide}
-      position={isMobile ? 'bottom' : 'left'}
-      blockScroll
-      className={isMobile ? 'w-full' : ''}
-      style={isMobile ? { height: '80vh' } : { width: '600px', maxWidth: '90vw' }}
-      header={<h2 className="m-0" style={{ fontSize: 16, fontWeight: 650, color: '#101828' }}>Filter and Sort</h2>}
-    >
-      <div className="fss-root flex flex-col h-full">
+    <Sheet.Root open={Boolean(visible)} onOpenChange={(open) => !open && onHide?.()}>
+      {/* A fixed height on a phone: the two panes scroll on their own, so the
+          sheet cannot size itself from its content. The data-testids are the
+          selector contract for e2e/pages/SmartTablePage.js. `fss-root` scopes
+          this panel's own look (PANEL_CSS) over the whole sheet. */}
+      <Sheet.Popup
+        data-testid="filter-sidebar"
+        className="fss-root"
+        style={isMobile ? { blockSize: '80dvh' } : undefined}
+      >
         <style>{PANEL_CSS}</style>
-        <div className="flex-1 overflow-hidden flex min-h-0">
+        <Sheet.Header>
+          <Sheet.Title style={{ fontSize: 16, fontWeight: 650, color: '#101828' }}>Filter and Sort</Sheet.Title>
+          <Sheet.Close data-testid="filter-sidebar-close" />
+        </Sheet.Header>
+        <Sheet.Body style={{ display: 'flex', overflow: 'hidden', padding: 0 }}>
 
           {/* ── Left tab navigation ─────────────────────────────────────── */}
           <div className="w-36 overflow-y-auto flex-shrink-0" style={{ background: '#F9FAFB', borderRight: '1px solid #EAECF0' }}>
@@ -510,10 +505,9 @@ unstyled
               );
             })()}
           </div>
-        </div>
+        </Sheet.Body>
 
-        {/* Footer */}
-        <div className="p-4" style={{ borderTop: '1px solid #EAECF0', background: '#fff' }}>
+        <Sheet.Footer style={{ padding: 'var(--space-16)', borderTop: '1px solid #EAECF0', background: '#fff' }}>
           <div className="flex gap-2">
             <button type="button" data-testid="filter-clear" onClick={handleClear} className="fss-btn fss-clear flex-1" disabled={!hasActiveFilters}>
               <i className="pi pi-times" style={{ fontSize: '0.7rem' }} /> Clear
@@ -522,8 +516,8 @@ unstyled
               <i className="pi pi-check" style={{ fontSize: '0.7rem' }} /> Apply
             </button>
           </div>
-        </div>
-      </div>
-    </Sidebar>
+        </Sheet.Footer>
+      </Sheet.Popup>
+    </Sheet.Root>
   );
 }

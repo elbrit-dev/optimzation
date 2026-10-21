@@ -63,24 +63,25 @@ export function ProductPickerSheet({ open, onClose, stockist, products, addedIte
   const count = chosenProducts.length;
 
   return (
-    <Sheet
-      open={open}
-      onClose={discard}
-      surface="app"
-      title="Add product"
-      subtitle={stockist ? `${stockist} · ${remaining} not on this entry` : undefined}
-      toolbar={
-        <Field
-          size="lg"
-          type="search"
-          placeholder="Search brand or product…"
-          value={query}
-          onChange={setQuery}
-          aria-label="Search products"
-          prefix={<Icon name="search" size="sm" />}
-        />
-      }
-    >
+    <Sheet.Root open={open} onOpenChange={(next) => !next && discard()}>
+      <Sheet.Popup surface="app">
+        <Sheet.Header>
+          <Sheet.Title>Add product</Sheet.Title>
+          {stockist ? <Sheet.Description>{`${stockist} · ${remaining} not on this entry`}</Sheet.Description> : null}
+          <Sheet.Close />
+        </Sheet.Header>
+        <Sheet.Toolbar>
+          <Field
+            size="lg"
+            type="search"
+            placeholder="Search brand or product…"
+            value={query}
+            onChange={setQuery}
+            aria-label="Search products"
+            prefix={<Icon name="search" size="sm" />}
+          />
+        </Sheet.Toolbar>
+        <Sheet.Body>
       {groups.length ? (
         <div className="flex flex-col gap-2 pt-1">
           {groups.map(({ brand, items }) => (
@@ -106,21 +107,19 @@ export function ProductPickerSheet({ open, onClose, stockist, products, addedIte
         </p>
       )}
 
-      {/* Pinned to the sheet's bottom edge: the two ways out. The negative
-          margins match .ds-sheet__body's 16px inline and bottom padding, so
-          the bar runs edge to edge — and `-bottom-4`, not `bottom-0`: a
-          sticky box stops at the scroller's PADDING edge, which left a 16px
-          strip under the bar with the list scrolling through it. */}
-      <div className="sticky -bottom-4 z-1 -mx-4 -mb-4 mt-3 border-t border-line-subtle bg-surface px-4 pb-4 pt-3">
-        <div className="grid grid-cols-2 gap-2">
-          <Button type="default" size="lg" block onClick={discard}>
-            Discard
-          </Button>
-          <Button type="primary" size="lg" block disabled={!count} onClick={confirm}>
-            {count ? `Add ${count} product${count === 1 ? '' : 's'}` : 'Add'}
-          </Button>
-        </div>
-      </div>
-    </Sheet>
+        </Sheet.Body>
+        {/* Pinned under the list: the two ways out. */}
+        <Sheet.Footer>
+          <div className="grid grid-cols-2 gap-2">
+            <Button type="default" size="lg" block onClick={discard}>
+              Discard
+            </Button>
+            <Button type="primary" size="lg" block disabled={!count} onClick={confirm}>
+              {count ? `Add ${count} product${count === 1 ? '' : 's'}` : 'Add'}
+            </Button>
+          </div>
+        </Sheet.Footer>
+      </Sheet.Popup>
+    </Sheet.Root>
   );
 }

@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useMemo, useState } from 'react';
-import { Button, Card, ChipRow, Field, Icon, SectionLabel, Sheet, StatusPill } from '@/design-system';
+import { Button, Card, ChipRow, Field, Icon, SectionLabel, Sheet, StatusPill, useRetained } from '@/design-system';
 import { BUCKETS, LEVELS, doctorExtra } from '../data/selectors';
 import { count, monthShort, rupees } from '../data/format';
 import { Delta, Empty, Notice, Roi, Spark } from './bits';
@@ -96,6 +96,7 @@ export function DoctorsSection({ ix, scope, buckets, months, mi, open, onMonth, 
   const [bucket, setBucket] = useState('down');
   const [q, setQ] = useState('');
   const [doc, setDoc] = useState(null);
+  const shownDoc = useRetained(doc);
   const [shown, setShown] = useState(PAGE);
   useEffect(() => setShown(PAGE), [bucket, q, buckets]);
 
@@ -186,20 +187,33 @@ export function DoctorsSection({ ix, scope, buckets, months, mi, open, onMonth, 
         )}
       </div>
 
-      <Sheet open={Boolean(doc)} onClose={() => setDoc(null)} title={doc?.name} subtitle={doc ? [doc.code && `#${doc.code}`, doc.spec, doc.category && `Cat ${doc.category}`, doc.hq].filter(Boolean).join(' · ') : ''}>
-        {doc ? (
-          <div className="flex flex-col gap-4 p-4">
-            <div className="flex flex-wrap items-center gap-2">
-              <StatusPill status={PILL[doc.bucket]}>{BUCKETS.find((b) => b.id === doc.bucket)?.label}</StatusPill>
-              <span className="text-12 text-ds-secondary">
-                {rupees(doc.current)} against {rupees(doc.baseline)} · <Delta value={doc.delta} />
-              </span>
-            </div>
-            {doc.seats.length ? <p className="text-12 text-ds-secondary">Supported through {doc.seats.join(', ')}</p> : null}
-            <DoctorExtra extra={doctorExtra(ix, doc.doctor, scope, mi)} visitsLoading={visitsLoading} />
-          </div>
-        ) : null}
-      </Sheet>
+      <Sheet.Root open={doc != null} onOpenChange={(open) => !open && setDoc(null)}>
+        <Sheet.Popup>
+          {shownDoc ? (
+            <>
+              <Sheet.Header>
+                <Sheet.Title>{shownDoc.name}</Sheet.Title>
+                <Sheet.Description>
+                  {[shownDoc.code && `#${shownDoc.code}`, shownDoc.spec, shownDoc.category && `Cat ${shownDoc.category}`, shownDoc.hq].filter(Boolean).join(' · ')}
+                </Sheet.Description>
+                <Sheet.Close />
+              </Sheet.Header>
+              <Sheet.Body>
+                <div className="flex flex-col gap-4 p-4">
+                  <div className="flex flex-wrap items-center gap-2">
+                    <StatusPill status={PILL[shownDoc.bucket]}>{BUCKETS.find((b) => b.id === shownDoc.bucket)?.label}</StatusPill>
+                    <span className="text-12 text-ds-secondary">
+                      {rupees(shownDoc.current)} against {rupees(shownDoc.baseline)} · <Delta value={shownDoc.delta} />
+                    </span>
+                  </div>
+                  {shownDoc.seats.length ? <p className="text-12 text-ds-secondary">Supported through {shownDoc.seats.join(', ')}</p> : null}
+                  <DoctorExtra extra={doctorExtra(ix, shownDoc.doctor, scope, mi)} visitsLoading={visitsLoading} />
+                </div>
+              </Sheet.Body>
+            </>
+          ) : null}
+        </Sheet.Popup>
+      </Sheet.Root>
     </div>
   );
 }

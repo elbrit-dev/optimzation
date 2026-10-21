@@ -1,7 +1,17 @@
 'use client';
 
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { createPortal } from 'react-dom';
+import { useMemo, useState } from 'react';
+import { Popover } from '@/design-system';
+
+/* This app's toolbar panels keep their own surface (white, gray-200 border,
+   shadow-lg) on the design system's Popover, which owns placement and
+   dismissal. Inline, because the Popover's own surface rule outranks a
+   utility class. */
+const PANEL_SURFACE = {
+  background: '#fff',
+  borderColor: '#e5e7eb',
+  boxShadow: '0 10px 15px -3px rgb(0 0 0 / 0.1), 0 4px 6px -4px rgb(0 0 0 / 0.1)',
+};
 
 // ─── Generic Toolbar ─────────────────────────────────────────────────────────
 
@@ -80,44 +90,11 @@ export function SmartTableToolbar({ leftActions = [], rightActions = [], classNa
  * @param {{ groups: string[], onChange: (newGroups: string[]) => void }} props
  */
 export function GroupByReorder({ groups, onChange }) {
+  /* Placement, outside-press, Escape and back are the design-system
+     Popover's; this only owns what the panel does. */
   const [isOpen, setIsOpen] = useState(false);
-  const [mounted, setMounted] = useState(false);
-  const [position, setPosition] = useState({ top: 0, left: 0 });
   const [dragIdx, setDragIdx] = useState(null);
   const [overIdx, setOverIdx] = useState(null);
-  const triggerRef = useRef(null);
-  const dropdownRef = useRef(null);
-
-  useEffect(() => { setMounted(true); }, []);
-
-  const updatePosition = useCallback(() => {
-    if (!triggerRef.current) return;
-    const rect = triggerRef.current.getBoundingClientRect();
-    setPosition({ top: rect.bottom + window.scrollY + 4, left: rect.left + window.scrollX });
-  }, []);
-
-  useEffect(() => {
-    if (!isOpen) return;
-    updatePosition();
-    window.addEventListener('scroll', updatePosition, true);
-    window.addEventListener('resize', updatePosition);
-    return () => {
-      window.removeEventListener('scroll', updatePosition, true);
-      window.removeEventListener('resize', updatePosition);
-    };
-  }, [isOpen, updatePosition]);
-
-  useEffect(() => {
-    if (!isOpen) return;
-    const handler = (e) => {
-      if (
-        dropdownRef.current && !dropdownRef.current.contains(e.target) &&
-        triggerRef.current && !triggerRef.current.contains(e.target)
-      ) setIsOpen(false);
-    };
-    document.addEventListener('mousedown', handler);
-    return () => document.removeEventListener('mousedown', handler);
-  }, [isOpen]);
 
   const handleDrop = (e, targetIdx) => {
     e.preventDefault();
@@ -140,12 +117,8 @@ export function GroupByReorder({ groups, onChange }) {
 
   if (!groups.length) return null;
 
-  const dropdownContent = isOpen && mounted ? (
-    <div
-      ref={dropdownRef}
-      className="fixed z-[9999] bg-white border border-gray-200 rounded-lg shadow-lg overflow-hidden"
-      style={{ top: `${position.top}px`, left: `${position.left}px`, minWidth: '200px', maxWidth: '320px' }}
-    >
+  const panel = (
+    <>
       <div className="px-3 py-2 border-b border-gray-100 text-[10px] font-medium text-gray-500 uppercase tracking-wide">
         Group by order — drag to reorder
       </div>
@@ -194,15 +167,13 @@ export function GroupByReorder({ groups, onChange }) {
       <div className="px-3 py-2 bg-gray-50 border-t border-gray-100 text-xs text-gray-500">
         {groups.length} group{groups.length !== 1 ? 's' : ''} active
       </div>
-    </div>
-  ) : null;
+    </>
+  );
 
   return (
-    <>
-      <button
-        ref={triggerRef}
+    <Popover.Root open={isOpen} onOpenChange={setIsOpen} backName="group-by">
+      <Popover.Trigger
         type="button"
-        onClick={() => { setIsOpen(o => !o); updatePosition(); }}
         title={`Group by: ${groups.join(' → ')}`}
         className={`relative p-2 rounded-lg transition-colors flex items-center justify-center ${
           isOpen ? 'bg-indigo-600 text-white hover:bg-indigo-700' : 'bg-gray-200 text-gray-700 hover:bg-gray-300'
@@ -212,9 +183,17 @@ export function GroupByReorder({ groups, onChange }) {
         <span className="absolute -top-1 -right-1 bg-indigo-500 text-white text-[10px] font-bold rounded-full w-5 h-5 flex items-center justify-center leading-none">
           {groups.length}
         </span>
-      </button>
-      {mounted && createPortal(dropdownContent, document.body)}
-    </>
+      </Popover.Trigger>
+      <Popover.Portal>
+        <Popover.Positioner sideOffset={4}>
+          {/* Test hook: the panel has no semantic role of its own, and a
+              data-testid survives restyling where a utility class does not. */}
+          <Popover.Popup data-testid="group-by-panel" style={{ ...PANEL_SURFACE, minWidth: '200px', maxWidth: '320px' }}>
+            {panel}
+          </Popover.Popup>
+        </Popover.Positioner>
+      </Popover.Portal>
+    </Popover.Root>
   );
 }
 
@@ -230,51 +209,14 @@ export function GroupByReorder({ groups, onChange }) {
  * }} props
  */
 export function ColumnVisibilityDropdown({ columns, columnGroups, hiddenColumns, onChange }) {
-  const [isOpen, setIsOpen] = useState(false);
+  /* Placement, outside-press, Escape and back are the design-system
+     Popover's; closing it any of those ways also clears the search. */
+  const [isOpen, setIsOpenState] = useState(false);
   const [searchTerm, setSearchTerm] = useState('');
-  const [mounted, setMounted] = useState(false);
-  const [position, setPosition] = useState({ top: 0, left: 0, width: 220 });
-  const triggerRef = useRef(null);
-  const dropdownRef = useRef(null);
-
-  useEffect(() => { setMounted(true); }, []);
-
-  const updatePosition = useCallback(() => {
-    if (!triggerRef.current) return;
-    const rect = triggerRef.current.getBoundingClientRect();
-    setPosition({
-      top: rect.bottom + window.scrollY + 4,
-      left: rect.left + window.scrollX,
-      width: Math.max(220, rect.width),
-    });
-  }, []);
-
-  useEffect(() => {
-    if (!isOpen) return;
-    updatePosition();
-    window.addEventListener('scroll', updatePosition, true);
-    window.addEventListener('resize', updatePosition);
-    return () => {
-      window.removeEventListener('scroll', updatePosition, true);
-      window.removeEventListener('resize', updatePosition);
-    };
-  }, [isOpen, updatePosition]);
-
-  // Close on outside click
-  useEffect(() => {
-    if (!isOpen) return;
-    const handler = (e) => {
-      if (
-        dropdownRef.current && !dropdownRef.current.contains(e.target) &&
-        triggerRef.current && !triggerRef.current.contains(e.target)
-      ) {
-        setIsOpen(false);
-        setSearchTerm('');
-      }
-    };
-    document.addEventListener('mousedown', handler);
-    return () => document.removeEventListener('mousedown', handler);
-  }, [isOpen]);
+  const setIsOpen = (open) => {
+    setIsOpenState(open);
+    if (!open) setSearchTerm('');
+  };
 
   const colByField = useMemo(() => Object.fromEntries(columns.map(c => [c.field, c])), [columns]);
 
@@ -316,12 +258,8 @@ export function ColumnVisibilityDropdown({ columns, columnGroups, hiddenColumns,
   const showAll = () => onChange([]);
   const hideAll = () => onChange(columns.map(c => c.field));
 
-  const dropdownContent = isOpen && mounted ? (
-    <div
-      ref={dropdownRef}
-      className="fixed z-[9999] bg-white border border-gray-200 rounded-lg shadow-lg overflow-hidden"
-      style={{ top: `${position.top}px`, left: `${position.left}px`, minWidth: '200px', maxWidth: '360px' }}
-    >
+  const panel = (
+    <>
       <div className="p-2 border-b border-gray-100">
         <div className="relative">
           <i className="pi pi-search absolute left-2 top-1/2 -translate-y-1/2 text-gray-400 text-[10px]"></i>
@@ -418,15 +356,13 @@ export function ColumnVisibilityDropdown({ columns, columnGroups, hiddenColumns,
       <div className="px-3 py-2 bg-gray-50 border-t border-gray-100 text-xs text-gray-500">
         {columns.length} columns total
       </div>
-    </div>
-  ) : null;
+    </>
+  );
 
   return (
-    <>
-      <button
-        ref={triggerRef}
+    <Popover.Root open={isOpen} onOpenChange={setIsOpen} backName="columns">
+      <Popover.Trigger
         type="button"
-        onClick={() => { setIsOpen(o => !o); updatePosition(); }}
         title={hiddenCount > 0 ? `${hiddenCount} column${hiddenCount !== 1 ? 's' : ''} hidden` : 'Toggle column visibility'}
         className={`relative p-2 rounded-lg transition-colors flex items-center justify-center ${
           hiddenCount > 0 ? 'bg-blue-600 text-white hover:bg-blue-700' : 'bg-gray-200 text-gray-700 hover:bg-gray-300'
@@ -438,8 +374,14 @@ export function ColumnVisibilityDropdown({ columns, columnGroups, hiddenColumns,
             {hiddenCount > 99 ? '99+' : hiddenCount}
           </span>
         )}
-      </button>
-      {mounted && createPortal(dropdownContent, document.body)}
-    </>
+      </Popover.Trigger>
+      <Popover.Portal>
+        <Popover.Positioner sideOffset={4}>
+          <Popover.Popup data-testid="column-visibility-panel" style={{ ...PANEL_SURFACE, minWidth: '200px', maxWidth: '360px' }}>
+            {panel}
+          </Popover.Popup>
+        </Popover.Positioner>
+      </Popover.Portal>
+    </Popover.Root>
   );
 }

@@ -24,7 +24,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue, } from "
 import { RHFFieldWrapper, RHFComboboxField, RHFDateTimeField, InlineCheckboxField, FormFooter, RHFHQCardSelector, } from "@calendar/components/calendar/form-fields";
 import { useCalendar } from "@calendar/components/calendar/contexts/calendar-context";
 import { RHFDoctorCardSelector } from "@calendar/components/RHFDoctorCardSelector";
-import { useBackToClose, useDisclosure, useSubmissionRouter } from "@calendar/components/calendar/hooks";
+import { isEditableElement, useDisclosure, useSubmissionRouter } from "@calendar/components/calendar/hooks";
 import { eventSchema } from "@calendar/components/calendar/schemas";
 import { TAG_FORM_CONFIG } from "@calendar/lib/calendar/form-config";
 import { loadParticipantOptionsByTag } from "@calendar/lib/participants";
@@ -155,6 +155,8 @@ export function AddEditEventDialog({
 	const doctorResolvers = useDoctorResolvers(doctorOptions);
 	const [itemOptions, setItemOptions] = useState([]);
 	const [isResolvingLocation, setIsResolvingLocation] = useState(false);
+	const [locationAccuracyM, setLocationAccuracyM] = useState(null);
+	const locationAbortRef = useRef(null);
 	const [distanceKm, setDistanceKm] = useState(null);
 	const endDateTouchedRef = useRef(false); // existing
 	const pobRowsEndRef = useRef(null);
@@ -373,10 +375,11 @@ export function AddEditEventDialog({
 		currentLatitude != null &&
 		currentLongitude != null;
 
+	// Stays up while capturing so the footer shows "Capturing..." instead of
+	// leaving only Cancel for up to the 45 s a GPS fix can take.
 	const shouldShowRequestLocation =
 		selectedTag === TAG_IDS.DOCTOR_VISIT_PLAN &&
-		!hasValidLocation &&
-		!isResolvingLocation;
+		!hasValidLocation;
 	const getFieldLabel = (field, fallback) => {
 		return tagConfig.labels?.[field] ?? fallback;
 	};
@@ -973,10 +976,17 @@ export function AddEditEventDialog({
 		// Capturing the location is what marks the visit (attending = Yes), so
 		// it only happens on the plan's own day — never ahead of it or after.
 		if (!isVisitDay(event?.startDate)) return;
-		if (selectedTag === TAG_IDS.DOCTOR_VISIT_PLAN) {
-			resolveLatLong(form, isEditing, toast);
-		}
+		if (selectedTag !== TAG_IDS.DOCTOR_VISIT_PLAN) return;
+		handleRequestLocation();
+		// Closing the form stops the GPS watch.
+		return cancelLocationRequest;
 	}, [isEditing, isOpen, selectedTag, isVisitAlreadyRecorded, event?.startDate, backdateVersion]);
+	useEffect(() => {
+		if (!isOpen) {
+			cancelLocationRequest();
+			setLocationAccuracyM(null);
+		}
+	}, [isOpen]);
 	/* ---------------------------------------------
 	  Load Calendar Google Calendar 
 	--------------------------------------------- */
@@ -1003,16 +1013,32 @@ export function AddEditEventDialog({
 
 		loadGoogleStatus();
 	}, [calendarSyncEnabled]);
-	const handleRequestLocation = async () => {
+	function cancelLocationRequest() {
+		if (!locationAbortRef.current) return;
+		locationAbortRef.current.abort();
+		locationAbortRef.current = null;
+		setIsResolvingLocation(false);
+	}
+	async function handleRequestLocation() {
+		// One GPS watch at a time: the auto capture on open may still be running.
+		if (locationAbortRef.current) return;
+		const controller = new AbortController();
+		locationAbortRef.current = controller;
+		setIsResolvingLocation(true);
 		try {
-			setIsResolvingLocation(true);
-
-			await resolveLatLong(form, isEditing, toast);
-
+			const pos = await resolveLatLong(form, isEditing, toast, {
+				signal: controller.signal,
+			});
+			if (pos) setLocationAccuracyM(Math.round(pos.coords.accuracy));
 		} finally {
-			setIsResolvingLocation(false);
+			// A cancelled request has already been cleared, and a new one may
+			// have started since.
+			if (locationAbortRef.current === controller) {
+				locationAbortRef.current = null;
+				setIsResolvingLocation(false);
+			}
 		}
-	};
+	}
 
 
 	/* ---------------------------------------------
@@ -1889,10 +1915,20 @@ export function AddEditEventDialog({
 		}
 		onClose();
 	};
-	// Android back used to unwind the calendar route and dump the user on the
-	// overview page with the form gone; it now closes just this dialog (or the
-	// popover stacked on top of it).
-	useBackToClose(isOpen, () => handleDialogOpenChange(false));
+	// Back closes the dialog through the design system's overlay (a popover
+	// stacked on top closes first, being its own layer). One exception: with a
+	// field focused, back only drops the soft keyboard — a half-filled form is
+	// not lost to a stray press. The overlay re-arms back when it stays open.
+	// `details` is absent for a back press and says "close-watcher" for
+	// Android's own close request.
+	const handleModalOpenChange = (nextOpen, details) => {
+		const backPress = !details || details.reason === "close-watcher";
+		if (!nextOpen && backPress && isEditableElement(document.activeElement)) {
+			document.activeElement.blur();
+			return;
+		}
+		handleDialogOpenChange(nextOpen);
+	};
 	const handleDefaultEvent = async (values) => {
 		// Google sync is the switch for everything Google, Meet included: ERP
 		// cannot attach a Meet link to an event it never syncs.
@@ -2645,7 +2681,7 @@ export function AddEditEventDialog({
 	const isSubmitDisabled =
 		isMutationPending || isMissingRequiredPick || isMissingMedicalCertificate;
 	return (
-		<Modal open={isOpen} onOpenChange={handleDialogOpenChange}>
+		<Modal open={isOpen} onOpenChange={handleModalOpenChange}>
 			<ModalTrigger asChild>{children}</ModalTrigger>
 
 			{/* Header and the Cancel/Submit row stay put; only what sits between
@@ -3504,8 +3540,10 @@ export function AddEditEventDialog({
 								</p>
 								<p className="text-sm text-muted-foreground">
 									{currentLatitude && currentLongitude
-										? `${currentLatitude}, ${currentLongitude}`
-										: "Location not captured"}
+										? `${currentLatitude}, ${currentLongitude}${locationAccuracyM != null ? ` (±${locationAccuracyM} m)` : ""}`
+										: isResolvingLocation
+											? "Getting a GPS fix..."
+											: "Location not captured"}
 								</p>
 							</div>
 						)}

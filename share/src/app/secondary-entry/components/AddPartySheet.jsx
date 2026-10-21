@@ -13,7 +13,8 @@ import { partyCount, useTask } from '../data/task';
  * rest are disabled and the subtitle says why. Discard, the ×, Escape or the
  * scrim drop the choice — but not while a create is running.
  *
- * Search lives in the Sheet's `toolbar`, as in ProductPickerSheet. */
+ * Search lives in the Sheet.Toolbar and the actions in the Sheet.Footer,
+ * both pinned while the list scrolls, as in ProductPickerSheet. */
 
 export function AddPartySheet({ open, onClose, parties, limit, busy = false, error = null, onCreate }) {
   const task = useTask();
@@ -49,28 +50,29 @@ export function AddPartySheet({ open, onClose, parties, limit, busy = false, err
   };
 
   return (
-    <Sheet
-      open={open}
-      onClose={discard}
-      surface="app"
-      title={`Add ${task.party}`}
-      subtitle={
-        full
-          ? `${limit} chosen — the most per go. Create these, then add more.`
-          : `${partyCount(task, parties.length)} of yours not on your list${limit ? ` · up to ${limit} at a time` : ''}`
-      }
-      toolbar={
-        <Field
-          size="lg"
-          type="search"
-          placeholder={`Search ${task.party} name or code…`}
-          value={query}
-          onChange={setQuery}
-          aria-label={`Search ${task.parties}`}
-          prefix={<Icon name="search" size="sm" />}
-        />
-      }
-    >
+    <Sheet.Root open={open} onOpenChange={(next) => !next && discard()}>
+      <Sheet.Popup surface="app">
+        <Sheet.Header>
+          <Sheet.Title>{`Add ${task.party}`}</Sheet.Title>
+          <Sheet.Description>
+            {full
+              ? `${limit} chosen — the most per go. Create these, then add more.`
+              : `${partyCount(task, parties.length)} of yours not on your list${limit ? ` · up to ${limit} at a time` : ''}`}
+          </Sheet.Description>
+          <Sheet.Close disabled={busy} />
+        </Sheet.Header>
+        <Sheet.Toolbar>
+          <Field
+            size="lg"
+            type="search"
+            placeholder={`Search ${task.party} name or code…`}
+            value={query}
+            onChange={setQuery}
+            aria-label={`Search ${task.parties}`}
+            prefix={<Icon name="search" size="sm" />}
+          />
+        </Sheet.Toolbar>
+        <Sheet.Body>
       {shown.length ? (
         <ul className="flex flex-col pt-1">
           {shown.map((p) => {
@@ -112,7 +114,8 @@ export function AddPartySheet({ open, onClose, parties, limit, busy = false, err
         </p>
       )}
 
-      <div className="sticky -bottom-4 z-1 -mx-4 -mb-4 mt-3 flex flex-col gap-2 border-t border-line-subtle bg-surface px-4 pb-4 pt-3">
+        </Sheet.Body>
+        <Sheet.Footer>
         {error ? (
           <p role="alert" className="flex items-start gap-2 rounded-lg bg-danger-wash px-3 py-2 text-11 text-danger-text">
             <Icon name="exclamation-circle" size="sm" className="mt-px shrink-0" />
@@ -127,7 +130,8 @@ export function AddPartySheet({ open, onClose, parties, limit, busy = false, err
             {busy ? 'Creating…' : count ? `Create ${count}` : 'Create'}
           </Button>
         </div>
-      </div>
-    </Sheet>
+        </Sheet.Footer>
+      </Sheet.Popup>
+    </Sheet.Root>
   );
 }

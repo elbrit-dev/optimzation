@@ -76,12 +76,19 @@ export function AttendanceCard({ counts, working, inScope, overlapping = false, 
         />
       </div>
 
-      {/* FIVE STATES DO NOT FIT ON ONE LINE. The shared one-line legend row
+      {/* SIX STATES DO NOT FIT ON ONE LINE. The shared one-line legend row
           shrinks its type to fit, which held four chips and ran five into
           each other (each count sat on the next chip's dot). Here they sit
-          in three columns and wrap: Reported, Not reported, Absent above;
-          Other work and Vacant below — full-size and tappable. */}
-      <div className="grid grid-cols-3 gap-x-3">
+          in columns and wrap, full-size and tappable.
+
+          COLUMNS AS WIDE AS THEIR CHIPS, NOT EQUAL THIRDS. A third of a
+          384px card is ~100px and "Not reported 27 ›" is ~112; the chip
+          cannot wrap, so it ran its chevron into Absent's dot while the
+          space to the right of "Absent 11" sat empty (seen on a handset,
+          21 Oct 2026). Sized to content and spread edge to edge, the slack
+          goes where it is needed. Below 360px three cannot fit at all, so
+          it drops to two. */}
+      <div className="grid grid-cols-[repeat(3,auto)] justify-between gap-x-3 max-[359px]:grid-cols-[repeat(2,auto)]">
         {ATTENDANCE.map((k) => (
           <LegendChip
             key={k}

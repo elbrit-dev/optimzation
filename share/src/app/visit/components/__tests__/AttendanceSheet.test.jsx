@@ -138,9 +138,11 @@ describe('AttendanceSheet day drill-down', () => {
        still one day — it just lost two calls instead of one. */
     const people = repsInAttendanceState(team, [on('04'), on('04'), on('11')], 'notReporting', true, week);
     const [rep] = people.filter((p) => p.id === 'Z');
+    /* `excused` says why a day with nothing logged was not silent — null
+       here: no leave, no Other Work, no holiday (see excusedOn). */
     expect(rep.days).toEqual([
-      { date: '2026-09-04', planned: 2, happened: 0, verified: 0, force: 0 },
-      { date: '2026-09-11', planned: 1, happened: 0, verified: 0, force: 0 },
+      { date: '2026-09-04', planned: 2, happened: 0, verified: 0, force: 0, excused: null },
+      { date: '2026-09-11', planned: 1, happened: 0, verified: 0, force: 0, excused: null },
     ]);
   });
 

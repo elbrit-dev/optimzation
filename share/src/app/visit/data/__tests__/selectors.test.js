@@ -1285,7 +1285,7 @@ describe('attendance over a range', () => {
        leave in the window, so both are Absent; C reported. The buckets
        overlap by design — C is Reported AND Absent — so these no longer sum
        to the headcount. */
-    expect(counts).toEqual({ working: 1, notReporting: 2, onLeave: 2, otherWork: 0, vacant: 1 });
+    expect(counts).toEqual({ working: 1, notReporting: 2, onLeave: 2, otherWork: 0, holiday: 0, vacant: 1 });
     for (const state of Object.keys(counts)) {
       expect(repsInAttendanceState(team, rows, state, true)).toHaveLength(counts[state]);
     }

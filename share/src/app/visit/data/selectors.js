@@ -209,8 +209,9 @@ export const CALL_STANDARD = 12;
 /* ONE PERSON'S CALLS AGAINST THE MONTH: what the reporting officer checks
  * before asking a rep why the calls are not done.
  *
- *   target  standard × the working days they were AVAILABLE — approved
- *           leave comes off, so four days of leave does not read as 48 calls
+ *   target  standard × the working days they were AVAILABLE — holidays on
+ *           their Holiday List and approved leave come off, so four days of
+ *           leave does not read as 48 calls
  *           missed. Other Work days do NOT come off: they are working days,
  *           counted and shown as Other Work, not as days off.
  *   average calls ÷ COMPLETED available days, i.e. before today. Today is
@@ -231,8 +232,16 @@ export function callTarget(member, ownRows, monthDays = [], today, standard = CA
   let ahead = 0;
   let leave = 0;
   let otherWork = 0;
+  let holidays = 0;
   for (const date of monthDays) {
     const why = excusedOn(member, date);
+    /* A holiday on their list comes off the target: it is not one of their
+       working days (see calendarFor). Known for the whole month ahead, unlike
+       leave, so a holiday next week is already off. */
+    if (why === 'holiday') {
+      holidays += 1;
+      continue;
+    }
     /* Only approved LEAVE comes off the target. An Other Work day (meeting,
        admin day…) is still a working day that owes calls; it is counted so
        the line can say so, never subtracted. */
@@ -255,6 +264,7 @@ export function callTarget(member, ownRows, monthDays = [], today, standard = CA
     left,
     daysLeave: leave,
     daysOtherWork: otherWork,
+    daysHoliday: holidays,
     daysAhead: ahead,
     average: past > 0 ? donePast / past : null,
     perDayNeeded: ahead > 0 ? left / ahead : null,
@@ -1044,6 +1054,9 @@ export function attendanceOf(member, repsWithVisits, overRange = false) {
   if (!overRange) {
     if (member.onLeave) return 'onLeave';
     if (reported) return 'working';
+    /* A day off on their Holiday List — not a rep who failed to report. One
+       who worked it anyway is Reported, above. */
+    if (member.onHoliday) return 'holiday';
     return member.onOtherWork ? 'otherWork' : 'notReporting';
   }
 
@@ -1055,11 +1068,70 @@ export function attendanceOf(member, repsWithVisits, overRange = false) {
   return reported ? 'working' : away ? 'onLeave' : elsewhere ? 'otherWork' : 'notReporting';
 }
 
+/* ---- Holidays ----------------------------------------------------------
+ *
+ * Each person's holidays come from THEIR ERP Holiday List (per state:
+ * "TamilNadu Holidays 2026", "Karnataka Holidays 2026"), so on Pooja one HQ
+ * is off and the next is working. A holiday is treated as that person's
+ * Sunday: it is not one of their working days at all. Everything that counts
+ * days — silent days, "17/20 days", the export's working days, the call
+ * target — then follows without a special case. A visit logged on a holiday
+ * still counts: daysOf keeps any day that has rows. */
+
+/* The holiday's name on `date` for this person ("Pooja"), or null. */
+export function holidayOn(member, date) {
+  return (member?.holidays ?? []).find((h) => h.date === date)?.name ?? null;
+}
+
+/* This person's working days out of the window's: the calendar minus the
+   holidays on their list. The very same array back when none falls inside
+   it, which is almost everyone almost every day. */
+export function calendarFor(member, calendar = []) {
+  const holidays = member?.holidays;
+  if (!holidays?.length || calendar.length === 0) return calendar;
+  const off = new Set(holidays.map((h) => h.date));
+  return calendar.some((d) => off.has(d)) ? calendar.filter((d) => !off.has(d)) : calendar;
+}
+
+/* The window's days that were holidays for this person, with each name. */
+export function holidayDaysOf(member, calendar = []) {
+  const holidays = member?.holidays ?? [];
+  if (holidays.length === 0) return [];
+  const inWindow = new Set(calendar);
+  return holidays.filter((h) => inWindow.has(h.date)).sort((a, b) => a.date.localeCompare(b.date));
+}
+
+/* Working days per rep, for the call average: each rep who logged a call
+   counts their OWN working days (the window's, less their holidays, plus any
+   holiday they worked anyway), averaged. With one holiday list for everyone
+   this is just the calendar; across states it is what visits ÷ reps ÷ days
+   needs to mean visits per rep per day each of them was expected out. */
+export function workingDaysPerRep(rows, team, calendar = []) {
+  const byId = new Map(team.filter((m) => !m.vacant).map((m) => [m.id, m]));
+  const worked = new Map();
+  for (const r of rows) {
+    if (!r.visitTime || !byId.has(r.employeeId)) continue;
+    if (!worked.has(r.employeeId)) worked.set(r.employeeId, new Set());
+    worked.get(r.employeeId).add(r.plannedDate);
+  }
+  if (worked.size === 0) return calendar.length;
+  let total = 0;
+  for (const [id, dates] of worked) {
+    const own = calendarFor(byId.get(id), calendar);
+    const onHolidays = own === calendar ? 0 : [...dates].filter((d) => holidayOn(byId.get(id), d)).length;
+    total += own.length + onHolidays;
+  }
+  return total / worked.size;
+}
+
 /* Why a day with no visits was not a silent day, or null when it was one:
  * approved leave covered it, or the person had Other Work in the calendar
  * that day (Admin Day, Chemist Day, Conference, Meeting). Neither is a rep
  * who failed to report — there was no visit to log. */
 export function excusedOn(member, date) {
+  /* A holiday first: a day off by the calendar is off whatever else was
+     filed for it. */
+  if (holidayOn(member, date)) return 'holiday';
   if ((member.leave ?? []).some((s) => s.from <= date && date <= s.to)) return 'leave';
   if ((member.otherWork ?? []).some((o) => o.date === date)) return 'otherWork';
   return null;
@@ -1099,7 +1171,7 @@ function isSilentDay(member, day) {
  *
  * ON A SINGLE DAY this returns exactly one state, the same one attendanceOf
  * does. The buckets only overlap once there are days to disagree about. */
-export function attendanceStatesOf(member, days, overRange = false) {
+export function attendanceStatesOf(member, days, overRange = false, calendar = null) {
   if (member.vacant) return ['vacant'];
 
   const reportedAnyDay = days.some((d) => d.happened > 0);
@@ -1108,11 +1180,21 @@ export function attendanceStatesOf(member, days, overRange = false) {
   if (!overRange) {
     if (member.onLeave) return ['onLeave'];
     if (reportedAnyDay) return ['working'];
+    if (member.onHoliday) return ['holiday'];
     return [member.onOtherWork ? 'otherWork' : 'notReporting'];
   }
 
   const out = [];
   if (reportedAnyDay) out.push('working');
+  /* EVERY working day in the range a holiday on their list, and nothing
+     logged: they were off, not silent. `days` is already their own calendar
+     (holidays out — see calendarFor), so it is empty here; the window's
+     calendar is what says there were days to be off on. */
+  /* Leave or Other Work inside such a range fell on the holidays themselves,
+     so Holiday is the one state that is true. */
+  if (!reportedAnyDay && days.length === 0 && calendar?.length > 0 && calendarFor(member, calendar).length === 0) {
+    return ['holiday'];
+  }
   /* A silent day is a day they were EXPECTED somewhere: `days` only holds
      days with a plan, so this cannot fire on a Sunday. The `length === 0`
      arm is the person with no plan at all in the range — no day can speak
@@ -1129,12 +1211,19 @@ export function attendanceStatesOf(member, days, overRange = false) {
    CALLER decides, because only it knows which window produced these rows;
    inferring it from the data would make an empty month look like a day. */
 export function attendance(rows, team, overRange = false, calendar = []) {
-  const daysByEmployee = daysByEmployeeOf(rows, calendar);
+  const rowsByEmployee = groupRowsByEmployee(rows);
   /* Somebody with no rows at all still has the window's days — all of them
      silent, which is exactly what they were. Built once and shared: it is
      the same array for everyone who logged nothing, and on a live roster
-     that is most of the list. */
+     that is most of the list. Someone whose holidays fall in the window
+     gets their own (see calendarFor). */
   const noRows = daysOf([], calendar);
+  const daysFor = (m) => {
+    const own = calendarFor(m, calendar);
+    const mine = rowsByEmployee.get(m.id);
+    if (mine) return daysOf(mine, own);
+    return own === calendar ? noRows : daysOf([], own);
+  };
   const counts = Object.fromEntries(ATTENDANCE.map((k) => [k, 0]));
 
   /* EVERYONE IN SCOPE, not just the BEs — the same roster the team tree draws
@@ -1147,7 +1236,7 @@ export function attendance(rows, team, overRange = false, calendar = []) {
    * a tree of twenty-four names invites the reader to find the missing five.
    * The scope picker decides who is in scope; this counts whoever that is. */
   for (const m of team) {
-    for (const state of attendanceStatesOf(m, daysByEmployee.get(m.id) ?? noRows, overRange)) {
+    for (const state of attendanceStatesOf(m, daysFor(m), overRange, calendar)) {
       counts[state] += 1;
     }
   }
@@ -1268,16 +1357,6 @@ function groupRowsByEmployee(rows) {
  * so a reader can tell a day that went entirely silent from one that went
  * half done — on the Not reported list every day is the former, which is
  * exactly the point, and on the other lists it is the useful half. */
-/* Every employee's days, in one pass. `attendance` and the drill-down behind
-   it both need them, and walking the rows twice on a 2,600-row month to
-   build the same map twice is the kind of thing that only shows up on a
-   live dataset. */
-function daysByEmployeeOf(rows, calendar) {
-  const out = new Map();
-  for (const [id, mine] of groupRowsByEmployee(rows)) out.set(id, daysOf(mine, calendar));
-  return out;
-}
-
 function daysOf(rows, calendar = []) {
   /* SEEDED FROM THE CALENDAR, not from the plan. Every working day in the
      window starts at zero and the rows fill it in, so a day nobody scheduled
@@ -1376,9 +1455,13 @@ export function repsInAttendanceState(team, rows, state, overRange = false, cale
      * Reported and the Not reported list. */
     /* Each day says whether it was excused (leave / Other Work), so the Not
        reported figure and its day list skip the same days the bucket does. */
-    const days = daysOf(mine, calendar).map((d) =>
+    /* Their OWN working days — the window's less the holidays on their list
+       (see calendarFor) — so the figure, the day list and the export all
+       count the days this person was expected out. */
+    const own = calendarFor(m, calendar);
+    const days = daysOf(mine, own).map((d) =>
       d.happened === 0 ? { ...d, excused: excusedOn(m, d.date) } : d);
-    if (!attendanceStatesOf(m, days, overRange).includes(state)) continue;
+    if (!attendanceStatesOf(m, days, overRange, calendar).includes(state)) continue;
     /* The same split the tree rows and the HQ cards draw — one function, so
        a rep's bar says the same thing wherever the reader met them. */
     const geo = geoSplit(mine);
@@ -1401,11 +1484,17 @@ export function repsInAttendanceState(team, rows, state, overRange = false, cale
       reportedDays: days.filter((d) => d.happened > 0).length,
       /* The days they were away, with the kind of leave each was — the
          Absent list's own figure and the rows behind it. */
-      leaveDays: leaveDaysOf(m, calendar),
+      leaveDays: leaveDaysOf(m, own),
       /* The days they were on Other Work, with its type. */
-      otherWorkDays: otherWorkDaysOf(m, calendar),
+      otherWorkDays: otherWorkDaysOf(m, own),
       /* The one for the day being shown, when it is a single day. */
       otherWorkToday: overRange ? null : m.otherWorkToday ?? null,
+      /* The holidays on their list inside the window, by name, and the one
+         for the day being shown. */
+      holidayDays: holidayDaysOf(m, calendar),
+      holidayToday: overRange ? null : m.holidayToday ?? null,
+      /* How many days they were expected out — the export's Working days. */
+      workingDays: own.length,
       /* Days with nothing logged and nothing excusing them — the Not
          reported list's own figure. */
       silentDays: days.filter((d) => d.happened === 0 && !d.excused).length,

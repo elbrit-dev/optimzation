@@ -223,7 +223,16 @@ export function StockistLine({
         ) : null}
       </StockistCard>
 
-      <Sheet open={open} onClose={() => setOpen(false)} title={slice.stockist} subtitle={[slice.ebsCode, slice.hq].filter(Boolean).join(' · ') || undefined} surface="app">
+      <Sheet.Root open={open} onOpenChange={setOpen}>
+        <Sheet.Popup surface="app">
+          <Sheet.Header>
+            <Sheet.Title>{slice.stockist}</Sheet.Title>
+            {slice.ebsCode || slice.hq ? (
+              <Sheet.Description>{[slice.ebsCode, slice.hq].filter(Boolean).join(' · ')}</Sheet.Description>
+            ) : null}
+            <Sheet.Close />
+          </Sheet.Header>
+          <Sheet.Body>
         <div className="flex flex-col gap-3">
           {slice.lines.length ? (
             <ul className="flex flex-col gap-1.5">
@@ -289,11 +298,15 @@ export function StockistLine({
               <p className="text-10 text-ds-muted">Picked decisions are sent together from the bar at the bottom.</p>
             </div>
           ) : null}
-          <Button type="default" size="lg" block onClick={() => setOpen(false)}>
-            Done
-          </Button>
         </div>
-      </Sheet>
+          </Sheet.Body>
+          <Sheet.Footer>
+            <Button type="default" size="lg" block onClick={() => setOpen(false)}>
+              Done
+            </Button>
+          </Sheet.Footer>
+        </Sheet.Popup>
+      </Sheet.Root>
     </>
   );
 }

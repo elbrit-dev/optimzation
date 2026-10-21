@@ -5,8 +5,8 @@ import { DataTable } from 'primereact/datatable';
 import { Column } from 'primereact/column';
 import { ColumnGroup } from 'primereact/columngroup';
 import { Row } from 'primereact/row';
-import { Dialog } from 'primereact/dialog';
 import * as XLSX from 'xlsx';
+import { Drawer, Sheet } from '@/design-system';
 
 import { useSmartDataContext, useSmartDataConfig, useSmartDataStoreApi, useSmartDataSelector } from './SmartDataContext';
 import { INDEX_LOADING_MESSAGE, resolveConfig, isRowClickEnabledAtDepth } from './smartDataTableConfig';
@@ -272,14 +272,9 @@ function SmartDataTableInner({ viewId, view, columns: columnsProp, dataSource: v
 
   const containerRef = useRef(null);
 
-  // ── Maximize / fullscreen ─────────────────────────────────────────────────
+  // ── Fullscreen ────────────────────────────────────────────────────────────
+  // A full-screen sheet (base Drawer); it locks the page's scroll itself.
   const [isFullscreen, setIsFullscreen] = useState(false);
-  const [isMaximized, setIsMaximized] = useState(false);
-
-  useEffect(() => {
-    document.body.style.overflow = isFullscreen ? 'hidden' : '';
-    return () => { document.body.style.overflow = ''; };
-  }, [isFullscreen]);
 
   // ── Export ────────────────────────────────────────────────────────────────
   const [exporting, setExporting] = useState(false);
@@ -422,7 +417,7 @@ function SmartDataTableInner({ viewId, view, columns: columnsProp, dataSource: v
   useEffect(() => {
     registerViewActions(viewId, {
       lockFirstColumn:  () => setFreezeFirstColumn(v => !v),
-      viewInFullscreen: () => { setIsFullscreen(true); setIsMaximized(true); },
+      viewInFullscreen: () => { setIsFullscreen(true); },
       exportToExcel:    () => handleExport(),
     });
     return () => unregisterViewActions(viewId);
@@ -496,32 +491,26 @@ function SmartDataTableInner({ viewId, view, columns: columnsProp, dataSource: v
         icon: 'pi-window-maximize',
         title: 'View in fullscreen',
         color: 'purple',
-        onClick: () => { setIsFullscreen(true); setIsMaximized(true); },
+        onClick: () => { setIsFullscreen(true); },
       });
     }
     return actions;
   }, [cfg.enableExport, cfg.enableFullscreen, hasData, exporting, handleExport]);
 
-  // Dialog-specific right actions: swap maximize for restore+close
+  // Fullscreen right actions: swap "view in fullscreen" for close. (There is
+  // no restore-to-a-window step: a big panel is a full-screen sheet, never a
+  // big dialog.)
   const dialogRightActions = useMemo(() => [
     ...rightActions.filter(a => a.id !== 'maximize'),
-    {
-      id: 'restore',
-      type: 'button',
-      icon: isMaximized ? 'pi-window-minimize' : 'pi-window-maximize',
-      title: isMaximized ? 'Restore' : 'Maximize',
-      color: 'indigo',
-      onClick: () => setIsMaximized(v => !v),
-    },
     {
       id: 'close',
       type: 'button',
       icon: 'pi-times',
       title: 'Close',
       color: 'default',
-      onClick: () => { setIsFullscreen(false); setIsMaximized(false); },
+      onClick: () => setIsFullscreen(false),
     },
-  ], [rightActions, isMaximized]);
+  ], [rightActions]);
 
   // ── Row-click gating ──────────────────────────────────────────────────────
   // cfg.rowClickLevels decides which tree levels fire the signal: rows deeper than
@@ -791,74 +780,68 @@ function SmartDataTableInner({ viewId, view, columns: columnsProp, dataSource: v
 
       {loading && <LoadingOverlay message={effectiveLoadingMessage} />}
 
-      {/* Fullscreen dialog */}
-      <Dialog
-        visible={isFullscreen}
-        showHeader={false}
-        maximizable
-        maximized={isMaximized}
-        modal
-        style={{ width: '70vw', height: '90vh' }}
-        contentStyle={{
-          padding: '1rem',
-          paddingBottom: 0,
-          overflow: 'hidden',
-          display: 'flex',
-          flexDirection: 'column',
-          height: '100%',
-        }}
-        onHide={() => { setIsFullscreen(false); setIsMaximized(false); }}
-        onMaximize={e => setIsMaximized(e.maximized)}
+      {/* Fullscreen: a full-screen sheet (base Drawer). The table inside
+          scrolls both ways, so it opts out of swipe-to-close; Close, Escape
+          and back close it. `data-testid` / `data-maximized` are the e2e
+          handles (SmartTablePage). */}
+      <Drawer.Root
+        open={isFullscreen}
+        onOpenChange={(open) => !open && setIsFullscreen(false)}
+        side="bottom"
+        backName="table-fullscreen"
       >
-        <div className="w-full h-full flex flex-col" style={{ minHeight: 0 }}>
-          <SmartTableToolbar
-            leftActions={leftActions}
-            rightActions={dialogRightActions}
-            className="shrink-0"
-          />
-          <div className="flex-1" style={{ minHeight: 0, overflow: 'hidden', display: 'flex', flexDirection: 'column' }}>
-            <DataTable {...dsDataTableProps()}
-              {...sharedTableProps}
-              scrollHeight="flex"
-              style={{ height: '100%' }}
+        <Drawer.Portal>
+          <Drawer.Backdrop />
+          <Drawer.Viewport>
+            <Drawer.Popup
+              data-testid="fullscreen-dialog"
+              data-maximized="true"
+              aria-label="Table"
+              style={{
+                blockSize: '100dvh',
+                maxBlockSize: '100dvh',
+                maxInlineSize: 'none',
+                borderRadius: 0,
+                padding: 'var(--space-16)',
+                paddingBottom: 0,
+                overflow: 'hidden',
+              }}
             >
-              {expandable && <Column expander={canExpand} style={{ width: '3rem' }} />}
-              {columnElements}
-            </DataTable>
-          </div>
-        </div>
-      </Dialog>
+              <div className="w-full h-full flex flex-col" style={{ minHeight: 0 }} data-base-ui-swipe-ignore>
+                <SmartTableToolbar
+                  leftActions={leftActions}
+                  rightActions={dialogRightActions}
+                  className="shrink-0"
+                />
+                <div className="flex-1" style={{ minHeight: 0, overflow: 'hidden', display: 'flex', flexDirection: 'column' }}>
+                  <DataTable {...dsDataTableProps()}
+                    {...sharedTableProps}
+                    scrollHeight="flex"
+                    style={{ height: '100%' }}
+                  >
+                    {expandable && <Column expander={canExpand} style={{ width: '3rem' }} />}
+                    {columnElements}
+                  </DataTable>
+                </div>
+              </div>
+            </Drawer.Popup>
+          </Drawer.Viewport>
+        </Drawer.Portal>
+      </Drawer.Root>
 
-      {/* Export levels dialog — shown when expandable tree data has multiple depths */}
-      <Dialog
-        header="Export grouped data"
-        visible={exportLevelsVisible}
-        style={{ width: '90vw', maxWidth: '480px' }}
-        onHide={() => setExportLevelsVisible(false)}
-        footer={
-          <div className="flex gap-2 justify-end">
-            <button
-              type="button"
-              disabled={exportDialogLoading}
-              onClick={() => setExportLevelsVisible(false)}
-              className="px-4 py-2 text-sm bg-gray-100 text-gray-700 rounded-lg hover:bg-gray-200 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-            >
-              Cancel
-            </button>
-            <button
-              type="button"
-              disabled={!exportSelectedLevels.length || exportDialogLoading}
-              onClick={handleDialogExport}
-              className="px-4 py-2 text-sm bg-green-600 text-white rounded-lg hover:bg-green-700 disabled:bg-gray-300 disabled:cursor-not-allowed transition-colors flex items-center gap-2"
-            >
-              {exportDialogLoading
-                ? <><i className="pi pi-spin pi-spinner"></i> Exporting…</>
-                : <><i className="pi pi-download"></i> Export</>
-              }
-            </button>
-          </div>
-        }
+      {/* Export levels — shown when expandable tree data has multiple depths.
+          Small, so a dialog on a desktop and a bottom sheet on a phone. */}
+      <Sheet.Root
+        open={exportLevelsVisible}
+        onOpenChange={(open) => !open && !exportDialogLoading && setExportLevelsVisible(false)}
+        desktop="dialog"
       >
+        <Sheet.Popup data-testid="export-levels-dialog">
+          <Sheet.Header>
+            <Sheet.Title>Export grouped data</Sheet.Title>
+            <Sheet.Close disabled={exportDialogLoading} />
+          </Sheet.Header>
+          <Sheet.Body>
         <p className="mb-3 text-sm text-gray-600">
           Select which levels to export. Each selected level becomes a separate sheet in the Excel file.
         </p>
@@ -898,7 +881,32 @@ function SmartDataTableInner({ viewId, view, columns: columnsProp, dataSource: v
             </label>
           ))}
         </div>
-      </Dialog>
+          </Sheet.Body>
+          <Sheet.Footer>
+            <div className="flex gap-2 justify-end">
+              <button
+                type="button"
+                disabled={exportDialogLoading}
+                onClick={() => setExportLevelsVisible(false)}
+                className="px-4 py-2 text-sm bg-gray-100 text-gray-700 rounded-lg hover:bg-gray-200 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                disabled={!exportSelectedLevels.length || exportDialogLoading}
+                onClick={handleDialogExport}
+                className="px-4 py-2 text-sm bg-green-600 text-white rounded-lg hover:bg-green-700 disabled:bg-gray-300 disabled:cursor-not-allowed transition-colors flex items-center gap-2"
+              >
+                {exportDialogLoading
+                  ? <><i className="pi pi-spin pi-spinner"></i> Exporting…</>
+                  : <><i className="pi pi-download"></i> Export</>
+                }
+              </button>
+            </div>
+          </Sheet.Footer>
+        </Sheet.Popup>
+      </Sheet.Root>
     </div>
   );
 }

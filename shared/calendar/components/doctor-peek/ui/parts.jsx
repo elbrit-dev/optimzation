@@ -8,7 +8,8 @@
  * ghost, the chip and the timeline are provably the same mark.
  */
 
-import React, { useEffect, useRef } from "react";
+import React, { useEffect, useRef, useState } from "react";
+import { Drawer } from "@/design-system";
 
 const base = { fill: "none", stroke: "currentColor", strokeLinecap: "round" };
 
@@ -95,60 +96,43 @@ export const TONE = {
 };
 
 /**
- * A modal that behaves like one.
+ * A modal that behaves like one — the design system's Drawer, drawn as the
+ * design's box (`dx-sheet`).
  *
- * Escape closes it, the backdrop closes it, focus moves inside on open and
- * returns to whatever opened it on close, and Tab is trapped. The design draws
- * the box; none of this is visible, but a dialog that swallows the keyboard is
- * a dialog field staff cannot get out of one-handed.
+ * A bottom sheet on a phone that swipes down to close, a side drawer from
+ * 768px; Escape, the scrim and back close it, focus moves inside on open,
+ * returns to whatever opened it on close, and Tab is trapped. Mounted only
+ * while it is shown, so it renders open and closes through onClose.
+ *
+ * PORTALLED INTO THE NEAREST .dx-root, not <body>: the design's colours are
+ * variables on .dx-root and its phone layout is `.dx-root--compact .dx-sheet`,
+ * so a sheet outside that scope would lose both. `margin: 0` overrides the
+ * box's `margin: auto`, which inside a drawer would float it off its edge.
  */
 export function Sheet({ label, maxWidth = 440, onClose, children }) {
-  const boxRef = useRef(null);
-  const restoreRef = useRef(null);
-
+  const anchorRef = useRef(null);
+  const [scope, setScope] = useState(null);
   useEffect(() => {
-    restoreRef.current = typeof document !== "undefined" ? document.activeElement : null;
-    const box = boxRef.current;
-    if (box) {
-      const first = box.querySelector(
-        "button, [href], input, select, textarea, [tabindex]:not([tabindex='-1'])"
-      );
-      (first ?? box).focus?.();
-    }
-    const onKey = (event) => {
-      if (event.key === "Escape") { event.stopPropagation(); onClose?.(); return; }
-      if (event.key !== "Tab" || !boxRef.current) return;
-      const focusable = [...boxRef.current.querySelectorAll(
-        "button, [href], input, select, textarea, [tabindex]:not([tabindex='-1'])"
-      )].filter((el) => !el.disabled && el.offsetParent !== null);
-      if (!focusable.length) return;
-      const first = focusable[0];
-      const last = focusable[focusable.length - 1];
-      if (event.shiftKey && document.activeElement === first) { event.preventDefault(); last.focus(); }
-      else if (!event.shiftKey && document.activeElement === last) { event.preventDefault(); first.focus(); }
-    };
-    document.addEventListener("keydown", onKey, true);
-    return () => {
-      document.removeEventListener("keydown", onKey, true);
-      restoreRef.current?.focus?.();
-    };
-  }, [onClose]);
+    setScope(anchorRef.current?.closest(".dx-root") ?? document.body);
+  }, []);
 
   return (
-    <div className="dx-veil" onMouseDown={(e) => { if (e.target === e.currentTarget) onClose?.(); }}>
-      <div
-        ref={boxRef}
-        role="dialog"
-        aria-modal="true"
-        aria-label={label}
-        tabIndex={-1}
-        className="dx-sheet"
-        style={{ maxWidth: maxWidth + "px" }}
-      >
-        <div className="dx-grab" aria-hidden="true"><i /></div>
-        {children}
-      </div>
-    </div>
+    <>
+      <span ref={anchorRef} hidden />
+      {scope ? (
+        <Drawer.Root open onOpenChange={(next) => { if (!next) onClose?.(); }} backName="doctor-detail">
+          <Drawer.Portal container={scope}>
+            <Drawer.Backdrop />
+            <Drawer.Viewport>
+              <Drawer.Popup aria-label={label} className="dx-sheet" style={{ maxWidth: maxWidth + "px", margin: 0 }}>
+                <Drawer.Handle />
+                {children}
+              </Drawer.Popup>
+            </Drawer.Viewport>
+          </Drawer.Portal>
+        </Drawer.Root>
+      ) : null}
+    </>
   );
 }
 

@@ -1,5 +1,6 @@
 import React, { useCallback, useEffect, useId, useRef, useState } from "react";
 import { ArrowUpRight, Check, ChevronDown, Copy, Loader2, MapPin, Plus, X } from "lucide-react";
+import { Drawer } from "@/design-system";
 
 import useDoctorDetail from "./DoctorDetail/lib/useDoctorDetail";
 import { parseDepartment, shortDivision } from "./DoctorDetail/lib/erp";
@@ -335,7 +336,6 @@ export default function DoctorPeekDialog({
   onOpenDetail,
 }) {
   const panelRef = useRef(null);
-  const restoreRef = useRef(null);
   const titleId = useId();
 
   /*
@@ -359,55 +359,9 @@ export default function DoctorPeekDialog({
 
   const close = useCallback(() => onOpenChange?.(false), [onOpenChange]);
 
-  // Escape closes, Tab stays inside. A dialog the keyboard can walk out of is
-  // worse than no dialog: focus lands on the list behind and the reader cannot
-  // see where it went.
-  useEffect(() => {
-    if (!open) return undefined;
-    restoreRef.current = typeof document !== "undefined" ? document.activeElement : null;
-
-    const onKeyDown = (event) => {
-      if (event.key === "Escape") {
-        event.stopPropagation();
-        close();
-        return;
-      }
-      if (event.key !== "Tab") return;
-      const panel = panelRef.current;
-      if (!panel) return;
-      const focusable = panel.querySelectorAll(
-        'button:not([disabled]), a[href], input, select, textarea, [tabindex]:not([tabindex="-1"])'
-      );
-      if (!focusable.length) return;
-      const first = focusable[0];
-      const last = focusable[focusable.length - 1];
-      if (event.shiftKey && document.activeElement === first) {
-        event.preventDefault();
-        last.focus();
-      } else if (!event.shiftKey && document.activeElement === last) {
-        event.preventDefault();
-        first.focus();
-      }
-    };
-
-    document.addEventListener("keydown", onKeyDown, true);
-    // The list behind must not scroll under the sheet.
-    const previousOverflow = document.body.style.overflow;
-    document.body.style.overflow = "hidden";
-    const raf = requestAnimationFrame(() => panelRef.current?.focus());
-
-    return () => {
-      document.removeEventListener("keydown", onKeyDown, true);
-      document.body.style.overflow = previousOverflow;
-      cancelAnimationFrame(raf);
-      // Send focus back where it came from, so the reader keeps their place.
-      if (restoreRef.current && typeof restoreRef.current.focus === "function") {
-        restoreRef.current.focus();
-      }
-    };
-  }, [open, close]);
-
-  if (!open) return null;
+  /* Escape, the scrim, a swipe down and back all close it, focus stays
+     inside and returns where it came from, and the list behind does not
+     scroll: the design system's Drawer does all of that. */
 
   const avatarTone = tone?.avatar ?? "bg-indigo-100 text-indigo-700";
   const chipTone = tone?.chip ?? "bg-indigo-50 text-indigo-700";
@@ -419,25 +373,20 @@ export default function DoctorPeekDialog({
     { label: "City", value: city && city.toLowerCase() !== String(hq ?? "").toLowerCase() ? city : "" },
   ].filter((fact) => fact.value);
 
+  /* The design system's Drawer: a bottom sheet on a phone that swipes
+     down to close, a side drawer from 768px; back closes it. */
   return (
-    <div
-      className="fixed inset-0 z-[1000] flex items-end justify-center bg-slate-900/50 p-0 sm:items-center sm:p-4"
-      // The backdrop dismisses, but only when the backdrop itself is pressed —
-      // a drag that starts inside the panel and releases outside must not close it.
-      onMouseDown={(event) => { if (event.target === event.currentTarget) close(); }}
-    >
-      <div
+    <Drawer.Root open={Boolean(open)} onOpenChange={(next) => { if (!next) close(); }} backName="doctor-peek">
+      <Drawer.Portal>
+        <Drawer.Backdrop />
+        <Drawer.Viewport>
+      <Drawer.Popup
         ref={panelRef}
-        role="dialog"
-        aria-modal="true"
         aria-labelledby={titleId}
-        tabIndex={-1}
-        className="max-h-[90vh] w-full overflow-y-auto rounded-t-2xl bg-white shadow-2xl outline-none sm:max-w-lg sm:rounded-2xl"
+        initialFocus={panelRef}
+        className="max-h-[90dvh] w-full overflow-y-auto rounded-t-2xl bg-white shadow-2xl outline-none sm:max-w-lg md:max-h-none"
       >
-        {/* A grab bar, so the sheet reads as dismissable on a phone. */}
-        <div className="flex justify-center pt-2 sm:hidden">
-          <span className="h-1 w-9 rounded-full bg-gray-300" />
-        </div>
+        <Drawer.Handle />
 
         <div className="flex items-start gap-3 border-b border-gray-100 p-4">
           <div className={`flex h-12 w-12 shrink-0 items-center justify-center rounded-full text-base font-bold ${avatarTone}`}>
@@ -447,9 +396,9 @@ export default function DoctorPeekDialog({
           <div className="min-w-0 flex-1">
             {/* Not truncated — room to read the whole name is half the point
                 of opening this. */}
-            <h2 id={titleId} className="text-[17px] font-bold leading-snug text-[#1e2a5a]">
+            <Drawer.Title render={<h2 id={titleId} className="text-[17px] font-bold leading-snug text-[#1e2a5a]" />}>
               {name || "Unnamed doctor"}
-            </h2>
+            </Drawer.Title>
             {speciality ? (
               <span className={`mt-1.5 inline-block rounded-md px-2 py-0.5 text-[11px] font-semibold uppercase tracking-wide ${chipTone}`}>
                 {speciality}
@@ -581,7 +530,9 @@ export default function DoctorPeekDialog({
           ) : null}
         </div>
         ) : null}
-      </div>
-    </div>
+      </Drawer.Popup>
+        </Drawer.Viewport>
+      </Drawer.Portal>
+    </Drawer.Root>
   );
 }
