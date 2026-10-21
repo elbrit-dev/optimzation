@@ -17,24 +17,10 @@ class MyDocument extends Document {
           <link rel="preconnect" href="https://firebase.googleapis.com" />
           <link rel="preconnect" href="https://firestore.googleapis.com" />
           
-          {/* Resource hints for faster loading */}
-          <link rel="prefetch" href="/api/hello" />
-
-          {/* Self-hosted variable fonts preloads with font-display swap */}
-          <link
-            rel="preload"
-            as="font"
-            href="/fonts/GeistVF.woff"
-            type="font/woff"
-            crossOrigin="anonymous"
-          />
-          <link
-            rel="preload"
-            as="font"
-            href="/fonts/GeistMonoVF.woff"
-            type="font/woff"
-            crossOrigin="anonymous"
-          />
+          {/* No /fonts/Geist*.woff preloads: those files don't exist (the
+              site answered each with a 200 HTML page, fetched on every load),
+              and Geist comes from next/font. No /api/hello prefetch either:
+              it was the Next.js template's demo route. */}
           <style
             dangerouslySetInnerHTML={{
               __html: `
