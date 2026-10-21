@@ -76,6 +76,10 @@ let collapsing = null;
 const leaving = new Set();
 /* Pops we started ourselves (releaseLayer) and still expect to hear. */
 let ownPops = [];
+/* Entries of layers released while a live layer's entry sat above them
+   (stacked overlays closing together, bottom first). The layer above takes
+   them off with its own when it releases. */
+let buried = [];
 let listening = false;
 let nextId = 1;
 
@@ -406,29 +410,50 @@ export function holdBase() {
 export function releaseLayer(id) {
   const index = layers.findIndex((layer) => layer.id === id);
   if (index === -1) return;
+  const layer = layers[index];
+  const wasTop = index === layers.length - 1;
   layers.splice(index, 1);
 
-  if (isBrowser() && window.history.state?.[LAYER_FLAG] === id) {
-    /* Our own pop, so it must not reach the stack or the router (runPop
-       consumes it, through claimPop too). It accounts for exactly ONE event: a
-       swallow that stays up for a fixed window also eats whatever back press
-       happens to land inside it, which is a real press by a real person. The
-       timeout is only the escape hatch for when `back()` has nothing to pop
-       and no event ever arrives. */
-    leaving.add(id);
-    const token = { id };
-    ownPops.push(token);
-    startListening();
-    window.history.back();
-    window.setTimeout(() => {
-      leaving.delete(id);
-      const at = ownPops.indexOf(token);
-      if (at !== -1) ownPops.splice(at, 1);
-    }, 500);
+  const current = isBrowser() ? window.history.state?.[LAYER_FLAG] : undefined;
+  if (current === id) {
+    popOwnEntry(id);
+    /* Layers released from UNDER this one a moment ago left their entries
+       directly beneath it; they come off with it. */
+    while (buried.length) popOwnEntry(buried.pop());
+  } else if (layer.armed && current && leaving.has(current)) {
+    /* STACKED LAYERS CLOSING TOGETHER, top first: a sheet and the popover on
+       it, both unmounted in one commit. The popover's entry is already on its
+       way out (its back() is in flight, so the state has not moved yet), and
+       this layer's entry is the one right under it — take that too, or the
+       next real press is spent popping an entry nobody owns. */
+    popOwnEntry(id);
+  } else if (layer.armed && !wasTop && isBrowser()) {
+    /* The same, bottom first: the entry above is still a live layer's, so
+       this one cannot come off yet. The top layer takes it with its own. */
+    buried.push(id);
   }
 
   syncBase();
   maybeStopListening();
+}
+
+/* Our own pop, so it must not reach the stack or the router (runPop consumes
+   it, through claimPop too). It accounts for exactly ONE event: a swallow that
+   stays up for a fixed window also eats whatever back press happens to land
+   inside it, which is a real press by a real person. The timeout is only the
+   escape hatch for when `back()` has nothing to pop and no event ever
+   arrives. Two in one task are two traversals, two events, two tokens. */
+function popOwnEntry(id) {
+  leaving.add(id);
+  const token = { id };
+  ownPops.push(token);
+  startListening();
+  window.history.back();
+  window.setTimeout(() => {
+    leaving.delete(id);
+    const at = ownPops.indexOf(token);
+    if (at !== -1) ownPops.splice(at, 1);
+  }, 500);
 }
 
 /**
@@ -555,6 +580,7 @@ export function __resetBackStack() {
   collapsing = null;
   leaving.clear();
   ownPops = [];
+  buried = [];
   decided = null;
   nextId = 1;
   stopListening();

@@ -83,8 +83,8 @@ export function Sheet({ title, sub, chips, onClose, maxWidth = 640, z: _z = 70, 
       <Drawer.Portal>
         <Drawer.Backdrop />
         <Drawer.Viewport>
-      {/* 92vh is the phone sheet's cap; from 768px it is a full-height side drawer. */}
-      <Drawer.Popup className="ec-root max-h-[92vh] md:max-h-none" aria-label={title} style={{ width: "100%", maxWidth, display: "flex", flexDirection: "column", background: body || "#fff", overflow: "hidden" }}>
+      {/* 92dvh is the phone sheet's cap; from 768px it is a full-height side drawer. */}
+      <Drawer.Popup className="ec-root max-h-[92dvh] md:max-h-none" aria-label={title} style={{ width: "100%", maxWidth, display: "flex", flexDirection: "column", background: body || "#fff", overflow: "hidden" }}>
         <Drawer.Handle />
         <div style={{ flex: "none", display: "flex", alignItems: "flex-start", gap: 12, padding: "8px 12px 14px 20px", background: "#fff", boxShadow: "0 1px 0 #eef1f5" }}>
           <div style={{ flex: 1, minWidth: 0, display: "flex", flexDirection: "column", gap: 5 }}>
