@@ -1,6 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { Sidebar } from "primereact/sidebar";
-import { Dialog } from "primereact/dialog";
+import { Drawer } from "@/design-system";
 
 /**
  * ProductStockSheet — the product-detail sheet, in two shells.
@@ -219,7 +218,9 @@ export default function ProductStockSheet({
   layout = "auto",
   desktopBreakpoint = 1024,
   desktopWidth = "58rem",
-  desktopHeight = "min(80vh, 640px)",
+  // Accepted for existing Plasmic bindings; no longer used — on a desktop the
+  // panel is a full-height side drawer now.
+  desktopHeight: _desktopHeight = "min(80vh, 640px)",
   className,
 }) {
   const group = useMemo(() => resolveGroup(items, brand), [items, brand]);
@@ -588,95 +589,95 @@ export default function ProductStockSheet({
     );
   })() : null;
 
-  // ---- Desktop: centred modal, header on top, meta left / warehouses right.
+  // ---- One overlay, the design system's Drawer: a wide right-hand drawer on
+  // a desktop (meta left / warehouses right), the bottom sheet on a phone (one
+  // column). It swipes to close, and back closes it.
 
-  if (isDesktop) {
-    // Nothing to put in the right column when the item has no warehouses — the
-    // left column then takes the full width instead of leaving a dead panel.
-    const twoColumn = stockListNode != null;
-    return (
-      <Dialog
-        visible={visible}
-        onHide={close}
-        modal
-        dismissableMask
-        draggable={false}
-        resizable={false}
-        showHeader={false}
-        blockScroll
-        className={className}
-        style={{ width: desktopWidth, maxWidth: "95vw" }}
-        contentStyle={{ padding: 0, borderRadius: "1rem" }}
-        contentClassName="rounded-2xl"
-      >
-        <div className="flex flex-col overflow-hidden rounded-2xl bg-white" style={{ height: desktopHeight }}>
-          <div className="shrink-0 border-b border-gray-100 px-6 py-5">{headerNode}</div>
+  // Nothing to put in the right column when the item has no warehouses — the
+  // left column then takes the full width instead of leaving a dead panel.
+  const twoColumn = stockListNode != null;
 
-          <div className={`grid min-h-0 flex-1 ${twoColumn ? "grid-cols-[minmax(0,1fr)_minmax(0,1.1fr)]" : "grid-cols-1"}`}>
-            {/* Left: variants, prices, divisions, then total + CTA pinned to the bottom. */}
-            <div className={`flex min-h-0 flex-col ${twoColumn ? "border-r border-gray-100" : ""}`}>
-              <div className="flex min-h-0 flex-1 flex-col gap-3 overflow-y-auto px-6 py-5">
-                {variantsNode}
-                {pricesNode}
-                {compositionNode}
-                {divisionsNode}
-              </div>
-              <div className="shrink-0 border-t border-gray-100 px-6 pb-5 pt-3">
-                {totalNode}
-                {ctaNode}
-              </div>
-            </div>
+  const desktopPanel = (
+    <div className="flex h-full flex-col overflow-hidden bg-white">
+      <div className="shrink-0 border-b border-gray-100 px-6 py-5">{headerNode}</div>
 
-            {/* Right: the warehouse list, scrolling on its own. */}
-            {twoColumn ? (
-              <div className="flex min-h-0 flex-col">
-                <div className="shrink-0 px-6 pt-5">{stockLabelNode}</div>
-                <div className="min-h-0 flex-1 overflow-y-auto px-6 pb-5">{stockListNode}</div>
-              </div>
-            ) : null}
+      <div className={`grid min-h-0 flex-1 ${twoColumn ? "grid-cols-[minmax(0,1fr)_minmax(0,1.1fr)]" : "grid-cols-1"}`}>
+        {/* Left: variants, prices, divisions, then total + CTA pinned to the bottom. */}
+        <div className={`flex min-h-0 flex-col ${twoColumn ? "border-r border-gray-100" : ""}`}>
+          <div className="flex min-h-0 flex-1 flex-col gap-3 overflow-y-auto px-6 py-5">
+            {variantsNode}
+            {pricesNode}
+            {compositionNode}
+            {divisionsNode}
+          </div>
+          <div className="shrink-0 border-t border-gray-100 px-6 pb-5 pt-3">
+            {totalNode}
+            {ctaNode}
           </div>
         </div>
-      </Dialog>
-    );
-  }
 
-  // ---- Mobile: the bottom sheet, one column.
+        {/* Right: the warehouse list, scrolling on its own. */}
+        {twoColumn ? (
+          <div className="flex min-h-0 flex-col">
+            <div className="shrink-0 px-6 pt-5">{stockLabelNode}</div>
+            <div className="min-h-0 flex-1 overflow-y-auto px-6 pb-5">{stockListNode}</div>
+          </div>
+        ) : null}
+      </div>
+    </div>
+  );
+
+  const phonePanel = (
+    <div className="mx-auto flex h-full w-full max-w-lg flex-col p-4">
+      <div className="mx-auto mb-3 h-1.5 w-10 shrink-0 rounded-full bg-gray-300" aria-hidden="true" />
+
+      {headerNode}
+
+      {/* Scrollable body */}
+      <div className="mt-3 min-h-0 flex-1 space-y-3 overflow-y-auto pb-2">
+        {variantsNode}
+        {pricesNode}
+        {compositionNode}
+        {divisionsNode}
+        {stockListNode ? (
+          <div className="pt-1">
+            {stockLabelNode}
+            {stockListNode}
+          </div>
+        ) : null}
+      </div>
+
+      {/* Footer */}
+      <div className="shrink-0 border-t border-gray-100 pt-3">
+        {totalNode}
+        {ctaNode}
+      </div>
+    </div>
+  );
 
   return (
-    <Sidebar
-      visible={visible}
-      position="bottom"
-      onHide={close}
-      showCloseIcon={false}
-      blockScroll
-      style={{ height: sheetHeight, borderTopLeftRadius: "1rem", borderTopRightRadius: "1rem" }}
-      className={className}
+    <Drawer.Root
+      open={Boolean(visible)}
+      onOpenChange={(next) => { if (!next) close(); }}
+      side={isDesktop ? "right" : "bottom"}
+      backName="product-stock"
     >
-      <div className="mx-auto flex h-full w-full max-w-lg flex-col">
-        <div className="mx-auto mb-3 h-1.5 w-10 shrink-0 rounded-full bg-gray-300" aria-hidden="true" />
-
-        {headerNode}
-
-        {/* Scrollable body */}
-        <div className="mt-3 min-h-0 flex-1 space-y-3 overflow-y-auto pb-2">
-          {variantsNode}
-          {pricesNode}
-          {compositionNode}
-          {divisionsNode}
-          {stockListNode ? (
-            <div className="pt-1">
-              {stockLabelNode}
-              {stockListNode}
-            </div>
-          ) : null}
-        </div>
-
-        {/* Footer */}
-        <div className="shrink-0 border-t border-gray-100 pt-3">
-          {totalNode}
-          {ctaNode}
-        </div>
-      </div>
-    </Sidebar>
+      <Drawer.Portal>
+        <Drawer.Backdrop />
+        <Drawer.Viewport>
+          <Drawer.Popup
+            aria-label="Product stock"
+            className={className}
+            style={
+              isDesktop
+                ? { inlineSize: desktopWidth, maxInlineSize: "95vw", background: "#fff" }
+                : { blockSize: sheetHeight, maxBlockSize: sheetHeight, maxInlineSize: "none", background: "#fff", borderTopLeftRadius: "1rem", borderTopRightRadius: "1rem" }
+            }
+          >
+            {isDesktop ? desktopPanel : phonePanel}
+          </Drawer.Popup>
+        </Drawer.Viewport>
+      </Drawer.Portal>
+    </Drawer.Root>
   );
 }

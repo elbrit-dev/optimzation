@@ -1,8 +1,8 @@
 "use client";
 
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
-import { createPortal } from "react-dom";
 import Router from "next/router";
+import { Sheet, useRetained } from "@/design-system";
 import { buildView, primaryPanel, repsPanel, secondaryPanel, supportPanel, updatedLabel, visitPanel } from "./model";
 import { SAMPLE } from "./sampleData";
 import { useOverviewData } from "./data/useOverviewData";
@@ -53,7 +53,6 @@ const CSS = `
 .ho-root .ho-ghost:hover{background:#f7f8fa!important}
 .ho-root .ho-cta:hover{background:#1d4ed8!important}
 .ho-root .ho-row:hover{background:#fafbfc!important}
-.ho-root .ho-x:hover{background:#e4e7ec!important}
 }
 .ho-root .ho-cta:active{transform:scale(.98)}
 .ho-root .ho-tn{position:relative;min-width:0}
@@ -866,36 +865,29 @@ function EmptyRow({ L, k, today, open, error }) {
   );
 }
 
-/* The panel goes to <body>: a transformed ancestor, common in a page
-   builder, turns position:fixed into position:absolute. */
-function Panel({ spec, mobile, onClose, children }) {
-  useEffect(() => {
-    const k = (e) => e.key === "Escape" && onClose();
-    window.addEventListener("keydown", k);
-    return () => window.removeEventListener("keydown", k);
-  }, [onClose]);
-  if (typeof document === "undefined") return null;
-  return createPortal(
-    <div className="ho-root" onClick={onClose} style={{ position: "fixed", inset: 0, zIndex: 1100, background: "rgba(16,24,40,.5)", display: "flex", alignItems: mobile ? "flex-end" : "center", justifyContent: "center", padding: mobile ? 0 : 24 }}>
-      <div role="dialog" aria-modal="true" aria-label={spec.title} onClick={(e) => e.stopPropagation()}
-        style={{ width: "100%", maxWidth: mobile ? "100%" : 940, height: mobile ? "88vh" : "auto", maxHeight: mobile ? "88vh" : "min(820px, calc(100vh - 48px))", display: "flex", flexDirection: "column", background: "#fff", borderRadius: mobile ? "20px 20px 0 0" : 18, boxShadow: "0 24px 64px -12px rgba(16,24,40,.45)", overflow: "hidden", color: "#0b1220" }}>
-        {mobile && <div style={{ display: "flex", justifyContent: "center", padding: "8px 0 0", flex: "none" }}><span style={{ width: 40, height: 4, borderRadius: 2, background: "#d0d5dd" }} /></div>}
-        <div style={{ flex: "none", display: "flex", alignItems: "flex-start", gap: 12, padding: "16px 20px 14px", borderBottom: "1px solid #eef0f3" }}>
-          <div style={{ flex: 1, minWidth: 0 }}>
-            <div style={{ display: "flex", alignItems: "center", gap: 7, fontSize: 11, fontWeight: 600, letterSpacing: ".1em", textTransform: "uppercase", color: "#8a93a3" }}><span style={{ width: 6, height: 6, borderRadius: "50%", background: spec.dot }} />{spec.kicker}</div>
-            <h3 style={{ margin: "4px 0 0", fontSize: 20, fontWeight: 700, letterSpacing: "-0.02em", ...ell }}>{spec.title}</h3>
-            <div style={{ marginTop: 2, fontSize: 13, color: "#5b6576" }}>{spec.sub}</div>
-          </div>
-          <button type="button" className="ho-x" onClick={onClose} aria-label="Close" style={{ flex: "none", width: 36, height: 36, borderRadius: 10, border: 0, background: "#f2f4f7", color: "#344054", display: "grid", placeItems: "center", cursor: "pointer" }}>
-            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><path d="M6 6l12 12M18 6L6 18" /></svg>
-          </button>
-        </div>
-        <div style={{ flex: 1, minHeight: 0, overflowY: "auto", display: "grid", gridTemplateColumns: mobile ? "minmax(0,1fr)" : "minmax(0,280px) minmax(0,1fr)", gap: 16, alignContent: "start", padding: "16px 20px 24px" }}>
-          {children}
-        </div>
-      </div>
-    </div>,
-    document.body,
+/* The detail panel, as a design-system Sheet: a bottom sheet that swipes
+   away on a phone, a side drawer on a desktop, and back closes it either way.
+   One column at every size — the drawer is phone-width. `spec` is the
+   retained one, so the panel keeps its content while it animates out. */
+function Panel({ open, spec, onClose, children }) {
+  return (
+    <Sheet.Root open={open} onOpenChange={(next) => !next && onClose()}>
+      <Sheet.Popup className="ho-root" style={{ color: "#0b1220" }}>
+        {spec && (
+          <>
+            <Sheet.Header>
+              <div style={{ display: "flex", alignItems: "center", gap: 7, fontSize: 11, fontWeight: 600, letterSpacing: ".1em", textTransform: "uppercase", color: "#8a93a3" }}><span style={{ width: 6, height: 6, borderRadius: "50%", background: spec.dot }} />{spec.kicker}</div>
+              <Sheet.Title style={{ margin: "4px 0 0", fontSize: 20, fontWeight: 700, letterSpacing: "-0.02em", ...ell }}>{spec.title}</Sheet.Title>
+              <Sheet.Description style={{ marginTop: 2, fontSize: 13, color: "#5b6576" }}>{spec.sub}</Sheet.Description>
+              <Sheet.Close />
+            </Sheet.Header>
+            <Sheet.Body style={{ display: "grid", gridTemplateColumns: "minmax(0,1fr)", gap: 16, alignContent: "start", padding: "16px 20px 24px" }}>
+              {children}
+            </Sheet.Body>
+          </>
+        )}
+      </Sheet.Popup>
+    </Sheet.Root>
   );
 }
 
@@ -997,6 +989,9 @@ export default function HomeOverview({
     : pan.mode === "sup" ? supportPanel(view, pan.k)
     : pan.mode === "reps" ? repsPanel(view, pan.f, pan.ex)
     : visitPanel(view, pan.u, pan.f, pan.exp || {});
+  /* What the panel draws while it animates out after `pan` goes null. */
+  const shownPan = useRetained(pan);
+  const shownSpec = useRetained(spec);
 
   /* Stamped when the last live section lands, unless the page supplies one. */
   const anyLoading = ["primary", "secondary", "visit", "support"].some(loading);
@@ -1065,11 +1060,9 @@ export default function HomeOverview({
         {failedOther.length > 0 && <div style={{ margin: `0 ${L.pad}`, fontSize: 12, color: "#8a93a3" }}>{"Could not load " + failedOther.map((k) => LABEL[k]).join(", ") + " — " + liveState[failedOther[0]].error}</div>}
       </div>
 
-      {spec && (
-        <Panel spec={spec} mobile={!isDesk} onClose={() => setPan(null)}>
-          {pan.mode === "visit" ? <VisitBody spec={spec} pan={pan} setPan={setPan} /> : pan.mode === "reps" ? <RepsBody spec={spec} pan={pan} setPan={setPan} /> : <DetailBody spec={spec} />}
-        </Panel>
-      )}
+      <Panel open={spec != null} spec={shownSpec} onClose={() => setPan(null)}>
+        {shownSpec && (shownPan.mode === "visit" ? <VisitBody spec={shownSpec} pan={shownPan} setPan={setPan} /> : shownPan.mode === "reps" ? <RepsBody spec={shownSpec} pan={shownPan} setPan={setPan} /> : <DetailBody spec={shownSpec} />)}
+      </Panel>
     </div>
   );
 }

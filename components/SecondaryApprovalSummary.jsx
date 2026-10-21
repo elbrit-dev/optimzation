@@ -1,3 +1,4 @@
+import { Drawer } from "@/design-system";
 import React from "react";
 
 /**
@@ -256,12 +257,10 @@ export default function SecondaryApprovalSummary({
     setDetail(null);
     if (lastFocus.current && lastFocus.current.focus) lastFocus.current.focus();
   }, []);
-  React.useEffect(() => {
-    if (!detail) return;
-    const onKey = (e) => { if (e.key === "Escape") closeDetail(); };
-    document.addEventListener("keydown", onKey);
-    return () => document.removeEventListener("keydown", onKey);
-  }, [detail, closeDetail]);
+  /* Escape, the scrim, a swipe and back close the detail — the design
+     system's Drawer below. It portals into this component's root (rootRef),
+     which carries the --eapr-* variables its styles are written against. */
+  const rootRef = React.useRef(null);
 
   const cssVars = { "--eapr-accent": accentColor, ...style };
 
@@ -298,7 +297,7 @@ export default function SecondaryApprovalSummary({
   const dotColor = detail && detail.cls ? (detail.cls === "g" ? "var(--eapr-good)" : detail.cls === "w" ? "var(--eapr-warn)" : "var(--eapr-bad)") : "var(--eapr-accent)";
 
   return (
-    <div className={`eapr${className ? " " + className : ""}`} style={cssVars}>
+    <div ref={rootRef} className={`eapr${className ? " " + className : ""}`} style={cssVars}>
       <div className="eapr-head">
         <svg className="eapr-fold" viewBox="0 0 24 24" fill="none"><path d="M9 12l2 2 4-4M7.8 21h8.4c1.6 0 2.9-1.3 2.9-2.9V8.5L14 3.2H7.8C6.2 3.2 4.9 4.5 4.9 6.1v12c0 1.6 1.3 2.9 2.9 2.9Z" stroke="currentColor" strokeWidth="1.5" strokeLinejoin="round" /></svg>
         <h1 className="eapr-h1">{periodLabel ? `${periodLabel} · ${title}` : title}</h1>
@@ -349,8 +348,12 @@ export default function SecondaryApprovalSummary({
       )}
 
       {detail && (
-        <div className="eapr-ov" role="dialog" aria-modal="true" onClick={(e) => { if (e.target === e.currentTarget) closeDetail(); }}>
-          <div className="eapr-modal">
+        <Drawer.Root open onOpenChange={(next) => { if (!next) closeDetail(); }} backName="eapr-detail">
+          <Drawer.Portal container={rootRef}>
+            <Drawer.Backdrop />
+            <Drawer.Viewport>
+          <Drawer.Popup className="eapr-modal" style={{ maxWidth: 720, overflowY: "auto" }}>
+            <Drawer.Handle />
             <div className="eapr-mh">
               <div>
                 <h2><span className="dot" style={{ background: dotColor }} />{periodLabel ? `${periodLabel} · ${detail.title}` : detail.title}</h2>
@@ -405,8 +408,10 @@ export default function SecondaryApprovalSummary({
                 </div>
               )}
             </div>
-          </div>
-        </div>
+          </Drawer.Popup>
+            </Drawer.Viewport>
+          </Drawer.Portal>
+        </Drawer.Root>
       )}
     </div>
   );

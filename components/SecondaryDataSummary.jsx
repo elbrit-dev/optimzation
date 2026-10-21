@@ -1,3 +1,4 @@
+import { Drawer } from "@/design-system";
 import React from "react";
 
 /**
@@ -338,12 +339,10 @@ export default function SecondaryDataSummary({
     setOpen(false);
     if (lastFocus.current && lastFocus.current.focus) lastFocus.current.focus();
   }, []);
-  React.useEffect(() => {
-    if (!open) return;
-    const onKey = (e) => { if (e.key === "Escape") closeModal(); };
-    document.addEventListener("keydown", onKey);
-    return () => document.removeEventListener("keydown", onKey);
-  }, [open, closeModal]);
+  /* Escape, the scrim, a swipe and back close the detail — the design
+     system's Drawer below. It portals into this component's root (rootRef),
+     which carries the --esum-* variables its styles are written against. */
+  const rootRef = React.useRef(null);
 
   const { customers, routes, counts, nHq, sv, sq, cv, cq, headline } = model;
   const isEmpty = customers.length === 0;
@@ -394,7 +393,7 @@ export default function SecondaryDataSummary({
   const pMax = prods.length ? prods[0][1] : 1;
 
   return (
-    <div className={`esum${className ? " " + className : ""}`} style={cssVars}>
+    <div ref={rootRef} className={`esum${className ? " " + className : ""}`} style={cssVars}>
       <div className="esum-head">
         <div className="l">
           <svg className="esum-fold" viewBox="0 0 24 24" fill="none"><path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V7Z" stroke="currentColor" strokeWidth="1.6" /></svg>
@@ -477,8 +476,12 @@ export default function SecondaryDataSummary({
       )}
 
       {open && (
-        <div className="esum-ov" role="dialog" aria-modal="true" onClick={(e) => { if (e.target === e.currentTarget) closeModal(); }}>
-          <div className="esum-modal">
+        <Drawer.Root open onOpenChange={(next) => { if (!next) closeModal(); }} backName="esum-detail">
+          <Drawer.Portal container={rootRef}>
+            <Drawer.Backdrop />
+            <Drawer.Viewport>
+          <Drawer.Popup className="esum-modal" style={{ maxWidth: 760, overflowY: "auto" }}>
+            <Drawer.Handle />
             <div className="esum-mh">
               <div>
                 <h2>{meas.label}{modalStatus !== "all" ? ` · ${modalStatus}` : ""}</h2>
@@ -617,8 +620,10 @@ export default function SecondaryDataSummary({
                 </>
               )}
             </div>
-          </div>
-        </div>
+          </Drawer.Popup>
+            </Drawer.Viewport>
+          </Drawer.Portal>
+        </Drawer.Root>
       )}
     </div>
   );

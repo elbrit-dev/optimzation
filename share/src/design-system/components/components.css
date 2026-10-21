@@ -1710,6 +1710,11 @@
   height: var(--space-6);
 }
 
+/* THE OVERLAYS ARE IN `@layer components`, below Tailwind's utilities, so a
+   caller can size or pad one with a utility class (`lg:max-w-3xl`, `p-0`)
+   instead of an inline style. Unlayered, these rules beat every utility on
+   the same element and className could not compose with them. */
+@layer components {
 /* ============================================================== Drawer
 
    The base overlay (design-system/base/Drawer.jsx, on Base UI's Drawer).
@@ -2082,6 +2087,7 @@
     background-color: var(--surface-sunken);
     color: var(--ds-text-body);
   }
+}
 }
 
 /* The action slot's control is at row density — 24px — and that is not a

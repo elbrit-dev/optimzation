@@ -1,93 +1,64 @@
 "use client"
 
-import * as React from "react"
-import * as AlertDialogPrimitive from "@radix-ui/react-alert-dialog"
-
+import { Sheet } from "@/design-system"
 import { cn } from "@calendar/lib/utils"
 import { buttonVariants } from "@calendar/components/ui/button"
+import { asChildProps } from "@calendar/components/ui/as-child"
 
-const AlertDialog = AlertDialogPrimitive.Root
+/* AlertDialog — the calendar's yes/no confirmations (delete an event, confirm
+   a drag-and-drop move), on the design system's Sheet with desktop="dialog":
+   a bottom sheet on a phone, a small centred dialog from 768px — the same
+   thing confirm() and every other confirmation in both apps are. Back,
+   Escape and the scrim all answer "Cancel".
 
-const AlertDialogTrigger = AlertDialogPrimitive.Trigger
+   Same exports and props as the Radix version it replaces. Action and Cancel
+   are the sheet's Close with the button looks they had: both close it, and
+   Action runs its onClick first. */
 
-const AlertDialogPortal = AlertDialogPrimitive.Portal
+const AlertDialog = ({ children, ...props }) => (
+  <Sheet.Root desktop="dialog" {...props}>
+    {children}
+  </Sheet.Root>
+)
 
-const AlertDialogOverlay = React.forwardRef(({ className, ...props }, ref) => (
-  <AlertDialogPrimitive.Overlay
-    className={cn(
-      "fixed inset-0 z-50 bg-black/80 data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0",
-      className
-    )}
-    {...props}
-    ref={ref} />
-))
-AlertDialogOverlay.displayName = AlertDialogPrimitive.Overlay.displayName
+const AlertDialogTrigger = (props) => <Sheet.Trigger {...asChildProps(props)} />
 
-const AlertDialogContent = React.forwardRef(({ className, ...props }, ref) => (
-  <AlertDialogPortal>
-    <AlertDialogOverlay />
-    <AlertDialogPrimitive.Content
-      ref={ref}
-      className={cn(
-        "fixed left-[50%] top-[50%] z-50 grid w-full max-w-lg translate-x-[-50%] translate-y-[-50%] gap-4 border bg-white p-6 shadow-lg duration-200 data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0 data-[state=closed]:zoom-out-95 data-[state=open]:zoom-in-95 data-[state=closed]:slide-out-to-left-1/2 data-[state=closed]:slide-out-to-top-[48%] data-[state=open]:slide-in-from-left-1/2 data-[state=open]:slide-in-from-top-[48%] sm:rounded-lg",
-        className
-      )}
-      {...props} />
-  </AlertDialogPortal>
-))
-AlertDialogContent.displayName = AlertDialogPrimitive.Content.displayName
+const AlertDialogContent = ({ className, children, ...props }) => (
+  <Sheet.Popup role="alertdialog" {...props} className={cn("bg-white", className)}>
+    <div className="grid gap-4 p-6">{children}</div>
+  </Sheet.Popup>
+)
 
-const AlertDialogHeader = ({
-  className,
-  ...props
-}) => (
-  <div
-    className={cn("flex flex-col space-y-2 text-center sm:text-left", className)}
-    {...props} />
+const AlertDialogHeader = ({ className, ...props }) => (
+  <div className={cn("flex flex-col space-y-2 text-center sm:text-left", className)} {...props} />
 )
 AlertDialogHeader.displayName = "AlertDialogHeader"
 
-const AlertDialogFooter = ({
-  className,
-  ...props
-}) => (
-  <div
-    className={cn("flex flex-col-reverse sm:flex-row sm:justify-end sm:space-x-2", className)}
-    {...props} />
+const AlertDialogFooter = ({ className, ...props }) => (
+  <div className={cn("flex flex-col-reverse sm:flex-row sm:justify-end sm:space-x-2", className)} {...props} />
 )
 AlertDialogFooter.displayName = "AlertDialogFooter"
 
-const AlertDialogTitle = React.forwardRef(({ className, ...props }, ref) => (
-  <AlertDialogPrimitive.Title ref={ref} className={cn("text-lg font-semibold", className)} {...props} />
-))
-AlertDialogTitle.displayName = AlertDialogPrimitive.Title.displayName
+const AlertDialogTitle = ({ className, ...props }) => (
+  <Sheet.Title className={cn("text-lg font-semibold", className)} {...props} />
+)
 
-const AlertDialogDescription = React.forwardRef(({ className, ...props }, ref) => (
-  <AlertDialogPrimitive.Description
-    ref={ref}
-    className={cn("text-sm text-muted-foreground", className)}
-    {...props} />
-))
-AlertDialogDescription.displayName =
-  AlertDialogPrimitive.Description.displayName
+const AlertDialogDescription = ({ className, ...props }) => (
+  <Sheet.Description className={cn("text-sm text-muted-foreground", className)} {...props} />
+)
 
-const AlertDialogAction = React.forwardRef(({ className, ...props }, ref) => (
-  <AlertDialogPrimitive.Action ref={ref} className={cn(buttonVariants(), className)} {...props} />
-))
-AlertDialogAction.displayName = AlertDialogPrimitive.Action.displayName
+const AlertDialogAction = ({ className, ...props }) => (
+  <Sheet.Close {...asChildProps({ ...props, className: cn(buttonVariants(), className) })} />
+)
 
-const AlertDialogCancel = React.forwardRef(({ className, ...props }, ref) => (
-  <AlertDialogPrimitive.Cancel
-    ref={ref}
-    className={cn(buttonVariants({ variant: "outline" }), "mt-2 sm:mt-0", className)}
-    {...props} />
-))
-AlertDialogCancel.displayName = AlertDialogPrimitive.Cancel.displayName
+const AlertDialogCancel = ({ className, ...props }) => (
+  <Sheet.Close
+    {...asChildProps({ ...props, className: cn(buttonVariants({ variant: "outline" }), "mt-2 sm:mt-0", className) })}
+  />
+)
 
 export {
   AlertDialog,
-  AlertDialogPortal,
-  AlertDialogOverlay,
   AlertDialogTrigger,
   AlertDialogContent,
   AlertDialogHeader,

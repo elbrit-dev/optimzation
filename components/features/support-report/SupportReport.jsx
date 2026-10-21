@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
-import { createPortal } from "react-dom";
+import { Drawer, Popover as DsPopover } from "@/design-system";
 import { useSupportData } from "./data/useSupportData";
 import { NO_RP, buildTree } from "./data/model";
 import { buildView } from "./viewModel";
@@ -56,13 +56,6 @@ function useContainerWidth(ref) {
   return w;
 }
 
-/* Fixed layers go to <body>: a transformed ancestor (common in a page
-   builder) would otherwise turn position:fixed into position:absolute. */
-function Layer({ children }) {
-  if (typeof document === "undefined") return null;
-  return createPortal(<div className="sr-root">{children}</div>, document.body);
-}
-
 const card = { background: "#fff", border: "1px solid #EAECF0", borderRadius: 14 };
 const h14 = { fontSize: 14, fontWeight: 600 };
 const s12 = { fontSize: 12, color: "#667085" };
@@ -83,16 +76,57 @@ function Segmented({ items, h = 32, radius = 9, bg = "#F2F4F7" }) {
   );
 }
 
+/* The report's anchored panels (period, filters, brand list) on the design
+   system's overlays. On a phone a Drawer bottom sheet that swipes down to
+   close; on a desktop a Popover under its control, right-aligned as before,
+   that flips above when there is no room below. Back closes either. Mounted
+   only while open, so it renders open and closes through onClose. */
 function Popover({ P, mob, onClose, children, style }) {
-  const panel = (
+  const anchorRef = useRef(null);
+  const surface = { background: "#fff", border: "1px solid #EAECF0", boxShadow: "0 16px 40px rgba(16,24,40,.18)", display: "flex", flexDirection: "column" };
+  if (mob) {
+    return (
+      <Drawer.Root open side="bottom" onOpenChange={(next) => { if (!next) onClose(); }} backName="support-pop">
+        <Drawer.Portal>
+          <Drawer.Backdrop style={{ backgroundColor: P.sBg }} />
+          <Drawer.Viewport>
+            <Drawer.Popup className="sr-root" style={{ ...surface, maxHeight: P.maxH, maxInlineSize: "none", borderRadius: P.rad, ...style }}>
+              {children}
+            </Drawer.Popup>
+          </Drawer.Viewport>
+        </Drawer.Portal>
+      </Drawer.Root>
+    );
+  }
+  /* The anchor is the positioned wrapper this panel used to sit in: the
+     control row it drops from. A press inside it is the control's own
+     toggle, not an "outside" press. */
+  const anchor = () => anchorRef.current?.parentElement ?? null;
+  return (
     <>
-      <div onClick={onClose} style={{ position: "fixed", inset: 0, background: P.sBg, zIndex: 1000 }} />
-      <div style={{ position: P.pos, top: P.top, right: P.right, left: P.left, bottom: P.bottom, width: P.w, maxHeight: P.maxH, borderRadius: P.rad, background: "#fff", border: "1px solid #EAECF0", boxShadow: "0 16px 40px rgba(16,24,40,.18)", zIndex: 1001, display: "flex", flexDirection: "column", ...style }}>
-        {children}
-      </div>
+      <span ref={anchorRef} hidden />
+      <DsPopover.Root
+        open
+        backName="support-pop"
+        onOpenChange={(next, details) => {
+          if (next) return;
+          if (details?.reason === "outside-press" && anchor()?.contains(details.event?.target)) {
+            details.cancel?.();
+            return;
+          }
+          onClose();
+        }}
+      >
+        <DsPopover.Portal>
+          <DsPopover.Positioner anchor={anchor} side="bottom" align="end" sideOffset={8}>
+            <DsPopover.Popup className="sr-root" style={{ ...surface, width: P.w, maxHeight: "min(" + P.maxH + ", var(--available-height))", borderRadius: P.rad, ...style }}>
+              {children}
+            </DsPopover.Popup>
+          </DsPopover.Positioner>
+        </DsPopover.Portal>
+      </DsPopover.Root>
     </>
   );
-  return mob ? <Layer>{panel}</Layer> : panel;
 }
 
 function Search({ value, onChange, placeholder, h = 40 }) {
@@ -162,12 +196,8 @@ export default function SupportReport({ url, token, className }) {
   // A different token is a different person: start from their own defaults.
   useEffect(() => setS(INITIAL), [url, token]);
 
-  useEffect(() => {
-    // Escape peels one layer at a time: drawer, then the popup behind it.
-    const k = (e) => { if (e.key === "Escape") set((x) => (x.drawer ? { drawer: null } : { modal: null, pop: null })); };
-    window.addEventListener("keydown", k);
-    return () => window.removeEventListener("keydown", k);
-  }, [set]);
+  // Escape and back peel one layer at a time — doctor drawer, then the person
+  // popup behind it — because the doctor drawer is nested inside it below.
 
   const { months, org } = data;
   const lineRps = useMemo(() => {
@@ -226,6 +256,103 @@ export default function SupportReport({ url, token, className }) {
   const closePop = () => set({ pop: null });
   const closeDrawer = () => set({ drawer: null });
   const closeModal = () => set({ modal: null, drawer: null });
+
+  /* The doctor drawer: a bottom sheet on a phone, a right-hand drawer on a
+     desktop. Opened from a person's popup it is NESTED in that popup's
+     drawer (rendered inside it below), so it stacks on top and Escape / back
+     close it first, returning to the list. */
+  const doctorDrawer = dw.open ? (
+    <Drawer.Root open onOpenChange={(next) => { if (!next) closeDrawer(); }} side={mob ? "bottom" : "right"} backName="support-doctor">
+      <Drawer.Portal>
+        <Drawer.Backdrop />
+        <Drawer.Viewport>
+          <Drawer.Popup className="sr-root" aria-label="Details" style={{ background: "#F8F9FB", display: "flex", flexDirection: "column", overflow: "hidden", ...(mob ? { blockSize: DR.h, maxBlockSize: DR.h, maxInlineSize: "none" } : { inlineSize: DR.w, maxInlineSize: "none", borderRadius: 0 }) }}>
+            <Drawer.Handle />
+            <div style={{ background: "#fff", padding: DR.hPad, borderBottom: "1px solid #EAECF0", display: "flex", flexDirection: "column", gap: 12 }}>
+              <div style={{ display: "flex", gap: 10, alignItems: "center" }}>
+                <div style={{ width: 38, height: 38, borderRadius: "50%", background: dw.avBg, color: "#fff", display: "grid", placeItems: "center", fontSize: 14, fontWeight: 600, flex: "none" }}>{dw.initials}</div>
+                <div style={{ flex: 1, minWidth: 0, display: "flex", flexDirection: "column", gap: 1 }}>
+                  <div style={{ display: "flex", gap: 8, alignItems: "baseline", minWidth: 0 }}>
+                    <span style={{ fontSize: 17, fontWeight: 650, ...ell }}>{dw.title}</span>
+                    <span style={{ fontFamily: MONO, fontSize: 11, color: "#98A2B3", flex: "none" }}>{dw.code}</span>
+                  </div>
+                  <span style={{ fontSize: 12, color: "#667085", ...ell }}>{dw.sub}</span>
+                </div>
+                <button type="button" onClick={closeDrawer} aria-label="Close" style={{ width: 34, height: 34, border: 0, background: "#F2F4F7", borderRadius: 9, cursor: "pointer", fontSize: 14, color: "#475467", flex: "none" }}>✕</button>
+              </div>
+              <div style={{ display: "grid", gridTemplateColumns: "repeat(4,minmax(0,1fr))", gap: 1, background: "#EAECF0", border: "1px solid #EAECF0", borderRadius: 10, overflow: "hidden" }}>
+                {dw.stats.map((t) => (
+                  <div key={t.label} style={{ background: "#fff", padding: "8px 10px", display: "flex", flexDirection: "column", gap: 1, minWidth: 0 }}>
+                    <span style={{ fontSize: 10, color: "#667085", textTransform: "uppercase", letterSpacing: ".04em", ...ell }}>{t.label}</span>
+                    <span style={{ fontFamily: MONO, fontSize: t.fs, fontWeight: 600, color: t.c, whiteSpace: "nowrap" }}>{t.v}</span>
+                  </div>
+                ))}
+              </div>
+            </div>
+            <div data-sr-scroll="1" style={{ flex: 1, overflow: "auto", padding: "12px 14px 28px", display: "flex", flexDirection: "column", gap: 10 }}>
+              {dw.open ? (
+                <>
+                  <div style={{ background: "#fff", border: "1px solid #EAECF0", borderRadius: 12, padding: "12px 14px", display: "flex", flexDirection: "column", gap: 8, flex: "none" }}>
+                    <div style={{ display: "flex", justifyContent: "space-between", ...eyebrowS }}><span>Qty · last 6 months</span><span style={{ color: dd.dFg, textTransform: "none", letterSpacing: 0 }}>{dd.delta}</span></div>
+                    <div style={{ display: "grid", gridTemplateColumns: "repeat(6,minmax(0,1fr))", gap: 8, alignItems: "end", height: 92 }}>
+                      {dd.months.map((m) => (
+                        <div key={m.key} style={{ display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "flex-end", gap: 4, height: "100%", minWidth: 0 }}>
+                          <span style={{ fontFamily: MONO, fontSize: 10, fontWeight: 600, color: m.lc, whiteSpace: "nowrap" }}>{m.v}</span>
+                          <div style={{ width: "100%", maxWidth: 26, height: m.h, background: m.bg, borderRadius: "4px 4px 0 0" }} />
+                          <span style={{ fontSize: 11, color: m.lc, fontWeight: m.fw }}>{m.label}</span>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                  {dd.hasProfiles ? (
+                    <div style={{ background: "#fff", border: "1px solid #EAECF0", borderRadius: 12, padding: "12px 14px", display: "flex", flexDirection: "column", gap: 9, flex: "none" }}>
+                      <span style={eyebrowS}>By role profile</span>
+                      {dd.profiles.map((p) => (
+                        <div key={p.code} style={{ display: "grid", gridTemplateColumns: "9px minmax(0,1fr) auto", gap: 10, alignItems: "center", fontSize: 12 }}>
+                          <span style={{ width: 9, height: 9, borderRadius: 3, background: p.c }} />
+                          <div style={{ display: "flex", flexDirection: "column", minWidth: 0 }}><span style={{ fontFamily: MONO, fontWeight: 600 }}>{p.code}</span><span style={{ color: "#667085", fontSize: 11, ...ell }}>{p.who}</span></div>
+                          <div style={{ display: "flex", flexDirection: "column", alignItems: "flex-end" }}><span style={{ fontFamily: MONO, fontWeight: 600 }}>{p.main}</span><span style={{ fontSize: 11, color: "#98A2B3" }}>{p.minor}</span></div>
+                        </div>
+                      ))}
+                    </div>
+                  ) : null}
+                  {dd.hasItems ? (
+                    <>
+                      <div style={{ background: "#fff", border: "1px solid #EAECF0", borderRadius: 12, padding: "12px 14px", display: "flex", flexDirection: "column", gap: 9, flex: "none" }}>
+                        <span style={eyebrowS}>Brands · {dd.brandCount}</span>
+                        {dd.brands.map((b) => (
+                          <div key={b.name} style={{ display: "grid", gridTemplateColumns: "minmax(0,1fr) auto", gap: 10, alignItems: "center", fontSize: 12 }}>
+                            <div style={{ display: "flex", flexDirection: "column", gap: 4, minWidth: 0 }}><span style={{ fontWeight: 500 }}>{b.name}</span><div style={{ height: 4, background: "#EEF1F5", borderRadius: 2 }}><div style={{ height: "100%", width: `${b.w}%`, background: b.c, borderRadius: 2 }} /></div></div>
+                            <div style={{ display: "flex", flexDirection: "column", alignItems: "flex-end", minWidth: 60 }}><span style={{ fontFamily: MONO, fontWeight: 600 }}>{b.main}</span><span style={{ fontSize: 11, color: "#98A2B3" }}>{b.minor}</span></div>
+                          </div>
+                        ))}
+                      </div>
+                      <div style={{ background: "#fff", border: "1px solid #EAECF0", borderRadius: 12, padding: "12px 14px 4px", display: "flex", flexDirection: "column", flex: "none" }}>
+                        <div style={{ display: "grid", gridTemplateColumns: "minmax(0,1fr) 48px 52px 70px", gap: 8, fontSize: 10, color: "#667085", textTransform: "uppercase", letterSpacing: ".04em", fontWeight: 600, paddingBottom: 6 }}>
+                          <span>Item · {dd.itemCount}</span><span style={{ textAlign: "right" }}>Qty</span><span style={{ textAlign: "right" }}>Rate</span><span style={{ textAlign: "right" }}>Value</span>
+                        </div>
+                        {dd.items.map((it) => (
+                          <div key={it.item} style={{ display: "grid", gridTemplateColumns: "minmax(0,1fr) 48px 52px 70px", gap: 8, alignItems: "center", fontSize: 12, padding: "7px 0", borderTop: "1px solid #F2F4F7" }}>
+                            <div style={{ display: "flex", flexDirection: "column", minWidth: 0 }}><span style={{ fontWeight: 500, ...ell }}>{it.item}</span><span style={{ fontSize: 10, color: "#98A2B3" }}>{it.brand}</span></div>
+                            <span style={{ fontFamily: MONO, color: "#475467", textAlign: "right" }}>{it.qty}</span>
+                            <span style={{ fontFamily: MONO, color: "#98A2B3", textAlign: "right", fontSize: 11 }}>{it.rate}</span>
+                            <span style={{ fontFamily: MONO, fontWeight: 600, color: "#101828", textAlign: "right" }}>{it.amt}</span>
+                          </div>
+                        ))}
+                        {dd.more ? <button type="button" onClick={dd.toggleAll} style={{ margin: "4px 0 8px", height: 34, border: "1px solid #EAECF0", background: "#fff", borderRadius: 8, fontSize: 13, fontWeight: 500, color: "#1F4FD8", cursor: "pointer" }}>{dd.moreTxt}</button> : null}
+                      </div>
+                    </>
+                  ) : null}
+                  {dd.hasNote ? <div style={{ fontSize: 12, color: "#667085", padding: 2 }}>{dd.note}</div> : null}
+                </>
+              ) : null}
+            </div>
+          </Drawer.Popup>
+        </Drawer.Viewport>
+      </Drawer.Portal>
+    </Drawer.Root>
+  ) : null;
+
 
   return (
     <Shell rootRef={rootRef} className={className}>
@@ -629,11 +756,13 @@ export default function SupportReport({ url, token, className }) {
       {/* ── Person popup: a team member's doctors. Sits below the drawer so a
           doctor opened from it slides over it and closing returns here. ── */}
       {pw.open ? (
-        <Layer>
-          <div onClick={closeModal} style={{ position: "fixed", inset: 0, background: "rgba(16,24,40,.45)", zIndex: 1100 }} />
-          <div role="dialog" aria-modal="true" aria-label={pw.title + " · doctors"} style={{ position: "fixed", zIndex: 1101, background: "#F8F9FB", display: "flex", flexDirection: "column", overflow: "hidden", boxShadow: "0 24px 64px rgba(16,24,40,.28)", ...(mob ? { left: 0, right: 0, bottom: 0, height: "86vh", borderRadius: "24px 24px 0 0" } : { left: "50%", top: "50%", transform: "translate(-50%,-50%)", width: "min(640px, calc(100vw - 32px))", height: "min(720px, calc(100vh - 48px))", borderRadius: 16 }) }}>
+        <Drawer.Root open onOpenChange={(next) => { if (!next) closeModal(); }} side={mob ? "bottom" : "right"} backName="support-person">
+          <Drawer.Portal>
+            <Drawer.Backdrop />
+            <Drawer.Viewport>
+          <Drawer.Popup className="sr-root" aria-label={pw.title + " · doctors"} style={{ background: "#F8F9FB", display: "flex", flexDirection: "column", overflow: "hidden", ...(mob ? { blockSize: "86vh", maxBlockSize: "86vh", maxInlineSize: "none" } : { inlineSize: "min(640px, calc(100vw - 32px))", maxInlineSize: "none" }) }}>
+            <Drawer.Handle />
             <div style={{ background: "#fff", padding: mob ? "12px 16px 14px" : "18px 22px 16px", borderBottom: "1px solid #EAECF0", display: "flex", flexDirection: "column", gap: 12 }}>
-              {mob ? <div style={{ width: 40, height: 4, borderRadius: 2, background: "#D0D5DD", alignSelf: "center", marginTop: -4 }} /> : null}
               <div style={{ display: "flex", gap: 10, alignItems: "center" }}>
                 <div style={{ width: 38, height: 38, borderRadius: "50%", background: pw.avBg, color: "#fff", display: "grid", placeItems: "center", fontSize: 14, fontWeight: 600, flex: "none" }}>{pw.initials}</div>
                 <div style={{ flex: 1, minWidth: 0, display: "flex", flexDirection: "column", gap: 1 }}>
@@ -672,98 +801,14 @@ export default function SupportReport({ url, token, className }) {
               {pw.empty ? <div style={{ fontSize: 13, color: "#667085", textAlign: "center", padding: "22px 0" }}>No doctors match.</div> : null}
               <div style={{ fontSize: 12, color: "#98A2B3", textAlign: "center", padding: "6px 0" }}>{pw.footer}</div>
             </div>
-          </div>
-        </Layer>
+            {doctorDrawer}
+          </Drawer.Popup>
+            </Drawer.Viewport>
+          </Drawer.Portal>
+        </Drawer.Root>
       ) : null}
 
-      {/* ── Doctor drawer ── */}
-      {dw.open ? (
-        <Layer>
-          <div onClick={closeDrawer} style={{ position: "fixed", inset: 0, background: "rgba(16,24,40,.45)", zIndex: 1200 }} />
-          <div role="dialog" aria-label="Details" style={{ position: "fixed", top: DR.top, right: DR.right, bottom: DR.bottom, left: DR.left, width: DR.w, height: DR.h, borderRadius: DR.rad, background: "#F8F9FB", zIndex: 1201, display: "flex", flexDirection: "column", overflow: "hidden", boxShadow: "0 -8px 40px rgba(16,24,40,.2)" }}>
-            <div style={{ background: "#fff", padding: DR.hPad, borderBottom: "1px solid #EAECF0", display: "flex", flexDirection: "column", gap: 12 }}>
-              {mob ? <div style={{ width: 40, height: 4, borderRadius: 2, background: "#D0D5DD", alignSelf: "center", marginTop: -4 }} /> : null}
-              <div style={{ display: "flex", gap: 10, alignItems: "center" }}>
-                <div style={{ width: 38, height: 38, borderRadius: "50%", background: dw.avBg, color: "#fff", display: "grid", placeItems: "center", fontSize: 14, fontWeight: 600, flex: "none" }}>{dw.initials}</div>
-                <div style={{ flex: 1, minWidth: 0, display: "flex", flexDirection: "column", gap: 1 }}>
-                  <div style={{ display: "flex", gap: 8, alignItems: "baseline", minWidth: 0 }}>
-                    <span style={{ fontSize: 17, fontWeight: 650, ...ell }}>{dw.title}</span>
-                    <span style={{ fontFamily: MONO, fontSize: 11, color: "#98A2B3", flex: "none" }}>{dw.code}</span>
-                  </div>
-                  <span style={{ fontSize: 12, color: "#667085", ...ell }}>{dw.sub}</span>
-                </div>
-                <button type="button" onClick={closeDrawer} aria-label="Close" style={{ width: 34, height: 34, border: 0, background: "#F2F4F7", borderRadius: 9, cursor: "pointer", fontSize: 14, color: "#475467", flex: "none" }}>✕</button>
-              </div>
-              <div style={{ display: "grid", gridTemplateColumns: "repeat(4,minmax(0,1fr))", gap: 1, background: "#EAECF0", border: "1px solid #EAECF0", borderRadius: 10, overflow: "hidden" }}>
-                {dw.stats.map((t) => (
-                  <div key={t.label} style={{ background: "#fff", padding: "8px 10px", display: "flex", flexDirection: "column", gap: 1, minWidth: 0 }}>
-                    <span style={{ fontSize: 10, color: "#667085", textTransform: "uppercase", letterSpacing: ".04em", ...ell }}>{t.label}</span>
-                    <span style={{ fontFamily: MONO, fontSize: t.fs, fontWeight: 600, color: t.c, whiteSpace: "nowrap" }}>{t.v}</span>
-                  </div>
-                ))}
-              </div>
-            </div>
-            <div data-sr-scroll="1" style={{ flex: 1, overflow: "auto", padding: "12px 14px 28px", display: "flex", flexDirection: "column", gap: 10 }}>
-              {dw.open ? (
-                <>
-                  <div style={{ background: "#fff", border: "1px solid #EAECF0", borderRadius: 12, padding: "12px 14px", display: "flex", flexDirection: "column", gap: 8, flex: "none" }}>
-                    <div style={{ display: "flex", justifyContent: "space-between", ...eyebrowS }}><span>Qty · last 6 months</span><span style={{ color: dd.dFg, textTransform: "none", letterSpacing: 0 }}>{dd.delta}</span></div>
-                    <div style={{ display: "grid", gridTemplateColumns: "repeat(6,minmax(0,1fr))", gap: 8, alignItems: "end", height: 92 }}>
-                      {dd.months.map((m) => (
-                        <div key={m.key} style={{ display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "flex-end", gap: 4, height: "100%", minWidth: 0 }}>
-                          <span style={{ fontFamily: MONO, fontSize: 10, fontWeight: 600, color: m.lc, whiteSpace: "nowrap" }}>{m.v}</span>
-                          <div style={{ width: "100%", maxWidth: 26, height: m.h, background: m.bg, borderRadius: "4px 4px 0 0" }} />
-                          <span style={{ fontSize: 11, color: m.lc, fontWeight: m.fw }}>{m.label}</span>
-                        </div>
-                      ))}
-                    </div>
-                  </div>
-                  {dd.hasProfiles ? (
-                    <div style={{ background: "#fff", border: "1px solid #EAECF0", borderRadius: 12, padding: "12px 14px", display: "flex", flexDirection: "column", gap: 9, flex: "none" }}>
-                      <span style={eyebrowS}>By role profile</span>
-                      {dd.profiles.map((p) => (
-                        <div key={p.code} style={{ display: "grid", gridTemplateColumns: "9px minmax(0,1fr) auto", gap: 10, alignItems: "center", fontSize: 12 }}>
-                          <span style={{ width: 9, height: 9, borderRadius: 3, background: p.c }} />
-                          <div style={{ display: "flex", flexDirection: "column", minWidth: 0 }}><span style={{ fontFamily: MONO, fontWeight: 600 }}>{p.code}</span><span style={{ color: "#667085", fontSize: 11, ...ell }}>{p.who}</span></div>
-                          <div style={{ display: "flex", flexDirection: "column", alignItems: "flex-end" }}><span style={{ fontFamily: MONO, fontWeight: 600 }}>{p.main}</span><span style={{ fontSize: 11, color: "#98A2B3" }}>{p.minor}</span></div>
-                        </div>
-                      ))}
-                    </div>
-                  ) : null}
-                  {dd.hasItems ? (
-                    <>
-                      <div style={{ background: "#fff", border: "1px solid #EAECF0", borderRadius: 12, padding: "12px 14px", display: "flex", flexDirection: "column", gap: 9, flex: "none" }}>
-                        <span style={eyebrowS}>Brands · {dd.brandCount}</span>
-                        {dd.brands.map((b) => (
-                          <div key={b.name} style={{ display: "grid", gridTemplateColumns: "minmax(0,1fr) auto", gap: 10, alignItems: "center", fontSize: 12 }}>
-                            <div style={{ display: "flex", flexDirection: "column", gap: 4, minWidth: 0 }}><span style={{ fontWeight: 500 }}>{b.name}</span><div style={{ height: 4, background: "#EEF1F5", borderRadius: 2 }}><div style={{ height: "100%", width: `${b.w}%`, background: b.c, borderRadius: 2 }} /></div></div>
-                            <div style={{ display: "flex", flexDirection: "column", alignItems: "flex-end", minWidth: 60 }}><span style={{ fontFamily: MONO, fontWeight: 600 }}>{b.main}</span><span style={{ fontSize: 11, color: "#98A2B3" }}>{b.minor}</span></div>
-                          </div>
-                        ))}
-                      </div>
-                      <div style={{ background: "#fff", border: "1px solid #EAECF0", borderRadius: 12, padding: "12px 14px 4px", display: "flex", flexDirection: "column", flex: "none" }}>
-                        <div style={{ display: "grid", gridTemplateColumns: "minmax(0,1fr) 48px 52px 70px", gap: 8, fontSize: 10, color: "#667085", textTransform: "uppercase", letterSpacing: ".04em", fontWeight: 600, paddingBottom: 6 }}>
-                          <span>Item · {dd.itemCount}</span><span style={{ textAlign: "right" }}>Qty</span><span style={{ textAlign: "right" }}>Rate</span><span style={{ textAlign: "right" }}>Value</span>
-                        </div>
-                        {dd.items.map((it) => (
-                          <div key={it.item} style={{ display: "grid", gridTemplateColumns: "minmax(0,1fr) 48px 52px 70px", gap: 8, alignItems: "center", fontSize: 12, padding: "7px 0", borderTop: "1px solid #F2F4F7" }}>
-                            <div style={{ display: "flex", flexDirection: "column", minWidth: 0 }}><span style={{ fontWeight: 500, ...ell }}>{it.item}</span><span style={{ fontSize: 10, color: "#98A2B3" }}>{it.brand}</span></div>
-                            <span style={{ fontFamily: MONO, color: "#475467", textAlign: "right" }}>{it.qty}</span>
-                            <span style={{ fontFamily: MONO, color: "#98A2B3", textAlign: "right", fontSize: 11 }}>{it.rate}</span>
-                            <span style={{ fontFamily: MONO, fontWeight: 600, color: "#101828", textAlign: "right" }}>{it.amt}</span>
-                          </div>
-                        ))}
-                        {dd.more ? <button type="button" onClick={dd.toggleAll} style={{ margin: "4px 0 8px", height: 34, border: "1px solid #EAECF0", background: "#fff", borderRadius: 8, fontSize: 13, fontWeight: 500, color: "#1F4FD8", cursor: "pointer" }}>{dd.moreTxt}</button> : null}
-                      </div>
-                    </>
-                  ) : null}
-                  {dd.hasNote ? <div style={{ fontSize: 12, color: "#667085", padding: 2 }}>{dd.note}</div> : null}
-                </>
-              ) : null}
-            </div>
-          </div>
-        </Layer>
-      ) : null}
+      {pw.open ? null : doctorDrawer}
     </Shell>
   );
 }
