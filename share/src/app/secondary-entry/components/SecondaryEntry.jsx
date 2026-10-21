@@ -795,21 +795,31 @@ export function SecondaryEntry({
 
       {/* Unsaved-changes confirmation — the same Sheet Navigation's exit
           confirmation uses, laid out the same way. */}
-      <Sheet open={guard.confirmOpen} onClose={guard.cancel} title="Discard changes?" surface="app">
-        <p className="text-sm text-ds-secondary">
-          {openEntry
-            ? `Your changes to ${openEntry.stockist} are not saved. Leave without saving them?`
-            : 'Your changes are not saved. Leave without saving them?'}
-        </p>
-        <div className="mt-4 flex justify-end gap-2">
-          <Button type="default" size="app" onClick={guard.cancel}>
-            Keep editing
-          </Button>
-          <Button type="primary" size="app" danger onClick={guard.confirm}>
-            Discard
-          </Button>
-        </div>
-      </Sheet>
+      <Sheet.Root open={guard.confirmOpen} onOpenChange={(open) => !open && guard.cancel()} desktop="dialog">
+        <Sheet.Popup surface="app">
+          <Sheet.Header>
+            <Sheet.Title>Discard changes?</Sheet.Title>
+            <Sheet.Close />
+          </Sheet.Header>
+          <Sheet.Body>
+            <p className="text-sm text-ds-secondary">
+              {openEntry
+                ? `Your changes to ${openEntry.stockist} are not saved. Leave without saving them?`
+                : 'Your changes are not saved. Leave without saving them?'}
+            </p>
+          </Sheet.Body>
+          <Sheet.Footer>
+            <div className="flex justify-end gap-2">
+              <Button type="default" size="app" onClick={guard.cancel}>
+                Keep editing
+              </Button>
+              <Button type="primary" size="app" danger onClick={guard.confirm}>
+                Discard
+              </Button>
+            </div>
+          </Sheet.Footer>
+        </Sheet.Popup>
+      </Sheet.Root>
     </section>
     </TaskProvider>
   );

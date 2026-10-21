@@ -1710,66 +1710,304 @@
   height: var(--space-6);
 }
 
-/* ============================================================== Sheet
+/* ============================================================== Drawer
 
-   The scrim is the positioning context and the dismiss target; the panel is
-   a column with a fixed head and a scrolling body, so the title of a
-   sixty-row list stays put while the rows move under it.
+   The base overlay (design-system/base/Drawer.jsx, on Base UI's Drawer).
+   Three layers, all portalled: the scrim (Backdrop), a full-screen flex
+   container that places the panel against its edge (Viewport, `data-edge`),
+   and the panel (Popup).
 
-   `max-block-size: 85dvh` and not `vh`: on mobile Safari `vh` is the
-   LARGEST viewport, so a sheet sized in vh has its last row under the URL
-   bar until the reader scrolls the page — which the scroll lock has just
-   stopped them doing. The 15% left over is what tells you there is a page
-   behind this. */
+   MOTION. Base UI sets `data-starting-style` / `data-ending-style` for the
+   frame the panel enters and leaves on, and while a finger is down it writes
+   the drag into `--drawer-swipe-movement-x/-y` and `--drawer-swipe-progress`
+   and marks the panel `data-swiping`. So: the transform is always "where the
+   snap point puts me, plus where the finger has pulled me"; transitions are
+   off while swiping so the panel is glued to the finger; on release they come
+   back, shortened by `--drawer-swipe-strength` after a fast flick. One curve,
+   --dur-base — the system's — and prefers-reduced-motion takes it to 1ms.
 
-.ds-sheet-scrim {
+   EVERY var() HAS A FALLBACK. Base UI only sets the swipe variables while
+   they mean something; a bare var() outside that window is invalid and would
+   drop the whole transform. */
+
+.ds-drawer-backdrop {
+  position: fixed;
+  inset: 0;
+  min-block-size: 100dvh;
+  z-index: var(--z-sheet);
+  background-color: var(--surface-overlay);
+  /* The scrim thins out as the panel is pulled away, so letting go reads as
+     "this is closing" before it does. */
+  opacity: calc(1 - var(--drawer-swipe-progress, 0));
+  transition: opacity var(--dur-base) var(--ds-ease-standard);
+}
+.ds-drawer-backdrop[data-starting-style],
+.ds-drawer-backdrop[data-ending-style] {
+  opacity: 0;
+}
+.ds-drawer-backdrop[data-swiping] {
+  transition-duration: 0ms;
+}
+.ds-drawer-backdrop[data-ending-style] {
+  transition-duration: calc(var(--drawer-swipe-strength, 1) * var(--dur-base));
+}
+/* iOS Safari 26+ leaves a fixed scrim short of the bottom edge while the
+   toolbar collapses; Base UI's guidance is an absolute scrim there. */
+@supports (-webkit-touch-callout: none) {
+  .ds-drawer-backdrop {
+    position: absolute;
+  }
+}
+
+.ds-drawer-viewport {
   position: fixed;
   inset: 0;
   z-index: var(--z-sheet);
   display: flex;
+  /* The panel handles its own touch; the page behind must not scroll or
+     zoom under a finger that started on the empty part of the viewport. */
+  touch-action: none;
+}
+.ds-drawer-viewport[data-edge='bottom'] {
   align-items: flex-end;
   justify-content: center;
-  background-color: var(--surface-overlay);
 }
-.ds-sheet {
+.ds-drawer-viewport[data-edge='right'] {
+  align-items: stretch;
+  justify-content: flex-end;
+}
+.ds-drawer-viewport[data-edge='left'] {
+  align-items: stretch;
+  justify-content: flex-start;
+}
+
+.ds-drawer {
+  position: relative;
   display: flex;
   flex-direction: column;
   box-sizing: border-box;
-  width: 100%;
-  /* Wider than the phone column it usually opens over, capped so it does not
-     become a full-width banner on a desktop where it is still a sheet. */
-  max-inline-size: 30rem;
-  max-block-size: 85dvh;
-  overflow: hidden;
-  border-start-start-radius: var(--ds-radius-xl);
-  border-start-end-radius: var(--ds-radius-xl);
+  overflow: visible;
   background-color: var(--surface-card);
   box-shadow: var(--ds-shadow-pop);
+  outline: none;
+  touch-action: none;
+  will-change: transform;
+  transition: transform var(--dur-base) var(--ds-ease-standard);
+}
+.ds-drawer[data-swiping] {
+  transition-duration: 0ms;
+  user-select: none;
+}
+.ds-drawer[data-ending-style] {
+  transition-duration: calc(var(--drawer-swipe-strength, 1) * var(--dur-base));
+}
+
+/* Bottom sheet. `max-block-size: 85dvh` and not `vh`: on mobile Safari `vh`
+   is the LARGEST viewport, so a sheet sized in vh has its last row under the
+   URL bar. The 15% left over is what tells you there is a page behind this.
+   Wider than the phone column it opens over, capped so a desktop that pins
+   `side="bottom"` does not get a full-width banner. */
+.ds-drawer[data-edge='bottom'] {
+  inline-size: 100%;
+  max-inline-size: 30rem;
+  max-block-size: 85dvh;
+  border-start-start-radius: var(--ds-radius-xl);
+  border-start-end-radius: var(--ds-radius-xl);
+  transform: translateY(
+    calc(var(--drawer-snap-point-offset, 0px) + var(--drawer-swipe-movement-y, 0px))
+  );
+}
+.ds-drawer[data-edge='bottom'][data-expanded] {
+  max-block-size: 100dvh;
+}
+/* Pulled UP past its height, the panel would lift off the bottom edge and
+   show the page through the gap. The same surface continues below it. */
+.ds-drawer[data-edge='bottom']::after {
+  content: '';
+  position: absolute;
+  inset-inline: 0;
+  inset-block-start: 100%;
+  block-size: var(--space-48);
+  background-color: inherit;
+  pointer-events: none;
+}
+.ds-drawer[data-edge='bottom'][data-starting-style],
+.ds-drawer[data-edge='bottom'][data-ending-style] {
+  transform: translateY(calc(100% + var(--space-2)));
+}
+
+/* Side drawer — what `side="auto"` becomes from 768px up. */
+.ds-drawer[data-edge='right'],
+.ds-drawer[data-edge='left'] {
+  block-size: 100%;
+  inline-size: 100%;
+  max-inline-size: 30rem;
+}
+.ds-drawer[data-edge='right'] {
+  border-start-start-radius: var(--ds-radius-xl);
+  border-end-start-radius: var(--ds-radius-xl);
+  transform: translateX(var(--drawer-swipe-movement-x, 0px));
+}
+.ds-drawer[data-edge='left'] {
+  border-start-end-radius: var(--ds-radius-xl);
+  border-end-end-radius: var(--ds-radius-xl);
+  transform: translateX(var(--drawer-swipe-movement-x, 0px));
+}
+.ds-drawer[data-edge='right'][data-starting-style],
+.ds-drawer[data-edge='right'][data-ending-style] {
+  transform: translateX(calc(100% + var(--space-2)));
+}
+.ds-drawer[data-edge='left'][data-starting-style],
+.ds-drawer[data-edge='left'][data-ending-style] {
+  transform: translateX(calc(-100% - var(--space-2)));
+}
+
+/* Stacked drawers: the ones behind the front sink back a step each. */
+.ds-drawer[data-nested-drawer-open] {
+  filter: brightness(0.96);
+}
+
+/* The grab bar: on a bottom sheet the one visible hint that the panel moves. */
+.ds-drawer__handle {
+  flex: 0 0 auto;
+  inline-size: var(--space-32);
+  block-size: var(--space-4);
+  margin: var(--space-8) auto 0;
+  border-radius: var(--ds-radius-pill);
+  background-color: var(--border-strong);
+}
+
+/* Content is where Base UI lets a mouse select text without starting a drag. */
+.ds-drawer__content {
+  min-block-size: 0;
+}
+
+/* ============================================================== Dialog
+
+   The base centred overlay (design-system/base/Dialog.jsx, on Base UI's
+   Dialog): scrim, a full-screen viewport that centres the panel, the panel.
+   It fades in and settles a short distance up — a slide, not a scale-pop. */
+
+.ds-dialog-backdrop {
+  position: fixed;
+  inset: 0;
+  min-block-size: 100dvh;
+  z-index: var(--z-sheet);
+  background-color: var(--surface-overlay);
+  transition: opacity var(--dur-base) var(--ds-ease-standard);
+}
+.ds-dialog-backdrop[data-starting-style],
+.ds-dialog-backdrop[data-ending-style] {
+  opacity: 0;
+}
+@supports (-webkit-touch-callout: none) {
+  .ds-dialog-backdrop {
+    position: absolute;
+  }
+}
+
+.ds-dialog-viewport {
+  position: fixed;
+  inset: 0;
+  z-index: var(--z-sheet);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: var(--space-24);
+}
+
+.ds-dialog {
+  display: flex;
+  flex-direction: column;
+  box-sizing: border-box;
+  inline-size: 100%;
+  /* Narrow on purpose: a dialog holds a confirmation or a short form. Anything
+     that needs more room is a side drawer. */
+  max-inline-size: 28rem;
+  max-block-size: calc(100dvh - 2 * var(--space-24));
+  border-radius: var(--ds-radius-xl);
+  background-color: var(--surface-card);
+  box-shadow: var(--ds-shadow-pop);
+  outline: none;
+  transition:
+    opacity var(--dur-base) var(--ds-ease-standard),
+    transform var(--dur-base) var(--ds-ease-standard);
+}
+.ds-dialog[data-starting-style],
+.ds-dialog[data-ending-style] {
+  opacity: 0;
+  transform: translateY(var(--space-12));
+}
+.ds-dialog[data-nested-dialog-open] {
+  filter: brightness(0.96);
+}
+
+/* ============================================================== Popover
+
+   The base anchored panel (design-system/base/Popover.jsx, on Base UI's
+   Popover). The positioner is what Base UI moves; the popup is the surface —
+   the same card the PrimeReact OverlayPanel preset drew (rounded-lg, subtle
+   border, card surface, pop shadow), so a picker moved onto it looks the
+   same. It fades in on --dur-fast: it belongs to the control it drops from,
+   so it should feel like part of it, not like a page arriving. */
+
+.ds-popover-positioner {
+  z-index: var(--z-sheet);
+}
+.ds-popover {
+  box-sizing: border-box;
+  max-block-size: var(--available-height);
+  overflow: auto;
+  border: var(--border-w) solid var(--border-subtle);
+  border-radius: var(--ds-radius-lg);
+  background-color: var(--surface-card);
+  box-shadow: var(--ds-shadow-pop);
+  outline: none;
+  transform-origin: var(--transform-origin);
+  transition: opacity var(--dur-fast) var(--ds-ease-standard);
+}
+.ds-popover[data-starting-style],
+.ds-popover[data-ending-style] {
+  opacity: 0;
+}
+
+/* ============================================================== Sheet
+
+   The composed sheet (components/Sheet.jsx): Header, an optional pinned
+   Toolbar, the scrolling Body, an optional pinned Footer — a column with a
+   fixed head, so the title of a sixty-row list stays put while the rows move
+   under it. Sizing, edge and motion are the Drawer's (.ds-drawer, above). */
+
+.ds-sheet {
+  overflow: hidden;
 }
 .ds-sheet:focus-visible {
   outline: none;
 }
+/* Title and Description stack in column one; Close holds column two across
+   both rows — placement, so neither text needs a wrapper. */
 .ds-sheet__head {
-  display: flex;
+  display: grid;
   flex: 0 0 auto;
-  align-items: flex-start;
-  justify-content: space-between;
-  gap: var(--space-12);
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: start;
+  column-gap: var(--space-12);
+  row-gap: var(--space-2);
   padding: var(--space-16) var(--space-16) var(--space-12);
   border-bottom: var(--border-w) solid var(--border-subtle);
 }
-.ds-sheet__heading {
-  display: flex;
-  min-width: 0;
-  flex-direction: column;
-  gap: var(--space-2);
+/* Under the grab bar the bar already supplies the top breathing room. */
+.ds-drawer__handle + .ds-sheet__head {
+  padding-block-start: var(--space-8);
 }
 .ds-sheet__title {
+  grid-column: 1;
   margin: 0;
   font: var(--type-section);
   color: var(--ds-text-heading);
 }
 .ds-sheet__subtitle {
+  grid-column: 1;
   margin: 0;
   font: var(--type-app-label);
   color: var(--ds-text-secondary);
@@ -1778,6 +2016,8 @@
    control in the system makes. On a sheet it matters more than anywhere
    else: this is the way out. */
 .ds-sheet__close {
+  grid-column: 2;
+  grid-row: 1 / span 2;
   display: flex;
   flex: 0 0 auto;
   align-items: center;
@@ -1815,8 +2055,26 @@
   min-height: 0;
   overflow-y: auto;
   overscroll-behavior: contain;
+  /* The panel is touch-action:none so Base UI owns the drag; the body gives
+     the finger back to the browser so it can scroll. */
+  touch-action: auto;
   padding-inline: var(--space-16);
   padding-block: var(--space-4) var(--space-16);
+}
+/* The last region clears the home indicator on a notched phone. */
+.ds-sheet__body:last-child {
+  padding-block-end: calc(var(--space-16) + env(safe-area-inset-bottom, 0px));
+}
+/* Stacks what it is given (an error above the action row); the row itself is
+   the caller's — a grid of two buttons, one full-width button. */
+.ds-sheet__footer {
+  display: flex;
+  flex: 0 0 auto;
+  flex-direction: column;
+  gap: var(--space-8);
+  padding: var(--space-12) var(--space-16) calc(var(--space-12) + env(safe-area-inset-bottom, 0px));
+  border-top: var(--border-w) solid var(--border-subtle);
+  background-color: var(--surface-card);
 }
 
 @media (hover: hover) and (pointer: fine) {

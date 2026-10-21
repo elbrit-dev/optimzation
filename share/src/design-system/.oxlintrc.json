@@ -50,6 +50,10 @@
             "message": "Import primitives from '@/design-system', not from a component file directly."
           },
           {
+            "group": ["@base-ui/*"],
+            "message": "Base UI is wrapped once, in src/design-system/base. Use Drawer / Sheet (and the other base components) from '@/design-system', so every overlay gets the system's styling and the back button."
+          },
+          {
             "group": ["lucide-react", "@heroicons/*", "react-icons/*"],
             "message": "Icon sets are not interchangeable here. Use <Icon name=\"...\" /> from '@/design-system'."
           }
@@ -63,7 +67,7 @@
       "rules": { "no-restricted-syntax": "off" }
     },
     {
-      "files": ["src/design-system/components/*.jsx", "src/design-system/lib/*.js"],
+      "files": ["src/design-system/components/*.jsx", "src/design-system/lib/*.js", "src/design-system/base/*.jsx"],
       "rules": { "no-restricted-imports": "off" }
     }
   ]

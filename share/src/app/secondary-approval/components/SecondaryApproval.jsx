@@ -563,17 +563,27 @@ export function SecondaryApproval({
         error={revisitOpen ? error : null}
       />
 
-      <Sheet open={guard.confirmOpen} onClose={guard.cancel} title="Discard decisions?" surface="app">
-        <p className="text-sm text-ds-secondary">The approvals and reworks you picked are not sent yet. Leave without sending them?</p>
-        <div className="mt-4 flex justify-end gap-2">
-          <Button type="default" size="app" onClick={guard.cancel}>
-            Keep deciding
-          </Button>
-          <Button type="primary" size="app" danger onClick={guard.confirm}>
-            Discard
-          </Button>
-        </div>
-      </Sheet>
+      <Sheet.Root open={guard.confirmOpen} onOpenChange={(open) => !open && guard.cancel()} desktop="dialog">
+        <Sheet.Popup surface="app">
+          <Sheet.Header>
+            <Sheet.Title>Discard decisions?</Sheet.Title>
+            <Sheet.Close />
+          </Sheet.Header>
+          <Sheet.Body>
+            <p className="text-sm text-ds-secondary">The approvals and reworks you picked are not sent yet. Leave without sending them?</p>
+          </Sheet.Body>
+          <Sheet.Footer>
+            <div className="flex justify-end gap-2">
+              <Button type="default" size="app" onClick={guard.cancel}>
+                Keep deciding
+              </Button>
+              <Button type="primary" size="app" danger onClick={guard.confirm}>
+                Discard
+              </Button>
+            </div>
+          </Sheet.Footer>
+        </Sheet.Popup>
+      </Sheet.Root>
     </section>
     </TaskProvider>
   );

@@ -7,6 +7,7 @@
 
 import { useState } from 'react';
 import { Button as PrimeButton } from 'primereact/button';
+import { DemoSheets } from './DemoSheets';
 import {
   Avatar,
   Button,
@@ -21,7 +22,6 @@ import {
   Metric,
   ProgressBar,
   SectionLabel,
-  Sheet,
   SegmentedControl,
   Select,
   StackedBar,
@@ -657,38 +657,20 @@ export default function DesignSystemPage() {
             </Card>
           </Row>
           <Row label="Sheet">
-            <Button type="default" size="sm" onClick={() => setSheetOpen(true)}>
-              Open sheet
+            <Button type="default" size="sm" onClick={() => setSheetOpen('list')}>
+              List
+            </Button>
+            <Button type="default" size="sm" onClick={() => setSheetOpen('snap')}>
+              Snap points
+            </Button>
+            <Button type="default" size="sm" onClick={() => setSheetOpen('form')}>
+              Form + footer
             </Button>
             <span className="text-10 text-ds-secondary">
-              Portals to document.body, takes focus, locks the page behind it. Escape, the
-              close button or the scrim all dismiss it.
+              Bottom sheet on a phone, side drawer from 768px. Swipe, Escape, the scrim, the ✕ or
+              back dismiss it. &ldquo;Open another&rdquo; inside the list stacks a second sheet.
             </span>
-            <Sheet
-              open={sheetOpen}
-              onClose={() => setSheetOpen(false)}
-              surface="app"
-              title="Working today"
-              subtitle="3 people in this scope"
-            >
-              {[
-                { name: 'Fayaque Ahmed Qazi', sub: 'Hubballi · reports to Mohammed Tousif · 14/15 visits done', calls: 14 },
-                { name: 'Kukatla Rakesh', sub: 'Hyderabad · reports to Nagunoori Anil · 13/13 visits done', calls: 13 },
-                { name: 'Umesh A M', sub: 'Hubballi · reports to Arunkumar M · 9/15 visits done', calls: 9 },
-              ].map((p) => (
-                <ListRow
-                  key={p.name}
-                  dense
-                  title={p.name}
-                  subtitle={p.sub}
-                  trailing={
-                    <StatusPill status={p.calls > 10 ? 'success' : 'warning'} showDot={false}>
-                      {p.calls} calls
-                    </StatusPill>
-                  }
-                />
-              ))}
-            </Sheet>
+            <DemoSheets which={sheetOpen} onWhich={setSheetOpen} />
           </Row>
         </Section>
 

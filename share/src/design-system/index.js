@@ -31,10 +31,17 @@ export { ListRow } from './components/ListRow';
 export { Metric } from './components/Metric';
 export { ProgressBar } from './components/ProgressBar';
 export { SectionLabel } from './components/SectionLabel';
-/* Sheet is an overlay, not a quantity — it portals to document.body and
-   owns focus while it is open. See Sheet.jsx for why the portal is load-
-   bearing rather than a z-index trick. */
+/* Overlays. Drawer (edge, gestures) and Dialog (centred) are the BASE layer —
+   Base UI's parts, token-styled, with the back button wired in; nothing else
+   in either app imports '@base-ui/*'. Sheet is COMPOSED from them:
+   <Sheet.Root>, <Sheet.Popup>, <Sheet.Header>, <Sheet.Body>… Reach for Sheet
+   first; assemble base parts only for a shape Sheet's parts cannot make. */
+export { Dialog } from './base/Dialog';
+export { Drawer } from './base/Drawer';
+export { Popover } from './base/Popover';
 export { Sheet } from './components/Sheet';
+export { confirm } from './components/Confirm';
+export { useRetained } from './lib/useRetained';
 export { StackedBar } from './components/StackedBar';
 
 /* The field app's task strip, and the two pieces it is built from. The ring

@@ -303,42 +303,47 @@ export function EntryForm({ entry, products, canEdit, readOnlyReason, onBack, on
       </PinnedBar>
 
       {/* What is about to go, before it goes: the approvers get exactly this. */}
-      <Sheet
-        open={confirming}
-        onClose={() => setConfirming(false)}
-        title={revisit ? 'Resubmit for approval?' : 'Submit for approval?'}
-        subtitle={entry.stockist}
-        surface="app"
-      >
-        <div className="grid grid-cols-2 gap-2">
-          <SummaryFigure label="Products" value={String(lines.length)} />
-          <SummaryFigure label={task.closing ? 'Sales qty' : 'Total qty'} value={formatQty(totalSales)} />
-          {task.closing ? <SummaryFigure label="Closing qty" value={formatQty(totalClosing)} /> : null}
-          <SummaryFigure label="Value" value={formatMoney(total)} />
-        </div>
-        {allZero ? (
-          <p className="mt-3 text-12 text-ds-secondary">Every quantity is 0 — it goes to the approvers as nothing this month.</p>
-        ) : null}
-        <p className="mt-3 text-12 text-ds-secondary">It moves to the approvers and can no longer be edited, unless they send it back.</p>
-        <div className="mt-4 grid grid-cols-2 gap-2">
-          <Button type="default" size="lg" block onClick={() => setConfirming(false)}>
-            Back
-          </Button>
-          <Button
-            type="primary"
-            size="lg"
-            block
-            loading={saving === 'submit'}
-            disabled={saving != null}
-            onClick={async () => {
-              setConfirming(false);
-              await run(true);
-            }}
-          >
-            {revisit ? 'Resubmit' : 'Submit'}
-          </Button>
-        </div>
-      </Sheet>
+      <Sheet.Root open={confirming} onOpenChange={setConfirming} desktop="dialog">
+        <Sheet.Popup surface="app">
+          <Sheet.Header>
+            <Sheet.Title>{revisit ? 'Resubmit for approval?' : 'Submit for approval?'}</Sheet.Title>
+            <Sheet.Description>{entry.stockist}</Sheet.Description>
+            <Sheet.Close />
+          </Sheet.Header>
+          <Sheet.Body>
+            <div className="grid grid-cols-2 gap-2">
+              <SummaryFigure label="Products" value={String(lines.length)} />
+              <SummaryFigure label={task.closing ? 'Sales qty' : 'Total qty'} value={formatQty(totalSales)} />
+              {task.closing ? <SummaryFigure label="Closing qty" value={formatQty(totalClosing)} /> : null}
+              <SummaryFigure label="Value" value={formatMoney(total)} />
+            </div>
+            {allZero ? (
+              <p className="mt-3 text-12 text-ds-secondary">Every quantity is 0 — it goes to the approvers as nothing this month.</p>
+            ) : null}
+            <p className="mt-3 text-12 text-ds-secondary">It moves to the approvers and can no longer be edited, unless they send it back.</p>
+          </Sheet.Body>
+          <Sheet.Footer>
+            <div className="grid grid-cols-2 gap-2">
+              <Button type="default" size="lg" block onClick={() => setConfirming(false)}>
+                Back
+              </Button>
+              <Button
+                type="primary"
+                size="lg"
+                block
+                loading={saving === 'submit'}
+                disabled={saving != null}
+                onClick={async () => {
+                  setConfirming(false);
+                  await run(true);
+                }}
+              >
+                {revisit ? 'Resubmit' : 'Submit'}
+              </Button>
+            </div>
+          </Sheet.Footer>
+        </Sheet.Popup>
+      </Sheet.Root>
     </div>
   );
 }

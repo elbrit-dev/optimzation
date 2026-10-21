@@ -1,7 +1,7 @@
 'use client';
 
 import { useMemo, useState } from 'react';
-import { Sheet } from '@/design-system';
+import { Sheet, useRetained } from '@/design-system';
 import { filterPlan, groupByEvent, visitsIn } from '../data/selectors';
 import { PlanControls } from './PlanControls';
 import { formatHour } from '../data/format';
@@ -47,7 +47,7 @@ function titleFor(selection) {
 const BLANK_FILTERS = { values: {}, sorts: {}, query: '' };
 
 export function VisitsByHourSheet({
-  selection,
+  selection: openSelection,
   rows,
   team = [],
   periodLabel,
@@ -61,6 +61,9 @@ export function VisitsByHourSheet({
   loadPob = null,
   onClose,
 }) {
+  /* Open on the live selection; render from the retained one, so the list
+     does not empty while the sheet slides away. */
+  const selection = useRetained(openSelection);
   const [openId, setOpenId] = useState(null);
 
   /* THE SAME CONTROLS AS THE DOCTOR PLAN SHEET, over the same shape of list —
@@ -77,7 +80,7 @@ export function VisitsByHourSheet({
      the sheet stays mounted between opens, so a search typed against the 2pm
      bar would still be applied when the 9am bar opens — and that hour would
      read as empty rather than as filtered. */
-  const selectionKey = `${selection?.hour ?? ''}|${selection?.tone ?? ''}`;
+  const selectionKey = `${openSelection?.hour ?? ''}|${openSelection?.tone ?? ''}`;
   const [filteredFor, setFilteredFor] = useState(selectionKey);
   if (selectionKey !== filteredFor) {
     setFilteredFor(selectionKey);
@@ -128,27 +131,28 @@ export function VisitsByHourSheet({
     .join(' · ');
 
   return (
-    <Sheet
-      open={selection != null}
-      onClose={onClose}
-      surface="app"
-      title={titleFor(selection)}
-      subtitle={subtitle}
-      /* Pinned under the heading, same as the plan sheet: a search that
-         scrolls away is one the reader scrolls back up to change. Only once
-         there is something to sift. */
-      toolbar={
-        calls.length > 0 ? (
-          <PlanControls
-            calls={calls}
-            value={filters}
-            onChange={setFilters}
-            resultCount={shownCalls.length}
-            totalCount={calls.length}
-          />
-        ) : null
-      }
-    >
+    <Sheet.Root open={openSelection != null} onOpenChange={(open) => !open && onClose?.()}>
+      <Sheet.Popup surface="app">
+        <Sheet.Header>
+          <Sheet.Title>{titleFor(selection)}</Sheet.Title>
+          <Sheet.Description>{subtitle}</Sheet.Description>
+          <Sheet.Close />
+        </Sheet.Header>
+        {/* Pinned under the heading, same as the plan sheet: a search that
+            scrolls away is one the reader scrolls back up to change. Only
+            once there is something to sift. */}
+        {calls.length > 0 ? (
+          <Sheet.Toolbar>
+            <PlanControls
+              calls={calls}
+              value={filters}
+              onChange={setFilters}
+              resultCount={shownCalls.length}
+              totalCount={calls.length}
+            />
+          </Sheet.Toolbar>
+        ) : null}
+        <Sheet.Body>
       {loading ? (
         <p className="py-4 text-12 text-ds-secondary">Loading visits…</p>
       ) : calls.length === 0 ? (
@@ -179,7 +183,9 @@ export function VisitsByHourSheet({
       {/* The tripwire for the next page. Rendered only while there IS one, so
           a finished list has nothing at the bottom still watching. */}
       {hasMore ? <div ref={sentinelRef} aria-hidden="true" className="h-1" /> : null}
-    </Sheet>
+        </Sheet.Body>
+      </Sheet.Popup>
+    </Sheet.Root>
   );
 }
 
