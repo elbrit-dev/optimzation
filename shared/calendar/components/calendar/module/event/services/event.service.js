@@ -824,7 +824,13 @@ export async function fetchEventsByRange(startDate, endDate, view, options = {})
 // team's Doctor Visit plans (about 9,000 a month for an SM, measured on
 // 28 Sep 2026) the cap cut visits from every view. A slice holds one week:
 // a few hundred rows for a rep, a few thousand for a manager.
-const INITIAL_EVENT_WINDOW = 2000;
+//
+// Each slice asks for the cap at once. The answer holds only the rows that
+// exist, so a rep's week is the same size either way; but a week over a
+// smaller first window was asked again with double the window, re-sending
+// every row already received (2k, 4k, 8k, 16k: ~2.5x the week's rows for a
+// manager with broad visibility, measured at 10-20 MB a month view).
+const INITIAL_EVENT_WINDOW = 20000;
 const MAX_EVENT_WINDOW = 20000;
 const SLICE_DAYS = 7;
 const SLICE_CONCURRENCY = 3;
