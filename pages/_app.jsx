@@ -410,7 +410,10 @@ function MyApp({ Component, pageProps }) {
       let animationCompleted = false;
       let appReady = false;
       
-      const MIN_DISPLAY_TIME = 3000;
+      // Long enough for the logo to register, short enough not to hide a
+      // ready home: at 3000 ms the first screen sat finished under the splash
+      // for ~2 s on every cold start (home's data lands ~1.7–2.4 s in).
+      const MIN_DISPLAY_TIME = 800;
       
       setTimeout(() => {
         appReady = true;

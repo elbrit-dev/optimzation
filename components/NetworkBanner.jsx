@@ -44,13 +44,15 @@ const PROBE_URL = "https://speed.cloudflare.com/__down";
 // more, no matter how slow the line is (the old 12s timeout meant a slow link
 // could stall the decision for seconds — that was the "takes so long" problem).
 //
-// Worst case, first paint of a slow banner:
-//   FIRST_PROBE_DELAY + PROBE_TIME_CAP + CONFIRM_DELAY + PROBE_TIME_CAP ≈ 1.8s
+// Worst case, first paint of a slow banner (offline shows at once):
+//   FIRST_PROBE_DELAY + PROBE_TIME_CAP + CONFIRM_DELAY + PROBE_TIME_CAP ≈ 9.5s
 // Worst case, tap to test -> banner gone:
 //   FULL_TIME_CAP + AUTO_CLOSE_DELAY ≈ 1.8s
 const PROBE_BYTES = 250_000;      // background probe payload (~0.25 MB) — enough to classify
 const PROBE_TIME_CAP = 650;       // hard cap per background probe
-const FIRST_PROBE_DELAY = 300;    // first probe fires almost immediately after mount
+// The first probe waits for the app to finish booting: at 300 ms it pulled 250 KB
+// through the same pipe as the app's own first requests on every cold start.
+const FIRST_PROBE_DELAY = 8_000;
 const CONFIRM_DELAY = 200;        // one slow reading -> re-probe this fast to confirm
 const GOOD_INTERVAL = 120_000;    // idle re-probe cadence while the line reads good
 // While slow we re-probe on a doubling backoff: quick at first, so a line that
@@ -59,6 +61,12 @@ const GOOD_INTERVAL = 120_000;    // idle re-probe cadence while the line reads 
 const SLOW_INTERVAL_MIN = 1_500;
 const SLOW_INTERVAL_MAX = 10_000;
 const AUTO_CLOSE_DELAY = 900;     // how long a manual-test result stays on screen
+
+// When the line last read good, shared by every mount: the banner sits in each
+// page's layout, so it remounts on every navigation, and each mount (and each
+// return to the app) used to download a fresh probe. A good reading younger
+// than GOOD_INTERVAL stands in for a new one.
+let lastGoodAt = 0;
 const FULL_BYTES = 20_000_000;    // manual test payload ceiling (~20 MB)
 const FULL_TIME_CAP = 900;        // manual test hard cap
 const PAINT_THROTTLE = 80;        // ms between live Mbps repaints during a manual test
@@ -298,6 +306,7 @@ export default function NetworkBanner({
       // reads artificially low. Require two slow readings in a row before showing,
       // and re-probe quickly to confirm. A good reading clears the streak and hides.
       if (next[0] === "green") {
+        lastGoodAt = Date.now();
         slowStreakRef.current = 0;
         slowStepRef.current = 0;             // back to good -> reset the recovery backoff
         applyStatus(next);
@@ -316,14 +325,18 @@ export default function NetworkBanner({
     // Any explicit signal (came online, went offline, tab refocused) is a reason to
     // measure NOW and to restart the recovery cadence from its quickest step.
     const kick = () => { clearTimeout(timerRef.current); slowStepRef.current = 0; runCheck(); };
-    const onVisible = () => { if (!document.hidden) kick(); };
+    const sinceGood = () => Date.now() - lastGoodAt;
+    // Back in the foreground: re-measure only if the last good reading is stale.
+    const onVisible = () => { if (!document.hidden && sinceGood() >= GOOD_INTERVAL) kick(); };
     kickRef.current = kick;                  // runFullTest() uses this to resume instantly
 
-    // Only a token delay before the first probe — just enough to let the mount settle.
-    // It DOES now measure while the app is still loading, so a busy boot can read low;
-    // the two-reading confirmation gate absorbs most of that, and anything that slips
-    // through clears itself on the next recheck ~1.5s later.
-    timerRef.current = setTimeout(runCheck, FIRST_PROBE_DELAY);
+    // First probe: at once when offline (no download happens then); otherwise
+    // after the boot settles, or when the shared good reading goes stale.
+    const offline = typeof navigator !== "undefined" && !navigator.onLine;
+    const firstDelay = offline ? 0
+      : sinceGood() < GOOD_INTERVAL ? GOOD_INTERVAL - sinceGood()
+      : FIRST_PROBE_DELAY;
+    timerRef.current = setTimeout(runCheck, firstDelay);
     window.addEventListener("online", kick);
     window.addEventListener("offline", kick);
     connRef.current?.addEventListener?.("change", kick);
