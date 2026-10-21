@@ -4,7 +4,6 @@ import { useEffect, useMemo, useState } from "react";
 import { toast } from "sonner";
 import { Button } from "@calendar/components/ui/button";
 import { TAG_FORM_CONFIG } from "@calendar/lib/calendar/form-config";
-import { ScrollArea } from "@calendar/components/ui/scroll-area";
 import { useCalendar } from "@calendar/components/calendar/contexts/calendar-context";
 import { AddEditEventDialog } from "@calendar/components/calendar/dialogs/add-edit-event-dialog";
 import { VisitPobEditor } from "@calendar/components/calendar/module/event/components/event-details/VisitPobEditor";
@@ -409,7 +408,10 @@ export function EventDoctorVisitDialog({
 
   return (
     <>
-      <ScrollArea className="max-h-[68vh]">
+      {/* One scroll: the sheet's. A 68vh scroll box of its own, plus the
+          header and Shared To above the buttons, pushed Delete / Visit below
+          the fold, so they opened hidden behind the sheet's scroll. */}
+      <div>
         <div className="p-1 space-y-4">
           <DetailSummary
             title={doctorDetails?.doctorName || "Doctor Visit"}
@@ -675,21 +677,16 @@ export function EventDoctorVisitDialog({
             </div>
           )}
 
-
+          <SharedToBlock event={event} variant="footer" />
         </div>
-      </ScrollArea>
+      </div>
 
-      {/* Footer */}
-      <div className="mt-1 border-t pt-3 sm:grid sm:grid-cols-2 sm:items-start sm:gap-3">
-        <div className="min-w-0">
-          <SharedToBlock
-            event={event}
-            variant="footer"
-            renderWhenEmpty
-            className="sm:min-h-[52px]"
-          />
-        </div>
-        <DetailFooter className="mt-3 border-t-0 pt-0 sm:mt-0 sm:justify-self-end sm:justify-end">
+      {/* Footer: pinned to the bottom of the sheet so the actions show the
+          moment it opens. It must stay a direct child of the sheet's scroll
+          box for sticky to hold. -bottom-6/-mb-6 sit it on the sheet's 24px
+          bottom padding (sticky stops at the padding edge, and content would
+          show through under bottom-0); -mx/px keep its white full width. */}
+      <DetailFooter className="sticky -bottom-6 z-10 -mx-3 -mb-6 bg-white px-3 pb-6 md:-mx-6 md:px-6">
           {permissions.canEdit && (!viewerHasVisited || isFailedSync) && (
             <>
               {isFailedSync ? (
@@ -780,8 +777,7 @@ export function EventDoctorVisitDialog({
               onConfirm={() => handleDelete(event.erpName, undefined, event)}
             />
           )}
-        </DetailFooter>
-      </div>
+      </DetailFooter>
     </>
   );
 }
