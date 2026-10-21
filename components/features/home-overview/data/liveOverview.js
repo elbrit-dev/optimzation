@@ -512,20 +512,27 @@ async function fetchAway(conn, from, to) {
 /* Why someone who logged no visit in [from, to] was not silent, or null.
    Every working day (Monday to Saturday) in the window must be covered by
    leave or Other Work: one Admin Day does not excuse a silent month. Named
-   by what covered them -- leave when any of it was leave. */
-function excuseOf(away, id, from, to) {
-  const leave = away.leave.get(id) ?? [], other = away.otherWork.get(id) ?? [];
-  if (!leave.length && !other.length) return null;
-  let anyLeave = false, firstType = "";
+   by what covered them -- leave when any of it was leave.
+
+   A HOLIDAY ON THEIR OWN LIST is not a working day for them, as Sunday is
+   not: it needs no covering. A window that is nothing but their holidays --
+   today, on Pooja, in a state that has it off -- is a holiday, named. */
+export function excuseOf(away, id, from, to, holidays = new Map()) {
+  const leave = away.leave.get(id) ?? [], other = away.otherWork.get(id) ?? [], off = holidays.get(id);
+  if (!leave.length && !other.length && !off?.size) return null;
+  let anyLeave = false, firstType = "", working = 0, holiday = "";
   for (let d = from; d <= to; d = addDays(d, 1)) {
     const [y, m, dd] = d.split("-").map(Number);
     if (new Date(y, m - 1, dd).getDay() === 0) continue;
+    if (off?.has(d)) { holiday = holiday || off.get(d); continue; }
+    working += 1;
     const l = leave.find((s) => s.from <= d && d <= s.to);
     const o = l ? null : other.find((s) => s.date === d);
     if (!l && !o) return null;
     if (l) anyLeave = true;
     if (!firstType) firstType = (l || o).type;
   }
+  if (!working) return holiday ? { kind: "holiday", type: holiday } : null;
   if (!firstType) return null;
   return { kind: anyLeave ? "leave" : "otherWork", type: anyLeave ? (leave[0].type || "Leave") : firstType };
 }
@@ -608,18 +615,49 @@ function visitRows(events, team) {
    reports_to downline past the ERP's Event permissions. `roster` is the
    Sales roster: the server attributes a visit to its participant when they
    are in it. */
-async function visitCounts(conn, from, to, roster) {
+async function visitSummary(conn, from, to, roster, parts) {
   const res = await fetch(`${conn.origin}/api/method/elbrit_visit_summary`, {
     method: "POST",
     headers: { Authorization: conn.authToken, "Content-Type": "application/json", Accept: "application/json" },
-    body: JSON.stringify({ from, to, sales: roster.map((m) => [m.id, m.userId || ""]) }),
+    body: JSON.stringify({ from, to, sales: roster.map((m) => [m.id, m.userId || ""]), ...(parts ? { parts } : {}) }),
   });
   let json = null;
   try { json = await res.json(); } catch { /* reported below */ }
   if (!res.ok || !json?.message || json.exc_type) throw new Error(`Could not count the visits (${json?.exc_type || "HTTP " + res.status}). Try again in a moment.`);
-  const m = json.message;
+  return json.message;
+}
+
+/* The holidays the summary sends: each roster member's days off on their ERP
+   Holiday List in the window (per state, so on Pooja one HQ is off and the
+   next works). -> Map(employeeId -> Map(date -> name)). */
+function holidaysOf(m) {
+  const out = new Map();
+  const lists = m?.holidays?.lists || [];
+  for (const [id, i] of Object.entries(m?.holidays?.of || {})) {
+    const days = lists[i]?.[1];
+    if (days?.length) out.set(id, new Map(days.map(([date, name]) => [date, name || "Holiday"])));
+  }
+  return out;
+}
+
+/* Holidays alone, for the viewers whose visits are read as rows: the script
+   skips the visit count when asked for just this. Never throws -- without it
+   nobody is shown on holiday, as before. */
+async function fetchHolidays(conn, from, to, roster) {
+  try {
+    return holidaysOf(await visitSummary(conn, from, to, roster, ["holidays"]));
+  } catch (e) {
+    console.warn("[home-overview] holidays unreadable; nobody is shown on holiday", e);
+    return new Map();
+  }
+}
+
+/* -> { rows, holidays }: the count lines, and the window's holidays that came
+   back with them. */
+async function visitCounts(conn, from, to, roster) {
+  const m = await visitSummary(conn, from, to, roster);
   const depts = m.depts || [];
-  return m.rows.map(([e, d, h, st, j, hr, n, dp, ft]) => {
+  const rows = m.rows.map(([e, d, h, st, j, hr, n, dp, ft]) => {
     const day = m.days[d];
     return {
       plannedDate: day,
@@ -632,6 +670,7 @@ async function visitCounts(conn, from, to, roster) {
       n,
     };
   });
+  return { rows, holidays: holidaysOf(m) };
 }
 
 /* THE VIEWER'S OWN TEAM. The token decides what the ERP hands over -- for
@@ -675,6 +714,9 @@ export async function fetchVisit(conn, today) {
   const { team, ids } = ownTeam(roster, org);
   const mine = (rs) => (ids ? rs.filter((r) => ids.has(r.employeeId)) : rs);
   if (isManagement(org)) return managementVisit(conn, today, roster, team, ids, mine, awayToday);
+  /* Today's holidays alongside today's rows -- the window's, below, only if
+     the window turns out not to be today. */
+  const holidaysToday = fetchHolidays(conn, t, t, team);
   const todays = await todaysRead;
   /* Attribution runs over the whole roster (a call owned by someone outside
      the team still resolves to the right participant), then keeps the
@@ -699,20 +741,23 @@ export async function fetchVisit(conn, today) {
   const rows = mine(all);
   /* Leave and Other Work over the same window the visits were read for. */
   const from = mode === "today" ? t : P.fromDate, to = mode === "today" ? t : P.toDate < t ? P.toDate : t;
-  const away = mode === "today" ? await awayToday : await fetchAway(conn, from, to);
+  const [away, holidays] = mode === "today"
+    ? await Promise.all([awayToday, holidaysToday])
+    : await Promise.all([fetchAway(conn, from, to), fetchHolidays(conn, from, to, team)]);
   console.info(`[home-overview] visit: ${read} Doctor Visit plan events read for ${mode === "today" ? t : P.fromDate + ".." + P.toDate}, ${rows.length} participant rows, team ${team.length} of ${roster.length}`);
-  return shapeVisit(rows, team, P, mode, Boolean(ids), (id) => excuseOf(away, id, from, to));
+  return shapeVisit(rows, team, P, mode, Boolean(ids), (id) => excuseOf(away, id, from, to, holidays));
 }
 
 /* fetchVisit for MANAGEMENT: the same window rule, the visits counted by the
    server (visitCounts) instead of read as the signed-in user. */
 async function managementVisit(conn, today, roster, team, ids, mine, awayToday) {
   const t = isoDay(today);
-  let all = await visitCounts(conn, t, t, roster), mode = "today", P = monthsToTry(today)[0];
+  /* The holidays come back with the counts, for the same window: no second call. */
+  let { rows: all, holidays } = await visitCounts(conn, t, t, roster), mode = "today", P = monthsToTry(today)[0];
   if (!all.length) {
     mode = "window";
     for (const Q of monthsToTry(today)) {
-      all = await visitCounts(conn, Q.fromDate, Q.toDate, roster);
+      ({ rows: all, holidays } = await visitCounts(conn, Q.fromDate, Q.toDate, roster));
       P = Q;
       if (all.length) break;
     }
@@ -722,7 +767,7 @@ async function managementVisit(conn, today, roster, team, ids, mine, awayToday) 
   const from = mode === "today" ? t : P.fromDate, to = mode === "today" ? t : P.toDate < t ? P.toDate : t;
   const away = mode === "today" ? await awayToday : await fetchAway(conn, from, to);
   console.info(`[home-overview] visit (management): ${all.reduce((n, r) => n + r.n, 0)} Doctor Visit plan visits counted for ${mode === "today" ? t : P.fromDate + ".." + P.toDate}, team ${team.length} of ${roster.length}`);
-  return shapeVisit(rows, team, P, mode, Boolean(ids), (id) => excuseOf(away, id, from, to));
+  return shapeVisit(rows, team, P, mode, Boolean(ids), (id) => excuseOf(away, id, from, to, holidays));
 }
 
 const hhmm = (ts) => { const h = Number(String(ts).slice(11, 13)), m = String(ts).slice(14, 16); return Number.isFinite(h) ? `${h % 12 || 12}:${m} ${h < 12 ? "AM" : "PM"}` : ""; };
@@ -812,7 +857,7 @@ function shapeVisit(rows, team, P, mode, scoped, excuseFor = () => null) {
      the headline. */
   const listed = new Set();
   function repsOf(people) {
-    const reported = [], notYet = [], vacant = [], leave = [], other = [];
+    const reported = [], notYet = [], vacant = [], leave = [], other = [], holiday = [];
     for (const m of people) {
       if (!m || listed.has(m.id)) continue;
       listed.add(m.id);
@@ -821,11 +866,12 @@ function shapeVisit(rows, team, P, mode, scoped, excuseFor = () => null) {
       if (m.vacant) vacant.push(who);
       else if (didReport(m.id)) reported.push({ ...who, time: hhmm(firstOf.get(m.id)) });
       else if (why?.kind === "leave") leave.push({ ...who, time: why.type });
+      else if (why?.kind === "holiday") holiday.push({ ...who, time: why.type });
       else if (why) other.push({ ...who, time: why.type });
       else notYet.push(who);
     }
     reported.sort((a, b) => a.time.localeCompare(b.time));
-    return { reported, notYet, vacant, leave, other };
+    return { reported, notYet, vacant, leave, other, holiday };
   }
 
   /* Both groupings -- departments and HQs -- are built; the view picks one
@@ -851,7 +897,7 @@ function shapeVisit(rows, team, P, mode, scoped, excuseFor = () => null) {
       const x = repsOf(u.extra);
       u.reps = {
         reported: own[i].reported.concat(x.reported), notYet: own[i].notYet.concat(x.notYet), vacant: own[i].vacant.concat(x.vacant),
-        leave: own[i].leave.concat(x.leave), other: own[i].other.concat(x.other),
+        leave: own[i].leave.concat(x.leave), other: own[i].other.concat(x.other), holiday: own[i].holiday.concat(x.holiday),
       };
       delete u.members; delete u.extra;
     });
@@ -876,6 +922,8 @@ function shapeVisit(rows, team, P, mode, scoped, excuseFor = () => null) {
       /* Filled seats that logged nothing but were away -- out of "not reported". */
       leave: team.filter((m) => excused(m)?.kind === "leave").length,
       other: team.filter((m) => excused(m)?.kind === "otherWork").length,
+      /* Off on their Holiday List -- out of "not reported" too. */
+      holiday: team.filter((m) => excused(m)?.kind === "holiday").length,
     },
   };
 }

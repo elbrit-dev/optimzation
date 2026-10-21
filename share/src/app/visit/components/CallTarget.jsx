@@ -5,7 +5,7 @@ import { formatDecimal } from '../data/format';
 
 /* One person's calls against the month, as one line under their bar:
  *
- *   8.4/day · 120/288 calls · 168 left · 12.9/day needed · 2 days leave · 1 other work
+ *   8.4/day · 120/264 calls · 144 left · 12.9/day needed · 2 holidays · 2 days leave · 1 other work
  *
  * What a reporting officer reads down the tree to find who to call: the
  * average is red below the standard, and "needed" goes red once it is more
@@ -16,7 +16,7 @@ import { formatDecimal } from '../data/format';
  * vacant seat). */
 export function CallTarget({ calls, className }) {
   if (!calls) return null;
-  const { standard, done, target, left, daysLeave, daysOtherWork, daysAhead, average, perDayNeeded } = calls;
+  const { standard, done, target, left, daysLeave, daysOtherWork, daysHoliday, daysAhead, average, perDayNeeded } = calls;
   const below = average != null && average < standard;
   const needsMore = perDayNeeded != null && perDayNeeded > standard;
 
@@ -46,6 +46,14 @@ export function CallTarget({ calls, className }) {
           </span>
         </>
       )}
+      {daysHoliday > 0 ? (
+        <>
+          <span aria-hidden="true">·</span>
+          <span className="text-ds-muted" title="Holidays on their Holiday List this month, taken off the target">
+            {daysHoliday} {daysHoliday === 1 ? 'holiday' : 'holidays'}
+          </span>
+        </>
+      ) : null}
       {daysLeave > 0 ? (
         <>
           <span aria-hidden="true">·</span>

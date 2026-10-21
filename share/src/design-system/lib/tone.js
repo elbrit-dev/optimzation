@@ -28,6 +28,12 @@ const CANONICAL = {
      report's "Other work" (Admin Day, Conference…). Expected, so not a
      warning, and not brand: the brand red cannot also mean a state. */
   planned: 'planned',
+  /* A holiday on the person's ERP Holiday List — the visit report's
+     "Holiday". A day off by the calendar, so neither a warning nor neutral
+     grey (that is a vacant seat); magenta is the brand's nearest to the rose
+     the planner's calendar paints holidays in, and reads 6.7:1 on white, so
+     the one token serves as fill and as text. */
+  holiday: 'holiday',
   /* StatusPill's vocabulary, aliased. Without these a caller passing
      `tone="approved"` fell through to neutral in silence — a grey bar where a
      green one was asked for, with nothing to debug. */
@@ -45,6 +51,7 @@ const FILL = {
   danger: 'var(--status-rejected)',
   neutral: 'var(--status-draft)',
   planned: 'var(--status-info)',
+  holiday: 'var(--elbrit-magenta)',
 };
 
 const TEXT = {
@@ -54,6 +61,7 @@ const TEXT = {
   danger: 'var(--status-rejected-text)',
   neutral: 'var(--status-draft-text)',
   planned: 'var(--status-info-text)',
+  holiday: 'var(--elbrit-magenta)',
 };
 
 /* The outcome names only — the aliases are accepted, not advertised. */

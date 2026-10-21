@@ -37,7 +37,9 @@ export function attendanceExportRows(people, team, state, overRange = false, cal
     if (state === 'vacant') return row;
 
     if (overRange) {
-      row['Working days'] = calendar.length;
+      /* THEIR working days: the window's less the holidays on their list. */
+      row['Working days'] = p.workingDays ?? calendar.length;
+      row.Holidays = p.holidayDays?.length ?? 0;
       row['Days reported'] = p.reportedDays ?? 0;
       row['Days not reported'] = p.silentDays ?? (p.days?.length ?? 0) - (p.reportedDays ?? 0);
     }
@@ -71,6 +73,11 @@ export function attendanceExportRows(people, team, state, overRange = false, cal
     if (overRange && state === 'otherWork') {
       row['Other work days'] = (p.otherWorkDays ?? []).map((d) => `${d.date} (${otherWorkText(d)})`).join(', ');
     }
+    if (state === 'holiday') {
+      row.Holiday = overRange
+        ? (p.holidayDays ?? []).map((d) => `${d.date} (${d.name})`).join(', ')
+        : p.holidayToday ?? '';
+    }
     return row;
   });
 }
@@ -78,7 +85,7 @@ export function attendanceExportRows(people, team, state, overRange = false, cal
 /* `not-reported_2026-10-01_to_2026-10-12.xlsx` — the state and the window, so
    two exports downloaded a minute apart do not land as export (1).xlsx. */
 export function attendanceExportFilename(state, calendar = []) {
-  const slug = { working: 'reported', notReporting: 'not-reported', onLeave: 'absent', otherWork: 'other-work', vacant: 'vacant' }[state] ?? state;
+  const slug = { working: 'reported', notReporting: 'not-reported', onLeave: 'absent', otherWork: 'other-work', holiday: 'holiday', vacant: 'vacant' }[state] ?? state;
   const from = calendar[0];
   const to = calendar[calendar.length - 1];
   const span = !from ? '' : from === to ? `_${from}` : `_${from}_to_${to}`;

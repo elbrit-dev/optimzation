@@ -733,9 +733,25 @@ function countVisitTime(day, hour) {
   return hour >= 0 ? `${day} ${String(hour).padStart(2, '0')}:00:00` : `${day} NA:00:00`;
 }
 
+/* The holidays the summary sends with the counts (see elbrit_visit_summary's
+   HOLIDAYS): each roster member's days off on their ERP Holiday List inside
+   the window, one list per state sent once and pointed at by employee.
+   -> Map(employeeId -> [{ date, name }]). A summary from before the field
+   existed sends none, and nobody is on holiday. */
+export function holidaysFrom(message) {
+  const out = new Map();
+  const lists = message?.holidays?.lists ?? [];
+  for (const [id, i] of Object.entries(message?.holidays?.of ?? {})) {
+    const days = lists[i]?.[1];
+    if (days?.length) out.set(id, days.map(([date, name]) => ({ date, name: name || 'Holiday' })));
+  }
+  return out;
+}
+
+/* -> { rows, holidays } — the count rows and holidaysFrom's map. */
 export async function fetchVisitCounts({ from, to }, sales, conn, nameByEmployeeId = new Map()) {
   const m = await postMethod('elbrit_visit_summary', { from, to, sales }, conn);
-  return m.rows.map(([e, d, h, s, j, hr, n]) => {
+  const rows = m.rows.map(([e, d, h, s, j, hr, n]) => {
     const employeeId = m.employees[e];
     const plannedDate = m.days[d];
     return {
@@ -750,6 +766,7 @@ export async function fetchVisitCounts({ from, to }, sales, conn, nameByEmployee
       n,
     };
   });
+  return { rows, holidays: holidaysFrom(m) };
 }
 
 /* The rows behind ONE list, attributed exactly as the report attributes
@@ -1020,9 +1037,10 @@ export async function fetchVisitDataset({
      needs, the same roster attributeRows uses here. */
   const sales = team.map((m) => [m.id, m.userId ?? '']);
   const windowCountsPromise = parked(fetchVisitCounts({ from: windowFrom, to: windowTo }, sales, conn, nameByEmployeeId));
-  const todayRows = todayInWindow
-    ? []
+  const todayCounts = todayInWindow
+    ? { rows: [], holidays: new Map() }
     : await fetchVisitCounts({ from: today, to: today }, sales, conn, nameByEmployeeId);
+  const todayRows = todayCounts.rows;
   /* The rows behind one list, fetched when it is opened (see loadVisitRows). */
   const loadRows = (request) => loadVisitRows(request, sales, conn, nameByEmployeeId, employeeIdByEmail);
   /* The items behind a card's POB, fetched when it is opened. */
@@ -1039,11 +1057,16 @@ export async function fetchVisitDataset({
      has not arrived, and a flag it can read beats a row count it would have
      to guess from. See useVisitKpi, which holds the screen for the period the
      reader is actually looking at and lets the rest land quietly. */
-  const build = ({ rows, leaveInWindow, otherWorkInWindow, pob, truncated, ready }) => ({
+  const build = ({ rows, leaveInWindow, otherWorkInWindow, holidays, pob, truncated, ready }) => ({
     /* BOTH leave flags, because the two periods ask different questions of
        the same roster: `onLeave` is "out today", `onLeaveInWindow` is "took
        leave at some point in the selected range". attendanceOf picks. */
-    team: treeBySeat(team, roles).map((m) => ({
+    team: treeBySeat(team, roles).map((m) => {
+      /* Their holidays in the window and today — days off on THEIR Holiday
+         List, which differ by state (see selectors' calendarFor). */
+      const own = holidays.get(m.id) ?? [];
+      const todays = own.find((h) => h.date === today) ?? null;
+      return {
       ...m,
       /* Their seat's department, shown beside the role ("ABM · Elbrit Erode"). */
       department: (m.roleProfile && roles.deptOf?.get(m.roleProfile)) || '',
@@ -1060,7 +1083,11 @@ export async function fetchVisitDataset({
       otherWorkToday: otherWorkToday.get(m.id)?.[0] ?? null,
       onOtherWorkInWindow: otherWorkInWindow.has(m.id),
       otherWork: otherWorkInWindow.get(m.id) ?? [],
-    })),
+      holidays: own,
+      onHoliday: Boolean(todays),
+      holidayToday: todays?.name ?? null,
+      };
+    }),
     rows,
     pob,
     today,
@@ -1090,6 +1117,7 @@ export async function fetchVisitDataset({
     rows: todayRows,
     leaveInWindow: NO_LEAVE,
     otherWorkInWindow: NO_LEAVE,
+    holidays: todayCounts.holidays,
     pob: [],
     truncated: { visits: false, pob: false },
     /* Says what is KNOWN, not what is on screen: the money cards read an
@@ -1105,15 +1133,20 @@ export async function fetchVisitDataset({
      along rather than following: the Absent bucket is part of the month's
      attendance, not a detail of it, and a month view without them would show
      people as not-reported who were on approved leave. */
-  const [windowRows, leaveInWindow, otherWorkInWindow] = await Promise.all([
+  const [windowCounts, leaveInWindow, otherWorkInWindow] = await Promise.all([
     windowCountsPromise, leaveWindowPromise, otherWorkWindowPromise,
   ]);
+  const windowRows = windowCounts.rows;
 
   /* REPLACED, not merged, when today falls inside the window: the window
      query already returned today's events, and concatenating would count
      every one of this morning's visits twice. Outside the window the two are
      disjoint by construction and both are needed. */
   const rows = todayInWindow ? windowRows : [...windowRows, ...todayRows];
+  /* The window's holidays and, when today sits outside it, today's — the
+     two never share a day, so each person's are simply put together. */
+  const holidays = new Map(windowCounts.holidays);
+  for (const [id, days] of todayCounts.holidays) holidays.set(id, [...(holidays.get(id) ?? []), ...days]);
   /* Counted on the server, over the whole window: nothing is ever cut off. */
   const visitsTruncated = false;
 
@@ -1121,6 +1154,7 @@ export async function fetchVisitDataset({
     rows,
     leaveInWindow,
     otherWorkInWindow,
+    holidays,
     pob: [],
     truncated: { visits: visitsTruncated, pob: false },
     ready: { today: true, window: true, pob: false },
@@ -1153,6 +1187,7 @@ export async function fetchVisitDataset({
     rows,
     leaveInWindow,
     otherWorkInWindow,
+    holidays,
     pob,
     truncated: { visits: visitsTruncated, pob: pobQuotations.truncated },
     ready: { today: true, window: true, pob: true },

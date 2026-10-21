@@ -1,6 +1,6 @@
 'use client';
 
-import { Avatar, cx } from '@/design-system';
+import { Avatar, cx, toneText } from '@/design-system';
 import { formatDayHeading, hqLabel } from '../data/format';
 import { ATTENDANCE_LABEL, otherWorkKinds, otherWorkText } from '../data/shape';
 import { CallTarget } from './CallTarget';
@@ -109,6 +109,7 @@ const DAY_COUNT = {
   notReporting: (p) => p.silentDays ?? (p.days?.length ?? 0) - (p.reportedDays ?? 0),
   onLeave: (p) => p.leaveDays?.length ?? 0,
   otherWork: (p) => p.otherWorkDays?.length ?? 0,
+  holiday: (p) => p.holidayDays?.length ?? 0,
 };
 
 export function PersonCard({ person, dayState = null, expandable = false, expanded = false, state = null }) {
@@ -119,7 +120,10 @@ export function PersonCard({ person, dayState = null, expandable = false, expand
     ? person.otherWorkToday
       ? otherWorkText(person.otherWorkToday)
       : otherWorkKinds(person.otherWorkDays)
-    : '';
+    : state === 'holiday'
+      /* WHICH holiday: "Pooja" on the day, every one over a range. */
+      ? person.holidayToday || [...new Set((person.holidayDays ?? []).map((h) => h.name))].join(', ')
+      : '';
   /* The window's working days, Monday to Saturday — `days` is seeded from
      the calendar now, so it holds every one of them whether or not the rep
      was given a plan that day. */
@@ -205,7 +209,14 @@ export function PersonCard({ person, dayState = null, expandable = false, expand
           ) : null}
 
           {otherWorkNote ? (
-            <span className="min-w-0 truncate rounded-chip bg-sunken px-2 py-0.5 text-10 font-semibold text-status-info-text">
+            <span
+              className={cx(
+                'min-w-0 truncate rounded-chip bg-sunken px-2 py-0.5 text-10 font-semibold',
+                state !== 'holiday' && 'text-status-info-text',
+              )}
+              /* A holiday's name in the holiday tone, as on its chip. */
+              style={state === 'holiday' ? { color: toneText('holiday') } : undefined}
+            >
               {otherWorkNote}
             </span>
           ) : null}

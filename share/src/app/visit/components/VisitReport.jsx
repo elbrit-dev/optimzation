@@ -9,6 +9,7 @@ import {
   callAverage,
   geoSplit,
   happened,
+  holidayOn,
   monthEnd,
   planned,
   pobTotal,
@@ -16,9 +17,9 @@ import {
   everyonePicks,
   subtreeOf,
   visitsByHour,
+  workingDaysPerRep,
 } from '../data/selectors';
 import {
-  countWorkingDays,
   daySuffix,
   formatMonthName,
   formatShortDay,
@@ -238,6 +239,9 @@ export function VisitReport({ gqlEnvironment, gqlToken } = {}) {
             onLeave: (m.leave ?? []).some((l) => l.from <= dayKey && dayKey <= l.to),
             onOtherWork: (m.otherWork ?? []).some((o) => o.date === dayKey),
             otherWorkToday: (m.otherWork ?? []).find((o) => o.date === dayKey) ?? null,
+            /* A holiday on their list that day (the loaded window's). */
+            onHoliday: Boolean(holidayOn(m, dayKey)),
+            holidayToday: holidayOn(m, dayKey),
           }
         : m;
     return {
@@ -347,10 +351,14 @@ export function VisitReport({ gqlEnvironment, gqlToken } = {}) {
          states the one person directly rather than deriving them: a viewer
          with no call logged yet is still one person, not zero, and their
          average is "nothing yet" rather than an em dash. */
+      /* The days are each rep's OWN — the window's working days less the
+         holidays on their list, averaged over the reps who reported (see
+         workingDaysPerRep) — so a state's holiday does not lower the
+         average of the people who had it off. */
       callAverage: callAverage(
         scoped.rows,
         isMine ? (happenedCount > 0 ? 1 : 0) : activeReps(scoped.rows, scoped.team),
-        countWorkingDays(win.from, win.to),
+        workingDaysPerRep(scoped.rows, scoped.team, workingDaysBetween(win.from, win.to)),
       ),
       /* "Planned across N reps" — the same population as the divisor above
          and as the attendance card, because managers carry plans of their own

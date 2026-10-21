@@ -8,7 +8,8 @@
 #
 #   POST /api/method/elbrit_visit_summary
 #     { "from": "2026-08-01", "to": "2026-08-31",
-#       "sales": [["E00869", "vignesh869.be@elbrit.org"], ...] }
+#       "sales": [["E00869", "vignesh869.be@elbrit.org"], ...],
+#       "parts": ["visits", "holidays"] }        (optional, both by default)
 #
 # The Visit report's visits for a window, COUNTED HERE instead of sent as
 # rows: a month is ~55,000 visits on production (~38 MB as rows); as counts
@@ -53,6 +54,19 @@
 #     User login email; else to the plan owner (Event.custom_employee_id)
 #   - planned day = the first 10 characters of starts_on, the hour = the
 #     characters 11-12 of the visit time, both as the ERP stores them
+#
+# HOLIDAYS (2026-10): each Sales roster member's holidays inside the window,
+# from their Employee's Holiday List (the Company's default list when the
+# Employee names none, as HRMS resolves it). Weekly offs and Sundays are left
+# out — the app treats Sunday as a day off on its own. A day on someone's
+# list is a day off for THEM: not a silent day, and off their call target.
+# Lists are per state ("TamilNadu Holidays 2026"), so the roster shares a
+# handful; each is sent once:
+#   holidays: { "lists": [[list name, [[date, name], ...]], ...],
+#               "of":    { employee id: index into lists } }
+# Only lists with a holiday in the window, and only the employees on them.
+# `parts: ["holidays"]` skips the visit count (the home overview, which
+# reads its visits another way, asks for just this).
 #
 # safe_exec: no import, no .format(), no set literals, no tuple
 # unpacking, no underscore-prefixed names.
@@ -144,11 +158,78 @@ def visit_events(filters, fields):
     return out
 
 
+def plain_text(html):
+    # A holiday's name as words: the ERP stores it as editor HTML,
+    # <div class="ql-editor read-mode"><p>Pooja</p></div>.
+    out = []
+    inside = False
+    for ch in html or "":
+        if ch == "<":
+            inside = True
+        elif ch == ">":
+            inside = False
+            out.append(" ")
+        elif not inside:
+            out.append(ch)
+    text = "".join(out).replace("&nbsp;", " ").replace("&amp;", "&")
+    return " ".join(text.split())
+
+
+def holidays_of(ids, date_from, date_to):
+    list_of = {}
+    default_of = {}
+    for part in chunks(ids):
+        for e in frappe.get_all("Employee", filters=[["name", "in", part]],
+                                fields=["name", "holiday_list", "company"], limit_page_length=0):
+            name = e.get("holiday_list")
+            company = e.get("company")
+            if not name and company:
+                if company not in default_of:
+                    default_of[company] = frappe.db.get_value("Company", company, "default_holiday_list") or ""
+                name = default_of[company]
+            if name:
+                list_of[e.get("name")] = name
+    wanted = {}
+    for name in list_of.values():
+        wanted[name] = 1
+    days_of = {}
+    if wanted:
+        for h in frappe.db.get_all("Holiday",
+                                   filters=[["parenttype", "=", "Holiday List"],
+                                            ["parent", "in", list(wanted.keys())],
+                                            ["weekly_off", "=", 0],
+                                            ["holiday_date", "between", [date_from, date_to]]],
+                                   fields=["parent", "holiday_date", "description"],
+                                   order_by="holiday_date asc", limit_page_length=0):
+            day = str(h.get("holiday_date"))[:10]
+            # Sunday is a day off already; a list that also names it says nothing new.
+            if frappe.utils.getdate(day).weekday() == 6:
+                continue
+            parent = h.get("parent")
+            if parent not in days_of:
+                days_of[parent] = []
+            days_of[parent].append([day, plain_text(h.get("description")) or "Holiday"])
+    lists = []
+    index = {}
+    for name in days_of:
+        index[name] = len(lists)
+        lists.append([name, days_of[name]])
+    of = {}
+    for emp in list_of:
+        if list_of[emp] in index:
+            of[emp] = index[list_of[emp]]
+    return {"lists": lists, "of": of}
+
+
 body = frappe.form_dict
 date_from = body.get("from") or ""
 date_to = body.get("to") or ""
 if not (valid_date(date_from) and valid_date(date_to)):
     frappe.throw("from and to must be YYYY-MM-DD dates")
+
+parts = body.get("parts") or ["visits", "holidays"]
+if isinstance(parts, str):
+    parts = json.loads(parts)
 
 sales = body.get("sales") or []
 if isinstance(sales, str):
@@ -161,12 +242,14 @@ for pair in sales:
         if len(pair) > 1 and pair[1]:
             by_email[str(pair[1]).lower()] = pair[0]
 
-rows = visit_events(
-    [["event_category", "=", "Doctor Visit plan"],
-     ["starts_on", "between", [date_from + " 00:00:00", date_to + " 23:59:59"]]],
-    ["name", "starts_on", "custom_employee_id", "custom_hq", "custom_department",
-     PARTS + ".reference_doctype as rt", PARTS + ".reference_docname as rd",
-     PARTS + ".custom_visit_time as vt", PARTS + ".custom_is_force_visit as fv"])
+rows = []
+if "visits" in parts:
+    rows = visit_events(
+        [["event_category", "=", "Doctor Visit plan"],
+         ["starts_on", "between", [date_from + " 00:00:00", date_to + " 23:59:59"]]],
+        ["name", "starts_on", "custom_employee_id", "custom_hq", "custom_department",
+         PARTS + ".reference_doctype as rt", PARTS + ".reference_docname as rd",
+         PARTS + ".custom_visit_time as vt", PARTS + ".custom_is_force_visit as fv"])
 
 # participantCount per Event: distinct non-blank references + blanks, min 1
 refs = {}
@@ -240,6 +323,10 @@ out = []
 for k in counts:
     out.append([k[0], k[1], k[2], k[3], k[4], k[5], counts[k], k[6], firsts.get(k) or ""])
 
+holidays = {"lists": [], "of": {}}
+if "holidays" in parts and sales_ids:
+    holidays = holidays_of(list(sales_ids.keys()), date_from, date_to)
+
 frappe.response["message"] = {
     "from": date_from,
     "to": date_to,
@@ -249,4 +336,5 @@ frappe.response["message"] = {
     "depts": depts,
     "rows": out,
     "visits": len(rows),
+    "holidays": holidays,
 }
