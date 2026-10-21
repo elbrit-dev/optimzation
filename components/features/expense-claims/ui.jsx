@@ -79,7 +79,53 @@ export function Note({ tone = "error", children, style }) {
    first. Mounted only while shown, so it renders open and closes through
    onClose. (`z` is accepted for existing callers; stacking is the order the
    sheets open in.) */
-export function Sheet({ title, sub, chips, onClose, maxWidth = 640, z: _z = 70, body, footer, children }) {
+const WIDE_QUERY = "(min-width: 768px)";
+/* Desktop-width screen? Read at once (no first-frame flash), then followed. */
+export function useWide() {
+  const [wide, setWide] = useState(() => typeof window !== "undefined" && window.matchMedia(WIDE_QUERY).matches);
+  useEffect(() => {
+    const q = window.matchMedia(WIDE_QUERY);
+    const sync = () => setWide(q.matches);
+    sync();
+    q.addEventListener("change", sync);
+    return () => q.removeEventListener("change", sync);
+  }, []);
+  return wide;
+}
+
+/* desktop="drawer" (default): the side drawer from 768px.
+   desktop="dialog": a centred popup from 768px -- the claim form. On a phone
+   both are the swipeable bottom drawer. */
+export function Sheet({ title, sub, chips, onClose, maxWidth = 640, z: _z = 70, body, footer, children, desktop = "drawer" }) {
+  const wide = useWide();
+  const popup = desktop === "dialog" && wide;
+  const inner = (
+    <>
+      <div style={{ flex: "none", display: "flex", alignItems: "flex-start", gap: 12, padding: popup ? "18px 14px 16px 24px" : "8px 12px 14px 20px", background: "#fff", boxShadow: "0 1px 0 #eef1f5" }}>
+        <div style={{ flex: 1, minWidth: 0, display: "flex", flexDirection: "column", gap: 5 }}>
+          <span style={{ fontSize: popup ? 20 : 18, fontWeight: 700, letterSpacing: "-0.015em" }}>{title}</span>
+          {(chips || sub) && <span style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>{chips}{sub && <span style={{ fontSize: 12.5, color: "#8a93a3" }}>{sub}</span>}</span>}
+        </div>
+        <button type="button" aria-label="Close" className="ec-ghost" onClick={onClose} style={btn.icon}><Icon d={IC.x} size={18} /></button>
+      </div>
+      <div style={{ flex: 1, minHeight: 0, overflow: "auto" }}>{children}</div>
+      {footer && <div style={{ flex: "none", display: "flex", alignItems: "center", gap: 8, padding: popup ? "14px 24px" : "12px 16px calc(12px + env(safe-area-inset-bottom))", background: "#fff", boxShadow: "inset 0 1px 0 #eef1f5" }}>{footer}</div>}
+    </>
+  );
+  if (popup) {
+    return (
+      <Dialog.Root open onOpenChange={(next) => { if (!next) onClose?.(); }} backName="expense-claims">
+        <Dialog.Portal>
+          <Dialog.Backdrop />
+          <Dialog.Viewport>
+            <Dialog.Popup className="ec-root" aria-label={title} style={{ inlineSize: "100%", maxInlineSize: maxWidth, maxBlockSize: "min(92dvh, 980px)", borderRadius: 22, display: "flex", flexDirection: "column", background: body || "#fff", overflow: "hidden", boxShadow: "0 24px 64px -16px rgba(16,24,40,.35)" }}>
+              {inner}
+            </Dialog.Popup>
+          </Dialog.Viewport>
+        </Dialog.Portal>
+      </Dialog.Root>
+    );
+  }
   return (
     <Drawer.Root open onOpenChange={(next) => { if (!next) onClose?.(); }} backName="expense-claims">
       <Drawer.Portal>
@@ -88,15 +134,7 @@ export function Sheet({ title, sub, chips, onClose, maxWidth = 640, z: _z = 70, 
       {/* 92dvh is the phone sheet's cap; from 768px it is a full-height side drawer. */}
       <Drawer.Popup className="ec-root max-h-[92dvh] md:max-h-none" aria-label={title} style={{ width: "100%", maxWidth, display: "flex", flexDirection: "column", background: body || "#fff", overflow: "hidden" }}>
         <Drawer.Handle />
-        <div style={{ flex: "none", display: "flex", alignItems: "flex-start", gap: 12, padding: "8px 12px 14px 20px", background: "#fff", boxShadow: "0 1px 0 #eef1f5" }}>
-          <div style={{ flex: 1, minWidth: 0, display: "flex", flexDirection: "column", gap: 5 }}>
-            <span style={{ fontSize: 18, fontWeight: 700, letterSpacing: "-0.01em" }}>{title}</span>
-            {(chips || sub) && <span style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>{chips}{sub && <span style={{ fontSize: 12, color: "#8a93a3" }}>{sub}</span>}</span>}
-          </div>
-          <button type="button" aria-label="Close" className="ec-ghost" onClick={onClose} style={btn.icon}><Icon d={IC.x} size={18} /></button>
-        </div>
-        <div style={{ flex: 1, minHeight: 0, overflow: "auto" }}>{children}</div>
-        {footer && <div style={{ flex: "none", display: "flex", gap: 8, padding: "12px 16px calc(12px + env(safe-area-inset-bottom))", background: "#fff", boxShadow: "inset 0 1px 0 #eef1f5" }}>{footer}</div>}
+        {inner}
       </Drawer.Popup>
         </Drawer.Viewport>
       </Drawer.Portal>
@@ -448,6 +486,8 @@ export function ClaimForm({ conn, me, types, claims = [], claim, copyFrom, today
     setMode(m);
     setRows([newRow(m === "advance" ? ADVANCE : expenseTypes[0] || "Travel", todayIso)]);
     setAdvanceOf("");
+    setTried(false);
+    setError("");
   };
   const set = (key, patch) => setRows((rs) => rs.map((r) => (r.key === key ? { ...r, ...patch } : r)));
   const total = rows.reduce((s, r) => s + (Number(r.amount) || 0), 0);
@@ -532,163 +572,267 @@ export function ClaimForm({ conn, me, types, claims = [], claim, copyFrom, today
     onSaved?.({ name, edited: !!claim, sent: send, check, warning });
   };
 
-  const field = { width: "100%", minWidth: 0, height: 42, borderRadius: 10, border: "1px solid #d0d5dd", background: "#fff", fontSize: 14, padding: "0 10px" };
-  const lineCols = desk ? "150px 150px 140px minmax(0,1fr) 128px 40px" : "minmax(0,1fr) minmax(0,1fr)";
-  const seg = (on) => ({ flex: 1, height: 36, borderRadius: 9, border: 0, background: on ? "#fff" : "transparent", boxShadow: on ? "0 1px 2px rgba(16,24,40,.12)" : "none", fontSize: 13, fontWeight: 600, color: on ? "#0b1220" : "#5b6576", cursor: "pointer" });
+  const wide = useWide();
+  const twoCol = wide && desk;
+  const input = { width: "100%", minWidth: 0, height: 44, borderRadius: 12, border: "1px solid #e1e5ec", background: "#fbfcfd", fontSize: 14.5, padding: "0 12px", transition: "border-color .15s, box-shadow .15s" };
+  const addRow = () => setRows((rs) => [...rs, newRow(mode === "advance" ? ADVANCE : rs[rs.length - 1]?.type || expenseTypes[0] || "Travel", rs[rs.length - 1]?.date || todayIso)]);
+  const pct = rows.length ? Math.round((bills / rows.length) * 100) : 0;
 
   return (
     <Sheet
+      desktop="dialog"
       title={claim ? `Edit ${mode === "advance" ? "advance request" : "expense claim"}` : mode === "advance" ? "Ask for an advance" : "New expense claim"}
       sub={[claim?.id, me?.name, me?.department].filter(Boolean).join(" · ")}
       onClose={busy ? () => {} : onClose}
-      maxWidth={desk ? 1180 : 640}
-      body="#f4f5f7"
+      maxWidth={twoCol ? 1080 : 720}
+      body="#f5f6f8"
       footer={<>
         <div style={{ flex: 1, minWidth: 0, display: "flex", flexDirection: "column", justifyContent: "center" }}>
-          <span style={{ fontSize: 11, color: "#8a93a3" }}>{mode === "advance" ? "Advance asked" : "Total claimed"}</span>
-          <span style={{ fontSize: 20, fontWeight: 700, ...tabNum }}>{inr(total)}</span>
+          <span style={{ fontSize: 11.5, fontWeight: 600, color: "#8a93a3", whiteSpace: "nowrap" }}>{!wide ? "Total" : mode === "advance" ? "Advance asked" : "Total claimed"}</span>
+          <span style={{ fontSize: 22, fontWeight: 800, letterSpacing: "-0.02em", ...tabNum }}>{inr(total)}</span>
         </div>
-        <button type="button" className="ec-ghost" disabled={!!busy} onClick={() => submit(false)} style={{ ...btn.ghost, opacity: busy ? 0.5 : 1 }}>Save draft</button>
-        <button type="button" className="ec-cta" disabled={!!busy} onClick={() => submit(true)} style={{ ...btn.primary, minWidth: 170, display: "inline-flex", alignItems: "center", justifyContent: "center", gap: 8, opacity: busy ? 0.8 : 1 }}>
-          {busy ? <><Spinner />{busy}</> : "Send for approval"}
+        <button type="button" className="ec-ghost" disabled={!!busy} onClick={() => submit(false)} style={{ ...btn.ghost, height: 46, borderRadius: 12, padding: wide ? "0 16px" : "0 12px", opacity: busy ? 0.5 : 1 }}>{wide ? "Save draft" : "Draft"}</button>
+        <button type="button" className="ec-cta" disabled={!!busy} onClick={() => submit(true)} style={{ ...btn.primary, height: 46, borderRadius: 12, minWidth: wide ? 190 : 150, display: "inline-flex", alignItems: "center", justifyContent: "center", gap: 8, opacity: busy ? 0.85 : 1, boxShadow: "0 6px 16px -6px rgba(37,99,235,.55)" }}>
+          {busy ? <><Spinner />{busy}</> : <>Send for approval<Icon d={IC.next} size={16} /></>}
         </button>
       </>}
     >
-      <div style={{ padding: desk ? 20 : 12, display: "grid", gridTemplateColumns: desk ? "minmax(0,1fr) 280px" : "minmax(0,1fr)", gap: 14, alignItems: "start" }}>
-        <div style={{ display: "flex", flexDirection: "column", gap: 12, minWidth: 0 }}>
+      <style>{FORM_CSS}</style>
+      <div style={{ padding: wide ? 24 : 12, display: "grid", gridTemplateColumns: twoCol ? "minmax(0,1fr) 300px" : "minmax(0,1fr)", gap: 18, alignItems: "start" }}>
+        <div style={{ display: "flex", flexDirection: "column", gap: 14, minWidth: 0 }}>
           {!claim && (
-            <div role="tablist" aria-label="Kind of claim" style={{ display: "flex", gap: 4, padding: 4, borderRadius: 12, background: "#e9ecf1" }}>
-              <button type="button" role="tab" aria-selected={mode === "expense"} onClick={() => switchMode("expense")} style={seg(mode === "expense")}>Expenses</button>
-              <button type="button" role="tab" aria-selected={mode === "advance"} onClick={() => switchMode("advance")} style={seg(mode === "advance")}>Advance request</button>
+            <div role="tablist" aria-label="Kind of claim" style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 6, padding: 5, borderRadius: 14, background: "#e9ecf1" }}>
+              {[["expense", "Expenses", "Bills for money you spent", IC.file], ["advance", "Advance request", "Money up front", IC.wallet]].map(([m, t, s, ic]) => (
+                <button key={m} type="button" role="tab" aria-selected={mode === m} onClick={() => switchMode(m)} style={{ display: "flex", alignItems: "center", gap: 10, padding: "10px 12px", borderRadius: 10, border: 0, background: mode === m ? "#fff" : "transparent", boxShadow: mode === m ? "0 1px 3px rgba(16,24,40,.12)" : "none", cursor: "pointer", textAlign: "left" }}>
+                  <span style={{ flex: "none", width: 32, height: 32, borderRadius: 9, display: "grid", placeItems: "center", background: mode === m ? (m === "advance" ? "#f4f0ff" : "#eef3fe") : "#dfe3ea", color: mode === m ? (m === "advance" ? "#6d28d9" : "#1d4ed8") : "#667085" }}><Icon d={ic} size={16} /></span>
+                  <span style={{ display: "flex", flexDirection: "column", minWidth: 0 }}>
+                    <span style={{ fontSize: 13.5, fontWeight: 700, color: mode === m ? "#0b1220" : "#5b6576" }}>{t}</span>
+                    {wide && <span style={{ fontSize: 11.5, color: "#8a93a3" }}>{s}</span>}
+                  </span>
+                </button>
+              ))}
             </div>
           )}
 
           {mode === "expense" && advances.length > 0 && (
-            <label style={{ ...card, padding: 14, display: "flex", flexDirection: "column", gap: 6 }}>
-              <span style={label}>Spent from an advance? · optional</span>
-              <select value={advanceOf} onChange={(e) => setAdvanceOf(e.target.value)} style={{ ...field, cursor: "pointer" }}>
-                <option value="">No -- my own money</option>
-                {advances.map((a) => <option key={a.id} value={a.id}>{a.id} · {a.lines[0]?.sub || "Advance"} · {inr(a.advance?.balance || 0)} left</option>)}
-              </select>
-              <span style={{ fontSize: 12, color: "#8a93a3" }}>Spends from an advance come off its balance; only what goes beyond it is paid with your salary.</span>
-            </label>
+            <div className="ecf-card" style={{ padding: 14, display: "flex", alignItems: "center", gap: 12, flexWrap: "wrap" }}>
+              <span style={{ flex: "none", width: 32, height: 32, borderRadius: 9, display: "grid", placeItems: "center", background: "#f4f0ff", color: "#6d28d9" }}><Icon d={IC.wallet} size={16} /></span>
+              <label style={{ flex: 1, minWidth: 220, display: "flex", flexDirection: "column", gap: 4 }}>
+                <span style={{ fontSize: 13, fontWeight: 600 }}>Spent from an advance?</span>
+                <select className="ecf-in" value={advanceOf} onChange={(e) => setAdvanceOf(e.target.value)} style={{ ...input, cursor: "pointer" }}>
+                  <option value="">No — my own money</option>
+                  {advances.map((a) => <option key={a.id} value={a.id}>{a.lines[0]?.sub || "Advance"} · {a.id} · {inr(a.advance?.balance || 0)} left</option>)}
+                </select>
+              </label>
+            </div>
           )}
 
-          <div style={{ ...card, padding: 16, display: "flex", flexDirection: "column", gap: 12 }}>
-            <div style={{ display: "flex", alignItems: "baseline", justifyContent: "space-between", gap: 12, flexWrap: "wrap" }}>
-              <span style={{ fontSize: 15, fontWeight: 600 }}>{mode === "advance" ? "Advance" : "Expenses"} <span style={{ color: "#8a93a3", fontWeight: 500 }}>· {rows.length} {rows.length === 1 ? "row" : "rows"}</span></span>
-              <span style={{ fontSize: 12, color: "#8a93a3" }}>{mode === "advance" ? "No bills now -- add them as you spend" : `A bill on every row · dates ${shortDate(minIso)} to today`}</span>
-            </div>
-            {rows.map((r) => {
-              const err = tried && rowError(r);
-              const t = typeOf(r.type);
-              const listId = `ec-subs-${r.key}`;
-              const billName = r.file ? r.file.name : r.bill ? decodeURIComponent(r.bill.split("/").pop()) : "";
-              return (
-                <div key={r.key} style={{ display: "flex", flexDirection: "column", gap: 8, padding: 12, borderRadius: 12, background: "#f7f8fa", boxShadow: `inset 3px 0 0 ${typeColor(r.type).c}` }}>
-                  <div style={{ display: "grid", gridTemplateColumns: lineCols, gap: "10px 12px", alignItems: "end" }}>
-                    {mode === "expense" ? (
-                      <label style={{ display: "flex", flexDirection: "column", gap: 5, minWidth: 0 }}><span style={label}>Type</span>
-                        <select value={r.type} onChange={(e) => set(r.key, { type: e.target.value, sub: "" })} style={{ ...field, cursor: "pointer" }}>
-                          {[...new Set([...expenseTypes, r.type])].map((x) => <option key={x} value={x}>{x}</option>)}
-                        </select>
-                      </label>
-                    ) : (
-                      <label style={{ display: "flex", flexDirection: "column", gap: 5, minWidth: 0 }}><span style={label}>Date</span>
-                        <input type="date" value={r.date} onChange={(e) => set(r.key, { date: e.target.value })} style={field} />
-                      </label>
-                    )}
-                    <label style={{ display: "flex", flexDirection: "column", gap: 5, minWidth: 0 }}><span style={label}>{mode === "advance" ? "For" : "Kind"}</span>
-                      {t.open || (!t.subs.length && mode === "advance") ? (
-                        <>
-                          <input list={listId} placeholder={t.subs.length ? "Pick or type new" : "Type"} value={r.sub} onChange={(e) => set(r.key, { sub: e.target.value })} style={field} />
-                          <datalist id={listId}>{t.subs.map((s) => <option key={s} value={s} />)}</datalist>
-                        </>
-                      ) : t.subs.length ? (
-                        <select value={r.sub} onChange={(e) => set(r.key, { sub: e.target.value })} style={{ ...field, cursor: "pointer", borderColor: err && !r.sub ? "#f04438" : "#d0d5dd" }}>
-                          <option value="">Choose…</option>
-                          {t.subs.map((s) => <option key={s} value={s}>{s}</option>)}
-                        </select>
-                      ) : <span style={{ ...field, display: "flex", alignItems: "center", color: "#98a2b3", background: "#f2f4f7" }}>—</span>}
-                    </label>
-                    {mode === "expense" && (
-                      <label style={{ display: "flex", flexDirection: "column", gap: 5, minWidth: 0 }}><span style={label}>Date</span>
-                        <input type="date" min={minIso} max={todayIso} value={r.date} onChange={(e) => set(r.key, { date: e.target.value })} style={{ ...field, borderColor: err && !r.date ? "#f04438" : "#d0d5dd" }} />
-                      </label>
-                    )}
-                    <label style={{ gridColumn: desk ? "auto" : "1 / -1", display: "flex", flexDirection: "column", gap: 5, minWidth: 0 }}><span style={label}>Description</span>
-                      <input placeholder={PLACEHOLDER[r.type] || "What was it for?"} value={r.note} onChange={(e) => set(r.key, { note: e.target.value })} style={field} />
-                    </label>
-                    <label style={{ display: "flex", flexDirection: "column", gap: 5, minWidth: 0 }}><span style={label}>Amount</span>
-                      <span style={{ ...field, display: "flex", alignItems: "center", gap: 4, borderColor: err && !(Number(r.amount) > 0) ? "#f04438" : "#d0d5dd" }}>
-                        <span style={{ color: "#8a93a3" }}>₹</span>
-                        <input inputMode="decimal" placeholder="0" value={r.amount} onChange={(e) => set(r.key, { amount: e.target.value.replace(/[^\d.]/g, "") })} style={{ flex: 1, minWidth: 0, border: 0, outline: 0, background: "transparent", fontSize: 15, fontWeight: 700, textAlign: "right", ...tabNum }} />
-                      </span>
-                    </label>
-                    <button type="button" aria-label="Remove row" onClick={() => setRows((rs) => rs.filter((x) => x.key !== r.key))} className="ec-ghost" style={{ height: 42, borderRadius: 10, border: 0, background: "transparent", color: "#8a93a3", cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", gap: 6, fontSize: 13, fontWeight: 600 }}>
-                      <Icon d={IC.trash} />{desk ? "" : "Remove"}
-                    </button>
-                  </div>
-                  {mode === "expense" && (
-                    <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
-                      {billName ? (
-                        <>
-                          <button type="button" className="ec-link" onClick={() => setPreview(r.file ? { name: r.file.name, kind: r.file.type === "application/pdf" ? "pdf" : "image", local: r.file } : billFile(r.bill))} style={{ display: "flex", alignItems: "center", gap: 6, minWidth: 0, maxWidth: "100%", height: 32, padding: "0 10px", borderRadius: 8, border: 0, background: r.file ? "#eef3fe" : "#fff", boxShadow: "0 0 0 1px #d0d5dd", color: "#1d4ed8", fontSize: 12, fontWeight: 600, cursor: "pointer" }}>
-                            <Icon d={IC.eye} size={14} /><span style={ell}>{billName}</span>
-                          </button>
-                          <button type="button" className="ec-ghost" onClick={() => fileRefs.current[r.key]?.click()} style={{ height: 32, padding: "0 10px", borderRadius: 8, border: 0, background: "transparent", color: "#475467", fontSize: 12, fontWeight: 600, cursor: "pointer" }}>Replace</button>
-                        </>
-                      ) : (
-                        <button type="button" className="ec-link" onClick={() => fileRefs.current[r.key]?.click()} style={{ display: "flex", alignItems: "center", gap: 6, height: 32, padding: "0 12px", borderRadius: 8, border: `1px dashed ${err && !r.file && !r.bill ? "#f04438" : "#98a2b3"}`, background: "#fff", color: "#1d4ed8", fontSize: 12, fontWeight: 600, cursor: "pointer" }}>
-                          <Icon d={IC.clip} size={14} />Attach bill
-                        </button>
-                      )}
-                      <input ref={(el) => { fileRefs.current[r.key] = el; }} type="file" accept={ATTACH_ACCEPT} onChange={(e) => pickBill(r.key, e)} style={{ display: "none" }} />
-                    </div>
+          {rows.map((r, i) => {
+            const err = tried && rowError(r);
+            const t = typeOf(r.type);
+            const col = typeColor(r.type);
+            const listId = `ec-subs-${r.key}`;
+            return (
+              <div key={r.key} className="ecf-card" style={{ padding: wide ? 18 : 14, display: "flex", flexDirection: "column", gap: 14, boxShadow: err ? "0 0 0 1.5px #fda29b" : undefined }}>
+                <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                  <span style={{ flex: "none", width: 28, height: 28, borderRadius: 8, display: "grid", placeItems: "center", background: col.bg, color: col.fg, fontSize: 13, fontWeight: 800 }}>{i + 1}</span>
+                  <span style={{ flex: 1, minWidth: 0, fontSize: 15, fontWeight: 700, ...ell }}>{[r.type, r.sub].filter(Boolean).join(" · ") || "Expense"}</span>
+                  <span style={{ fontSize: 17, fontWeight: 800, letterSpacing: "-0.01em", color: Number(r.amount) ? "#0b1220" : "#c0c6d0", ...tabNum }}>{inr(r.amount)}</span>
+                  {rows.length > 1 && (
+                    <button type="button" aria-label={`Remove expense ${i + 1}`} className="ec-ghost" onClick={() => setRows((rs) => rs.filter((x) => x.key !== r.key))} style={{ ...btn.icon, width: 34, height: 34, color: "#98a2b3" }}><Icon d={IC.trash} size={16} /></button>
                   )}
-                  {err && <span style={{ fontSize: 12, fontWeight: 600, color: "#b42318" }}>{err}</span>}
                 </div>
-              );
-            })}
-            <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
-              <span style={{ fontSize: 12, fontWeight: 600, color: "#5b6576" }}>Add row</span>
-              {(mode === "advance" ? [ADVANCE] : expenseTypes).map((t) => (
-                <button key={t} type="button" className="ec-ghost" onClick={() => setRows((rs) => [...rs, newRow(t, rs[rs.length - 1]?.date || todayIso)])} style={{ display: "flex", alignItems: "center", gap: 7, height: 34, padding: "0 12px", borderRadius: 99, border: "1px dashed #d0d5dd", background: "#fff", fontSize: 13, fontWeight: 600, color: "#344054", cursor: "pointer" }}>
-                  <TypeDot type={t} />{t}
-                </button>
-              ))}
-            </div>
-          </div>
 
-          <label style={{ ...card, padding: 16, display: "flex", flexDirection: "column", gap: 6 }}>
-            <span style={label}>Remark · optional</span>
-            <textarea rows={2} placeholder="Anything your reporting officer should know — e.g. joint work with ABM" value={remark} onChange={(e) => setRemark(e.target.value)} style={{ width: "100%", minHeight: 52, resize: "vertical", borderRadius: 10, border: "1px solid #d0d5dd", padding: 10, fontSize: 14 }} />
+                <div style={{ display: "grid", gridTemplateColumns: wide && mode === "expense" ? "minmax(0,1fr) 132px" : "minmax(0,1fr)", gap: 16, alignItems: "start" }}>
+                  <div style={{ display: "flex", flexDirection: "column", gap: 12, minWidth: 0 }}>
+                    {mode === "expense" && (
+                      <div style={{ display: "flex", flexDirection: "column", gap: 7 }}>
+                        <span className="ecf-lbl">Type</span>
+                        <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+                          {[...new Set([...expenseTypes, r.type])].map((x) => (
+                            <Pill key={x} on={r.type === x} color={typeColor(x)} onClick={() => set(r.key, { type: x, sub: "" })}><TypeDot type={x} />{x}</Pill>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+
+                    {(t.subs.length > 0 || t.open || mode === "advance") && (
+                      <div style={{ display: "flex", flexDirection: "column", gap: 7 }}>
+                        <span className="ecf-lbl">{mode === "advance" ? "What it's for" : "Kind"}{t.open ? " · pick or type a new one" : ""}</span>
+                        {t.subs.length > 0 && (
+                          <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+                            {t.subs.map((s) => <Pill key={s} small on={r.sub.toLowerCase() === s.toLowerCase()} color={col} onClick={() => set(r.key, { sub: r.sub === s ? "" : s })}>{s}</Pill>)}
+                          </div>
+                        )}
+                        {t.open && (
+                          <>
+                            <input className="ecf-in" list={listId} placeholder={t.subs.length ? "Or type a new one" : "e.g. Office pantry"} value={r.sub} onChange={(e) => set(r.key, { sub: e.target.value })} style={input} />
+                            <datalist id={listId}>{t.subs.map((s) => <option key={s} value={s} />)}</datalist>
+                          </>
+                        )}
+                      </div>
+                    )}
+
+                    <div style={{ display: "grid", gridTemplateColumns: "minmax(0,1fr) minmax(0,1fr)", gap: 10 }}>
+                      <label style={{ display: "flex", flexDirection: "column", gap: 6, minWidth: 0 }}>
+                        <span className="ecf-lbl">Date</span>
+                        <input className="ecf-in" type="date" min={mode === "expense" ? minIso : undefined} max={mode === "expense" ? todayIso : undefined} value={r.date} onChange={(e) => set(r.key, { date: e.target.value })} style={input} />
+                      </label>
+                      <label style={{ display: "flex", flexDirection: "column", gap: 6, minWidth: 0 }}>
+                        <span className="ecf-lbl">Amount</span>
+                        <span className="ecf-in ecf-amt" style={{ ...input, display: "flex", alignItems: "center", gap: 6, borderColor: err && !(Number(r.amount) > 0) ? "#f04438" : "#e1e5ec" }}>
+                          <span style={{ color: "#8a93a3", fontWeight: 600 }}>₹</span>
+                          <input inputMode="decimal" placeholder="0" aria-label="Amount" value={r.amount} onChange={(e) => set(r.key, { amount: e.target.value.replace(/[^\d.]/g, "") })} style={{ flex: 1, minWidth: 0, border: 0, outline: 0, background: "transparent", fontSize: 16, fontWeight: 700, textAlign: "right", ...tabNum }} />
+                        </span>
+                      </label>
+                    </div>
+
+                    <label style={{ display: "flex", flexDirection: "column", gap: 6, minWidth: 0 }}>
+                      <span className="ecf-lbl">Description <span style={{ textTransform: "none", letterSpacing: 0, fontWeight: 500, color: "#98a2b3" }}>· optional</span></span>
+                      <input className="ecf-in" placeholder={PLACEHOLDER[r.type] || "What was it for?"} value={r.note} onChange={(e) => set(r.key, { note: e.target.value })} style={input} />
+                    </label>
+                  </div>
+
+                  {mode === "expense" && (
+                    <BillDrop
+                      conn={conn}
+                      row={r}
+                      wide={wide}
+                      missing={!!err && !r.bill && !r.file}
+                      onPick={() => fileRefs.current[r.key]?.click()}
+                      onDropFile={(f) => { const e2 = checkFile(f); if (e2) return setError(e2); setError(""); set(r.key, { file: f }); }}
+                      onClear={() => set(r.key, { file: null, bill: "" })}
+                      onPreview={() => setPreview(r.file ? { name: r.file.name, kind: r.file.type === "application/pdf" ? "pdf" : "image", local: r.file } : billFile(r.bill))}
+                    />
+                  )}
+                  {mode === "expense" && <input ref={(el) => { fileRefs.current[r.key] = el; }} type="file" accept={ATTACH_ACCEPT} onChange={(e) => pickBill(r.key, e)} style={{ display: "none" }} />}
+                </div>
+                {err && <span style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 12.5, fontWeight: 600, color: "#b42318" }}><span style={{ width: 6, height: 6, borderRadius: "50%", background: "#f04438" }} />{err}</span>}
+              </div>
+            );
+          })}
+
+          <button type="button" className="ecf-add" onClick={addRow}>
+            <Icon d={IC.plus} size={16} />{mode === "advance" ? "Add another line" : "Add another expense"}
+          </button>
+
+          <label className="ecf-card" style={{ padding: 16, display: "flex", flexDirection: "column", gap: 8 }}>
+            <span className="ecf-lbl">Note for your reporting officer <span style={{ textTransform: "none", letterSpacing: 0, fontWeight: 500, color: "#98a2b3" }}>· optional</span></span>
+            <textarea className="ecf-in" rows={2} placeholder="e.g. joint work with ABM on 20 Oct" value={remark} onChange={(e) => setRemark(e.target.value)} style={{ ...input, height: "auto", minHeight: 64, padding: 12, resize: "vertical", lineHeight: 1.45 }} />
           </label>
           {error && <Note>{error}</Note>}
+          {!twoCol && <Summary mode={mode} total={total} rows={rows.length} bills={bills} pct={pct} byType={byType} compact />}
         </div>
 
-        <div style={{ ...card, padding: 18, display: "flex", flexDirection: "column", gap: 12, position: desk ? "sticky" : "static", top: 0 }}>
-          <div style={{ display: "flex", flexDirection: "column", gap: 2 }}>
-            <span style={{ fontSize: 12, fontWeight: 600, color: "#5b6576" }}>{mode === "advance" ? "Advance asked" : "Total claimed"}</span>
-            <span style={{ fontSize: 28, fontWeight: 700, letterSpacing: "-0.03em", ...tabNum }}>{inr(total)}</span>
-            <span style={{ fontSize: 12, color: "#8a93a3" }}>{rows.length} {rows.length === 1 ? "row" : "rows"}{mode === "expense" ? ` · ${bills} of ${rows.length} bills` : ""}</span>
+        {twoCol && (
+          <div style={{ position: "sticky", top: 0 }}>
+            <Summary mode={mode} total={total} rows={rows.length} bills={bills} pct={pct} byType={byType} />
           </div>
-          {byType.length > 0 && <>
-            <div style={{ display: "flex", height: 8, borderRadius: 99, overflow: "hidden", background: "#eef1f5", gap: 2 }}>
-              {byType.map(([t, v]) => <span key={t} style={{ width: (v / total) * 100 + "%", background: typeColor(t).c }} />)}
-            </div>
-            {byType.map(([t, v]) => (
-              <div key={t} style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 13 }}><TypeDot type={t} /><span style={{ flex: 1, color: "#344054" }}>{t}</span><b style={{ fontWeight: 600, ...tabNum }}>{inr(v)}</b></div>
-            ))}
-          </>}
-          <span style={{ fontSize: 12, color: "#8a93a3", textWrap: "pretty" }}>
-            {mode === "advance"
-              ? "Your reporting officer approves it, then it is released to you. Add your spends against it as you go."
-              : "Your reporting officer approves it. Bills that match the claim are verified straight away and paid with next month’s salary; the rest are checked by a reviewer."}
-          </span>
-        </div>
+        )}
       </div>
       {preview && <FilePreview conn={conn} file={preview} onClose={() => setPreview(null)} />}
     </Sheet>
+  );
+}
+
+const FORM_CSS = `
+.ecf-card{background:#fff;border-radius:18px;box-shadow:0 0 0 1px #e9edf3,0 1px 2px rgba(16,24,40,.04)}
+.ecf-lbl{font-size:11.5px;font-weight:700;letter-spacing:.05em;text-transform:uppercase;color:#7a8394}
+.ecf-in:focus,.ecf-in:focus-within{outline:none;border-color:#2563eb!important;box-shadow:0 0 0 3px rgba(37,99,235,.14);background:#fff!important}
+.ecf-add{display:flex;align-items:center;justify-content:center;gap:8px;height:50px;border-radius:16px;border:1.5px dashed #c7cfdb;background:transparent;color:#1d4ed8;font-size:14px;font-weight:700;cursor:pointer;transition:background .15s,border-color .15s}
+.ecf-add:hover{background:#eef3fe;border-color:#93b0f5}
+.ecf-pill{display:inline-flex;align-items:center;gap:7px;border-radius:999px;font-weight:600;cursor:pointer;white-space:nowrap;transition:background .15s,border-color .15s,color .15s}
+.ecf-drop{transition:border-color .15s,background .15s}
+.ecf-drop:hover{border-color:#93b0f5!important;background:#f5f8ff!important}
+`;
+
+function Pill({ on, color, small, onClick, children }) {
+  return (
+    <button type="button" className="ecf-pill" aria-pressed={on} onClick={onClick} style={{ height: small ? 32 : 36, padding: small ? "0 12px" : "0 14px", fontSize: small ? 13 : 13.5, border: `1px solid ${on ? color.c : "#e1e5ec"}`, background: on ? color.bg : "#fff", color: on ? color.fg : "#344054", boxShadow: on ? `0 0 0 2px ${color.bg}` : "none" }}>
+      {children}
+      {on && <Icon d={IC.check} size={13} sw={2.6} />}
+    </button>
+  );
+}
+
+/* A row's bill: a tile to tap (camera / files on a phone) or drop a file on;
+   once there, its thumbnail, to preview, replace or remove. */
+function BillDrop({ conn, row, wide, missing, onPick, onDropFile, onClear, onPreview }) {
+  const [over, setOver] = useState(false);
+  const file = row.file ? { name: row.file.name, kind: row.file.type === "application/pdf" ? "pdf" : "image", local: row.file } : row.bill ? billFile(row.bill) : null;
+  const img = useFileUrl(file && file.kind === "image" ? conn : null, file && file.kind === "image" ? file : null);
+  const drop = {
+    onDragOver: (e) => { e.preventDefault(); setOver(true); },
+    onDragLeave: () => setOver(false),
+    onDrop: (e) => { e.preventDefault(); setOver(false); const f = e.dataTransfer.files?.[0]; if (f) onDropFile(f); },
+  };
+  const box = wide ? { width: 132, height: 156, flexDirection: "column" } : { width: "100%", height: 64, flexDirection: "row" };
+
+  if (!file) {
+    return (
+      <button type="button" className="ecf-drop" onClick={onPick} {...drop} style={{ ...box, display: "flex", alignItems: "center", justifyContent: "center", gap: wide ? 8 : 10, borderRadius: 14, border: `1.5px dashed ${missing ? "#f04438" : over ? "#2563eb" : "#c7cfdb"}`, background: missing ? "#fef3f2" : over ? "#eef3fe" : "#fbfcfd", color: missing ? "#b42318" : "#1d4ed8", cursor: "pointer", padding: 10, textAlign: "center" }}>
+        <span style={{ width: 36, height: 36, borderRadius: 10, display: "grid", placeItems: "center", background: missing ? "#fee4e2" : "#e6edfd" }}><Icon d={IC.clip} size={17} /></span>
+        <span style={{ display: "flex", flexDirection: "column", gap: 2, alignItems: wide ? "center" : "flex-start" }}>
+          <span style={{ fontSize: 13, fontWeight: 700 }}>Add bill</span>
+          <span style={{ fontSize: 11, color: missing ? "#b42318" : "#8a93a3", fontWeight: 500 }}>{wide ? "Photo or PDF · drop here" : "Photo or PDF · required"}</span>
+        </span>
+      </button>
+    );
+  }
+  return (
+    <div {...drop} style={{ ...box, display: "flex", gap: 8, borderRadius: 14, overflow: "hidden", boxShadow: `0 0 0 ${over ? 2 : 1}px ${over ? "#2563eb" : "#e1e5ec"}`, background: "#fff", padding: wide ? 0 : 6, alignItems: wide ? "stretch" : "center" }}>
+      <button type="button" onClick={onPreview} aria-label={`Preview ${file.name}`} style={{ flex: wide ? 1 : "none", width: wide ? "100%" : 52, height: wide ? "auto" : 52, minHeight: 0, border: 0, padding: 0, borderRadius: wide ? 0 : 10, overflow: "hidden", background: file.kind === "pdf" ? "#fef3f2" : "#f2f4f7", cursor: "zoom-in", display: "grid", placeItems: "center" }}>
+        {file.kind === "image" && img.status === "ready" ? <img src={img.url} alt="" style={{ width: "100%", height: "100%", objectFit: "cover" }} />
+          : file.kind === "image" ? <Spinner /> : <span style={{ fontSize: 12, fontWeight: 800, color: "#b42318" }}>PDF</span>}
+      </button>
+      <div style={{ flex: wide ? "none" : 1, minWidth: 0, display: "flex", alignItems: "center", gap: 2, padding: wide ? "0 4px 6px 8px" : 0 }}>
+        <span style={{ flex: 1, minWidth: 0, fontSize: 11.5, fontWeight: 600, color: "#475467", ...ell }} title={file.name}>{wide ? (row.file ? "New bill" : "Attached") : file.name}</span>
+        <button type="button" aria-label="Replace bill" className="ec-ghost" onClick={onPick} style={{ ...btn.icon, width: 28, height: 28, color: "#475467" }}><Icon d={IC.hist} size={14} /></button>
+        <button type="button" aria-label="Remove bill" className="ec-ghost" onClick={onClear} style={{ ...btn.icon, width: 28, height: 28, color: "#b42318" }}><Icon d={IC.x} size={14} /></button>
+      </div>
+    </div>
+  );
+}
+
+function Summary({ mode, total, rows, bills, pct, byType, compact }) {
+  return (
+    <div className="ecf-card" style={{ padding: compact ? 16 : 20, display: "flex", flexDirection: "column", gap: 14, background: compact ? "#fff" : "linear-gradient(180deg,#ffffff 0%,#f8faff 100%)" }}>
+      {!compact && (
+        <div style={{ display: "flex", flexDirection: "column", gap: 2 }}>
+          <span style={{ fontSize: 12, fontWeight: 700, color: "#5b6576" }}>{mode === "advance" ? "Advance asked" : "Total claimed"}</span>
+          <span style={{ fontSize: 32, fontWeight: 800, letterSpacing: "-0.035em", ...tabNum }}>{inr(total)}</span>
+          <span style={{ fontSize: 12, color: "#8a93a3" }}>{rows} {rows === 1 ? "line" : "lines"}</span>
+        </div>
+      )}
+      {mode === "expense" && (
+        <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+          <div style={{ display: "flex", justifyContent: "space-between", fontSize: 12.5, fontWeight: 600 }}>
+            <span style={{ color: "#344054" }}>Bills attached</span>
+            <span style={{ color: pct === 100 ? "#067647" : "#b54708", ...tabNum }}>{bills} of {rows}</span>
+          </div>
+          <div style={{ height: 6, borderRadius: 99, background: "#eef1f5", overflow: "hidden" }}>
+            <span style={{ display: "block", height: "100%", width: pct + "%", borderRadius: 99, background: pct === 100 ? "#12b76a" : "#f79009", transition: "width .25s" }} />
+          </div>
+        </div>
+      )}
+      {byType.length > 0 && (
+        <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+          <div style={{ display: "flex", height: 8, borderRadius: 99, overflow: "hidden", background: "#eef1f5", gap: 2 }}>
+            {byType.map(([t, v]) => <span key={t} style={{ width: (v / (total || 1)) * 100 + "%", background: typeColor(t).c }} />)}
+          </div>
+          {byType.map(([t, v]) => (
+            <div key={t} style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 13 }}><TypeDot type={t} /><span style={{ flex: 1, color: "#344054" }}>{t}</span><b style={{ fontWeight: 700, ...tabNum }}>{inr(v)}</b></div>
+          ))}
+        </div>
+      )}
+      <div style={{ display: "flex", gap: 10, padding: 12, borderRadius: 12, background: "#f2f5fa" }}>
+        <span style={{ flex: "none", color: "#2563eb", display: "flex", paddingTop: 1 }}><Icon d={IC.check} size={15} sw={2.4} /></span>
+        <span style={{ fontSize: 12, color: "#475467", lineHeight: 1.5, textWrap: "pretty" }}>
+          {mode === "advance"
+            ? "Your reporting officer approves it, then it is released to you. Add your spends against it as you go — no deadline."
+            : "Your reporting officer approves it. Bills that match are verified at once and paid with next month’s salary; the rest are checked by a reviewer."}
+        </span>
+      </div>
+    </div>
   );
 }
