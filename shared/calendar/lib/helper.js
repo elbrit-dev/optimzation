@@ -218,9 +218,8 @@ function describeLocationError(err, stateBefore) {
 
   if (err?.code === 3) {
     return {
-      title: "Couldn't get your location in time",
-      description:
-        "GPS signal is weak. Move near a window or outdoors, then tap Request Location again.",
+      title: "Couldn't get your location",
+      description: NO_FIX_STEPS[platform],
     };
   }
 
@@ -230,13 +229,102 @@ function describeLocationError(err, stateBefore) {
   };
 }
 
-export async function resolveLatLong(form, isEditing, toast) {
-  if (!isEditing) return;
+const NO_FIX_STEPS = {
+  android:
+    "Check that Location is on and Google Location Accuracy is on (Settings → Location → Location services). Turning on Wi-Fi helps even without joining a network. Then tap Request Location again.",
+  ios: "Check that Location Services is on and Precise Location is on for Safari Websites (Settings → Privacy & Security → Location Services). Then tap Request Location again.",
+  desktop:
+    "Check that your computer's location services are on, then tap Request Location again.",
+};
+
+// A visit is judged against a 500 m radius, so it needs a real fix. A plain
+// getCurrentPosition without enableHighAccuracy only gets the phone's
+// low-power network guess (Chrome on Android never turns GPS on for it), and
+// on a weak data connection that guess often never comes. Instead keep a
+// high-accuracy watch open, which the phone feeds GPS, Wi-Fi and cell fixes as
+// each arrives, and take the first good one, or the best seen when time runs
+// out.
+const GOOD_FIX_M = 30; // taken straight away
+const USABLE_FIX_M = 150; // taken if nothing better turns up within SETTLE_MS
+const SETTLE_MS = 8000;
+const MAX_WAIT_MS = 45000;
+// A "location unavailable" error with no fix yet usually means Location is
+// off, but iOS also sends it while it is still searching; give it this long.
+const UNAVAILABLE_GRACE_MS = 5000;
+const COARSE_FIX_M = 500;
+
+function watchForAccuratePosition(signal) {
+  return new Promise((resolve, reject) => {
+    let done = false;
+    let best = null;
+    let watchId = null;
+    let settleTimer = null;
+    let unavailableTimer = null;
+    let deadlineTimer = null;
+
+    const finish = (settle, value) => {
+      if (done) return;
+      done = true;
+      if (watchId !== null) navigator.geolocation.clearWatch(watchId);
+      clearTimeout(settleTimer);
+      clearTimeout(unavailableTimer);
+      clearTimeout(deadlineTimer);
+      signal?.removeEventListener("abort", onAbort);
+      settle(value);
+    };
+    const onAbort = () => finish(resolve, null);
+
+    if (signal?.aborted) {
+      resolve(null);
+      return;
+    }
+    signal?.addEventListener("abort", onAbort);
+
+    deadlineTimer = setTimeout(() => {
+      if (best) finish(resolve, best);
+      else finish(reject, { code: 3 });
+    }, MAX_WAIT_MS);
+
+    watchId = navigator.geolocation.watchPosition(
+      (pos) => {
+        clearTimeout(unavailableTimer);
+        if (!best || pos.coords.accuracy < best.coords.accuracy) best = pos;
+
+        if (best.coords.accuracy <= GOOD_FIX_M) {
+          finish(resolve, best);
+          return;
+        }
+        if (best.coords.accuracy <= USABLE_FIX_M && !settleTimer) {
+          settleTimer = setTimeout(() => finish(resolve, best), SETTLE_MS);
+        }
+      },
+      (err) => {
+        if (err.code === 1) {
+          finish(reject, err);
+          return;
+        }
+        // Anything else is a gap between fixes; keep watching.
+        if (err.code === 2 && !best && !unavailableTimer) {
+          unavailableTimer = setTimeout(
+            () => finish(reject, err),
+            UNAVAILABLE_GRACE_MS
+          );
+        }
+      },
+      // A fix from the last 30 s is still where the user is standing.
+      { enableHighAccuracy: true, maximumAge: 30000 }
+    );
+  });
+}
+
+// Resolves with the GeolocationPosition used, or null when nothing was set.
+export async function resolveLatLong(form, isEditing, toast, { signal } = {}) {
+  if (!isEditing) return null;
 
   const currentLatitude = form.getValues("custom_latitude");
   const currentLongitude = form.getValues("custom_longitude");
 
-  if (currentLatitude && currentLongitude) return;
+  if (currentLatitude && currentLongitude) return null;
 
   const setFallback = () => {
     form.setValue("custom_latitude", "", {
@@ -256,7 +344,7 @@ export async function resolveLatLong(form, isEditing, toast) {
       duration: 10000,
     });
     setFallback();
-    return;
+    return null;
   }
 
   if (!navigator.geolocation) {
@@ -265,47 +353,55 @@ export async function resolveLatLong(form, isEditing, toast) {
       duration: 10000,
     });
     setFallback();
-    return;
+    return null;
   }
 
   const stateBefore = await getLocationPermissionState();
 
-  await new Promise((resolve) => navigator.geolocation.getCurrentPosition(
-    (pos) => {
-      const latitude = parseFloat(pos.coords.latitude);
-      const longitude = parseFloat(pos.coords.longitude);
+  let pos;
+  try {
+    pos = await watchForAccuratePosition(signal);
+  } catch (err) {
+    const { title, description } = describeLocationError(err, stateBefore);
+    toast.error(title, { description, duration: 15000 });
+    setFallback();
+    return null;
+  }
+  // The form was closed while we waited.
+  if (!pos) return null;
 
-      // ✅ Set latitude
-      form.setValue(
-        "custom_latitude",
-        latitude,
-        { shouldDirty: true }
-      );
+  const latitude = parseFloat(pos.coords.latitude);
+  const longitude = parseFloat(pos.coords.longitude);
 
-      // ✅ Set longitude
-      form.setValue(
-        "custom_longitude",
-        longitude,
-        { shouldDirty: true }
-      );
+  // ✅ Set latitude
+  form.setValue(
+    "custom_latitude",
+    latitude,
+    { shouldDirty: true }
+  );
 
-      // ✅ Force attending = "Yes"
-      form.setValue("attending", "Yes", {
-        shouldDirty: true,
-        shouldValidate: true,
-      });
-      resolve();
-    },
-    (err) => {
-      const { title, description } = describeLocationError(err, stateBefore);
-      toast.error(title, { description, duration: 15000 });
-      setFallback();
-      resolve();
-    },
-    // A fix from the last minute is fine for a visit; reusing it avoids a
-    // cold-GPS timeout on every open.
-    { timeout: 30000, maximumAge: 60000 }
-  ));
+  // ✅ Set longitude
+  form.setValue(
+    "custom_longitude",
+    longitude,
+    { shouldDirty: true }
+  );
+
+  // ✅ Force attending = "Yes"
+  form.setValue("attending", "Yes", {
+    shouldDirty: true,
+    shouldValidate: true,
+  });
+
+  if (pos.coords.accuracy > COARSE_FIX_M) {
+    toast.warning(`Location is approximate (±${Math.round(pos.coords.accuracy)} m)`, {
+      description:
+        "Only a rough fix came through, so the distance to the doctor may be off.",
+      duration: 10000,
+    });
+  }
+
+  return pos;
 }
 export function mapDoctors(data) {
   return (

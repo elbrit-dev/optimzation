@@ -152,6 +152,8 @@ export function AddEditEventDialog({
 	const doctorResolvers = useDoctorResolvers(doctorOptions);
 	const [itemOptions, setItemOptions] = useState([]);
 	const [isResolvingLocation, setIsResolvingLocation] = useState(false);
+	const [locationAccuracyM, setLocationAccuracyM] = useState(null);
+	const locationAbortRef = useRef(null);
 	const [distanceKm, setDistanceKm] = useState(null);
 	const endDateTouchedRef = useRef(false); // existing
 	const pobRowsEndRef = useRef(null);
@@ -362,10 +364,11 @@ export function AddEditEventDialog({
 		currentLatitude != null &&
 		currentLongitude != null;
 
+	// Stays up while capturing so the footer shows "Capturing..." instead of
+	// leaving only Cancel for up to the 45 s a GPS fix can take.
 	const shouldShowRequestLocation =
 		selectedTag === TAG_IDS.DOCTOR_VISIT_PLAN &&
-		!hasValidLocation &&
-		!isResolvingLocation;
+		!hasValidLocation;
 	const getFieldLabel = (field, fallback) => {
 		return tagConfig.labels?.[field] ?? fallback;
 	};
@@ -962,10 +965,17 @@ export function AddEditEventDialog({
 		// Capturing the location is what marks the visit (attending = Yes), so
 		// it only happens on the plan's own day — never ahead of it or after.
 		if (!isVisitDay(event?.startDate)) return;
-		if (selectedTag === TAG_IDS.DOCTOR_VISIT_PLAN) {
-			resolveLatLong(form, isEditing, toast);
-		}
+		if (selectedTag !== TAG_IDS.DOCTOR_VISIT_PLAN) return;
+		handleRequestLocation();
+		// Closing the form stops the GPS watch.
+		return cancelLocationRequest;
 	}, [isEditing, isOpen, selectedTag, isVisitAlreadyRecorded, event?.startDate]);
+	useEffect(() => {
+		if (!isOpen) {
+			cancelLocationRequest();
+			setLocationAccuracyM(null);
+		}
+	}, [isOpen]);
 	/* ---------------------------------------------
 	  Load Calendar Google Calendar 
 	--------------------------------------------- */
@@ -992,16 +1002,32 @@ export function AddEditEventDialog({
 
 		loadGoogleStatus();
 	}, [calendarSyncEnabled]);
-	const handleRequestLocation = async () => {
+	function cancelLocationRequest() {
+		if (!locationAbortRef.current) return;
+		locationAbortRef.current.abort();
+		locationAbortRef.current = null;
+		setIsResolvingLocation(false);
+	}
+	async function handleRequestLocation() {
+		// One GPS watch at a time: the auto capture on open may still be running.
+		if (locationAbortRef.current) return;
+		const controller = new AbortController();
+		locationAbortRef.current = controller;
+		setIsResolvingLocation(true);
 		try {
-			setIsResolvingLocation(true);
-
-			await resolveLatLong(form, isEditing, toast);
-
+			const pos = await resolveLatLong(form, isEditing, toast, {
+				signal: controller.signal,
+			});
+			if (pos) setLocationAccuracyM(Math.round(pos.coords.accuracy));
 		} finally {
-			setIsResolvingLocation(false);
+			// A cancelled request has already been cleared, and a new one may
+			// have started since.
+			if (locationAbortRef.current === controller) {
+				locationAbortRef.current = null;
+				setIsResolvingLocation(false);
+			}
 		}
-	};
+	}
 
 
 	/* ---------------------------------------------
@@ -3502,8 +3528,10 @@ export function AddEditEventDialog({
 								</p>
 								<p className="text-sm text-muted-foreground">
 									{currentLatitude && currentLongitude
-										? `${currentLatitude}, ${currentLongitude}`
-										: "Location not captured"}
+										? `${currentLatitude}, ${currentLongitude}${locationAccuracyM != null ? ` (±${locationAccuracyM} m)` : ""}`
+										: isResolvingLocation
+											? "Getting a GPS fix..."
+											: "Location not captured"}
 								</p>
 							</div>
 						)}
