@@ -1,8 +1,8 @@
 'use client';
 
 import { useState, useRef, useEffect, useMemo } from 'react';
-import { OverlayPanel } from 'primereact/overlaypanel';
 import { Button } from 'primereact/button';
+import { Popover } from '@/design-system';
 import { InputText } from 'primereact/inputtext';
 import { Divider } from 'primereact/divider';
 import dayjs from 'dayjs';
@@ -138,7 +138,6 @@ export default function RangePicker({
   const [startSelection, setStartSelection] = useState(null);
   const [endSelection, setEndSelection] = useState(null);
   const [viewMode, setViewMode] = useState('calendar'); // 'calendar' | 'month' | 'year'
-  const overlayRef = useRef(null);
   const inputRef = useRef(null);
 
   // Initialize from value prop based on mode
@@ -347,7 +346,6 @@ export default function RangePicker({
 
     // Close the panel after applying
     setIsOpen(false);
-    overlayRef.current?.hide();
   };
 
   // The first day of whatever unit a `selection` names. One place that knows
@@ -442,18 +440,10 @@ export default function RangePicker({
     }
   };
 
-  const handleToggle = (e) => {
+  const handleToggle = () => {
     if (disabled) return;
-
-    if (isOpen) {
-      overlayRef.current?.hide();
-      setIsOpen(false);
-      setViewMode('calendar');
-    } else {
-      overlayRef.current?.show(e, inputRef.current);
-      setIsOpen(true);
-      setViewMode('calendar');
-    }
+    setIsOpen((open) => !open);
+    setViewMode('calendar');
   };
 
   const navigateYear = (direction) => {
@@ -1231,6 +1221,22 @@ export default function RangePicker({
                             mode === 'quarter' ? 'Select quarter range' :
                             'Select year range';
 
+  const panelContent = (
+    <div className="month-range-picker-content" style={{ minWidth: '280px', maxWidth: '400px' }}>
+      {viewMode === 'month' && renderInlineMonthPicker()}
+      {viewMode === 'year' && renderInlineYearPicker()}
+      {viewMode === 'calendar' && (
+        <>
+          {mode === 'month' && renderMonthMode()}
+          {mode === 'week' && renderWeekMode()}
+          {mode === 'date' && renderDateMode()}
+          {mode === 'quarter' && renderQuarterMode()}
+          {mode === 'year' && renderYearMode()}
+        </>
+      )}
+    </div>
+  );
+
   return (
     <div className={`month-range-picker ${className}`} style={style}>
       <div className="relative">
@@ -1254,29 +1260,33 @@ export default function RangePicker({
         />
       </div>
 
-      <OverlayPanel
-        ref={overlayRef}
-        dismissable
-        className="month-range-picker-overlay"
-        onHide={() => {
+      {/* The panel on the design system's Popover (Base UI): anchored to the
+          input, flips above when there is no room below, never clipped by a
+          report card, and back closes it. Same surface and padding as the
+          PrimeReact OverlayPanel it replaced. */}
+      <Popover.Root
+        open={isOpen}
+        backName="range-picker"
+        onOpenChange={(next, details) => {
+          if (next) return;
+          /* The input's own click toggles the panel shut; closing on that
+             press as "outside" first would let the click reopen it. */
+          if (details?.reason === 'outside-press' && inputRef.current?.contains?.(details.event?.target)) {
+            details.cancel?.();
+            return;
+          }
           setIsOpen(false);
           setViewMode('calendar');
         }}
       >
-        <div className="month-range-picker-content" style={{ minWidth: '280px', maxWidth: '400px' }}>
-          {viewMode === 'month' && renderInlineMonthPicker()}
-          {viewMode === 'year' && renderInlineYearPicker()}
-          {viewMode === 'calendar' && (
-            <>
-              {mode === 'month' && renderMonthMode()}
-              {mode === 'week' && renderWeekMode()}
-              {mode === 'date' && renderDateMode()}
-              {mode === 'quarter' && renderQuarterMode()}
-              {mode === 'year' && renderYearMode()}
-            </>
-          )}
-        </div>
-      </OverlayPanel>
+        <Popover.Portal>
+          <Popover.Positioner anchor={inputRef} side="bottom" align="start" sideOffset={0}>
+            <Popover.Popup className="month-range-picker-overlay" style={{ padding: 'var(--space-12)' }}>
+              {panelContent}
+            </Popover.Popup>
+          </Popover.Positioner>
+        </Popover.Portal>
+      </Popover.Root>
     </div>
   );
 }

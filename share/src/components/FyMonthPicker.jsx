@@ -1,7 +1,7 @@
 'use client';
 
-import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
-import { createPortal } from 'react-dom';
+import { useEffect, useMemo, useRef, useState } from 'react';
+import { Drawer, Popover } from '@/design-system';
 
 /* FyMonthPicker — the Doctor Support report's month picker
  * (components/features/support-report), ported as a standalone control.
@@ -66,56 +66,80 @@ const POP_W = 380;
 const GAP = 8;   // between trigger and panel
 const EDGE = 12; // min distance from the viewport edge
 
-/* Where the desktop panel goes, from the trigger's box on screen: below it
-   when it fits, otherwise on whichever side has more room, with the height
-   capped to that room so the grid scrolls instead of running off-screen. */
-function placeBelowOrAbove(anchor) {
-  const r = anchor.getBoundingClientRect();
-  const vw = window.innerWidth, vh = window.innerHeight;
-  const below = vh - r.bottom - GAP - EDGE;
-  const above = r.top - GAP - EDGE;
-  const want = 560; // the month view's natural height
-  const down = below >= Math.min(want, 320) || below >= above;
-  const left = Math.max(EDGE, Math.min(r.left, vw - POP_W - EDGE));
-  return down
-    ? { top: r.bottom + GAP, bottom: 'auto', left, maxH: Math.max(200, below) }
-    : { top: 'auto', bottom: vh - r.top + GAP, left, maxH: Math.max(200, above) };
-}
+/* The panel's surface — the picker's own look, unchanged by the move onto
+   the design system's overlays below. */
+const PANEL = {
+  background: '#fff',
+  border: '1px solid #EAECF0',
+  boxShadow: '0 16px 40px rgba(16,24,40,.18)',
+  display: 'flex',
+  flexDirection: 'column',
+  padding: '14px 16px 16px',
+  gap: 12,
+  overflow: 'auto',
+  color: '#101828',
+};
 
-/* ALWAYS PORTALLED TO <body>. The picker sits inside report providers and
+/* THE PANEL SITS ON THE DESIGN SYSTEM'S BASE OVERLAYS (Base UI). On a phone a
+   Drawer bottom sheet that swipes down to close; on a desktop a Popover
+   anchored to the control row that flips above when there is no room below
+   and caps its height to the room it has, so the grid scrolls instead of
+   running off-screen. Back closes either.
+
+   Both are PORTALLED TO <body>. The picker sits inside report providers and
    Plasmic stacks that clip their overflow; an absolutely positioned panel
    inside them got cut off at the container's bottom edge (29 Sep 2026). On
    <body> nothing clips it, and position:fixed can't be demoted by a
-   transformed ancestor either. Desktop follows the trigger on scroll/resize. */
-function Popover({ mob, anchorRef, onClose, title = 'Select months', children }) {
-  const [pos, setPos] = useState(null);
+   transformed ancestor either.
 
-  useLayoutEffect(() => {
-    if (mob || !anchorRef?.current) return undefined;
-    const update = () => anchorRef.current && setPos(placeBelowOrAbove(anchorRef.current));
-    update();
-    window.addEventListener('resize', update);
-    window.addEventListener('scroll', update, true); // capture: any scrolling ancestor
-    return () => {
-      window.removeEventListener('resize', update);
-      window.removeEventListener('scroll', update, true);
-    };
-  }, [mob, anchorRef]);
-
-  if (typeof document === 'undefined') return null;
-  if (!mob && !pos) return null; // first frame, before the trigger is measured
-
-  const P = mob
-    ? { sBg: 'rgba(16,24,40,.4)', top: 'auto', right: 0, left: 0, bottom: 0, w: 'auto', maxH: '78vh', rad: '22px 22px 0 0' }
-    : { sBg: 'transparent', top: pos.top, right: 'auto', left: pos.left, bottom: pos.bottom, w: POP_W, maxH: pos.maxH, rad: 14 };
-  return createPortal(
-    <div className="fymp">
-      <div onClick={onClose} style={{ position: 'fixed', inset: 0, background: P.sBg, zIndex: 1000 }} />
-      <div role="dialog" aria-label={title} style={{ position: 'fixed', top: P.top, right: P.right, left: P.left, bottom: P.bottom, width: P.w, maxHeight: P.maxH, borderRadius: P.rad, background: '#fff', border: '1px solid #EAECF0', boxShadow: '0 16px 40px rgba(16,24,40,.18)', zIndex: 1001, display: 'flex', flexDirection: 'column', padding: '14px 16px 16px', gap: 12, overflow: 'auto', color: '#101828' }}>
-        {children}
-      </div>
-    </div>,
-    document.body,
+   Mounted only while open, so it renders `open` and closes through onClose. */
+function PickerPanel({ mob, anchorRef, onClose, title = 'Select months', children }) {
+  if (mob) {
+    return (
+      <Drawer.Root open side="bottom" onOpenChange={(next) => !next && onClose()} backName="fy-picker">
+        <Drawer.Portal>
+          <Drawer.Backdrop style={{ backgroundColor: 'rgba(16,24,40,.4)' }} />
+          <Drawer.Viewport>
+            <Drawer.Popup
+              className="fymp"
+              aria-label={title}
+              style={{ ...PANEL, maxHeight: '78vh', maxInlineSize: 'none', borderRadius: '22px 22px 0 0' }}
+            >
+              {children}
+            </Drawer.Popup>
+          </Drawer.Viewport>
+        </Drawer.Portal>
+      </Drawer.Root>
+    );
+  }
+  return (
+    <Popover.Root
+      open
+      backName="fy-picker"
+      onOpenChange={(next, details) => {
+        if (next) return;
+        /* A press on the control itself is not "outside": its own click
+           toggles the panel shut, and closing here first would let that
+           click open it again. */
+        if (details?.reason === 'outside-press' && anchorRef.current?.contains(details.event?.target)) {
+          details.cancel?.();
+          return;
+        }
+        onClose();
+      }}
+    >
+      <Popover.Portal>
+        <Popover.Positioner anchor={anchorRef} side="bottom" align="start" sideOffset={GAP} collisionPadding={EDGE}>
+          <Popover.Popup
+            className="fymp"
+            aria-label={title}
+            style={{ ...PANEL, width: POP_W, maxHeight: 'var(--available-height)', borderRadius: 14 }}
+          >
+            {children}
+          </Popover.Popup>
+        </Popover.Positioner>
+      </Popover.Portal>
+    </Popover.Root>
   );
 }
 
@@ -155,14 +179,8 @@ function MonthPicker({ value, onChange, minFy = 2024, min, max, className, singl
   // A start from one tab means nothing on another, so switching tabs drops it.
   const setPmode = (id) => { setPmodeState(id); setFrom(null); };
   const close = () => { setOpen(false); setFrom(null); };
+  // Escape, the scrim, a swipe and back all close through the panel's onClose.
   const done = () => { if (from) emit(from[0], from[1]); close(); };
-
-  useEffect(() => {
-    if (!open) return undefined;
-    const k = (e) => { if (e.key === 'Escape') { setOpen(false); setFrom(null); } };
-    window.addEventListener('keydown', k);
-    return () => window.removeEventListener('keydown', k);
-  }, [open]);
 
   const emit = (x, y) => onChange?.([startOf(x), endOf(y)]);
 
@@ -243,7 +261,7 @@ function MonthPicker({ value, onChange, minFy = 2024, min, max, className, singl
       <button type="button" onClick={() => nextOk && emit(a + 1, b + 1)} aria-label="Next month" style={navBtn(nextOk ? 1 : 0.35)}>›</button>
 
       {open ? (
-        <Popover mob={mob} anchorRef={rootRef} onClose={close}>
+        <PickerPanel mob={mob} anchorRef={rootRef} onClose={close}>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
             <div style={{ display: 'flex', flexDirection: 'column', gap: 1 }}>
               <span style={{ fontSize: 15, fontWeight: 650 }}>{single ? 'Select month' : 'Select months'}</span>
@@ -279,7 +297,7 @@ function MonthPicker({ value, onChange, minFy = 2024, min, max, className, singl
           <div style={{ display: 'flex', justifyContent: 'flex-end', alignItems: 'center', gap: 8, paddingTop: 10, borderTop: '1px solid #F2F4F7' }}>
             <button type="button" onClick={() => { setFrom(null); emit(CUR, CUR); }} style={{ height: 28, padding: '0 10px', border: 0, background: 'transparent', color: '#C4262B', fontSize: 12, fontWeight: 600, cursor: 'pointer', flex: 'none' }}>Reset to latest</button>
           </div>
-        </Popover>
+        </PickerPanel>
       ) : null}
     </div>
   );
@@ -317,14 +335,8 @@ function DayPicker({ value, onChange, minFy = 2024, min, max, className }) {
   const rootRef = useRef(null);
   const [view, setView] = useState(null); // the month shown, as a month index
   const shown = view ?? toIdx(picked);
+  // Escape, the scrim, a swipe and back all close through the panel's onClose.
   const close = () => setOpen(false);
-
-  useEffect(() => {
-    if (!open) return undefined;
-    const k = (e) => { if (e.key === 'Escape') setOpen(false); };
-    window.addEventListener('keydown', k);
-    return () => window.removeEventListener('keydown', k);
-  }, [open]);
 
   const emit = (d) => onChange?.([d, d]);
   const prevOk = picked > minD;
@@ -362,7 +374,7 @@ function DayPicker({ value, onChange, minFy = 2024, min, max, className }) {
       <button type="button" onClick={() => nextOk && emit(addDays(picked, 1))} aria-label="Next day" style={navBtn(nextOk ? 1 : 0.35)}>›</button>
 
       {open ? (
-        <Popover mob={mob} anchorRef={rootRef} onClose={close} title="Select date">
+        <PickerPanel mob={mob} anchorRef={rootRef} onClose={close} title="Select date">
           <div style={{ display: 'flex', flexDirection: 'column', gap: 1 }}>
             <span style={{ fontSize: 15, fontWeight: 650 }}>Select date</span>
             <span style={{ fontSize: 12, color: '#667085' }}>Tap a day</span>
@@ -400,7 +412,7 @@ function DayPicker({ value, onChange, minFy = 2024, min, max, className }) {
           <div style={{ display: 'flex', justifyContent: 'flex-end', alignItems: 'center', gap: 8, paddingTop: 10, borderTop: '1px solid #F2F4F7' }}>
             <button type="button" onClick={() => { emit(maxD); close(); }} style={{ height: 28, padding: '0 10px', border: 0, background: 'transparent', color: '#C4262B', fontSize: 12, fontWeight: 600, cursor: 'pointer', flex: 'none' }}>{keyOf(maxD) === tk ? 'Today' : 'Latest day'}</button>
           </div>
-        </Popover>
+        </PickerPanel>
       ) : null}
     </div>
   );

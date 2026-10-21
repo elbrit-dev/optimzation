@@ -1,7 +1,7 @@
 'use client';
 
 import { useMemo, useState } from 'react';
-import { Card, Metric, SectionLabel, SegmentedControl, Sheet, StatusPill, ListRow } from '@/design-system';
+import { Card, Metric, SectionLabel, SegmentedControl, Sheet, StatusPill, ListRow, useRetained } from '@/design-system';
 import { THRESHOLDS } from '../data/selectors';
 import { count, monthShort, ratio, rupees } from '../data/format';
 import { Empty, Notice } from './bits';
@@ -35,6 +35,7 @@ function Bars({ series }) {
 export function StockistsSection({ stock, months, mi, open }) {
   const [view, setView] = useState('over');
   const [pick, setPick] = useState(null);
+  const shownPick = useRetained(pick);
   const rows = useMemo(() => {
     if (!stock || stock.missing) return [];
     if (view === 'over') return stock.rows.filter((r) => r.over || r.dead);
@@ -89,37 +90,48 @@ export function StockistsSection({ stock, months, mi, open }) {
         <p className="mt-1.5 text-11 text-ds-muted">Closing / sold for {monthShort(months[mi])}. Bars: sold (blue) and closing (grey), last 6 months.</p>
       </div>
 
-      <Sheet open={Boolean(pick)} onClose={() => setPick(null)} title={pick?.name} subtitle={pick?.seats.join(', ')}>
-        {pick ? (
-          <div className="flex flex-col gap-3 p-4">
-            <div className="flex flex-wrap gap-2">
-              {pick.over ? <StatusPill status="pending">{ratio(pick.ratio)} of a month&apos;s sales in stock</StatusPill> : null}
-              {pick.chronic ? <StatusPill status="rejected">Chronic</StatusPill> : null}
-              {pick.dead ? <StatusPill status="rejected">Stock, no sales</StatusPill> : null}
-            </div>
-            <table className="w-full text-13 tabular-nums">
-              <thead>
-                <tr className="text-11 text-ds-muted">
-                  <th className="py-1 text-left font-medium">Month</th>
-                  <th className="py-1 text-right font-medium">Sold</th>
-                  <th className="py-1 text-right font-medium">Closing</th>
-                  <th className="py-1 text-right font-medium">Cover</th>
-                </tr>
-              </thead>
-              <tbody>
-                {pick.series.map((p, k) => (
-                  <tr key={k} className="border-t border-[var(--border-subtle)]">
-                    <td className="py-1.5 text-ds-secondary">{monthShort(months[from + k])}</td>
-                    <td className="py-1.5 text-right">{p.sold == null ? '—' : rupees(p.sold)}</td>
-                    <td className="py-1.5 text-right">{p.closing == null ? '—' : rupees(p.closing)}</td>
-                    <td className="py-1.5 text-right font-medium text-heading">{p.sold ? ratio(p.closing / p.sold) : '—'}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        ) : null}
-      </Sheet>
+      <Sheet.Root open={pick != null} onOpenChange={(open) => !open && setPick(null)}>
+        <Sheet.Popup>
+          {shownPick ? (
+            <>
+              <Sheet.Header>
+                <Sheet.Title>{shownPick.name}</Sheet.Title>
+                <Sheet.Description>{shownPick.seats.join(', ')}</Sheet.Description>
+                <Sheet.Close />
+              </Sheet.Header>
+              <Sheet.Body>
+                <div className="flex flex-col gap-3 p-4">
+                  <div className="flex flex-wrap gap-2">
+                    {shownPick.over ? <StatusPill status="pending">{ratio(shownPick.ratio)} of a month&apos;s sales in stock</StatusPill> : null}
+                    {shownPick.chronic ? <StatusPill status="rejected">Chronic</StatusPill> : null}
+                    {shownPick.dead ? <StatusPill status="rejected">Stock, no sales</StatusPill> : null}
+                  </div>
+                  <table className="w-full text-13 tabular-nums">
+                    <thead>
+                      <tr className="text-11 text-ds-muted">
+                        <th className="py-1 text-left font-medium">Month</th>
+                        <th className="py-1 text-right font-medium">Sold</th>
+                        <th className="py-1 text-right font-medium">Closing</th>
+                        <th className="py-1 text-right font-medium">Cover</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {shownPick.series.map((p, k) => (
+                        <tr key={k} className="border-t border-[var(--border-subtle)]">
+                          <td className="py-1.5 text-ds-secondary">{monthShort(months[from + k])}</td>
+                          <td className="py-1.5 text-right">{p.sold == null ? '—' : rupees(p.sold)}</td>
+                          <td className="py-1.5 text-right">{p.closing == null ? '—' : rupees(p.closing)}</td>
+                          <td className="py-1.5 text-right font-medium text-heading">{p.sold ? ratio(p.closing / p.sold) : '—'}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </Sheet.Body>
+            </>
+          ) : null}
+        </Sheet.Popup>
+      </Sheet.Root>
     </div>
   );
 }

@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useMemo, useState } from 'react';
-import { Button, Card, Field, Icon, ListRow, Metric, SectionLabel, Sheet, StatusPill } from '@/design-system';
+import { Button, Card, Field, Icon, ListRow, Metric, SectionLabel, Sheet, StatusPill, useRetained } from '@/design-system';
 import { LEVELS, doctorExtra, investment } from '../data/selectors';
 import { count, monthShort, pct, ratio, rupees } from '../data/format';
 import { Empty, Roi } from './bits';
@@ -111,6 +111,7 @@ export function InvestmentSection({ ix, scope, mi, open, onMonth, visitsLoading 
   const [q, setQ] = useState('');
   const [shown, setShown] = useState(PAGE);
   const [pick, setPick] = useState(null);
+  const shownPick = useRetained(pick);
   const [allServices, setAllServices] = useState(false);
   const split = inv.split;
   const doctors = useMemo(() => {
@@ -255,18 +256,26 @@ export function InvestmentSection({ ix, scope, mi, open, onMonth, visitsLoading 
         </p>
       </div>
 
-      <Sheet
-        open={Boolean(pick)}
-        onClose={() => setPick(null)}
-        title={pick?.name}
-        subtitle={pick ? [pick.spec, pick.category && `Cat ${pick.category}`, pick.hq].filter(Boolean).join(' · ') : ''}
-      >
-        {pick ? (
-          <div className="flex flex-col gap-4 p-4">
-            <DoctorExtra extra={doctorExtra(ix, pick.doctor, scope, mi)} visitsLoading={visitsLoading} />
-          </div>
-        ) : null}
-      </Sheet>
+      <Sheet.Root open={pick != null} onOpenChange={(open) => !open && setPick(null)}>
+        <Sheet.Popup>
+          {shownPick ? (
+            <>
+              <Sheet.Header>
+                <Sheet.Title>{shownPick.name}</Sheet.Title>
+                <Sheet.Description>
+                  {[shownPick.spec, shownPick.category && `Cat ${shownPick.category}`, shownPick.hq].filter(Boolean).join(' · ')}
+                </Sheet.Description>
+                <Sheet.Close />
+              </Sheet.Header>
+              <Sheet.Body>
+                <div className="flex flex-col gap-4 p-4">
+                  <DoctorExtra extra={doctorExtra(ix, shownPick.doctor, scope, mi)} visitsLoading={visitsLoading} />
+                </div>
+              </Sheet.Body>
+            </>
+          ) : null}
+        </Sheet.Popup>
+      </Sheet.Root>
     </div>
   );
 }

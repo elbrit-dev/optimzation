@@ -1,172 +1,178 @@
 'use client';
 
-import { useEffect, useId, useRef, useState } from 'react';
-import { createPortal } from 'react-dom';
+import { createContext, useContext } from 'react';
+import { Dialog } from '../base/Dialog';
+import { Drawer } from '../base/Drawer';
+import { useIsDesktop } from '../base/useOverlayRoot';
 import { cx } from '../lib/cx';
 
-/* Sheet — a modal panel anchored to the bottom of the screen: title, close,
-   and a scrolling body. The way a phone shows "the rows behind this number"
-   without navigating away from the number.
+/* Sheet — a modal panel for "the rows behind this number": a header, an
+   optional pinned toolbar, a scrolling body and an optional pinned footer.
 
-   PORTALLED TO document.body, not rendered in place. Every screen that opens
-   one of these has the panel inside a card, inside a grid, inside a
-   `@container` — and a container establishes a containing block, so a
-   position:fixed child would anchor to the CARD rather than to the viewport
-   and a half-height sheet would appear inside a 200px box. The portal is not
-   a z-index workaround; it is the only way `fixed` means what it says here.
+   COMPOSED, NOT CONFIGURED. Each region is a part; a sheet has the regions
+   it renders and nothing else:
 
-   Because the portal lands outside the app's `data-surface` wrapper, the
-   density scope does not come with it. `surface` puts it back — pass the same
-   value the screen's root carries, or the sheet renders at console density
-   inside a field-app screen.
+     <Sheet.Root open={open} onOpenChange={setOpen}>
+       <Sheet.Popup surface="app">
+         <Sheet.Header>
+           <Sheet.Title>Working today</Sheet.Title>
+           <Sheet.Description>20 people in this scope</Sheet.Description>
+           <Sheet.Close />
+         </Sheet.Header>
+         <Sheet.Toolbar>{search}</Sheet.Toolbar>
+         <Sheet.Body>{rows}</Sheet.Body>
+         <Sheet.Footer>{actions}</Sheet.Footer>
+       </Sheet.Popup>
+     </Sheet.Root>
 
-   NO ENTRANCE ANIMATION. The system ships no keyframes (see README), and a
-   slide-up faked with a mount-then-transition dance costs a second render on
-   every open for motion that `prefers-reduced-motion` would have to remove
-   again. It appears, which is what a sheet triggered by a tap needs to do.
+   Root takes what decides BEHAVIOUR — open state, and where it lives:
+     side        'auto' | 'bottom' | 'right'  (see base/Drawer)
+     desktop     'drawer' (default): from 768px a right-hand side drawer —
+                           anything with rows, details, filters
+                 'dialog': from 768px a centred dialog — ONLY for something
+                           small: a confirmation ("Discard changes?"), a short
+                           form ("Reason for rework"). Content that needs room
+                           is a drawer, never a big dialog.
+     snapPoints  bottom sheet heights, e.g. [0.5, 1]
+   Everything about CONTENT is a child. A shape this does not cover is built
+   from the base Drawer / Dialog parts directly, not by adding a prop.
 
-   Dismissal is Escape, the close button, or the scrim — all three, because
-   this is the one component on a phone with no visible way back otherwise.
-   The scrim listens on mousedown-and-target-is-self rather than click: a
-   click fires on the scrim when a drag STARTS on the panel and ends outside
-   it, which closed the sheet mid text-selection. */
+   On a phone it is always the base Drawer: a bottom sheet that follows the
+   finger and closes on a swipe. Everywhere it closes on Escape, the scrim,
+   Close, and the back button.
 
-const FOCUSABLE = [
-  'a[href]',
-  'button:not([disabled])',
-  'input:not([disabled])',
-  'select:not([disabled])',
-  'textarea:not([disabled])',
-  '[tabindex]:not([tabindex="-1"])',
-].join(', ');
+   Popup bundles the plumbing every sheet needs and no sheet should repeat:
+   the portal (a `@container` ancestor would otherwise trap position:fixed
+   inside a card), the scrim, the viewport, the software-keyboard handling,
+   and the grab bar. Because the portal lands outside the app's
+   `data-surface` wrapper, Popup's `surface` puts the density scope back —
+   pass what the screen's root carries.
 
-export function Sheet({
-  open,
-  onClose,
-  title,
-  subtitle,
-  /* A strip that does not scroll, between the heading and the body. For the
-     controls that act ON the body — a search, a filter — which are useless
-     the moment they scroll away from the list they filter. Anything that
-     belongs WITH the rows goes in `children` instead. */
-  toolbar = null,
-  surface,
-  children,
-  className,
-  ...rest
-}) {
-  const panelRef = useRef(null);
-  const restoreRef = useRef(null);
-  const [mounted, setMounted] = useState(false);
-  const titleId = useId();
+   SCROLLING vs SWIPING. Body scrolls; a drag that starts with the body at its
+   top moves the sheet. Header, Toolbar and Footer always move it. A control
+   in the body with its own drag (a slider, a carousel) takes
+   `data-base-ui-swipe-ignore`. */
 
-  /* onClose through a ref, not through the effect's dependency list. Callers
-     pass an inline arrow, so a dependency on it re-runs the effect on every
-     parent render — which would re-focus the panel and pull focus off
-     whatever row the reader had tabbed to. */
-  const closeRef = useRef(onClose);
-  closeRef.current = onClose;
+/* Which base overlay this sheet is right now. Every part reads it, so one
+   tree renders as either. */
+const KindContext = createContext('drawer');
 
-  /* The portal target only exists in the browser. Rendering null on the
-     server and on the first client pass keeps hydration identical. */
-  useEffect(() => {
-    setMounted(true);
-  }, []);
+const BASE = { drawer: Drawer, dialog: Dialog };
 
-  useEffect(() => {
-    if (!open) return undefined;
-
-    restoreRef.current = document.activeElement;
-    panelRef.current?.focus();
-
-    /* Captured, so a key handled inside the sheet's own content cannot
-       swallow Escape before the sheet sees it. */
-    const onKeyDown = (event) => {
-      if (event.key === 'Escape') {
-        event.stopPropagation();
-        closeRef.current?.();
-        return;
-      }
-      if (event.key !== 'Tab') return;
-
-      const panel = panelRef.current;
-      if (!panel) return;
-      const items = [...panel.querySelectorAll(FOCUSABLE)].filter((el) => el.offsetParent !== null);
-      if (items.length === 0) {
-        event.preventDefault();
-        panel.focus();
-        return;
-      }
-      const first = items[0];
-      const last = items[items.length - 1];
-      const active = document.activeElement;
-      if (event.shiftKey && (active === first || active === panel)) {
-        event.preventDefault();
-        last.focus();
-      } else if (!event.shiftKey && active === last) {
-        event.preventDefault();
-        first.focus();
-      }
-    };
-
-    document.addEventListener('keydown', onKeyDown, true);
-
-    /* The page behind must not scroll under the scrim — on a phone a swipe
-       over the scrim otherwise moves the report, and the reader comes back
-       to a different place than they left. */
-    const previousOverflow = document.body.style.overflow;
-    document.body.style.overflow = 'hidden';
-
-    return () => {
-      document.removeEventListener('keydown', onKeyDown, true);
-      document.body.style.overflow = previousOverflow;
-      const restore = restoreRef.current;
-      if (restore && typeof restore.focus === 'function') restore.focus();
-    };
-  }, [open]);
-
-  if (!mounted || !open) return null;
-
-  return createPortal(
-    <div
-      className="ds-sheet-scrim"
-      data-surface={surface}
-      onMouseDown={(event) => {
-        if (event.target === event.currentTarget) closeRef.current?.();
-      }}
-    >
-      <div
-        ref={panelRef}
-        role="dialog"
-        aria-modal="true"
-        aria-labelledby={titleId}
-        tabIndex={-1}
-        className={cx('ds-sheet', className)}
-        {...rest}
-      >
-        <div className="ds-sheet__head">
-          <div className="ds-sheet__heading">
-            <h2 id={titleId} className="ds-sheet__title">
-              {title}
-            </h2>
-            {subtitle != null ? <p className="ds-sheet__subtitle">{subtitle}</p> : null}
-          </div>
-          <button
-            type="button"
-            className="ds-sheet__close"
-            aria-label="Close"
-            onClick={() => closeRef.current?.()}
-          >
-            <i className="pi pi-times" aria-hidden="true" />
-          </button>
-        </div>
-        {toolbar != null ? <div className="ds-sheet__toolbar">{toolbar}</div> : null}
-        {/* The body is the one part that scrolls, and a sheet full of rows
-            has no cut-off card edge to signal that — so it takes the DS
-            scrollbar rather than the platform's grey slab. */}
-        <div className="ds-sheet__body ds-scrollbar">{children}</div>
-      </div>
-    </div>,
-    document.body,
+function Root({ desktop = 'drawer', side, children, ...rest }) {
+  const isDesktop = useIsDesktop();
+  const kind = isDesktop && desktop === 'dialog' ? 'dialog' : 'drawer';
+  const Base = BASE[kind];
+  return (
+    <KindContext.Provider value={kind}>
+      <Base.Root backName="sheet" {...(kind === 'drawer' ? { side } : {})} {...rest}>
+        {children}
+      </Base.Root>
+    </KindContext.Provider>
   );
 }
+
+function Popup({ surface, className, children, ...rest }) {
+  const kind = useContext(KindContext);
+  if (kind === 'dialog') {
+    return (
+      <Dialog.Portal>
+        <Dialog.Backdrop />
+        <Dialog.Viewport surface={surface}>
+          <Dialog.Popup className={cx('ds-sheet', className)} {...rest}>
+            {children}
+          </Dialog.Popup>
+        </Dialog.Viewport>
+      </Dialog.Portal>
+    );
+  }
+  return (
+    <Drawer.VirtualKeyboardProvider>
+      <Drawer.Portal>
+        <Drawer.Backdrop />
+        <Drawer.Viewport surface={surface}>
+          <Drawer.Popup className={cx('ds-sheet', className)} {...rest}>
+            <Drawer.Handle />
+            {children}
+          </Drawer.Popup>
+        </Drawer.Viewport>
+      </Drawer.Portal>
+    </Drawer.VirtualKeyboardProvider>
+  );
+}
+
+/* Title and Description stack in the first column, Close takes the second —
+   by grid placement, so the header needs no wrapper around the two texts. */
+function Header({ className, ...rest }) {
+  return <div className={cx('ds-sheet__head', className)} {...rest} />;
+}
+
+function Title({ className, ...rest }) {
+  const Base = BASE[useContext(KindContext)];
+  return <Base.Title className={cx('ds-sheet__title', className)} {...rest} />;
+}
+
+function Description({ className, ...rest }) {
+  const Base = BASE[useContext(KindContext)];
+  return <Base.Description className={cx('ds-sheet__subtitle', className)} {...rest} />;
+}
+
+/* The way out. With no children it is the header's ✕; with children it is
+   any control that closes the sheet (a footer's Cancel). */
+function Close({ className, children, ...rest }) {
+  const Base = BASE[useContext(KindContext)];
+  if (children != null) {
+    return (
+      <Base.Close className={className} {...rest}>
+        {children}
+      </Base.Close>
+    );
+  }
+  return (
+    <Base.Close className={cx('ds-sheet__close', className)} aria-label="Close" {...rest}>
+      <i className="pi pi-times" aria-hidden="true" />
+    </Base.Close>
+  );
+}
+
+/* Pinned under the header: controls that act ON the body (a search, a
+   filter) must stay reachable while the body scrolls, or the reader scrolls
+   back up to change a search and loses their place. */
+function Toolbar({ className, ...rest }) {
+  return <div className={cx('ds-sheet__toolbar', className)} {...rest} />;
+}
+
+/* The one part that scrolls. A sheet full of rows has no cut-off card edge to
+   signal that, so it takes the DS scrollbar rather than the platform's. In a
+   Drawer it is the drawer's Content, where a mouse can select text without
+   starting a drag. */
+function Body({ className, ...rest }) {
+  const kind = useContext(KindContext);
+  const classes = cx('ds-sheet__body ds-scrollbar', className);
+  if (kind === 'dialog') return <div className={classes} {...rest} />;
+  return <Drawer.Content className={classes} {...rest} />;
+}
+
+/* For an uncontrolled sheet: the button that opens it. */
+function Trigger(props) {
+  const Base = BASE[useContext(KindContext)];
+  return <Base.Trigger {...props} />;
+}
+
+/* Pinned under the body: the sheet's actions. */
+function Footer({ className, ...rest }) {
+  return <div className={cx('ds-sheet__footer', className)} {...rest} />;
+}
+
+export const Sheet = {
+  Root,
+  Trigger,
+  Popup,
+  Header,
+  Title,
+  Description,
+  Close,
+  Toolbar,
+  Body,
+  Footer,
+};

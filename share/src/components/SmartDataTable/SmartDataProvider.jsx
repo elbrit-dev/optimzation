@@ -21,7 +21,7 @@ import { fetchGraphQLRequest } from '@/app/graphql-playground/utils/query-pipeli
 import { reportGraphQLErrors } from '@/lib/graphqlErrorReport';
 import { extractValueFromGraphQLResponse } from '@/app/graphql-playground/utils/queryExtractor';
 import { resolveApiConfig } from './apiRegistry';
-import { Sidebar } from 'primereact/sidebar';
+import { Sheet } from '@/design-system';
 import { SmartDataTable } from './SmartDataTable';
 import { DrawerTabBar } from './DrawerTabBar';
 import { ReportControls } from '@/app/report-table/components/ReportControls';
@@ -1012,21 +1012,22 @@ export function SmartDataProvider({ config, dataSource, overrides, toolbarExtra,
   );
 }
 
+/* The drill-down drawer: full height and full width at every size — its body
+   is whole tables, which a 30rem side drawer would crush — so it pins the
+   bottom edge instead of becoming a side drawer on a desktop. */
 function SmartDrawer({ visible, tabs, activeId, onTabSelect, onHide }) {
   return (
-    <Sidebar
-      visible={visible}
-      position="bottom"
-      style={{ height: '100dvh' }}
-      onHide={onHide}
-      header={
-        <DrawerTabBar tabs={tabs} activeId={activeId} onSelect={onTabSelect} />
-      }
-      blockScroll
-      appendTo="self"
-      className="smart-drawer-sidebar"
-    >
-      <div style={{ padding: 20 }}>
+    <Sheet.Root open={Boolean(visible)} onOpenChange={(open) => !open && onHide?.()} side="bottom">
+      <Sheet.Popup
+        data-testid="smart-drawer"
+        aria-label="Details"
+        style={{ blockSize: '100dvh', maxBlockSize: '100dvh', maxInlineSize: 'none' }}
+      >
+        <Sheet.Header>
+          <DrawerTabBar tabs={tabs} activeId={activeId} onSelect={onTabSelect} />
+          <Sheet.Close />
+        </Sheet.Header>
+        <Sheet.Body style={{ padding: 'var(--space-20)' }}>
         {tabs.map(({ id, config: tabCfg = {}, error }) => (
           <div key={id} style={{ display: activeId === id ? 'block' : 'none' }}>
             {error
@@ -1040,8 +1041,9 @@ function SmartDrawer({ visible, tabs, activeId, onTabSelect, onHide }) {
             }
           </div>
         ))}
-      </div>
-    </Sidebar>
+        </Sheet.Body>
+      </Sheet.Popup>
+    </Sheet.Root>
   );
 }
 

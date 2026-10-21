@@ -11,6 +11,7 @@
     "copy-shared": "npx degit elbrit-dev/playground/components components --force && npx degit elbrit-dev/playground/shared shared --force"
   },
   "dependencies": {
+    "@base-ui/react": "^1.9.0",
     "@graphiql/plugin-explorer": "^5.1.1",
     "@graphiql/react": "^0.37.3",
     "@hookform/resolvers": "^5.2.2",

@@ -16,43 +16,48 @@ export function RevisitSheet({ open, onClose, onConfirm, count, raiserName, busy
   }, [open]);
   const ok = reason.trim().length > 0;
   return (
-    <Sheet
-      open={open}
-      onClose={busy ? () => {} : onClose}
-      title={`Send ${partyCount(task, count)} back for rework?`}
-      subtitle={raiserName ? `${raiserName} corrects them, and they come back to you to approve.` : undefined}
-      surface="app"
-    >
-      <form
-        className="flex flex-col gap-4"
-        onSubmit={(e) => {
-          e.preventDefault();
-          if (ok && !busy) onConfirm(reason.trim());
-        }}
-      >
-        <Field
-          size="app"
-          label="Reason for rework"
-          placeholder="What should be corrected…"
-          value={reason}
-          onChange={setReason}
-          disabled={busy}
-          autoFocus
-        />
-        {error ? (
-          <p role="alert" className="text-12 text-danger-text">
-            {error}
-          </p>
-        ) : null}
-        <div className="flex justify-end gap-2">
-          <Button type="default" size="app" onClick={onClose} disabled={busy}>
-            Cancel
-          </Button>
-          <Button type="primary" size="app" danger htmlType="submit" loading={busy} disabled={!ok}>
-            Send back
-          </Button>
-        </div>
-      </form>
-    </Sheet>
+    <Sheet.Root open={open} onOpenChange={(next) => !next && !busy && onClose()} desktop="dialog">
+      <Sheet.Popup surface="app">
+        <Sheet.Header>
+          <Sheet.Title>{`Send ${partyCount(task, count)} back for rework?`}</Sheet.Title>
+          {raiserName ? (
+            <Sheet.Description>{`${raiserName} corrects them, and they come back to you to approve.`}</Sheet.Description>
+          ) : null}
+          <Sheet.Close disabled={busy} />
+        </Sheet.Header>
+        <Sheet.Body>
+          <form
+            className="flex flex-col gap-4"
+            onSubmit={(e) => {
+              e.preventDefault();
+              if (ok && !busy) onConfirm(reason.trim());
+            }}
+          >
+            <Field
+              size="app"
+              label="Reason for rework"
+              placeholder="What should be corrected…"
+              value={reason}
+              onChange={setReason}
+              disabled={busy}
+              autoFocus
+            />
+            {error ? (
+              <p role="alert" className="text-12 text-danger-text">
+                {error}
+              </p>
+            ) : null}
+            <div className="flex justify-end gap-2">
+              <Button type="default" size="app" onClick={onClose} disabled={busy}>
+                Cancel
+              </Button>
+              <Button type="primary" size="app" danger htmlType="submit" loading={busy} disabled={!ok}>
+                Send back
+              </Button>
+            </div>
+          </form>
+        </Sheet.Body>
+      </Sheet.Popup>
+    </Sheet.Root>
   );
 }

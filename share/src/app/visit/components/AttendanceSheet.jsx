@@ -1,7 +1,7 @@
 'use client';
 
 import { useMemo, useState } from 'react';
-import { Button, DisclosureRow, Sheet } from '@/design-system';
+import { Button, DisclosureRow, Sheet, useRetained } from '@/design-system';
 import { attendanceExportFilename, attendanceExportRows } from '../data/attendanceExport';
 import { repsInAttendanceState } from '../data/selectors';
 import { attendanceSheetTitle } from '../data/shape';
@@ -27,7 +27,10 @@ import { useIncrementalList } from './useIncrementalList';
  * question neither the chip nor the card can answer. See canOpen.
  */
 
-export function AttendanceSheet({ state, team, rows, overRange = false, calendar = [], monthDays = [], today = null, loadContacts = null, onClose }) {
+export function AttendanceSheet({ state: openState, team, rows, overRange = false, calendar = [], monthDays = [], today = null, loadContacts = null, onClose }) {
+  /* Open on the live state; render from the retained one, so the list does
+     not empty while the sheet slides away. */
+  const state = useRetained(openState);
   /* One open row at a time, owned here rather than by the card: two open
      day-tables push the third off the screen, and the reader is comparing
      people, not reading two at once. Same move VisitsByHourSheet makes. */
@@ -101,31 +104,34 @@ export function AttendanceSheet({ state, team, rows, overRange = false, calendar
   };
 
   return (
-    <Sheet
-      open={state != null}
-      onClose={onClose}
-      surface="app"
-      title={state ? attendanceSheetTitle(state, overRange) : ''}
-      subtitle={[
-        `${people.length} ${people.length === 1 ? noun : plural} in this scope`,
-        /* Counts what is on screen against the whole list rather than
-           announcing a cap: the rest is a scroll away, not withheld. */
-        hasMore ? `showing ${shown}` : null,
-      ]
-        .filter(Boolean)
-        .join(' · ')}
-      /* Pinned, so it is still there after scrolling two hundred names.
-         Exports the whole list, not the page on screen. */
-      toolbar={
-        people.length > 0 ? (
-          <div className="flex justify-end">
-            <Button type="default" size="sm" loading={exporting} onClick={exportList}>
-              Export
-            </Button>
-          </div>
-        ) : null
-      }
-    >
+    <Sheet.Root open={openState != null} onOpenChange={(open) => !open && onClose?.()}>
+      <Sheet.Popup surface="app">
+        <Sheet.Header>
+          <Sheet.Title>{state ? attendanceSheetTitle(state, overRange) : ''}</Sheet.Title>
+          <Sheet.Description>
+            {[
+              `${people.length} ${people.length === 1 ? noun : plural} in this scope`,
+              /* Counts what is on screen against the whole list rather than
+                 announcing a cap: the rest is a scroll away, not withheld. */
+              hasMore ? `showing ${shown}` : null,
+            ]
+              .filter(Boolean)
+              .join(' · ')}
+          </Sheet.Description>
+          <Sheet.Close />
+        </Sheet.Header>
+        {/* Pinned, so it is still there after scrolling two hundred names.
+            Exports the whole list, not the page on screen. */}
+        {people.length > 0 ? (
+          <Sheet.Toolbar>
+            <div className="flex justify-end">
+              <Button type="default" size="sm" loading={exporting} onClick={exportList}>
+                Export
+              </Button>
+            </div>
+          </Sheet.Toolbar>
+        ) : null}
+        <Sheet.Body>
       {people.length === 0 ? (
         <p className="py-4 text-12 text-ds-secondary">No one in this scope.</p>
       ) : (
@@ -170,7 +176,9 @@ export function AttendanceSheet({ state, team, rows, overRange = false, calendar
 
       {/* The tripwire for the next page; gone once there is nothing left. */}
       {hasMore ? <div ref={sentinelRef} aria-hidden="true" className="h-1" /> : null}
-    </Sheet>
+        </Sheet.Body>
+      </Sheet.Popup>
+    </Sheet.Root>
   );
 }
 

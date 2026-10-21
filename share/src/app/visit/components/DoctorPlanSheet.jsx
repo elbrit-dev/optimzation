@@ -1,7 +1,7 @@
 'use client';
 
 import { useMemo, useState } from 'react';
-import { Sheet } from '@/design-system';
+import { Sheet, useRetained } from '@/design-system';
 import { doctorPlan, filterPlan, groupByDoctor, groupByEvent } from '../data/selectors';
 import { PlanControls } from './PlanControls';
 import { useIncrementalList } from './useIncrementalList';
@@ -31,7 +31,10 @@ const BLANK_FILTERS = { values: {}, sorts: {}, query: '' };
  * every group stay open turns it into the flat list this replaced, and the
  * reader loses the doctor-per-line shape that makes it skimmable. */
 
-export function DoctorPlanSheet({ member, team, rows, pob, loadPob = null, periodLabel, showDate = false, loading = false, onClose }) {
+export function DoctorPlanSheet({ member: openMember, team, rows, pob, loadPob = null, periodLabel, showDate = false, loading = false, onClose }) {
+  /* Open on the live member; render from the retained one, so the plan does
+     not empty while the sheet slides away. */
+  const member = useRetained(openMember);
   /* Keyed by event id rather than an index, so it survives the list
      re-sorting or the period changing under it. */
   const [openId, setOpenId] = useState(null);
@@ -47,9 +50,9 @@ export function DoctorPlanSheet({ member, team, rows, pob, loadPob = null, perio
      plan reads as empty rather than as filtered. Adjusted during render
      rather than in an effect: an effect would paint the new person's plan
      through the old person's filter first. */
-  const [filteredFor, setFilteredFor] = useState(member?.id ?? null);
-  if ((member?.id ?? null) !== filteredFor) {
-    setFilteredFor(member?.id ?? null);
+  const [filteredFor, setFilteredFor] = useState(openMember?.id ?? null);
+  if ((openMember?.id ?? null) !== filteredFor) {
+    setFilteredFor(openMember?.id ?? null);
     setFilters(BLANK_FILTERS);
   }
 
@@ -102,29 +105,30 @@ export function DoctorPlanSheet({ member, team, rows, pob, loadPob = null, perio
     .join(' · ');
 
   return (
-    <Sheet
-      open={member != null}
-      onClose={onClose}
-      surface="app"
-      title={member ? `${member.name} · Dr plan` : ''}
-      subtitle={subtitle}
-      /* PINNED UNDER THE HEADING rather than scrolled with the rows. A search
-         box that scrolls away is one the reader has to scroll back up to
-         change, losing their place in the answer on the way. Only once there
-         is something to sift: a toolbar over an empty plan is a row of ways
-         to keep it empty. */
-      toolbar={
-        calls.length > 0 ? (
-          <PlanControls
-            calls={calls}
-            value={filters}
-            onChange={setFilters}
-            resultCount={shownCalls.length}
-            totalCount={calls.length}
-          />
-        ) : null
-      }
-    >
+    <Sheet.Root open={openMember != null} onOpenChange={(open) => !open && onClose?.()}>
+      <Sheet.Popup surface="app">
+        <Sheet.Header>
+          <Sheet.Title>{member ? `${member.name} · Dr plan` : ''}</Sheet.Title>
+          <Sheet.Description>{subtitle}</Sheet.Description>
+          <Sheet.Close />
+        </Sheet.Header>
+        {/* PINNED UNDER THE HEADING rather than scrolled with the rows. A
+            search box that scrolls away is one the reader has to scroll back
+            up to change, losing their place in the answer on the way. Only
+            once there is something to sift: a toolbar over an empty plan is a
+            row of ways to keep it empty. */}
+        {calls.length > 0 ? (
+          <Sheet.Toolbar>
+            <PlanControls
+              calls={calls}
+              value={filters}
+              onChange={setFilters}
+              resultCount={shownCalls.length}
+              totalCount={calls.length}
+            />
+          </Sheet.Toolbar>
+        ) : null}
+        <Sheet.Body>
       {loading ? (
         /* The plan is fetched when the sheet opens (the report's numbers are
            counts, not rows) — "no visits" before it lands would be a lie. */
@@ -157,6 +161,8 @@ export function DoctorPlanSheet({ member, team, rows, pob, loadPob = null, perio
       {/* The tripwire for the next page. Rendered only while there IS one, so
           a finished list has nothing at the bottom still watching. */}
       {hasMore ? <div ref={sentinelRef} aria-hidden="true" className="h-1" /> : null}
-    </Sheet>
+        </Sheet.Body>
+      </Sheet.Popup>
+    </Sheet.Root>
   );
 }
