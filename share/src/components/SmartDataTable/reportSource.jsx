@@ -1032,6 +1032,23 @@ export function resolveIndexGqlVars(rawApiConfig, queryDoc, { viewParams, sortBy
  *                      fetch). Defaults to 'v1' so existing/unaudited configs keep
  *                      today's behavior until a view explicitly opts in.
  */
+/**
+ * Narrow a request to one top-level row, by filtering on the first group_by
+ * dimension. Used by the export fallback: the whole tree in one call can outrun
+ * the ERP gateway, but the same report once per root stays small enough, and
+ * every slice comes back nested exactly like the full call would.
+ *
+ * Replaces any existing filter on that dimension. The root came from a call made
+ * under that filter, so it is already inside it.
+ */
+function _scopeToRoot(gqlVars, rootValue) {
+  const report = REPORTS[resolveReportKey(gqlVars)];
+  const topDimension = groupByEnumsOf(gqlVars)[0];
+  const filterKey = Object.keys(report.filterKeys).find(k => report.filterKeys[k] === topDimension);
+  if (!filterKey) throw new Error(`[customReportV2] cannot filter on top-level dimension "${topDimension}"`);
+  return { ...gqlVars, filters: { ...gqlVars.filters, [filterKey]: [rootValue] } };
+}
+
 export function graphqlQueryReportDataSource(rawApiConfig) {
   const version = resolveReportApiVersion(rawApiConfig);
   const drillDown = resolveDrillDown(rawApiConfig);
@@ -1042,7 +1059,7 @@ export function graphqlQueryReportDataSource(rawApiConfig) {
     const controls   = params.viewParams?._controls ?? {};
     const pagination = params.pagination ?? { first: 0, rows: 50 };
 
-    const gqlVars  = resolveVariablesMap(baseVars, rawApiConfig.variablesMap, {
+    let gqlVars  = resolveVariablesMap(baseVars, rawApiConfig.variablesMap, {
       controls,
       sortBy: params.sortBy,
       pagination,
@@ -1051,6 +1068,7 @@ export function graphqlQueryReportDataSource(rawApiConfig) {
     });
 
     const isV2 = version === 'v2';
+    if (isV2 && rawApiConfig.rootValue != null) gqlVars = _scopeToRoot(gqlVars, rawApiConfig.rootValue);
     const v2Input = isV2 ? buildCustomReportV2Input(gqlVars, drillDown) : null;
     const query = isV2 ? CUSTOM_REPORT_V2_QUERY : buildCustomReportV1Query(gqlVars, rawApiConfig.variableTypes);
     const body  = isV2 ? { input: v2Input } : gqlVars;

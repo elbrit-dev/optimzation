@@ -271,6 +271,8 @@ function GmView({ data, editable, months, month, onSave, saving, onDecide, botto
         const ask = pendingOf(p);
         const history = (p.requests || []).filter((r) => r.status !== 'Pending');
         const isEditing = !!editing[p.employee];
+        // Extras the GM approved on requests: already inside the amount.
+        const extra = (p.requests || []).filter((r) => r.status === 'Approved').reduce((s, r) => s + (r.amount_approved || 0), 0);
         // The whole card opens and closes the split; the amount, its pencil
         // and the request panel keep their own clicks.
         const toggle = () => setOpen(isOpen ? null : p.employee);
@@ -283,6 +285,11 @@ function GmView({ data, editable, months, month, onSave, saving, onDecide, botto
               <div className="dsa-name">
                 <b>{p.name}</b>
                 <span>{p.designation || 'Sales Manager'} · {p.departments.length} department{p.departments.length === 1 ? '' : 's'}</span>
+                {extra && a ? (
+                  <span style={{ color: '#15803D', fontWeight: 600 }}>
+                    {money(Math.max(0, a.amount - extra))} + {money(extra)} approved on request
+                  </span>
+                ) : null}
               </div>
               {isEditing ? (
                 <input className="dsa-in" inputMode="numeric" aria-label={`Allocation for ${p.name}`} placeholder="₹0" autoFocus
@@ -350,7 +357,7 @@ function GmView({ data, editable, months, month, onSave, saving, onDecide, botto
           </span>
           <button type="button" className="dsa-ghost" disabled={saving} onClick={() => { setDraft({}); setEditing({}); }}>Cancel</button>
           <button className="dsa-btn" type="button" disabled={!editable || saving}
-            onClick={() => onSave('allocate', changed.map(([employee, v]) => ({ employee, amount: num(v) })))}>
+            onClick={() => onSave('allocate', changed.map(([employee, v]) => ({ employee, amount: num(v), was: people.find((x) => x.employee === employee)?.allocation?.amount || 0 })))}>
             {saving ? 'Saving…' : `Save ${changed.length} allocation${changed.length === 1 ? '' : 's'}`}
           </button>
         </div>

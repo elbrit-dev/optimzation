@@ -84,7 +84,9 @@ export function makeAllocationSample(role = 'GM') {
       const who = employee || me;
       store[month] = store[month] || {};
       if (kind === 'allocate') {
-        rows.forEach((r) => { store[month][r.employee] = { amount: Number(r.amount) || 0, splits: store[month][r.employee]?.splits || {} }; });
+        const stale = rows.find((r) => r.was !== undefined && Number(r.was) !== (store[month][r.employee]?.amount || 0));
+        if (stale) return Promise.reject(new Error(`${PEOPLE.find((p) => p.employee === stale.employee)?.name || stale.employee}'s allocation changed since you opened the page. Reload and enter it again.`));
+        rows.forEach((r) => { store[month][r.employee] = { ...(store[month][r.employee] || { splits: {} }), amount: Number(r.amount) || 0 }; });
       } else {
         if (!store[month][who]) return Promise.reject(new Error('Nothing has been allocated for this month yet.'));
         if (lockedOf(month) && !store[month][who].reopened) return Promise.reject(new Error('This month is locked: changes were open until the 20th.'));

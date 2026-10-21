@@ -28,7 +28,7 @@ import { each } from '../data/api';
 import { useServiceClient } from '../data/useClient';
 import {
   APPROVED, CEO, GM, NOT_SUBMITTED, QUICK_REJECT, QUICK_REVISIT, REJECTED, REWORK,
-  approverRoles, bars, canDecide, canEdit, cmp, fDY, money, normalize, short, stageText, statusOf, tierOf, wait,
+  approverRoles, bars, canDecide, canEdit, cmp, executed, fDY, money, normalize, short, stageText, statusOf, tierOf, wait,
 } from '../data/workflow';
 import { Detail } from './Detail';
 import { FilterPanel } from './FilterPanel';
@@ -118,7 +118,9 @@ export function ServiceWorkspace({
     : [
       ['back', 'Sent back', (e) => e.state === REWORK || e.state === NOT_SUBMITTED],
       ['flow', 'In approval', inFlow],
-      ['approved', 'Approved', (e) => e.state === APPROVED],
+      // Approved = still to carry out; Executed = its MIS ToDo is closed.
+      ['approved', 'Approved', (e) => e.state === APPROVED && !executed(e)],
+      ['executed', 'Executed', executed],
       ['rejected', 'Rejected', (e) => e.state === REJECTED],
       ['all', 'All', () => true],
     ];

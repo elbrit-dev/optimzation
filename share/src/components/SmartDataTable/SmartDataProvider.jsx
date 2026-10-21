@@ -574,30 +574,78 @@ function SmartDataProviderCore({ dataSource: providerDataSource, reportConfig: r
    * source with the gate removed, which is the eager full-depth call the
    * drill-down split exists to avoid -- correct for an export, and slow on
    * purpose. The caller is expected to have warned the user.
+   *
+   * `depth` caps that call at the deepest level the user is exporting. Every
+   * level below it multiplies the row count, and the full tree over a year
+   * outruns the ERP gateway (502, surfaced in the browser as a CORS error).
+   *
+   * If that one call fails and more than one level is asked for, it falls back
+   * to the same report once per top-level row (two at a time), each small
+   * enough to finish, and joins the slices. Small exports never pay for this;
+   * `onProgress({ done, total })` reports the fallback's progress.
+   *
+   * Returns null when the fetch fails, so callers can tell "failed" from "empty".
    */
-  const exportView = useCallback(async (viewId, { fullDepth = false } = {}) => {
+  const exportView = useCallback(async (viewId, { fullDepth = false, depth = null, onProgress } = {}) => {
     const view = store.getState().views[viewId];
     const resolvedApi = viewResolvedApiRef.current[viewId];
-    const ds = (fullDepth && resolveDrillDown(resolvedApi))
-      ? graphqlQueryReportDataSource({ ...resolvedApi, drillDown: undefined })
-      : (viewDataSources.current[viewId] ?? providerDataSource);
+    const drillDown = fullDepth && resolveDrillDown(resolvedApi);
+    const run = (ds) => Promise.resolve(ds({
+      filters:    view?.filters,
+      sortBy:     view?.sortBy,
+      pagination: { first: 0, rows: view?.totalRecords || 10000 },
+      viewParams: view?.viewParams,
+      viewId,
+    })).then(result => result?.rows ?? []);
+    const fullSource = (extra = {}) => graphqlQueryReportDataSource({
+      ...resolvedApi,
+      drillDown: depth ? { enabled: true, initialDepth: depth } : undefined,
+      ...extra,
+    });
+
+    const ds = drillDown ? fullSource() : (viewDataSources.current[viewId] ?? providerDataSource);
     if (!ds || !view) return [];
     logSmartDataEvent('info', 'export', 'export:start', { viewId, fullDepth });
     try {
-      const result = await Promise.resolve(
-        ds({
-          filters:    view.filters,
-          sortBy:     view.sortBy,
-          pagination: { first: 0, rows: view.totalRecords || 10000 },
-          viewParams: view.viewParams,
-          viewId,
-        })
-      );
-      logSmartDataEvent('info', 'export', 'export:success', { viewId, rowCount: result?.rows?.length ?? 0 });
-      return result?.rows ?? [];
+      const rows = await run(ds);
+      logSmartDataEvent('info', 'export', 'export:success', { viewId, rowCount: rows.length });
+      return rows;
     } catch (err) {
       logSmartDataEvent('error', 'export', 'export:error', { viewId, error: err?.message });
-      return [];
+      if (!drillDown || depth === 1) return null;
+    }
+
+    // Fallback: one request per top-level row.
+    try {
+      const roots = await run(graphqlQueryReportDataSource({
+        ...resolvedApi, drillDown: { enabled: true, initialDepth: 1 },
+      }));
+      const values = roots.map(r => r.label?.value ?? r.label).filter(v => v != null && v !== '');
+      logSmartDataEvent('info', 'export', 'export:split-start', { viewId, roots: values.length });
+      const slices = new Array(values.length);
+      let next = 0;
+      let done = 0;
+      let failed = false;
+      onProgress?.({ done, total: values.length });
+      const worker = async () => {
+        while (next < values.length && !failed) {
+          const i = next++;
+          try {
+            slices[i] = await run(fullSource({ rootValue: values[i] }));
+          } catch (err) {
+            failed = true;
+            throw err;
+          }
+          onProgress?.({ done: ++done, total: values.length });
+        }
+      };
+      await Promise.all([worker(), worker()]);
+      const rows = slices.flat();
+      logSmartDataEvent('info', 'export', 'export:split-success', { viewId, rowCount: rows.length });
+      return rows;
+    } catch (err) {
+      logSmartDataEvent('error', 'export', 'export:split-error', { viewId, error: err?.message });
+      return null;
     }
   }, [providerDataSource, store]);
 

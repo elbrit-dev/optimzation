@@ -294,7 +294,6 @@ def pts_of(p):
     m = MONTH_PTS.get(p.get("name"))
     return m["pts"] if m and m["pts"] > 0 else num(p.get("custom_last_pts"))
 
-
 def seat_lines(target, line_hq):
     # One Draft line per product, for this seat, on `target`.
     for p in products:
@@ -312,12 +311,10 @@ def seat_lines(target, line_hq):
         target.append("table_rdru", {"approved_by": approver, "role_profile": seat,
                                      "department": dept, "hq": line_hq, "approval_status": "Draft"})
 
-
 def existing_for(d):
     found = frappe.get_all(DOCTYPE, filters=[["doctor", "=", d], ["date", "between", [first, last]]],
                            fields=["name"], order_by="creation asc", limit_page_length=1)
     return found[0].get("name") if found else None
-
 
 def add_to(name, line_hq):
     # The seat's lines onto an existing record: True when added, False when

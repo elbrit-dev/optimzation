@@ -8,8 +8,10 @@
 #
 #   POST /api/method/elbrit_service_allocation_save
 #     { "month": "2026-10", "kind": "allocate",
-#       "rows": [ { "employee": "E00010", "amount": 500000 }, ... ] }
-#         the GM / CEO / IT: one amount per SM / ZSM for the month
+#       "rows": [ { "employee": "E00010", "amount": 500000, "was": 400000 }, ... ] }
+#         the GM / CEO / IT: one amount per SM / ZSM for the month. "was"
+#         (optional) is the amount the page showed: if it has changed since,
+#         the save is refused, so a stale page never undoes an approval
 #     { "month": "2026-10", "kind": "split",
 #       "rows": [ { "department": "Elbrit Bangalore - ELPL", "amount": 200000 }, ... ] }
 #         an SM / ZSM: their OWN allocation, across their own departments;
@@ -164,6 +166,15 @@ if kind == "allocate":
         if not e or e.get("status") != "Active" or (e.get("custom_role_profile") or "")[:3].upper() != "SM-":
             frappe.throw(eid + " is not an active Sales Manager / ZSM.")
         name = "SA-" + month + "-" + eid
+        # "was": the amount the page showed. If it changed since (a request
+        # approved meanwhile), refuse: saving would silently undo it -- as it
+        # did to Janardhanan's approved Rs 12,000 on 20 Oct 2026.
+        was = r.get("was")
+        current = float(frappe.db.get_value(PARENT, name, "amount") or 0) if frappe.db.exists(PARENT, name) else 0
+        if was is not None and str(was) != "" and float(was) != current:
+            frappe.throw((e.get("employee_name") or eid) + "'s allocation changed to " + money(current)
+                         + " since you opened the page (an approved request, or someone else's save). "
+                         "Reload and enter it again.")
         if frappe.db.exists(PARENT, name):
             doc = frappe.get_doc(PARENT, name)
             before = float(doc.amount or 0)

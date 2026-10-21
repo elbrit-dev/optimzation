@@ -287,6 +287,9 @@ function SmartDataTableInner({ viewId, view, columns: columnsProp, dataSource: v
   const [exportAvailableLevels, setExportAvailableLevels] = useState([]);
   const [exportSelectedLevels, setExportSelectedLevels] = useState([]);
   const [exportDialogLoading, setExportDialogLoading] = useState(false);
+  const [exportError, setExportError] = useState(null);
+  // { done, total } while the export runs one top-level row at a time.
+  const [exportProgress, setExportProgress] = useState(null);
 
   // Build workbook from per-sheet descriptors and trigger download.
   const doExport = useCallback((rows, selectedDepths) => {
@@ -377,6 +380,7 @@ function SmartDataTableInner({ viewId, view, columns: columnsProp, dataSource: v
       const allLevels = Array.from({ length: maxDepth + 1 }, (_, i) => i);
       setExportAvailableLevels(allLevels);
       setExportSelectedLevels(allLevels);
+      setExportError(null);
       setExportLevelsVisible(true);
     } else {
       setExporting(true);
@@ -391,15 +395,27 @@ function SmartDataTableInner({ viewId, view, columns: columnsProp, dataSource: v
 
   const handleDialogExport = useCallback(async () => {
     setExportDialogLoading(true);
+    setExportError(null);
+    setExportProgress(null);
     try {
       // fullDepth re-runs the request without the drill-down truncation. That is
       // the slow eager call this feature exists to avoid on render -- but an
       // export of the expanded rows only, with no indication that the rest is
-      // missing, is worse than a slow one.
-      const allRows = await exportView(viewId, { fullDepth: !!drillDownMeta });
-      if (allRows?.length) doExport(allRows, exportSelectedLevels);
+      // missing, is worse than a slow one. It still stops at the deepest ticked
+      // level: levels nobody asked for are what make the call too big to finish.
+      const allRows = await exportView(viewId, {
+        fullDepth: !!drillDownMeta,
+        depth: Math.max(...exportSelectedLevels) + 1,
+        onProgress: setExportProgress,
+      });
+      if (allRows === null) {
+        setExportError('Export failed — the server could not build this much data, even one group at a time. Untick the deeper levels or pick a shorter period and try again.');
+      } else if (allRows.length) {
+        doExport(allRows, exportSelectedLevels);
+      }
     } finally {
       setExportDialogLoading(false);
+      setExportProgress(null);
     }
   }, [exportView, viewId, exportSelectedLevels, doExport, drillDownMeta]);
 
@@ -853,6 +869,16 @@ function SmartDataTableInner({ viewId, view, columns: columnsProp, dataSource: v
           <p className="mb-3 text-sm text-amber-700 bg-amber-50 border border-amber-200 rounded p-2">
             This report loads rows as you expand them, so exporting fetches the full
             tree first. It can take a minute or more for a wide date range.
+          </p>
+        )}
+        {exportProgress && (
+          <p className="mb-3 text-sm text-gray-700" role="status">
+            Too large for one request — fetching {labelColDefs[0]?.header ?? 'group'} {Math.min(exportProgress.done + 1, exportProgress.total)} of {exportProgress.total}…
+          </p>
+        )}
+        {exportError && (
+          <p className="mb-3 text-sm text-gray-800 bg-gray-100 border border-gray-300 rounded p-2" role="alert">
+            {exportError}
           </p>
         )}
         <div className="flex flex-col gap-2">
