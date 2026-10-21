@@ -2,6 +2,7 @@
 
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Loader2, X, ZoomIn } from "lucide-react";
+import { Dialog } from "@/design-system";
 
 import {
   MAX_ZOOM,
@@ -123,14 +124,8 @@ export default function ProfilePictureEditor({ image, saving, error, onCancel, o
     [moveBy, saving]
   );
 
-  useEffect(() => {
-    if (!image) return undefined;
-    const onKeyDown = (event) => {
-      if (event.key === "Escape" && !saving) onCancel();
-    };
-    document.addEventListener("keydown", onKeyDown);
-    return () => document.removeEventListener("keydown", onKeyDown);
-  }, [image, onCancel, saving]);
+  // Escape, the scrim and back cancel — except while a save is running — via
+  // the design system's Dialog below.
 
   const handleSave = useCallback(() => {
     if (!image) return;
@@ -153,16 +148,14 @@ export default function ProfilePictureEditor({ image, saving, error, onCancel, o
 
   if (!image) return null;
 
+  /* A small card with its own drag (the crop), so the design system's Dialog
+     at every size — no swipe gesture to fight the crop. */
   return (
-    <div
-      className="fixed inset-0 z-50 flex items-center justify-center bg-[rgba(15,23,42,0.45)] p-4"
-      onMouseDown={(event) => {
-        if (event.target === event.currentTarget && !saving) onCancel();
-      }}
-    >
-      <div
-        role="dialog"
-        aria-modal="true"
+    <Dialog.Root open onOpenChange={(next) => { if (!next && !saving) onCancel(); }} backName="profile-picture">
+      <Dialog.Portal>
+        <Dialog.Backdrop />
+        <Dialog.Viewport>
+      <Dialog.Popup
         aria-label="Change profile picture"
         className="w-full max-w-[320px] rounded-[8px] bg-white p-4 shadow-[0_12px_40px_rgba(15,23,42,0.24)]"
       >
@@ -249,7 +242,9 @@ export default function ProfilePictureEditor({ image, saving, error, onCancel, o
             {saving ? "Saving…" : "Save to ERP"}
           </button>
         </div>
-      </div>
-    </div>
+      </Dialog.Popup>
+        </Dialog.Viewport>
+      </Dialog.Portal>
+    </Dialog.Root>
   );
 }

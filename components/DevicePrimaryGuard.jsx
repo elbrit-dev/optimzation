@@ -1,6 +1,6 @@
 import React from "react";
-import { createPortal } from "react-dom";
 import { DeviceUUID } from "device-uuid";
+import { Dialog } from "@/design-system";
 import { Smartphone, ShieldCheck } from "lucide-react";
 import { graphqlRequest } from "@calendar/lib/graphql-client";
 
@@ -275,12 +275,8 @@ export default function DevicePrimaryGuard({
   if ((!mounted && !isPreview) || !open || !info) return null;
   ensureStyles();
 
-  const card = (
-    <div className="edg-overlay" style={{ "--edg-z": zIndex }} role="dialog" aria-modal="true">
-      <div
-        className={`edg-card${className ? ` ${className}` : ""}`}
-        style={{ "--edg-accent": accentColor, ...style }}
-      >
+  const cardBody = (
+    <>
         <div className="edg-icon">
           <Smartphone size={22} strokeWidth={2.25} />
         </div>
@@ -304,10 +300,35 @@ export default function DevicePrimaryGuard({
             {saving ? "Saving…" : saveLabel}
           </button>
         </div>
-      </div>
-    </div>
+    </>
   );
 
-  if (isPreview || typeof document === "undefined") return card;
-  return createPortal(card, document.body);
+  const cardClass = `edg-card${className ? ` ${className}` : ""}`;
+  const cardStyle = { "--edg-accent": accentColor, ...style };
+
+  // Plasmic Studio's preview draws the card in place, as before.
+  if (isPreview || typeof document === "undefined") {
+    return (
+      <div className="edg-overlay" style={{ "--edg-z": zIndex }} role="dialog" aria-modal="true">
+        <div className={cardClass} style={cardStyle}>{cardBody}</div>
+      </div>
+    );
+  }
+
+  /* Live: the design system's Dialog — a small required prompt, so centred at
+     every size, above everything (zIndex). Escape, the scrim and back count
+     as Decline: nothing is saved and it asks again next time. While a save is
+     running they do nothing (handleDecline returns, the dialog stays). */
+  return (
+    <Dialog.Root open onOpenChange={(next) => { if (!next) handleDecline(); }} backName="device-guard">
+      <Dialog.Portal>
+        <Dialog.Backdrop style={{ zIndex }} />
+        <Dialog.Viewport style={{ zIndex }}>
+          <Dialog.Popup aria-label={title} className={cardClass} style={cardStyle}>
+            {cardBody}
+          </Dialog.Popup>
+        </Dialog.Viewport>
+      </Dialog.Portal>
+    </Dialog.Root>
+  );
 }

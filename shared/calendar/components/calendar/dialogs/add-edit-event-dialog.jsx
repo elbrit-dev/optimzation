@@ -24,7 +24,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue, } from "
 import { RHFFieldWrapper, RHFComboboxField, RHFDateTimeField, InlineCheckboxField, FormFooter, RHFHQCardSelector, } from "@calendar/components/calendar/form-fields";
 import { useCalendar } from "@calendar/components/calendar/contexts/calendar-context";
 import { RHFDoctorCardSelector } from "@calendar/components/RHFDoctorCardSelector";
-import { useBackToClose, useDisclosure, useSubmissionRouter } from "@calendar/components/calendar/hooks";
+import { isEditableElement, useDisclosure, useSubmissionRouter } from "@calendar/components/calendar/hooks";
 import { eventSchema } from "@calendar/components/calendar/schemas";
 import { TAG_FORM_CONFIG } from "@calendar/lib/calendar/form-config";
 import { loadParticipantOptionsByTag } from "@calendar/lib/participants";
@@ -1878,10 +1878,20 @@ export function AddEditEventDialog({
 		}
 		onClose();
 	};
-	// Android back used to unwind the calendar route and dump the user on the
-	// overview page with the form gone; it now closes just this dialog (or the
-	// popover stacked on top of it).
-	useBackToClose(isOpen, () => handleDialogOpenChange(false));
+	// Back closes the dialog through the design system's overlay (a popover
+	// stacked on top closes first, being its own layer). One exception: with a
+	// field focused, back only drops the soft keyboard — a half-filled form is
+	// not lost to a stray press. The overlay re-arms back when it stays open.
+	// `details` is absent for a back press and says "close-watcher" for
+	// Android's own close request.
+	const handleModalOpenChange = (nextOpen, details) => {
+		const backPress = !details || details.reason === "close-watcher";
+		if (!nextOpen && backPress && isEditableElement(document.activeElement)) {
+			document.activeElement.blur();
+			return;
+		}
+		handleDialogOpenChange(nextOpen);
+	};
 	const handleDefaultEvent = async (values) => {
 		// Google sync is the switch for everything Google, Meet included: ERP
 		// cannot attach a Meet link to an event it never syncs.
@@ -2634,7 +2644,7 @@ export function AddEditEventDialog({
 	const isSubmitDisabled =
 		isMutationPending || isMissingRequiredPick || isMissingMedicalCertificate;
 	return (
-		<Modal open={isOpen} onOpenChange={handleDialogOpenChange}>
+		<Modal open={isOpen} onOpenChange={handleModalOpenChange}>
 			<ModalTrigger asChild>{children}</ModalTrigger>
 
 			{/* Header and the Cancel/Submit row stay put; only what sits between

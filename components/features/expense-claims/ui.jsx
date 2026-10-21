@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
-import { createPortal } from "react-dom";
+import { Dialog, Drawer } from "@/design-system";
 import {
   ATTACH_ACCEPT, checkFile, deleteClaimFile, fetchClaimFiles, fetchFileBlob, invalidateClaims, saveClaim, uploadClaimFile,
 } from "./data/claimsApi";
@@ -71,24 +71,21 @@ export function Note({ tone = "error", children, style }) {
   return <div role={tone === "error" ? "alert" : "status"} style={{ padding: "11px 14px", borderRadius: 12, background: t[0], color: t[1], fontSize: 13, fontWeight: 500, ...style }}>{children}</div>;
 }
 
-function useEscape(onClose, on = true) {
-  useEffect(() => {
-    if (!on) return undefined;
-    const k = (e) => { if (e.key === "Escape") onClose(); };
-    window.addEventListener("keydown", k);
-    return () => window.removeEventListener("keydown", k);
-  }, [onClose, on]);
-}
-
-/* A bottom sheet on every screen size, as in the design: it keeps the page
-   behind it in view and reads the same on a phone and a desk. */
-export function Sheet({ title, sub, chips, onClose, maxWidth = 640, z = 70, body, footer, children }) {
-  useEscape(onClose);
-  if (typeof document === "undefined") return null;
-  return createPortal(
-    <div className="ec-root" onClick={onClose} style={{ position: "fixed", inset: 0, zIndex: z, background: "rgba(16,24,40,.52)", display: "flex", alignItems: "flex-end", justifyContent: "center" }}>
-      <div role="dialog" aria-modal="true" aria-label={title} onClick={(e) => e.stopPropagation()} style={{ width: "100%", maxWidth, maxHeight: "92vh", display: "flex", flexDirection: "column", background: body || "#fff", borderRadius: "20px 20px 0 0", boxShadow: "0 -12px 48px -12px rgba(16,24,40,.45)", overflow: "hidden", animation: "ec-up .3s cubic-bezier(.2,.8,.2,1)" }}>
-        <div style={{ flex: "none", display: "flex", justifyContent: "center", padding: "8px 0 0", background: "#fff" }}><span style={{ width: 40, height: 4, borderRadius: 99, background: "#d0d5dd" }} /></div>
+/* The design system's Drawer, drawn as the design's sheet: a bottom sheet on a
+   phone that swipes down to close, a side drawer from 768px. Escape, the scrim
+   and back close it; a sheet opened on top of another stacks and closes
+   first. Mounted only while shown, so it renders open and closes through
+   onClose. (`z` is accepted for existing callers; stacking is the order the
+   sheets open in.) */
+export function Sheet({ title, sub, chips, onClose, maxWidth = 640, z: _z = 70, body, footer, children }) {
+  return (
+    <Drawer.Root open onOpenChange={(next) => { if (!next) onClose?.(); }} backName="expense-claims">
+      <Drawer.Portal>
+        <Drawer.Backdrop />
+        <Drawer.Viewport>
+      {/* 92vh is the phone sheet's cap; from 768px it is a full-height side drawer. */}
+      <Drawer.Popup className="ec-root max-h-[92vh] md:max-h-none" aria-label={title} style={{ width: "100%", maxWidth, display: "flex", flexDirection: "column", background: body || "#fff", overflow: "hidden" }}>
+        <Drawer.Handle />
         <div style={{ flex: "none", display: "flex", alignItems: "flex-start", gap: 12, padding: "8px 12px 14px 20px", background: "#fff", boxShadow: "0 1px 0 #eef1f5" }}>
           <div style={{ flex: 1, minWidth: 0, display: "flex", flexDirection: "column", gap: 5 }}>
             <span style={{ fontSize: 18, fontWeight: 700, letterSpacing: "-0.01em" }}>{title}</span>
@@ -98,9 +95,10 @@ export function Sheet({ title, sub, chips, onClose, maxWidth = 640, z = 70, body
         </div>
         <div style={{ flex: 1, minHeight: 0, overflow: "auto" }}>{children}</div>
         {footer && <div style={{ flex: "none", display: "flex", gap: 8, padding: "12px 16px calc(12px + env(safe-area-inset-bottom))", background: "#fff", boxShadow: "inset 0 1px 0 #eef1f5" }}>{footer}</div>}
-      </div>
-    </div>,
-    document.body,
+      </Drawer.Popup>
+        </Drawer.Viewport>
+      </Drawer.Portal>
+    </Drawer.Root>
   );
 }
 
@@ -209,7 +207,6 @@ export function FilePreview({ conn, file, files = [], onClose }) {
   const [cur, setCur] = useState(file);
   const i = files.findIndex((f) => f === cur);
   const { status, url, error } = useFileUrl(conn, cur);
-  useEscape(onClose);
   useEffect(() => {
     const k = (e) => {
       if (e.key === "ArrowRight" && i >= 0 && i < files.length - 1) setCur(files[i + 1]);
@@ -218,10 +215,16 @@ export function FilePreview({ conn, file, files = [], onClose }) {
     window.addEventListener("keydown", k);
     return () => window.removeEventListener("keydown", k);
   }, [i, files]);
-  if (typeof document === "undefined") return null;
   const nav = (d) => setCur(files[i + d]);
-  return createPortal(
-    <div className="ec-root" onClick={onClose} style={{ position: "fixed", inset: 0, zIndex: 90, background: "rgba(10,14,22,.86)", display: "flex", flexDirection: "column" }}>
+  /* Full screen, on the design system's Dialog: no swipe (a PDF scrolls), but
+     Escape and back close it like every other overlay, and a press on the
+     dark space around the file closes it as before. */
+  return (
+    <Dialog.Root open onOpenChange={(next) => { if (!next) onClose?.(); }} backName="claim-file">
+      <Dialog.Portal>
+        <Dialog.Backdrop style={{ background: "rgba(10,14,22,.86)" }} />
+        <Dialog.Viewport style={{ padding: 0 }}>
+    <Dialog.Popup className="ec-root" aria-label={cur.name} onClick={onClose} style={{ inlineSize: "100%", blockSize: "100%", maxInlineSize: "none", maxBlockSize: "none", borderRadius: 0, background: "transparent", boxShadow: "none", display: "flex", flexDirection: "column" }}>
       <div onClick={(e) => e.stopPropagation()} style={{ flex: "none", display: "flex", alignItems: "center", gap: 10, padding: "12px 12px 12px 18px", color: "#fff" }}>
         <span style={{ flex: 1, minWidth: 0, display: "flex", flexDirection: "column" }}>
           <span style={{ fontSize: 14, fontWeight: 600, ...ell }}>{cur.name}</span>
@@ -244,8 +247,10 @@ export function FilePreview({ conn, file, files = [], onClose }) {
         {i > 0 && <button type="button" aria-label="Previous file" onClick={() => nav(-1)} style={{ ...btn.icon, position: "absolute", left: 12, background: "rgba(255,255,255,.14)", color: "#fff", borderRadius: "50%" }}><Icon d={IC.back} size={18} /></button>}
         {i >= 0 && i < files.length - 1 && <button type="button" aria-label="Next file" onClick={() => nav(1)} style={{ ...btn.icon, position: "absolute", right: 12, background: "rgba(255,255,255,.14)", color: "#fff", borderRadius: "50%" }}><Icon d={IC.next} size={18} /></button>}
       </div>
-    </div>,
-    document.body,
+    </Dialog.Popup>
+        </Dialog.Viewport>
+      </Dialog.Portal>
+    </Dialog.Root>
   );
 }
 

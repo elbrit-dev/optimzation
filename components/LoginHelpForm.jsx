@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { createPortal } from "react-dom";
+import { Sheet } from "@/design-system";
 import {
   AlertTriangle,
   CheckCircle2,
@@ -490,19 +490,9 @@ export default function LoginHelpForm({
     if (submitState === "done") reset();
   }, [submitState, reset]);
 
-  // Esc to close + lock background scroll while the sheet is up.
-  useEffect(() => {
-    if (!open) return undefined;
-    const onKey = (e) => e.key === "Escape" && close();
-    document.addEventListener("keydown", onKey);
-    const previousOverflow = document.body.style.overflow;
-    document.body.style.overflow = "hidden";
-    firstFieldRef.current?.focus();
-    return () => {
-      document.removeEventListener("keydown", onKey);
-      document.body.style.overflow = previousOverflow;
-    };
-  }, [open, close]);
+  // Escape, the scrim, a swipe and back close the sheet and the page behind
+  // stays put — the design system's Sheet does that; it also moves focus to
+  // the first field on open (initialFocus below).
 
   // In-app asks for nothing at all — identity comes from the prop and the
   // console capture is the report, so the only control is the button itself.
@@ -569,26 +559,15 @@ export default function LoginHelpForm({
   const field =
     "w-full rounded-lg border border-gray-300 px-3 py-2.5 text-[15px] outline-none focus:border-transparent focus:ring-2 disabled:bg-gray-50";
 
-  // The login variant is a bottom sheet — it's reached one-handed on a phone at
-  // the moment of failure. The in-app variant is a centred dialog, which is the
-  // ordinary shape for a deliberate action taken mid-session.
-  const overlayClass = isInApp
-    ? "fixed inset-0 z-[9999] flex items-center justify-center bg-black/50 p-4"
-    : "fixed inset-0 z-[9999] flex items-end justify-center bg-black/50 p-0 sm:items-center sm:p-4";
-  const panelClass = isInApp
-    ? "max-h-[92vh] w-full max-w-md overflow-y-auto rounded-2xl bg-white shadow-xl"
-    : "max-h-[92vh] w-full max-w-md overflow-y-auto rounded-t-2xl bg-white shadow-xl sm:rounded-2xl";
-
+  // A short form, so the design system's Sheet with desktop="dialog": a bottom
+  // sheet on a phone — reached one-handed at the moment of failure, swiped
+  // away — and a small centred dialog from 768px. Back closes it either way.
   const sheet = (
-    <div
-      className={overlayClass}
-      onMouseDown={(e) => e.target === e.currentTarget && close()}
-    >
-      <div
-        role="dialog"
-        aria-modal="true"
+    <Sheet.Root open={Boolean(mounted && open)} onOpenChange={(next) => { if (!next) close(); }} desktop="dialog">
+      <Sheet.Popup
         aria-label={text(title, "title")}
-        className={panelClass}
+        initialFocus={firstFieldRef}
+        className="max-h-[92vh] w-full max-w-md overflow-y-auto bg-white"
       >
         <div className="flex items-start justify-between gap-3 border-b border-gray-100 px-5 py-4">
           <div>
@@ -797,8 +776,8 @@ export default function LoginHelpForm({
             </p>
           </form>
         )}
-      </div>
-    </div>
+      </Sheet.Popup>
+    </Sheet.Root>
   );
 
   // The login trigger is a quiet text link under the sign-in buttons; the
@@ -828,7 +807,7 @@ export default function LoginHelpForm({
   return (
     <div className={className}>
       {trigger}
-      {mounted && open && createPortal(sheet, document.body)}
+      {sheet}
     </div>
   );
 }
