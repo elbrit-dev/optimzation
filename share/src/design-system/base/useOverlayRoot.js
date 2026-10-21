@@ -19,7 +19,7 @@ import { pushLayer } from '@/components/BackGuard';
    disarmed the layer, so if the overlay is still open a beat later, re-arm it
    — otherwise the NEXT press would leave the page. */
 
-export function useOverlayRoot({ open: openProp, defaultOpen = false, onOpenChange, backName }) {
+export function useOverlayRoot({ open: openProp, defaultOpen = false, onOpenChange, backName, closeWatcher = false }) {
   const [innerOpen, setInnerOpen] = useState(defaultOpen);
   const controlled = openProp !== undefined;
   const open = controlled ? Boolean(openProp) : innerOpen;
@@ -63,8 +63,42 @@ export function useOverlayRoot({ open: openProp, defaultOpen = false, onOpenChan
     };
   }, [open, backName]);
 
+  /* ON ANDROID A DIALOG OR POPOVER HOLDS A CLOSEWATCHER OF ITS OWN.
+
+     Base UI's Drawer takes Android's back press through a CloseWatcher, and a
+     close watcher gets the press BEFORE any history entry. It only knows
+     about drawers, so a Popover or Dialog opened ON a drawer (the POB sheet's
+     date picker) lost the press to the drawer underneath: one back closed
+     both, and left the popover's history entry behind to swallow the next
+     press. Seen on a handset, 21 Oct 2026.
+
+     So while open, a Dialog or Popover registers its own watcher. Created
+     after the drawer's — the overlay opens later, on a tap — it is the newest
+     and Android hands it the press first: back closes the top layer only.
+     Android only, as Base UI does it: on a desktop a close watcher also fires
+     on Escape, which the overlay already handles. If the screen refuses to
+     close (a save in flight), a fresh watcher is armed for the next press. */
+  const [watcherGen, setWatcherGen] = useState(0);
+  useEffect(() => {
+    if (!open || !closeWatcher || !androidCloseWatcher()) return undefined;
+    let watcher = new window.CloseWatcher();
+    watcher.onclose = () => {
+      watcher = null;
+      handleOpenChange(false);
+      window.setTimeout(() => {
+        if (openRef.current) setWatcherGen((n) => n + 1);
+      }, 0);
+    };
+    return () => watcher?.destroy();
+  }, [open, closeWatcher, watcherGen]); // eslint-disable-line react-hooks/exhaustive-deps
+
   return { open, onOpenChange: handleOpenChange };
 }
+
+const androidCloseWatcher = () =>
+  typeof window !== 'undefined' &&
+  typeof window.CloseWatcher === 'function' &&
+  /Android/i.test(window.navigator?.userAgent ?? '');
 
 /* The system's one phone/desktop switch for overlays: 768px, the breakpoint
    the app's other phone/desktop switches use. false on the server and the

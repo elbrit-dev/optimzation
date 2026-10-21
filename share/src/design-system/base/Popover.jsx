@@ -26,6 +26,7 @@ function Root({ open: openProp, defaultOpen, onOpenChange: onOpenChangeProp, bac
     defaultOpen,
     onOpenChange: onOpenChangeProp,
     backName,
+    closeWatcher: true,
   });
   return (
     <BasePopover.Root open={open} onOpenChange={onOpenChange} {...rest}>

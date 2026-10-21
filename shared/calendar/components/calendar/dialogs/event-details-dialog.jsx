@@ -70,7 +70,7 @@ export function EventDetailsDialog({ event, children }) {
           : children}
       </DialogTrigger>
 
-      <DialogContent className="max-h-[88vh] overflow-y-auto w-[calc(100vw-1.5rem)] sm:w-full">
+      <DialogContent className="max-h-[88dvh] overflow-y-auto">
         <DialogHeader className="pr-4">
           <div className="flex min-w-0 items-center gap-1.5">
             <DialogTitle className="min-w-0 flex-1 break-words text-left">

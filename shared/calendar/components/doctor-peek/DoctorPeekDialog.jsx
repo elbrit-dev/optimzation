@@ -387,7 +387,7 @@ export default function DoctorPeekDialog({
         ref={panelRef}
         aria-labelledby={titleId}
         initialFocus={panelRef}
-        className="max-h-[90vh] w-full overflow-y-auto rounded-t-2xl bg-white shadow-2xl outline-none sm:max-w-lg md:max-h-none"
+        className="max-h-[90dvh] w-full overflow-y-auto rounded-t-2xl bg-white shadow-2xl outline-none sm:max-w-lg md:max-h-none"
       >
         <Drawer.Handle />
 
