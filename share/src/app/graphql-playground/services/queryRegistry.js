@@ -1,10 +1,20 @@
 import { firestoreService } from './firestoreService';
-import offlineDocs from '@/resource/offline';
 
 /**
- * Query registry - merges offline docs (from JS files) with Firebase queries.
- * Offline docs have json + body; Firebase docs have body (GQL). Both appear in dropdown.
+ * Query registry - Firebase queries, plus offline docs (saved responses in
+ * src/resource/offline) for the ids listed below.
+ *
+ * Offline docs are loaded only when one of them is asked for by id. A static
+ * import put PrimaryStockOffline (21 MB of saved invoice data) into a chunk
+ * every page loaded, because every DataProvider imports this registry.
  */
+const OFFLINE_IDS = new Set(['PrimaryStockOffline']);
+
+async function loadOfflineDoc(id) {
+  if (!OFFLINE_IDS.has(id)) return null;
+  const { default: offlineDocs } = await import('@/resource/offline');
+  return offlineDocs[id] || null;
+}
 
 /**
  * Disabled queries (toggled in graphql-playground-v2) are invisible to every
@@ -16,35 +26,18 @@ export function isQueryDisabled(doc) {
 }
 
 /**
- * Convert offline doc to getAllQueries array format
- */
-function offlineDocToQuery(doc) {
-  return {
-    id: doc.id,
-    name: doc.name || doc.id,
-    body: doc.body || '',
-    json: doc.json,
-    transformerCode: doc.transformerCode || '',
-    index: doc.index || '',
-    queryKeys: Array.isArray(doc.queryKeys) ? doc.queryKeys : [],
-    searchFields: doc.searchFields || {},
-    sortFields: doc.sortFields || {},
-    _offline: true,
-  };
-}
-
-/**
- * Get all queries (Firebase + offline merged)
- * @returns {Promise<Array>} Combined list of query objects
+ * Get all Firebase queries.
+ *
+ * Offline docs are not listed: the startup index check skips them (they carry
+ * their own json), and the data-source picker filters them out, so listing
+ * them only cost loading their data. loadQuery() still serves them by id.
+ * @returns {Promise<Array>} Query objects, sorted by name
  */
 export async function getAllQueries() {
   const firebaseQueries = await firestoreService.getAllQueries();
-  const offlineQueries = Object.values(offlineDocs)
-    .filter((doc) => doc.json != null && doc.body)
-    .map(offlineDocToQuery);
-  const merged = [...offlineQueries, ...firebaseQueries.filter((q) => !isQueryDisabled(q))];
-  merged.sort((a, b) => (a.name || a.id).localeCompare(b.name || b.id));
-  return merged;
+  const queries = firebaseQueries.filter((q) => !isQueryDisabled(q));
+  queries.sort((a, b) => (a.name || a.id).localeCompare(b.name || b.id));
+  return queries;
 }
 
 /**
@@ -53,7 +46,7 @@ export async function getAllQueries() {
  * @returns {Promise<Object|null>} Query document or null
  */
 export async function loadQuery(id) {
-  const offline = offlineDocs[id];
+  const offline = await loadOfflineDoc(id);
   if (offline && offline.json != null && offline.body) {
     return { ...offline, _offline: true };
   }

@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import Router from 'next/router';
 
 /**
@@ -13,13 +13,18 @@ import Router from 'next/router';
  *
  * It never delays a normal load: the page renders straight away and is only
  * swapped out once the check says so. It re-checks every minute, whenever the
- * app comes back to the foreground or online, and on every navigation — and
+ * app comes back to the foreground or online, and on navigation (at most
+ * once per MIN_GAP_MS for the foreground and navigation checks) — and
  * every 20s while the screen is up, so switching off lets people back in
  * without them having to do anything.
  */
 
 const POLL_MS = 60_000;
 const POLL_MS_WHILE_DOWN = 20_000;
+// Coming back to the app fires visibilitychange AND focus, and every
+// navigation asks too: without a floor that was 2–3 identical checks a resume
+// and one per page. A check this recent (or still running) answers for them.
+const MIN_GAP_MS = 15_000;
 const BYPASS_STORAGE = 'elbrit.maintenanceBypass';
 const RED = '#D92C24';
 
@@ -35,8 +40,14 @@ function readBypassKey() {
 
 export default function MaintenanceGate({ children }) {
   const [status, setStatus] = useState(null);
+  const lastCheckRef = useRef(0);
 
-  const check = useCallback(async () => {
+  // `force` is for the timer and the Check again button; event-driven checks
+  // within MIN_GAP_MS of the last one are skipped.
+  const check = useCallback(async (force = false) => {
+    const now = Date.now();
+    if (force !== true && now - lastCheckRef.current < MIN_GAP_MS) return;
+    lastCheckRef.current = now;
     try {
       const key = readBypassKey();
       const res = await fetch(`/api/maintenance${key ? `?key=${encodeURIComponent(key)}` : ''}`);
@@ -46,6 +57,7 @@ export default function MaintenanceGate({ children }) {
       // Offline or server unreachable: keep the last known state.
     }
   }, []);
+  const forceCheck = useCallback(() => check(true), [check]);
 
   const down = Boolean(status?.enabled);
 
@@ -54,24 +66,26 @@ export default function MaintenanceGate({ children }) {
     // screen must never block editing.
     if (window.location.pathname.startsWith('/plasmic-host')) return undefined;
 
+    // Event listeners pass an event object, never `true`, so they stay throttled.
+    const soft = () => check();
     check();
-    const timer = setInterval(check, down ? POLL_MS_WHILE_DOWN : POLL_MS);
-    const onVisible = () => document.visibilityState === 'visible' && check();
+    const timer = setInterval(forceCheck, down ? POLL_MS_WHILE_DOWN : POLL_MS);
+    const onVisible = () => document.visibilityState === 'visible' && soft();
     document.addEventListener('visibilitychange', onVisible);
-    window.addEventListener('focus', check);
-    window.addEventListener('online', check);
-    Router.events.on('routeChangeStart', check);
+    window.addEventListener('focus', soft);
+    window.addEventListener('online', forceCheck);
+    Router.events.on('routeChangeStart', soft);
     return () => {
       clearInterval(timer);
       document.removeEventListener('visibilitychange', onVisible);
-      window.removeEventListener('focus', check);
-      window.removeEventListener('online', check);
-      Router.events.off('routeChangeStart', check);
+      window.removeEventListener('focus', soft);
+      window.removeEventListener('online', forceCheck);
+      Router.events.off('routeChangeStart', soft);
     };
-  }, [check, down]);
+  }, [check, forceCheck, down]);
 
   if (!down) return children;
-  return <MaintenanceScreen {...status} onRetry={check} />;
+  return <MaintenanceScreen {...status} onRetry={forceCheck} />;
 }
 
 /**

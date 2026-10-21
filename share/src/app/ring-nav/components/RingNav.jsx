@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
+import { forwardRef, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import Link from 'next/link';
 import { RingNav as DsRingNav, cx } from '@/design-system';
 import { normalizeRingNavItems } from '../utils/normalizeRingNavItems';
@@ -54,6 +54,14 @@ function nextBeat(now, refreshEvery) {
   const every = Number(refreshEvery);
   return every > 0 ? Math.min(midnight, now + Math.max(every, 250)) : midnight;
 }
+
+/* Tiles link to Plasmic pages whose page data is ~335 KB each, and next/link
+   prefetched every visible tile's data as soon as home loaded (5 tiles = 1.7 MB,
+   competing with home's own requests). A tap still navigates client-side, and
+   Next still prefetches a tile on hover/touch-start. */
+const TileLink = forwardRef(function TileLink(props, ref) {
+  return <Link ref={ref} prefetch={false} {...props} />;
+});
 
 export default function RingNav({
   items,
@@ -131,7 +139,7 @@ export default function RingNav({
           scroll-px keeps snapping on that margin, not on the edge. */}
       <DsRingNav
         items={tiles}
-        linkAs={Link}
+        linkAs={TileLink}
         onItemClick={onItemClick}
         ariaLabel={ariaLabel}
         className={inset ? 'px-4 scroll-px-4' : undefined}
