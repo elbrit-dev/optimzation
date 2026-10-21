@@ -71,6 +71,8 @@ export function AttendanceSheet({ state: openState, team, rows, overRange = fals
     if (state === 'onLeave') return (person.leaveDays?.length ?? 0) > 0;
     /* Other work → which days, and what kind (Admin Day, Conference…). */
     if (state === 'otherWork') return (person.otherWorkDays?.length ?? 0) > 0;
+    /* Holiday → which days, by name. */
+    if (state === 'holiday') return (person.holidayDays?.length ?? 0) > 0;
     if (state === 'working' || state === 'notReporting') return person.days.length > 0;
     return false;
   };
@@ -169,6 +171,9 @@ export function AttendanceSheet({ state: openState, team, rows, overRange = fals
               {state === 'notReporting' ? <PersonDays days={p.days} /> : null}
               {state === 'onLeave' ? <PersonLeave days={p.leaveDays} /> : null}
               {state === 'otherWork' ? <PersonLeave days={p.otherWorkDays} fallback="Other work" /> : null}
+              {state === 'holiday'
+                ? <PersonLeave days={(p.holidayDays ?? []).map((h) => ({ date: h.date, type: h.name }))} fallback="Holiday" />
+                : null}
             </div>
           </DisclosureRow>
         ))

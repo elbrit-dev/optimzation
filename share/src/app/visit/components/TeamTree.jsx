@@ -80,7 +80,9 @@ function rowFlags(member, roll) {
      from "did nothing today" is being told the wrong thing. */
   /* Other work keeps one too, for the same reason: an empty bar on an Admin
      Day is not a rep who did nothing. */
-  const showPill = member.vacant || (roll.isLeaf && (state === 'onLeave' || state === 'otherWork'));
+  /* Holiday too: an empty bar on Pooja, in a state that has it off, is not a
+     rep who did nothing. */
+  const showPill = member.vacant || (roll.isLeaf && (state === 'onLeave' || state === 'otherWork' || state === 'holiday'));
   return {
     state,
     showPill,
@@ -126,7 +128,9 @@ function RoleLine({ member, roll, overRange = false }) {
           {/* Which Other Work, when the day is known: "Meeting", not "Other work". */}
           {state === 'otherWork' && member.otherWorkToday && !overRange
             ? member.otherWorkToday.type || ATTENDANCE_LABEL[state]
-            : ATTENDANCE_LABEL[state]}
+            : state === 'holiday' && member.holidayToday && !overRange
+              ? member.holidayToday
+              : ATTENDANCE_LABEL[state]}
         </StatusPill>
       ) : null}
 

@@ -394,9 +394,9 @@ function VisitRow({ L, view, open, pop }) {
             <span style={{ fontSize: 13, color: "#8a93a3" }}>of {V.reps.total}</span>
           </span>
           <span style={{ display: "flex", height: 6, borderRadius: 99, overflow: "hidden", gap: 2, background: "#eef1f5" }}>
-            <span style={{ width: V.repsW.rep, background: "#16a34a" }} /><span style={{ width: V.repsW.not, background: "#dc2626" }} /><span style={{ width: V.repsW.away, background: "#1d4ed8" }} />
+            <span style={{ width: V.repsW.rep, background: "#16a34a" }} /><span style={{ width: V.repsW.not, background: "#dc2626" }} /><span style={{ width: V.repsW.hol, background: "#9e2692" }} /><span style={{ width: V.repsW.away, background: "#1d4ed8" }} />
           </span>
-          <span style={{ fontSize: 12, color: "#5b6576" }}>{V.repsW.notN} not yet{V.repsW.awayN ? ` · ${V.repsW.awayN} on leave / other work` : ""} · {V.reps.vacant} vacant</span>
+          <span style={{ fontSize: 12, color: "#5b6576" }}>{V.repsW.notN} not yet{V.repsW.holN ? ` · ${V.repsW.holN} on holiday` : ""}{V.repsW.awayN ? ` · ${V.repsW.awayN} on leave / other work` : ""} · {V.reps.vacant} vacant</span>
         </Tile>
       )}
       {V.units.map((h) => (

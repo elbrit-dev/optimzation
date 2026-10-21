@@ -133,6 +133,13 @@
  *                                          the SELECTED window
  * @property {{date: string, type: string}[]} otherWork  those days, in the
  *                                          window, with the Other Work type
+ * @property {{date: string, name: string}[]} holidays  the holidays on their
+ *                                          ERP Holiday List inside the window
+ *                                          (and today), Sundays left out. A
+ *                                          day off for THEM: off their working
+ *                                          days and their call target.
+ * @property {boolean}     onHoliday       the day being shown is one of them
+ * @property {string|null} holidayToday    its name ("Pooja"), or null
  * @property {string|null} roleProfile  Employee.custom_role_profile. The node
  *                                  in the Role Profile TREE this person sits
  *                                  at; the roster is narrowed to the subtree
@@ -237,7 +244,11 @@ export const MANAGER_LEVELS = new Set(['ABM', 'RBM', 'SM', 'ZSM', 'GM']);
 /* `otherWork` sits after Absent: like leave it accounts for a rep who logged
    no visits — they were on Other Work in the calendar (Admin Day, Chemist
    Day, Conference, Meeting), so the day had no visit to log. */
-export const ATTENDANCE = ['working', 'notReporting', 'onLeave', 'otherWork', 'vacant'];
+/* `holiday` sits after Other work: a rep who logged nothing on a day their
+   ERP Holiday List gives them off (Pooja, Gandhi Jayanthi) was not expected
+   in the field at all. Lists are per state, so on the same day one HQ can be
+   off and the next working. Six states fill the card's three columns twice. */
+export const ATTENDANCE = ['working', 'notReporting', 'onLeave', 'otherWork', 'holiday', 'vacant'];
 
 /* REPORTED, not "working". A rep who logged a visit has REPORTED it; whether
    they were working is a thing this screen cannot know — it sees the log, not
@@ -259,6 +270,7 @@ export const ATTENDANCE_LABEL = {
   notReporting: 'Not reported',
   onLeave: 'Absent',
   otherWork: 'Other work',
+  holiday: 'Holiday',
   vacant: 'Vacant',
 };
 
@@ -271,6 +283,7 @@ export const ATTENDANCE_SHEET_TITLE = {
   notReporting: 'Not reported today',
   onLeave: 'Absent today',
   otherWork: 'On other work today',
+  holiday: 'On holiday today',
   vacant: 'Vacant seats',
 };
 
@@ -307,6 +320,7 @@ export const ATTENDANCE_TONE = {
   notReporting: 'danger',
   onLeave: 'warning',
   otherWork: 'planned',
+  holiday: 'holiday',
   vacant: 'neutral',
 };
 
