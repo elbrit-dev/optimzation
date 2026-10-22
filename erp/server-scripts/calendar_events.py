@@ -99,6 +99,10 @@ if names is None or names:
     has_other_type = frappe.get_meta("Event").has_field("custom_other_type")
     if has_other_type:
         fields.append("custom_other_type")
+    # Other Work's HQ ("Hq Territory")
+    has_hq_territory = frappe.get_meta("Event").has_field("custom_hq_territory")
+    if has_hq_territory:
+        fields.append("custom_hq_territory")
 
     # get_list applies Event's permission rules and user permissions, as the list does
     rows = frappe.get_list(
@@ -174,6 +178,8 @@ if names is None or names:
         }
         if has_other_type:
             node["custom_other_type"] = enum(r.custom_other_type)  # a Select field
+        if has_hq_territory:
+            node["custom_hq_territory__name"] = r.custom_hq_territory
         events.append(node)
 
 frappe.response["message"] = {"events": events, "has_more": has_more}

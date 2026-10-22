@@ -408,6 +408,7 @@ export const TAG_FORM_CONFIG = {
     details: {
       fields: [
         { key: "otherType", label: "Type", type: "text" },
+        { key: "hqTerritory", label: "HQ Territory", type: "text" },
         { key: "startDate", label: "Date", type: "date" },
         { key: "owner", label: "Created by", type: "owner" },
         { key: "description", label: "Description", type: "text" },

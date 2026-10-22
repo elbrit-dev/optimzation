@@ -253,7 +253,11 @@ export function mapErpGraphqlEventToCalendar(node) {
       : undefined,
 
     color,
-    hqTerritory: node.custom_hq__name ?? "",
+    // Other Work keeps its HQ in "Hq Territory" (custom_hq_territory)
+    hqTerritory:
+      (tag === TAG_IDS.OTHER ? node.custom_hq_territory__name : null) ??
+      node.custom_hq__name ??
+      "",
     meetingLocation: node.custom_meeting_location ?? "",
     otherType: normalizeOtherType(node.custom_other_type),
     googleMeetLink: node.google_meet_link ?? null,
