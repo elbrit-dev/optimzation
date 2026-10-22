@@ -20,6 +20,14 @@ env:
     secret: verify-doc-clients
   - variable: GEMINI_MODEL
     value: gemini-2.5-pro
+  # OpenRouter (the reader in use while Google billing is sorted). Uncomment
+  # once the secret exists -- a missing secret fails the rollout.
+  # - variable: OPENROUTER_API_KEY
+  #   secret: verify-doc-openrouter-key
+  # - variable: MODEL_PROVIDER
+  #   value: openrouter
+  # - variable: OPENROUTER_MODEL
+  #   value: google/gemini-3.8-flash
   - variable: FIREBASE_PROJECT_ID
     value: elbrit-sso-d01d9
   - variable: ERP_URL

@@ -22,6 +22,12 @@ export const config = {
   port: Number(process.env.PORT) || 8080,
   geminiKey: process.env.GEMINI_API_KEY || "",
   model: process.env.GEMINI_MODEL || "gemini-2.5-pro",
+  // Which model reads: "openrouter" (OPENROUTER_API_KEY + OPENROUTER_MODEL, any
+  // model OpenRouter offers) or "gemini" (Google's API directly). Default:
+  // OpenRouter when its key is set.
+  provider: String(process.env.MODEL_PROVIDER || (process.env.OPENROUTER_API_KEY ? "openrouter" : "gemini")).toLowerCase(),
+  openrouterKey: process.env.OPENROUTER_API_KEY || "",
+  openrouterModel: process.env.OPENROUTER_MODEL || "google/gemini-3.8-flash",
   clients: clients(process.env.VERIFY_DOC_CLIENTS),
   // Exact hosts, or ".example.com" for any subdomain.
   allowedHosts: list(process.env.ALLOWED_DOC_HOSTS, "erp.elbrit.org,uat.elbrit.org,firebasestorage.googleapis.com"),

@@ -340,7 +340,7 @@ function ReviewSheet({ conn, claim: c, kind, canAct = true, desk, onClose, onDon
                 <span style={{ flex: 1 }} />
                 <span style={{ fontSize: 16, fontWeight: 700, ...tabNum }}>{inr(l.amount)}</span>
               </div>
-              <span style={{ fontSize: 13.5, color: l.note ? "#344054" : "#8a93a3" }}>{l.note || "No description"}</span>
+              {l.note && <span style={{ fontSize: 13.5, color: "#344054" }}>{l.note}</span>}
               {l.ai && (
                 <span style={{ fontSize: 12, color: "#475467", display: "flex", gap: 10, flexWrap: "wrap" }}>
                   <span>Bill: <b style={tabNum}>{l.ai.amount != null ? inr(l.ai.amount) : "—"}</b></span>

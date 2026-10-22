@@ -4,15 +4,20 @@
 #   Name           : Expense Claim Approver
 #   Script Type    : DocType Event
 #   Reference Doc  : Expense Claim
-#   Event          : Before Save
+#   Event          : Before Validate
 #
-# When a claim is sent for approval (workflow "Expense Claim Approval" ->
-# "Waiting for Approval"), sets expense_approver to the employee's reporting
-# officer: Employee.reports_to's login. BE -> ABM, ABM -> RBM, and so on, for
+# Sets expense_approver to the employee's reporting officer whenever it is
+# empty (any save -- HR Settings makes the field mandatory, and HRMS checks
+# it in validate, so this runs BEFORE validate), when the claim is sent for
+# approval (workflow "Expense Claim Approval" -> "Waiting for Approval"), and
+# when a draft's employee changes. The reporting officer is Employee.reports_to's login. BE -> ABM, ABM -> RBM, and so on, for
 # every employee. A vacant or Left seat, or one with no enabled login, is
 # skipped and the next one up answers. Nobody above (CEO, broken chain) ->
 # FALLBACK. Recomputed on every send, so a resend after a rejection picks up
 # a changed reporting line.
+#
+# 22 Oct 2026: moved Before Save -> Before Validate; "Expense Approver
+# Missing" blocked plain saves (a new claim in the desk, a draft from the app).
 #
 # Also enforces the advance rules and the sub type lists (Advance learns
 # new sub types from users) -- see below the constants.
@@ -74,7 +79,9 @@ for r in doc.expenses or []:
 old = doc.get_doc_before_save()
 was = old.workflow_state if old else None
 
-if doc.workflow_state == "Waiting for Approval" and was != "Waiting for Approval":
+sending = doc.workflow_state == "Waiting for Approval" and was != "Waiting for Approval"
+moved = bool(old) and old.employee != doc.employee and doc.workflow_state in [None, "", "Draft", "Rejected"]
+if doc.employee and (sending or moved or not doc.expense_approver):
     me = frappe.db.get_value("Employee", doc.employee, "user_id")
     approver = None
     cur = doc.employee

@@ -11,6 +11,19 @@ import { execFileSync } from "node:child_process";
 import { readFileSync } from "node:fs";
 import { basename } from "node:path";
 
+/*   node scripts/try.mjs --openrouter-models   OpenRouter models that read
+ *   images, with their price per million tokens (public list, no key). */
+if (process.argv[2] === "--openrouter-models") {
+  const j = await (await fetch("https://openrouter.ai/api/v1/models")).json();
+  const rows = (j.data || [])
+    .filter((m) => (m.architecture?.input_modalities || []).includes("image"))
+    .filter((m) => !process.argv[3] || m.id.includes(process.argv[3]))
+    .map((m) => ({ id: m.id, in: Number(m.pricing?.prompt || 0) * 1e6, out: Number(m.pricing?.completion || 0) * 1e6, pdf: (m.architecture?.input_modalities || []).includes("file") }))
+    .sort((a, b) => a.in - b.in);
+  for (const m of rows) console.log(m.id.padEnd(48), `$${m.in.toFixed(2)} in / $${m.out.toFixed(2)} out per 1M`, m.pdf ? " pdf" : "");
+  process.exit(0);
+}
+
 /*   node scripts/try.mjs --models   lists the Gemini models this project's key
  *   can use (names only; the key itself is never printed). */
 if (process.argv[2] === "--models") {

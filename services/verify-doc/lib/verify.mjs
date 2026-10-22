@@ -3,7 +3,7 @@
 
 import { config } from "./config.mjs";
 import { DocError, loadDocuments } from "./documents.mjs";
-import { readDocuments } from "./gemini.mjs";
+import { modelName, readDocuments } from "./reader.mjs";
 import { DEFAULT_BANDS, scoreReading } from "./score.mjs";
 
 const TYPES = new Set(["text", "number", "date", "month", "table"]);
@@ -62,6 +62,6 @@ export async function verify(body, deps = {}) {
     rules,
     summary: summarize(reading, scored).trim(),
     document: reading.document || null,
-    meta: { model: config.model, ms: Date.now() - started, documents: documents.length, tokens: usage?.totalTokenCount ?? null },
+    meta: { provider: config.provider, model: modelName(), ms: Date.now() - started, documents: documents.length, tokens: usage?.totalTokenCount ?? null },
   };
 }

@@ -13,6 +13,7 @@ import { createServer } from "node:http";
 import { allow, identify } from "./lib/auth.mjs";
 import { config } from "./lib/config.mjs";
 import { verify } from "./lib/verify.mjs";
+import { modelName } from "./lib/reader.mjs";
 
 function corsHeaders(req) {
   const origin = String(req.headers.origin || "").toLowerCase();
@@ -60,7 +61,7 @@ export function makeServer(deps = {}) {
       res.writeHead(Object.keys(h).length ? 204 : 403, h);
       return res.end();
     }
-    if (req.method === "GET" && path === "/health") return send(req, res, 200, { ok: true, model: config.model, modelKey: !!config.geminiKey });
+    if (req.method === "GET" && path === "/health") return send(req, res, 200, { ok: true, provider: config.provider, model: modelName(), modelKey: !!(config.provider === "openrouter" ? config.openrouterKey : config.geminiKey) });
     if (path !== "/v1/verify") return send(req, res, 404, { error: "Not found." });
     if (req.method !== "POST") return send(req, res, 405, { error: "Use POST." });
     if (req.headers.origin && !Object.keys(corsHeaders(req)).length) return send(req, res, 403, { error: "This site may not call the service." });
@@ -90,5 +91,5 @@ export function makeServer(deps = {}) {
 }
 
 if (process.argv[1] && /server\.mjs$/.test(process.argv[1])) {
-  makeServer().listen(config.port, () => console.log(`verify-doc listening on :${config.port} (model ${config.model})`));
+  makeServer().listen(config.port, () => console.log(`verify-doc listening on :${config.port} (${config.provider}: ${modelName()})`));
 }

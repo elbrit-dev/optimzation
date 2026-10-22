@@ -81,7 +81,9 @@ for r in doc.expenses or []:
 old = doc.get_doc_before_save()
 was = old.workflow_state if old else None
 
-if doc.workflow_state == "Waiting for Approval" and was != "Waiting for Approval":
+sending = doc.workflow_state == "Waiting for Approval" and was != "Waiting for Approval"
+moved = bool(old) and old.employee != doc.employee and doc.workflow_state in [None, "", "Draft", "Rejected"]
+if doc.employee and (sending or moved or not doc.expense_approver):
     me = frappe.db.get_value("Employee", doc.employee, "user_id")
     approver = None
     cur = doc.employee
@@ -444,7 +446,7 @@ else:
             "override_status": 0, "states": states, "transitions": transitions}).insert(ignore_permissions=True)
 
 # 4. Server scripts
-for s in [["Expense Claim Approver", "Before Save", APPROVER_SCRIPT], ["Expense Claim AI Guard", "Before Save", GUARD_SCRIPT], ["Expense Claim Route", "After Save", ROUTE_SCRIPT]]:
+for s in [["Expense Claim Approver", "Before Validate", APPROVER_SCRIPT], ["Expense Claim AI Guard", "Before Save", GUARD_SCRIPT], ["Expense Claim Route", "After Save", ROUTE_SCRIPT]]:
     if frappe.db.exists("Server Script", s[0]):
         print(W + "update server script " + s[0])
         if not DRY:

@@ -413,7 +413,7 @@ export function DaySheet({ conn, day, onClose, onEdit, onChanged, maxWidth = 640
                   {cut && <span style={{ fontSize: 12, fontWeight: 700, color: "#1d4ed8" }}>{inr(r.sanctioned)} sanctioned</span>}
                 </span>
               </div>
-              <span style={{ fontSize: 14, color: r.note ? "#344054" : "#8a93a3", textWrap: "pretty" }}>{r.note || "No description"}</span>
+              {r.note && <span style={{ fontSize: 14, color: "#344054", textWrap: "pretty" }}>{r.note}</span>}
               {r.ai?.reason && <span style={{ fontSize: 12, color: r.ai.risk === "Low" ? "#067647" : "#b54708" }}>{r.ai.reason}{r.ai.vendor ? ` · ${r.ai.vendor}` : ""}</span>}
               {bill && <button type="button" className="ec-link" onClick={() => setPreview(bill)} style={{ alignSelf: "flex-start", display: "flex", alignItems: "center", gap: 6, height: 30, padding: "0 10px", borderRadius: 8, border: "1px solid #d0d5dd", background: "#fff", color: "#1d4ed8", fontSize: 12, fontWeight: 600, cursor: "pointer" }}><Icon d={IC.eye} size={14} />View bill</button>}
             </div>
@@ -442,13 +442,6 @@ export function DaySheet({ conn, day, onClose, onEdit, onChanged, maxWidth = 640
 
 let rowSeq = 0;
 const newRow = (type, date) => ({ key: ++rowSeq, type, sub: "", date, note: "", amount: "", bill: "", file: null });
-
-const PLACEHOLDER = {
-  Travel: "From → to, purpose · e.g. HQ → Kanchipuram, doctor calls",
-  Food: "Daily allowance · HQ or outstation",
-  Miscellaneous: "What it was for, bill no.",
-  Advance: "What the advance is for · e.g. office pantry for October",
-};
 
 const normTypes = (types) =>
   (types?.length ? types : DEFAULT_TYPES).map((t) => (typeof t === "string" ? { name: t, subs: [], open: false } : t));
@@ -687,10 +680,6 @@ export function ClaimForm({ conn, me, types, claims = [], claim, copyFrom, today
                       </label>
                     </div>
 
-                    <label style={{ display: "flex", flexDirection: "column", gap: 6, minWidth: 0 }}>
-                      <span className="ecf-lbl">Description <span style={{ textTransform: "none", letterSpacing: 0, fontWeight: 500, color: "#98a2b3" }}>· optional</span></span>
-                      <input className="ecf-in" placeholder={PLACEHOLDER[r.type] || "What was it for?"} value={r.note} onChange={(e) => set(r.key, { note: e.target.value })} style={input} />
-                    </label>
                   </div>
 
                   {mode === "expense" && (
@@ -717,8 +706,8 @@ export function ClaimForm({ conn, me, types, claims = [], claim, copyFrom, today
           </button>
 
           <label className="ecf-card" style={{ padding: 16, display: "flex", flexDirection: "column", gap: 8 }}>
-            <span className="ecf-lbl">Note for your reporting officer <span style={{ textTransform: "none", letterSpacing: 0, fontWeight: 500, color: "#98a2b3" }}>· optional</span></span>
-            <textarea className="ecf-in" rows={2} placeholder="e.g. joint work with ABM on 20 Oct" value={remark} onChange={(e) => setRemark(e.target.value)} style={{ ...input, height: "auto", minHeight: 64, padding: 12, resize: "vertical", lineHeight: 1.45 }} />
+            <span className="ecf-lbl">Note <span style={{ textTransform: "none", letterSpacing: 0, fontWeight: 500, color: "#98a2b3" }}>· optional · for your reporting officer</span></span>
+            <textarea className="ecf-in" rows={2} placeholder={mode === "advance" ? "What the advance is for, e.g. office pantry for October" : "e.g. HQ → Kanchipuram doctor calls, joint work with ABM on 20 Oct"} value={remark} onChange={(e) => setRemark(e.target.value)} style={{ ...input, height: "auto", minHeight: 64, padding: 12, resize: "vertical", lineHeight: 1.45 }} />
           </label>
           {error && <Note>{error}</Note>}
           {!twoCol && <Summary mode={mode} total={total} rows={rows.length} bills={bills} pct={pct} byType={byType} compact />}
