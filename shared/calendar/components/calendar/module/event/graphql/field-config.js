@@ -11,6 +11,9 @@ export const ERP_EVENT_FIELDS = {
   ownerEmployeeWrite: "custom_employee_id",
   hqRead: "custom_hq__name",
   hqWrite: "custom_hq",
+  // "Hq Territory": where Other Work keeps the HQ it was done at
+  hqTerritoryRead: "custom_hq_territory__name",
+  hqTerritoryWrite: "custom_hq_territory",
   meetingLocationRead: "custom_meeting_location",
   meetingLocationWrite: "custom_meeting_location",
   otherTypeRead: "custom_other_type",

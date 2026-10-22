@@ -390,7 +390,10 @@ export function mapFormToErpEvent(values, options = {}) {
         : "Open",
     docstatus: 0,
     event_participants: eventParticipants,
-    [ERP_EVENT_FIELDS.hqWrite]: values.hqTerritory || "",
+    // Other Work's HQ (picked from every HQ) goes in "Hq Territory" and leaves
+    // the permission HQ (custom_hq) untouched; everything else keeps custom_hq.
+    [ERP_EVENT_FIELDS.hqWrite]: isOtherWork ? undefined : values.hqTerritory || "",
+    [ERP_EVENT_FIELDS.hqTerritoryWrite]: isOtherWork ? values.hqTerritory || "" : undefined,
     [ERP_EVENT_FIELDS.meetingLocationWrite]:
       values.tags === TAG_IDS.MEETING
         ? values.meetingLocation || ""
