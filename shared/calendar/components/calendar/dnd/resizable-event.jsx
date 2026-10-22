@@ -22,7 +22,7 @@ export function ResizableEvent({
     children,
     className
 }) {
-	const { updateEvent, use24HourFormat } = useCalendar();
+	const { use24HourFormat } = useCalendar();
 
 	const [isResizing, setIsResizing] = useState(false);
 	const [resizePreview, setResizePreview] = useState(null);
@@ -71,18 +71,14 @@ export function ResizableEvent({
             end: format(newEnd, use24HourFormat ? "HH:mm" : "h:mm a"),
         });
 
-        updateEvent({
-            ...event,
-            startDate: newStart.toISOString(),
-            endDate: newEnd.toISOString(),
-        });
+        // Only the preview: a resize is not saved to ERP, so the event itself
+        // stays as ERP has it (times change through the Edit form).
     }, [
         start,
         end,
         durationInMinutes,
         resizeBoundaries,
         use24HourFormat,
-        updateEvent,
         event,
     ]);
 

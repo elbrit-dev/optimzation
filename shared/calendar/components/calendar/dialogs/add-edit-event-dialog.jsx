@@ -41,7 +41,7 @@ import {
 import { buildParticipantsWithDetails, getAvailableItems, normalizeMeetingTimes, normalizeNonMeetingDates, resolveLatLong, showFirstFormErrorAsToast, syncPobItemRates, updatePobRow } from "@calendar/lib/helper";
 import { Button } from "@calendar/components/ui/button";
 import { isBackdatedVisit, isVisitDay } from "@calendar/lib/calendar/visit";
-import { BACKDATE_TYPES, useBackdateWindows } from "@calendar/lib/calendar/backdate";
+import { BACKDATE_TYPES, isBackdateOpen, useBackdateWindows } from "@calendar/lib/calendar/backdate";
 import { useAllHqs } from "@calendar/lib/calendar/allHqs";
 import { CircleAlert, ClipboardList, MapPin, Mic, Pill, Users, Video } from "lucide-react";
 
@@ -51,6 +51,22 @@ const BACKDATE_TYPE_BY_TAG = {
 	[TAG_IDS.LEAVE]: BACKDATE_TYPES.LEAVE,
 	[TAG_IDS.OTHER]: BACKDATE_TYPES.OTHER_WORK,
 };
+
+// A NEW event on a past day only goes in on a day a backdate window opens for
+// its own type. The date picker enforces this per type, but the date stays put
+// when the type chip is switched (an Other Work day picked, then DR Tour Plan),
+// so it is checked again on the type switch and on save. Travel Requests are
+// not calendar events and keep their own date rules.
+function pastDayRefusal(tag, startDate, now = new Date()) {
+	if (!startDate || tag === TAG_IDS.TRAVEL_REQUEST) return null;
+	const day = new Date(startDate);
+	if (Number.isNaN(day.getTime()) || startOfDay(day) >= startOfDay(now)) return null;
+	const type = BACKDATE_TYPE_BY_TAG[tag];
+	if (type && isBackdateOpen(day, now, type)) return null;
+	return type
+		? `${format(day, "d MMM")} is not open for ${type} entry. Pick today or a later date.`
+		: "Pick today or a later date.";
+}
 
 const OTHER_WORK_TYPE_ICONS = {
 	"Admin Day": ClipboardList,
@@ -184,7 +200,14 @@ export function AddEditEventDialog({
 		event,
 		defaultTag: defaultTag ?? availableTags[0]?.id,
 	});
-	const openDate = event ? null : initialStartDate ?? (selectedDate ? new Date(selectedDate) : null);
+	let openDate = event ? null : initialStartDate ?? (selectedDate ? new Date(selectedDate) : null);
+	// A past slot (week / day view) or a past selected day (header Add Event)
+	// opens the form on today instead, unless a backdate window opens that day.
+	if (openDate && pastDayRefusal(eventDefaults.tags, openDate)) {
+		const now = new Date();
+		openDate = new Date(openDate);
+		openDate.setFullYear(now.getFullYear(), now.getMonth(), now.getDate());
+	}
 	if (openDate) {
 		eventDefaults.startDate = openDate;
 		eventDefaults.endDate = addMinutes(openDate, 60);
@@ -1218,7 +1241,7 @@ export function AddEditEventDialog({
 
 		const now = new Date();
 
-		const baseDate =
+		let baseDate =
 			(initialStartDateTs != null
 				? new Date(initialStartDateTs)
 				: null) ??
@@ -1226,6 +1249,13 @@ export function AddEditEventDialog({
 				? new Date(selectedDateTs)
 				: null) ??
 			now;
+		// The clicked slot / selected day may be a past day this type can't use
+		// (no backdate window for it): start on today, same clock time. This runs
+		// on open and on every type switch, so it also covers switching types.
+		if (pastDayRefusal(selectedTag, baseDate, now)) {
+			baseDate = new Date(baseDate);
+			baseDate.setFullYear(now.getFullYear(), now.getMonth(), now.getDate());
+		}
 
 		const currentValues = form.getValues();
 		endDateTouchedRef.current = false;
@@ -2518,7 +2548,69 @@ export function AddEditEventDialog({
 	// FINAL SUBMIT HANDLER (HQ validation guard)
 	// ----------------------------------------------------
 
+	// RULES RE-CHECKED ON SAVE. The pickers, chips and the greyed Save button
+	// enforce these as the user fills the form, but a value can still arrive
+	// another way (a past slot, a date moved after the form opened, Enter in a
+	// text box, an HQ chip cleared after picking doctors), so the save itself
+	// refuses what the form would not let the user pick.
+	const saveRefusal = (values) => {
+		const tag = values.tags;
+		const dateChanged =
+			isEditing &&
+			values.startDate &&
+			event?.startDate &&
+			startOfDay(new Date(values.startDate)).getTime() !==
+				startOfDay(new Date(event.startDate)).getTime();
+		if (!isEditing || dateChanged) {
+			const pastDay = pastDayRefusal(tag, values.startDate);
+			if (pastDay) return pastDay;
+			if (
+				tag !== TAG_IDS.LEAVE &&
+				isEmployeeOnApprovedLeave(allEvents, LOGGED_IN_USER.id, values.startDate)
+			) {
+				return "You're on leave on this day";
+			}
+		}
+		if (isEditing) {
+			// The type's edit lock (past days etc.), as the details dialog applies
+			// it to the Edit button; a failed sync stays editable there too.
+			const allowEdit = (TAG_FORM_CONFIG[event?.tags] ?? TAG_FORM_CONFIG.DEFAULT)?.ui?.allowEdit;
+			if (event?.__syncStatus !== "failed" && allowEdit && !allowEdit(event)) {
+				return "This event can no longer be changed.";
+			}
+			return isDoctorVisitWithoutLocation
+				? "Your location is needed to mark this visit. Allow location and try again."
+				: null;
+		}
+		if ((tag === TAG_IDS.OTHER || tag === TAG_IDS.DOCTOR_VISIT_PLAN) && !values.hqTerritory) {
+			return "Pick the HQ to submit.";
+		}
+		if (tag === TAG_IDS.DOCTOR_VISIT_PLAN) {
+			// Only the user's own HQs (or the day's old HQ Tour Plan's HQ).
+			if (
+				values.hqTerritory !== matchedHqEvent?.hqTerritory &&
+				!ownHqOptions.some((option) => option.value === values.hqTerritory)
+			) {
+				return `${values.hqTerritory} is not one of your HQs. Pick the HQ again.`;
+			}
+			// Every doctor must be one listed for the picked HQ.
+			if (mappedDoctorsLoading) return "The HQ's doctors are still loading. Try again in a moment.";
+			const picks = (Array.isArray(values.doctor) ? values.doctor : [values.doctor])
+				.filter(Boolean)
+				.map((pick) => (typeof pick === "object" ? pick.value : pick));
+			if (picks.some((id) => !territoryDoctors.some((d) => d.value === id))) {
+				return `Some picked doctors are not in ${values.hqTerritory}. Pick the doctors again.`;
+			}
+		}
+		return null;
+	};
+
 	const onSubmit = async (values) => {
+		const refusal = saveRefusal(values);
+		if (refusal) {
+			toast.error(refusal);
+			return;
+		}
 		if (values.tags === TAG_IDS.DOCTOR_VISIT_PLAN && doctorVisitBlockReasonText) {
 			toast.error(doctorVisitBlockReasonText);
 			return;

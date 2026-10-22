@@ -1,7 +1,6 @@
 "use client";;
 import React, { createContext, useCallback, useContext, useRef, useState, useMemo } from "react";
 import { toast } from "sonner";
-import { useCalendar } from "@calendar/components/calendar/contexts/calendar-context";
 import { DndConfirmationDialog } from "@calendar/components/calendar/dialogs/dnd-confirmation-dialog";
 
 const DragDropContext = createContext(undefined);
@@ -10,7 +9,6 @@ export function DndProvider({
     children,
     showConfirmation: showConfirmationProp = false
 }) {
-	const { updateEvent } = useCalendar();
 	const [dragState, setDragState] = useState({ draggedEvent: null, isDragging: false });
 
 	const [showConfirmation, setShowConfirmation] =
@@ -103,20 +101,13 @@ export function DndProvider({
 		endDrag();
 	}, [endDrag]);
 
-	// Default event update handler
-	const handleEventUpdate = useCallback((event, newStartDate, newEndDate) => {
-        try {
-            const updatedEvent = {
-                ...event,
-                startDate: newStartDate.toISOString(),
-                endDate: newEndDate.toISOString(),
-            };
-            updateEvent(updatedEvent);
-            toast.success("Event updated successfully");
-        } catch {
-            toast.error("Failed to update event");
-        }
-    }, [updateEvent]);
+	// Default event update handler. A drop is NOT saved to ERP, so it must not
+	// move the event on screen either: the moved copy said "updated" while ERP
+	// kept the old date, and its Edit form then saved the dropped day without
+	// any of the date rules. Dates change through the event's Edit form only.
+	const handleEventUpdate = useCallback(() => {
+        toast.info("To change the date, open the event and edit it.");
+    }, []);
 
 	// Set default callback
 	React.useEffect(() => {

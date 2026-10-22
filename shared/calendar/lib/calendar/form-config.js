@@ -1,6 +1,14 @@
 import { DEFAULT_COLORS, TAG_IDS } from "@calendar/components/calendar/constants";
 import { startOfDay, isBefore } from "date-fns";
-import { isBackdateOpen } from "./backdate";
+import { BACKDATE_TYPES, isBackdateOpen } from "./backdate";
+
+// Today or later, or a past day a backdate window opens for Other Work.
+function isOpenForOtherWork(date) {
+  if (!date) return true;
+  const day = startOfDay(new Date(date));
+  if (Number.isNaN(day.getTime()) || !isBefore(day, startOfDay(new Date()))) return true;
+  return isBackdateOpen(date, new Date(), BACKDATE_TYPES.OTHER_WORK);
+}
 export const TAG_FORM_CONFIG = {
   [TAG_IDS.LEAVE]: {
     hide: [
@@ -405,6 +413,15 @@ export const TAG_FORM_CONFIG = {
       startDate: "Date",
     },
     fixedColor: DEFAULT_COLORS.EVENT,
+    // Other Work kept "always editable" until 22 Oct 2026, so a past one could
+    // be changed or deleted at will. A past day is now changed only while a
+    // backdate window opens that day for Other Work (as DR visits).
+    ui: {
+      lockTagOnEdit: true,
+      showTags: false,
+      allowDelete: (event) => isOpenForOtherWork(event?.startDate),
+      allowEdit: (event) => isOpenForOtherWork(event?.startDate),
+    },
     details: {
       fields: [
         { key: "otherType", label: "Type", type: "text" },
@@ -413,12 +430,6 @@ export const TAG_FORM_CONFIG = {
         { key: "owner", label: "Created by", type: "owner" },
         { key: "description", label: "Description", type: "text" },
       ],
-    },
-    ui: {
-      lockTagOnEdit: true,
-      showTags: false,
-      allowDelete: () => true,
-      allowEdit: () => true,
     },
     employee: {
       multiselect: false,
