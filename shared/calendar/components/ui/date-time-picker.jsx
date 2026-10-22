@@ -222,9 +222,10 @@ export function DateTimePicker({
 
 								// Existing rules
 								// Prevent past dates only when not allowing all dates
-								// A DR visit may also take a past day ERP opened for backdated entry.
+								// A past day ERP opened for backdated entry of this form's type
+								// (allowBackdate = a BACKDATE_TYPES value) may be picked too.
 								if (field.name === "startDate" && !allowAllDates) {
-									return day < today && !(allowBackdate && isBackdateOpen(day));
+									return day < today && !(allowBackdate && isBackdateOpen(day, new Date(), allowBackdate));
 								}
 
 								if (field.name === "endDate" && normalizedStartDate) {

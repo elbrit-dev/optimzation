@@ -41,9 +41,16 @@ import {
 import { buildParticipantsWithDetails, getAvailableItems, normalizeMeetingTimes, normalizeNonMeetingDates, resolveLatLong, showFirstFormErrorAsToast, syncPobItemRates, updatePobRow } from "@calendar/lib/helper";
 import { Button } from "@calendar/components/ui/button";
 import { isBackdatedVisit, isVisitDay } from "@calendar/lib/calendar/visit";
-import { useBackdateWindows } from "@calendar/lib/calendar/backdate";
+import { BACKDATE_TYPES, useBackdateWindows } from "@calendar/lib/calendar/backdate";
 import { useAllHqs } from "@calendar/lib/calendar/allHqs";
 import { CircleAlert, ClipboardList, MapPin, Mic, Pill, Users, Video } from "lucide-react";
+
+// The forms whose date picker can open a past day from a backdate window.
+const BACKDATE_TYPE_BY_TAG = {
+	[TAG_IDS.DOCTOR_VISIT_PLAN]: BACKDATE_TYPES.DR_VISIT,
+	[TAG_IDS.LEAVE]: BACKDATE_TYPES.LEAVE,
+	[TAG_IDS.OTHER]: BACKDATE_TYPES.OTHER_WORK,
+};
 
 const OTHER_WORK_TYPE_ICONS = {
 	"Admin Day": ClipboardList,
@@ -2892,59 +2899,9 @@ export function AddEditEventDialog({
 							/>
 						)}
 
-						{/* ================= OTHER WORK TYPE ================= */}
-						{selectedTag === TAG_IDS.OTHER && (
-							<FormField
-								control={form.control}
-								name="otherType"
-								render={({ field, fieldState }) => (
-									<RHFFieldWrapper
-										label="Type"
-										error={fieldState.error?.message}
-									>
-										<div className="grid grid-cols-2 gap-3">
-											{OTHER_WORK_TYPES.map((type) => {
-												const Icon = OTHER_WORK_TYPE_ICONS[type];
-												return (
-													<Button
-														key={type}
-														type="button"
-														variant={field.value === type ? "default" : "outline"}
-														onClick={() => field.onChange(type)}
-														className="h-auto flex items-center justify-center gap-2 rounded-xl py-4"
-													>
-														<Icon className="size-4" />
-														{type}
-													</Button>
-												);
-											})}
-										</div>
-									</RHFFieldWrapper>
-								)}
-							/>
-						)}
-
-						{/* ================= HQ FOR OTHER WORK =================
-						    Any HQ, for every user — see useAllHqs. */}
-						{selectedTag === TAG_IDS.OTHER && (
-							<FormField
-								control={form.control}
-								name="hqTerritory"
-								render={() => (
-									<RHFFieldWrapper label="HQ">
-										<RHFHQCardSelector
-											control={form.control}
-											name="hqTerritory"
-											options={allHqOptions}
-										/>
-									</RHFFieldWrapper>
-								)}
-							/>
-						)}
-
 						{/* ================= TITLE ================= */}
 						{!tagConfig.hide?.includes("title") &&
-							(selectedTag !== TAG_IDS.OTHER || otherWorkNeedsDetails) && (
+							selectedTag !== TAG_IDS.OTHER && (
 							<FormField
 								control={form.control}
 								name="title"
@@ -3142,7 +3099,7 @@ export function AddEditEventDialog({
 											name="startDate"
 											label={getFieldLabel("startDate", "Date")}
 											hideTime
-											allowBackdate={selectedTag === TAG_IDS.DOCTOR_VISIT_PLAN}
+											allowBackdate={BACKDATE_TYPE_BY_TAG[selectedTag] ?? false}
 											/* Doctor Tour Plan restriction */
 											minDate={
 												(selectedTag === TAG_IDS.DOCTOR_VISIT_PLAN ||
@@ -3246,6 +3203,83 @@ export function AddEditEventDialog({
 									/>
 								)}
 							</div>
+						)}
+						{/* OTHER WORK reads Date -> HQ -> Type (-> title): its Type, HQ and
+						    title come after the date grid; other tags keep the title above. */}
+						{/* ================= HQ FOR OTHER WORK =================
+						    Any HQ, for every user — see useAllHqs. */}
+						{selectedTag === TAG_IDS.OTHER && (
+							<FormField
+								control={form.control}
+								name="hqTerritory"
+								render={() => (
+									<RHFFieldWrapper label="HQ">
+										<RHFHQCardSelector
+											control={form.control}
+											name="hqTerritory"
+											options={allHqOptions}
+										/>
+									</RHFFieldWrapper>
+								)}
+							/>
+						)}
+
+						{/* ================= OTHER WORK TYPE ================= */}
+						{selectedTag === TAG_IDS.OTHER && (
+							<FormField
+								control={form.control}
+								name="otherType"
+								render={({ field, fieldState }) => (
+									<RHFFieldWrapper
+										label="Type"
+										error={fieldState.error?.message}
+									>
+										<div className="grid grid-cols-2 gap-3">
+											{OTHER_WORK_TYPES.map((type) => {
+												const Icon = OTHER_WORK_TYPE_ICONS[type];
+												return (
+													<Button
+														key={type}
+														type="button"
+														variant={field.value === type ? "default" : "outline"}
+														onClick={() => field.onChange(type)}
+														className="h-auto flex items-center justify-center gap-2 rounded-xl py-4"
+													>
+														<Icon className="size-4" />
+														{type}
+													</Button>
+												);
+											})}
+										</div>
+									</RHFFieldWrapper>
+								)}
+							/>
+						)}
+
+						{/* ================= OTHER WORK TITLE ================= */}
+						{!tagConfig.hide?.includes("title") &&
+							selectedTag === TAG_IDS.OTHER && otherWorkNeedsDetails && (
+							<FormField
+								control={form.control}
+								name="title"
+								render={({ field, fieldState }) => (
+									<RHFFieldWrapper
+										label={otherWorkNeedsDetails ? `${otherType} title` : "Title"}
+										error={fieldState.error?.message}
+									>
+										<FormControl>
+											<Input
+												placeholder={
+													otherWorkNeedsDetails
+														? `Enter ${otherType.toLowerCase()} title`
+														: "Enter title"
+												}
+												{...field}
+											/>
+										</FormControl>
+									</RHFFieldWrapper>
+								)}
+							/>
 						)}
 						{selectedTag === TAG_IDS.HQ_TOUR_PLAN && !isEditing && (
 							<FormField

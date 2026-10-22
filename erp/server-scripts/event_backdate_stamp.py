@@ -3,7 +3,8 @@
 #
 # WHAT IT DOES
 #   When a DR visit is marked AFTER its planned day, inside an open window of
-#   "Elbrit Backdate Windows", it saves the visit as a NORMAL visit:
+#   "Elbrit Backdate Windows" that covers DR visits ("types" has "DR Visit",
+#   or no "types" at all), it saves the visit as a NORMAL visit:
 #     - force visit tick off, force visit reason empty
 #     - the window's reason in custom_backdate_reason (hidden from users)
 #     - visit time and the event's end moved onto the planned day (same clock
@@ -87,6 +88,8 @@ if doc.event_category == "Doctor Visit plan":
                 continue
             if w.get("employees") and p.reference_docname not in w.get("employees"):
                 continue
+            if "DR Visit" not in (w.get("types") or ["DR Visit"]):
+                continue                           # a Leave / Other Work window
             match = w
             break
         if not match:

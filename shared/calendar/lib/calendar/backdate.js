@@ -62,12 +62,27 @@ export function useBackdateWindows(active) {
   return version;
 }
 
-/** True when `date` is a past day inside one of the user's open windows. */
-export function isBackdateOpen(date, now = new Date()) {
+/** What a window can open past days for — its `types` in WINDOWS_JSON. */
+export const BACKDATE_TYPES = {
+  DR_VISIT: "DR Visit",
+  LEAVE: "Leave",
+  OTHER_WORK: "Other Work",
+};
+
+/**
+ * True when `date` is a past day inside one of the user's open windows for
+ * `type`. A window with no types is a DR Visit window (how they all were).
+ */
+export function isBackdateOpen(date, now = new Date(), type = BACKDATE_TYPES.DR_VISIT) {
   if (!date || windows.length === 0) return false;
   const day = new Date(date);
   if (Number.isNaN(day.getTime())) return false;
   if (startOfDay(day) >= startOfDay(now)) return false;
   const key = format(day, "yyyy-MM-dd");
-  return windows.some((w) => w.from <= key && key <= w.to);
+  return windows.some(
+    (w) =>
+      w.from <= key &&
+      key <= w.to &&
+      (Array.isArray(w.types) && w.types.length ? w.types : [BACKDATE_TYPES.DR_VISIT]).includes(type)
+  );
 }

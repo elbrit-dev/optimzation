@@ -1,6 +1,7 @@
 import { z } from "zod";
 import { differenceInCalendarDays } from "date-fns";
 import { TAG_FORM_CONFIG } from "@calendar/lib/calendar/form-config";
+import { BACKDATE_TYPES, isBackdateOpen } from "@calendar/lib/calendar/backdate";
 import { OTHER_WORK_TYPES_WITH_DETAILS, TAG_IDS } from "@calendar/components/calendar/constants";
 import { TRAVEL_MODE_OPTIONS, isTravelAttachmentRequired } from "@calendar/components/calendar/module/travel-request/helpers/travel-request.helper";
 
@@ -119,12 +120,14 @@ export const eventSchema = z
     /* ---------------------------------------------
        LEAVE: NO PAST DATES
        Can't apply for a previous day. Today is still allowed
-       (difference === 0); only strictly-past start dates are rejected.
+       (difference === 0); only strictly-past start dates are rejected,
+       unless ERP opened that day for backdated leave.
     --------------------------------------------- */
     if (
       data.tags === TAG_IDS.LEAVE &&
       data.startDate &&
-      differenceInCalendarDays(data.startDate, new Date()) < 0
+      differenceInCalendarDays(data.startDate, new Date()) < 0 &&
+      !isBackdateOpen(data.startDate, new Date(), BACKDATE_TYPES.LEAVE)
     ) {
       ctx.addIssue({
         path: ["startDate"],
