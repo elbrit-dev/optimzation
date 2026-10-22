@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { TAG_IDS } from "@calendar/components/calendar/constants";
+import { TAG_FORM_CONFIG } from "@calendar/lib/calendar/form-config";
 import { useRef } from "react";
 import { toast } from "sonner";
 import { deleteEventFromErp } from "@calendar/components/calendar/module/event/services/event.service";
@@ -119,6 +120,14 @@ export function useDeleteEvent({ removeEvent, onClose }) {
 
   const handleDelete = async (erpName, docname, event) => {
     if (deleteLockRef.current) return;
+    // The details dialog hides Delete when the type's allowDelete says no, but
+    // a dialog left open (past midnight, a stale copy) still had the button.
+    const allowDelete = (TAG_FORM_CONFIG[event?.tags] ?? TAG_FORM_CONFIG.DEFAULT)?.ui?.allowDelete;
+    // A failed sync stays deletable, as the details dialog allows.
+    if (event && event.__syncStatus !== "failed" && allowDelete && !allowDelete(event)) {
+      toast.error("This event can no longer be deleted.");
+      return;
+    }
     deleteLockRef.current = true;
 
     try {
