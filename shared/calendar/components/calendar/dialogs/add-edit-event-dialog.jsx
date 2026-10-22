@@ -40,7 +40,9 @@ import {
 } from "@calendar/components/calendar/module/event/services/master-data.service";
 import { buildParticipantsWithDetails, getAvailableItems, normalizeMeetingTimes, normalizeNonMeetingDates, resolveLatLong, showFirstFormErrorAsToast, syncPobItemRates, updatePobRow } from "@calendar/lib/helper";
 import { Button } from "@calendar/components/ui/button";
-import { isVisitDay } from "@calendar/lib/calendar/visit";
+import { isBackdatedVisit, isVisitDay } from "@calendar/lib/calendar/visit";
+import { useBackdateWindows } from "@calendar/lib/calendar/backdate";
+import { useAllHqs } from "@calendar/lib/calendar/allHqs";
 import { CircleAlert, ClipboardList, MapPin, Mic, Pill, Users, Video } from "lucide-react";
 
 const OTHER_WORK_TYPE_ICONS = {
@@ -121,6 +123,8 @@ export function AddEditEventDialog({
 	startDate: initialStartDate,
 }) {
 	const { isOpen, onClose, onOpen } = useDisclosure();
+	// Fresh backdate windows each time the form opens (see backdate.js).
+	const backdateVersion = useBackdateWindows(isOpen);
 	const { employeeOptions,
 		allEmployeeOptions,
 		doctorOptions, events, allEvents,
@@ -280,6 +284,14 @@ export function AddEditEventDialog({
 		// Distance and force-visit belong to the moment the visit was marked.
 		// Leave the recorded values alone on a later POB edit.
 		if (isVisitAlreadyRecorded) return;
+		// A backdated visit (a past day ERP opened) has no 500 m check: it is
+		// never a force visit.
+		if (isBackdatedVisit(event?.startDate)) {
+			setDistanceKm(null);
+			setShowReason(false);
+			form.setValue("forceVisit", false, { shouldValidate: true });
+			return;
+		}
 		const doctorId = Array.isArray(event?.doctor)
 			? event.doctor[0]
 			: event?.doctor;
@@ -357,7 +369,7 @@ export function AddEditEventDialog({
 			);
 		}
 
-	}, [currentLatitude, currentLongitude, doctorResolvers, event?.doctor, isEditing, isVisitAlreadyRecorded]);
+	}, [currentLatitude, currentLongitude, doctorResolvers, event?.doctor, isEditing, isVisitAlreadyRecorded, backdateVersion]);
 	const hasValidLocation =
 		Number(currentLatitude) !== 0 &&
 		Number(currentLongitude) !== 0 &&
@@ -969,7 +981,7 @@ export function AddEditEventDialog({
 		handleRequestLocation();
 		// Closing the form stops the GPS watch.
 		return cancelLocationRequest;
-	}, [isEditing, isOpen, selectedTag, isVisitAlreadyRecorded, event?.startDate]);
+	}, [isEditing, isOpen, selectedTag, isVisitAlreadyRecorded, event?.startDate, backdateVersion]);
 	useEffect(() => {
 		if (!isOpen) {
 			cancelLocationRequest();
@@ -1725,6 +1737,15 @@ export function AddEditEventDialog({
 			shouldValidate: true,
 		});
 	}, [doctorVisitHqTerritory, form, isEditing, ownHqOptions, selectedTag]);
+	// Other Work can be done at ANY HQ, so its picker lists every one (the
+	// elbrit_all_hqs script, not the user-permission-narrowed Territory list).
+	// A new one starts on the user's own seat's HQ.
+	const allHqOptions = useAllHqs(isOpen && selectedTag === TAG_IDS.OTHER);
+	useEffect(() => {
+		if (selectedTag !== TAG_IDS.OTHER || isEditing) return;
+		if (form.getValues("hqTerritory") || !ownSeatHq) return;
+		form.setValue("hqTerritory", ownSeatHq, { shouldDirty: true, shouldValidate: true });
+	}, [form, isEditing, ownSeatHq, selectedTag]);
 	// Doctors belong to the HQ they were picked under: switching HQ on a new DR
 	// Tour Plan drops the earlier picks rather than save them against the new
 	// HQ. The first HQ the form is given is not a switch.
@@ -2648,7 +2669,7 @@ export function AddEditEventDialog({
 		((selectedTag === TAG_IDS.DOCTOR_VISIT_PLAN && (!hasPick(doctor) || !hasPick(hqTerritory))) ||
 			(selectedTag === TAG_IDS.HQ_TOUR_PLAN && !hasPick(hqTerritory)) ||
 			(selectedTag === TAG_IDS.OTHER &&
-				(!otherType || (otherWorkNeedsDetails && !title?.trim()))));
+				(!otherType || !hasPick(hqTerritory) || (otherWorkNeedsDetails && !title?.trim()))));
 	const isMissingMedicalCertificate = requiresMedical && !medicalAttachment;
 	// Why Submit is off, said in words: a greyed button on its own leaves the
 	// rep guessing which field is missing.
@@ -2662,6 +2683,8 @@ export function AddEditEventDialog({
 		? "Pick an HQ territory to submit."
 		: !isEditing && selectedTag === TAG_IDS.OTHER && !otherType
 		? "Choose the Other Work type to submit."
+		: !isEditing && selectedTag === TAG_IDS.OTHER && !hasPick(hqTerritory)
+		? "Pick the HQ to submit."
 		: !isEditing && otherWorkNeedsDetails && !title?.trim()
 		? `Add the ${otherType} title to submit.`
 		: isMissingMedicalCertificate
@@ -2901,6 +2924,24 @@ export function AddEditEventDialog({
 							/>
 						)}
 
+						{/* ================= HQ FOR OTHER WORK =================
+						    Any HQ, for every user — see useAllHqs. */}
+						{selectedTag === TAG_IDS.OTHER && (
+							<FormField
+								control={form.control}
+								name="hqTerritory"
+								render={() => (
+									<RHFFieldWrapper label="HQ">
+										<RHFHQCardSelector
+											control={form.control}
+											name="hqTerritory"
+											options={allHqOptions}
+										/>
+									</RHFFieldWrapper>
+								)}
+							/>
+						)}
+
 						{/* ================= TITLE ================= */}
 						{!tagConfig.hide?.includes("title") &&
 							(selectedTag !== TAG_IDS.OTHER || otherWorkNeedsDetails) && (
@@ -3101,6 +3142,7 @@ export function AddEditEventDialog({
 											name="startDate"
 											label={getFieldLabel("startDate", "Date")}
 											hideTime
+											allowBackdate={selectedTag === TAG_IDS.DOCTOR_VISIT_PLAN}
 											/* Doctor Tour Plan restriction */
 											minDate={
 												(selectedTag === TAG_IDS.DOCTOR_VISIT_PLAN ||

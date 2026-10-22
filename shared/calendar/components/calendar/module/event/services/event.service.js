@@ -2,6 +2,7 @@ import { graphqlRequest } from "@calendar/lib/graphql-client";
 import { serializeEventDoc } from "../mappers/event-to-erp";
 import { normalizeParticipantAttending } from "@calendar/components/calendar/module/event/mappers/erp-to-event";
 import { isParticipantVisitRecorded } from "@calendar/lib/calendar/visit";
+import { loadBackdateWindows } from "@calendar/lib/calendar/backdate";
 import { ERP_EVENT_FIELDS } from "@calendar/components/calendar/module/event/graphql/field-config";
 import {
   CUSTOMER_QUERY,
@@ -1060,7 +1061,13 @@ async function fetchEventsByRangeUncached(
   // --------------------------------------------
   // 1️⃣ FETCH RAW EVENT NODES (NO MAPPING YET)
   // --------------------------------------------
-  let rawEventNodes = (await fetchRawEventNodes(startDate, endDate)).filter((node) =>
+  // The backdate windows load alongside, so the views drawn from these events
+  // already know which past days are open for DR visits.
+  const [eventNodes] = await Promise.all([
+    fetchRawEventNodes(startDate, endDate),
+    loadBackdateWindows(),
+  ]);
+  let rawEventNodes = eventNodes.filter((node) =>
     doesEventOverlapRange(node, startDate, endDate)
   );
   // --------------------------------------------

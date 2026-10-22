@@ -15,6 +15,7 @@ import {
 } from "@calendar/components/ui/popover";
 import { ScrollArea, } from "@calendar/components/ui/scroll-area";
 import { cn } from "@calendar/lib/utils";
+import { isBackdateOpen } from "@calendar/lib/calendar/backdate";
 import { useCalendar } from "@calendar/components/calendar/contexts/calendar-context";
 import { useState, useEffect } from "react";
 
@@ -27,6 +28,7 @@ export function DateTimePicker({
 	form, label,
 	field,
 	allowAllDates = false,
+	allowBackdate = false,
 	hideTime = false,
 	defaultHour = 0,
 	defaultMinute = 0,
@@ -220,8 +222,9 @@ export function DateTimePicker({
 
 								// Existing rules
 								// Prevent past dates only when not allowing all dates
+								// A DR visit may also take a past day ERP opened for backdated entry.
 								if (field.name === "startDate" && !allowAllDates) {
-									return day < today;
+									return day < today && !(allowBackdate && isBackdateOpen(day));
 								}
 
 								if (field.name === "endDate" && normalizedStartDate) {
