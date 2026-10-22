@@ -42,6 +42,7 @@ import { buildParticipantsWithDetails, getAvailableItems, normalizeMeetingTimes,
 import { Button } from "@calendar/components/ui/button";
 import { isBackdatedVisit, isVisitDay } from "@calendar/lib/calendar/visit";
 import { useBackdateWindows } from "@calendar/lib/calendar/backdate";
+import { useAllHqs } from "@calendar/lib/calendar/allHqs";
 import { CircleAlert, ClipboardList, MapPin, Mic, Pill, Users, Video } from "lucide-react";
 
 const OTHER_WORK_TYPE_ICONS = {
@@ -1736,6 +1737,15 @@ export function AddEditEventDialog({
 			shouldValidate: true,
 		});
 	}, [doctorVisitHqTerritory, form, isEditing, ownHqOptions, selectedTag]);
+	// Other Work can be done at ANY HQ, so its picker lists every one (the
+	// elbrit_all_hqs script, not the user-permission-narrowed Territory list).
+	// A new one starts on the user's own seat's HQ.
+	const allHqOptions = useAllHqs(isOpen && selectedTag === TAG_IDS.OTHER);
+	useEffect(() => {
+		if (selectedTag !== TAG_IDS.OTHER || isEditing) return;
+		if (form.getValues("hqTerritory") || !ownSeatHq) return;
+		form.setValue("hqTerritory", ownSeatHq, { shouldDirty: true, shouldValidate: true });
+	}, [form, isEditing, ownSeatHq, selectedTag]);
 	// Doctors belong to the HQ they were picked under: switching HQ on a new DR
 	// Tour Plan drops the earlier picks rather than save them against the new
 	// HQ. The first HQ the form is given is not a switch.
@@ -2659,7 +2669,7 @@ export function AddEditEventDialog({
 		((selectedTag === TAG_IDS.DOCTOR_VISIT_PLAN && (!hasPick(doctor) || !hasPick(hqTerritory))) ||
 			(selectedTag === TAG_IDS.HQ_TOUR_PLAN && !hasPick(hqTerritory)) ||
 			(selectedTag === TAG_IDS.OTHER &&
-				(!otherType || (otherWorkNeedsDetails && !title?.trim()))));
+				(!otherType || !hasPick(hqTerritory) || (otherWorkNeedsDetails && !title?.trim()))));
 	const isMissingMedicalCertificate = requiresMedical && !medicalAttachment;
 	// Why Submit is off, said in words: a greyed button on its own leaves the
 	// rep guessing which field is missing.
@@ -2673,6 +2683,8 @@ export function AddEditEventDialog({
 		? "Pick an HQ territory to submit."
 		: !isEditing && selectedTag === TAG_IDS.OTHER && !otherType
 		? "Choose the Other Work type to submit."
+		: !isEditing && selectedTag === TAG_IDS.OTHER && !hasPick(hqTerritory)
+		? "Pick the HQ to submit."
 		: !isEditing && otherWorkNeedsDetails && !title?.trim()
 		? `Add the ${otherType} title to submit.`
 		: isMissingMedicalCertificate
@@ -2907,6 +2919,24 @@ export function AddEditEventDialog({
 												);
 											})}
 										</div>
+									</RHFFieldWrapper>
+								)}
+							/>
+						)}
+
+						{/* ================= HQ FOR OTHER WORK =================
+						    Any HQ, for every user — see useAllHqs. */}
+						{selectedTag === TAG_IDS.OTHER && (
+							<FormField
+								control={form.control}
+								name="hqTerritory"
+								render={() => (
+									<RHFFieldWrapper label="HQ">
+										<RHFHQCardSelector
+											control={form.control}
+											name="hqTerritory"
+											options={allHqOptions}
+										/>
 									</RHFFieldWrapper>
 								)}
 							/>
