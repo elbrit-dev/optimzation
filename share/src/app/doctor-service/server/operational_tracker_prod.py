@@ -243,6 +243,26 @@ if old and old.workflow_state != doc.workflow_state \
                 # which stayed open after the work was done.) Other flows keep
                 # one ToDo per assignee.
                 ds_handover = final_verified and (doc.setting == "Doctor Service" or doc.reference_doctype == "Doctor Service")
+                if ds_handover and doc.reference_doctype == "Doctor Service" and doc.reference:
+                    # The ToDo reads "<doctor code> - <service> - <department>",
+                    # e.g. "DR-3555 - Cash back activity - Elbrit Chennai"
+                    # (22 Oct 2026; was "Approved (...) - carry out Doctor
+                    # Service <record name>"). Department: the tracker's (the
+                    # seat's), else the service's; " - ELPL" dropped.
+                    try:
+                        ds = frappe.db.get_value("Doctor Service", doc.reference,
+                                                 ["doctor", "service_name", "department"], as_dict=True) or {}
+                        ds_dept = str(doc.department or ds.get("department") or "")
+                        if ds_dept.endswith(" - ELPL"):
+                            ds_dept = ds_dept[:-7]
+                        ds_parts = []
+                        for part in [ds.get("doctor"), ds.get("service_name"), ds_dept]:
+                            if part:
+                                ds_parts.append(str(part))
+                        if ds_parts:
+                            todo_text = " - ".join(ds_parts)
+                    except Exception:
+                        pass
                 if ds_handover:
                     # Shared with THAT department's MIS team only: the users
                     # on the team profile(s) (MIS-subtree leaves) whose

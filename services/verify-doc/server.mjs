@@ -5,7 +5,8 @@
  *                     -> { score, risk, fields, rules, summary, document, meta }
  *
  * Only Elbrit callers get in (lib/auth.mjs): a signed-in user (Firebase ID
- * token + their ERP token) or an Elbrit server (client key). Browsers are
+ * token; the ERP token too when REQUIRE_ERP_TOKEN is on) or an Elbrit server
+ * (client key). Browsers are
  * allowed only from ALLOWED_ORIGINS. See README.md for the contract. */
 
 import { createServer } from "node:http";

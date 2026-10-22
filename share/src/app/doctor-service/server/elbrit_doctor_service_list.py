@@ -48,7 +48,7 @@
 #                                         first: { type, content, by, at }
 #              execution                  after the final GM / CEO approval the
 #                                         tracker hands the service to MIS as a
-#                                         ToDo ("Approved (...) - carry out");
+#                                         ToDo (found by its tracker, not its text);
 #                                         this is that ToDo's outcome, or null
 #                                         when there is none yet:
 #                                         { state: "Done" | "Pending" |

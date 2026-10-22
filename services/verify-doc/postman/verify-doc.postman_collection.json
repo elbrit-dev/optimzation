@@ -1,0 +1,55 @@
+{
+  "info": {
+    "name": "verify-doc",
+    "description": "Elbrit document check service. Fill the collection variables first: clientKey (the value inside the verify-doc-clients secret), and for the ERP-file request erpToken + billPath. See services/verify-doc/README.md.",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "variable": [
+    { "key": "baseUrl", "value": "https://verify-doc--elbrit-sso-d01d9.asia-southeast1.hosted.app" },
+    { "key": "clientKey", "value": "" },
+    { "key": "erpToken", "value": "token <api_key>:<api_secret>" },
+    { "key": "billPath", "value": "/private/files/your-bill.jpg" },
+    { "key": "billUrl", "value": "https://firebasestorage.googleapis.com/v0/b/<bucket>/o/<file>?alt=media&token=<token>" }
+  ],
+  "auth": { "type": "bearer", "bearer": [{ "key": "token", "value": "{{clientKey}}", "type": "string" }] },
+  "item": [
+    {
+      "name": "1. Health",
+      "request": { "auth": { "type": "noauth" }, "method": "GET", "url": "{{baseUrl}}/health" }
+    },
+    {
+      "name": "2. Verify a bill stored in the ERP",
+      "request": {
+        "method": "POST",
+        "header": [{ "key": "Content-Type", "value": "application/json" }],
+        "url": "{{baseUrl}}/v1/verify",
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"documents\": [\n    { \"url\": \"https://erp.elbrit.org{{billPath}}\", \"headers\": { \"Authorization\": \"{{erpToken}}\" } }\n  ],\n  \"context\": \"Employee expense claim in India, amounts in INR. Expense: Travel / Fuel.\",\n  \"fields\": {\n    \"amount\":   { \"type\": \"number\", \"expected\": 500, \"weight\": 70, \"tolerance\": \"2%\", \"description\": \"the final total paid on the bill\" },\n    \"date\":     { \"type\": \"date\", \"expected\": \"2026-10-20\", \"weight\": 15, \"toleranceDays\": 3, \"description\": \"the bill or transaction date\" },\n    \"category\": { \"type\": \"text\", \"expected\": \"Travel / Fuel\", \"match\": \"meaning\", \"weight\": 15, \"description\": \"what the bill is for\" },\n    \"vendor\":   { \"type\": \"text\", \"description\": \"the shop or company that issued the bill\" }\n  },\n  \"rules\": [\"It must be a bill, receipt, ticket or invoice -- not a selfie, a blank page or an unrelated photo\"],\n  \"bands\": { \"low\": 90, \"medium\": 70 }\n}"
+        }
+      }
+    },
+    {
+      "name": "3. Verify a bill by public link (Firebase Storage)",
+      "request": {
+        "method": "POST",
+        "header": [{ "key": "Content-Type", "value": "application/json" }],
+        "url": "{{baseUrl}}/v1/verify",
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"documents\": [ { \"url\": \"{{billUrl}}\" } ],\n  \"context\": \"Employee expense claim in India, amounts in INR. Expense: Food.\",\n  \"fields\": {\n    \"amount\":   { \"type\": \"number\", \"expected\": 350, \"weight\": 70, \"tolerance\": \"2%\" },\n    \"date\":     { \"type\": \"date\", \"expected\": \"2026-10-20\", \"weight\": 15, \"toleranceDays\": 3 },\n    \"category\": { \"type\": \"text\", \"expected\": \"Food\", \"match\": \"meaning\", \"weight\": 15 },\n    \"vendor\":   { \"type\": \"text\" }\n  }\n}"
+        }
+      }
+    },
+    {
+      "name": "4. Wrong key (expect 401)",
+      "request": {
+        "auth": { "type": "bearer", "bearer": [{ "key": "token", "value": "not-a-real-key", "type": "string" }] },
+        "method": "POST",
+        "header": [{ "key": "Content-Type", "value": "application/json" }],
+        "url": "{{baseUrl}}/v1/verify",
+        "body": { "mode": "raw", "raw": "{}" }
+      }
+    }
+  ]
+}

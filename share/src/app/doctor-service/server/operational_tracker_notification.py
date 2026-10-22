@@ -57,7 +57,10 @@ if not old or new_state != old_state:
         for td in frappe.get_all("ToDo",
                 filters={"reference_type": "Operational Tracker",
                          "reference_name": doc.name, "status": "Open"},
-                fields=["name", "allocated_to"]):
+                fields=["name", "allocated_to", "description"]):
+            # the ToDo's own text ("DR-3555 - service - department") as the subject
+            if td.get("description"):
+                subj = "Carry out: " + frappe.utils.strip_html(td.get("description"))
             uid = td.get("allocated_to")
             if uid and uid not in seen:
                 seen[uid] = 1
