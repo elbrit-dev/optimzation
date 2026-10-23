@@ -1,0 +1,10 @@
+[
+  { "file": "01-fuel-clean.jpg", "kind": "Travel / Fuel", "amount": 450, "date": "2026-10-20", "note": "clean thermal petrol bill" },
+  { "file": "02-restaurant-gst.jpg", "kind": "Food", "amount": 861, "date": "2026-10-18", "note": "sub-total 820 + CGST/SGST: the total, not the sub-total" },
+  { "file": "03-toll-faint.jpg", "kind": "Travel / Toll", "amount": 65, "date": "2026-10-19", "note": "small, faint, tilted toll slip" },
+  { "file": "04-cab-handwritten.jpg", "kind": "Travel / Cab", "amount": 300, "date": "2026-10-17", "note": "handwritten auto/cab receipt, 2-digit year" },
+  { "file": "05-food-tamil.jpg", "kind": "Food", "amount": 240, "date": "2026-10-16", "note": "Tamil-language hotel bill" },
+  { "file": "06-cab-invoice.pdf", "kind": "Travel / Cab", "amount": 1245.5, "date": "2026-10-21", "note": "PDF ride invoice, month-name date, paise" },
+  { "file": "07-fuel-blurry.jpg", "kind": "Travel / Fuel", "amount": 1000, "date": "2026-10-15", "note": "blurry, low-contrast diesel bill" },
+  { "file": "08-rent-receipt.jpg", "kind": "Miscellaneous / Rent", "amount": 12000, "date": "2026-10-05", "note": "plain-paper rent receipt, amount in words too" }
+]

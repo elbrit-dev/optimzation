@@ -83,6 +83,17 @@ export function compareValue(spec, raw, extra = {}) {
   return { found: raw, ok, fraction: ok ? 1 : 0, reason: ok ? "Matches" : `Document shows "${raw}", expected "${spec.expected}"` };
 }
 
+/* A value as read, in its type's form (number, ISO date, month) -- for
+   /v1/extract, which reports without comparing. Unreadable -> the raw text. */
+export function normalizeValue(spec, raw) {
+  if (raw == null || raw === "") return null;
+  const type = spec?.type || "text";
+  if (type === "number") return parseNumber(raw) ?? raw;
+  if (type === "date") return parseDate(raw) ?? raw;
+  if (type === "month") return parseMonth(raw) ?? raw;
+  return raw;
+}
+
 const hasExpectation = (spec) =>
   spec.type === "table" ? Array.isArray(spec.expected) : spec.expected !== undefined && spec.expected !== null && spec.expected !== "";
 
@@ -173,7 +184,9 @@ export function scoreReading(fields, reading, bands) {
     }
     const r = readFields.get(key) || {};
     if (!weight) {
-      out[key] = { found: r.value ?? null, confidence: r.confidence ?? null, ...(r.note ? { note: r.note } : {}) };
+      // Read only: the value in its type's form (ISO date, number), the text as printed beside it.
+      const found = normalizeValue(spec, r.value);
+      out[key] = { found, ...(found !== (r.value ?? null) ? { raw: r.value } : {}), confidence: r.confidence ?? null, ...(r.note ? { note: r.note } : {}) };
       continue;
     }
     const cmp = compareValue(spec, r.value, { matchesExpected: r.matchesExpected });

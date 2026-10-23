@@ -5,23 +5,100 @@
     "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
   },
   "variable": [
-    { "key": "baseUrl", "value": "https://verify-doc--elbrit-sso-d01d9.asia-southeast1.hosted.app" },
-    { "key": "clientKey", "value": "" },
-    { "key": "erpToken", "value": "token <api_key>:<api_secret>" },
-    { "key": "billPath", "value": "/private/files/your-bill.jpg" },
-    { "key": "billUrl", "value": "https://firebasestorage.googleapis.com/v0/b/<bucket>/o/<file>?alt=media&token=<token>" }
+    {
+      "key": "baseUrl",
+      "value": "https://verify-doc--elbrit-sso-d01d9.asia-southeast1.hosted.app"
+    },
+    {
+      "key": "clientKey",
+      "value": ""
+    },
+    {
+      "key": "erpToken",
+      "value": "token <api_key>:<api_secret>"
+    },
+    {
+      "key": "billPath",
+      "value": "/private/files/your-bill.jpg"
+    },
+    {
+      "key": "billUrl",
+      "value": "https://firebasestorage.googleapis.com/v0/b/<bucket>/o/<file>?alt=media&token=<token>"
+    }
   ],
-  "auth": { "type": "bearer", "bearer": [{ "key": "token", "value": "{{clientKey}}", "type": "string" }] },
+  "auth": {
+    "type": "bearer",
+    "bearer": [
+      {
+        "key": "token",
+        "value": "{{clientKey}}",
+        "type": "string"
+      }
+    ]
+  },
   "item": [
     {
       "name": "1. Health",
-      "request": { "auth": { "type": "noauth" }, "method": "GET", "url": "{{baseUrl}}/health" }
+      "request": {
+        "auth": {
+          "type": "noauth"
+        },
+        "method": "GET",
+        "url": "{{baseUrl}}/health"
+      }
+    },
+    {
+      "name": "5. Upload a file (form-data) -- PDF or photo",
+      "request": {
+        "method": "POST",
+        "url": "{{baseUrl}}/v1/verify",
+        "body": {
+          "mode": "formdata",
+          "formdata": [
+            {
+              "key": "file",
+              "type": "file",
+              "src": "",
+              "description": "Pick your PDF or photo here"
+            },
+            {
+              "key": "request",
+              "type": "text",
+              "value": "{\n  \"context\": \"Employee expense claim in India, amounts in INR. Expense: Food.\",\n  \"fields\": {\n    \"amount\": {\n      \"type\": \"number\",\n      \"expected\": 301.99,\n      \"weight\": 70,\n      \"tolerance\": \"2%\",\n      \"description\": \"the final total paid on the bill, including any handling or delivery fee\"\n    },\n    \"date\": {\n      \"type\": \"date\",\n      \"expected\": \"2026-10-21\",\n      \"weight\": 15,\n      \"toleranceDays\": 3,\n      \"description\": \"the bill or invoice date\"\n    },\n    \"category\": {\n      \"type\": \"text\",\n      \"expected\": \"Food\",\n      \"match\": \"meaning\",\n      \"weight\": 15,\n      \"description\": \"what the bill is for\"\n    },\n    \"vendor\": {\n      \"type\": \"text\",\n      \"description\": \"the shop or company that issued the bill\"\n    },\n    \"invoice_no\": {\n      \"type\": \"text\",\n      \"description\": \"the invoice or bill number\"\n    }\n  },\n  \"rules\": [\n    \"It must be a bill, receipt, ticket or invoice -- not a selfie, a blank page or an unrelated photo\",\n    \"If the bill names a customer, it should be the employee \\\"Bharanidharan\\\" or the company Elbrit (a bill with no customer name passes)\"\n  ]\n}",
+              "description": "What you expect the bill to say"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "name": "6. Extract only -- what is on the document (no expected values)",
+      "request": {
+        "method": "POST",
+        "url": "{{baseUrl}}/v1/extract",
+        "body": {
+          "mode": "formdata",
+          "formdata": [
+            {
+              "key": "file",
+              "type": "file",
+              "src": "",
+              "description": "Pick a PDF or photo -- nothing else needed"
+            }
+          ]
+        }
+      }
     },
     {
       "name": "2. Verify a bill stored in the ERP",
       "request": {
         "method": "POST",
-        "header": [{ "key": "Content-Type", "value": "application/json" }],
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
         "url": "{{baseUrl}}/v1/verify",
         "body": {
           "mode": "raw",
@@ -33,7 +110,12 @@
       "name": "3. Verify a bill by public link (Firebase Storage)",
       "request": {
         "method": "POST",
-        "header": [{ "key": "Content-Type", "value": "application/json" }],
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
         "url": "{{baseUrl}}/v1/verify",
         "body": {
           "mode": "raw",
@@ -44,11 +126,28 @@
     {
       "name": "4. Wrong key (expect 401)",
       "request": {
-        "auth": { "type": "bearer", "bearer": [{ "key": "token", "value": "not-a-real-key", "type": "string" }] },
+        "auth": {
+          "type": "bearer",
+          "bearer": [
+            {
+              "key": "token",
+              "value": "not-a-real-key",
+              "type": "string"
+            }
+          ]
+        },
         "method": "POST",
-        "header": [{ "key": "Content-Type", "value": "application/json" }],
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
         "url": "{{baseUrl}}/v1/verify",
-        "body": { "mode": "raw", "raw": "{}" }
+        "body": {
+          "mode": "raw",
+          "raw": "{}"
+        }
       }
     }
   ]

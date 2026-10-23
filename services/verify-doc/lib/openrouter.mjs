@@ -12,17 +12,27 @@
 import { config } from "./config.mjs";
 import { ModelError, RESPONSE_SCHEMA, buildPrompt } from "./gemini.mjs";
 
-/* Gemini's schema dialect ("OBJECT", nullable) -> plain JSON Schema. */
+/* Gemini's schema dialect ("OBJECT", nullable) -> plain JSON Schema, in the
+   form strict structured outputs accept: every object lists ALL its keys as
+   required and allows no others; a value that may be missing is nullable
+   (["string", "null"]) rather than optional. */
 export function toJsonSchema(s) {
   if (!s || typeof s !== "object") return s;
   const type = String(s.type || "").toLowerCase();
   const out = { type: s.nullable ? [type, "null"] : type };
   if (s.properties) {
     out.properties = {};
-    for (const [k, v] of Object.entries(s.properties)) out.properties[k] = toJsonSchema(v);
+    for (const [k, v] of Object.entries(s.properties)) {
+      const optional = !(s.required || []).includes(k);
+      const child = toJsonSchema(v);
+      // optional in Gemini's schema -> required-but-nullable in strict mode
+      if (optional && typeof child.type === "string") child.type = [child.type, "null"];
+      out.properties[k] = child;
+    }
+    out.required = Object.keys(s.properties);
+    out.additionalProperties = false;
   }
   if (s.items) out.items = toJsonSchema(s.items);
-  if (s.required) out.required = s.required;
   return out;
 }
 
@@ -59,8 +69,16 @@ export async function readDocuments({ fields, rules, context, documents }, { fet
     }
   }
   const request = { model: config.openrouterModel, temperature: 0, messages: [{ role: "user", content }] };
+  // Structured outputs (openrouter.ai/docs/guides/features/structured-outputs):
+  // strict json_schema, routed ONLY to provider endpoints that honour it
+  // (require_parameters), plus Response Healing for small JSON slips.
+  const structured = {
+    response_format: { type: "json_schema", json_schema: { name: "reading", strict: true, schema } },
+    provider: { require_parameters: true },
+    plugins: [{ id: "response-healing" }],
+  };
   const call = async (withFormat) => {
-    const body = JSON.stringify(withFormat ? { ...request, response_format: { type: "json_schema", json_schema: { name: "reading", strict: false, schema } } } : request);
+    const body = JSON.stringify(withFormat ? { ...request, ...structured } : request);
     let res;
     for (let attempt = 0; attempt < 3; attempt++) {
       res = await fetchImpl("https://openrouter.ai/api/v1/chat/completions", {
@@ -80,9 +98,9 @@ export async function readDocuments({ fields, rules, context, documents }, { fet
     return { res, json: await res.json().catch(() => ({})) };
   };
 
-  // Ask for structured JSON; a model / provider that does not take
-  // response_format refuses the request -- then ask again without it (the
-  // prompt carries the schema, and the answer is parsed tolerantly).
+  // Ask for structured JSON. A model with no endpoint that supports it
+  // refuses -- then ask again plainly (the prompt carries the schema, and the
+  // answer is parsed tolerantly). Not for auth / credit errors.
   let { res, json } = await call(true);
   if ((!res.ok || json.error) && res.status !== 401 && res.status !== 402) ({ res, json } = await call(false));
   if (!res.ok || json.error) {

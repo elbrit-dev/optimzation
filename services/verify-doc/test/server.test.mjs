@@ -135,3 +135,15 @@ test("bad requests say what is wrong", () =>
     assert.equal(res2.status, 400);
     assert.match((await res2.json()).error, /not allowed/);
   }));
+
+test("form-data: a file part plus a request part (as Postman sends it)", () =>
+  withServer(async (base) => {
+    const form = new FormData();
+    form.append("request", JSON.stringify({ fields: BODY.fields, rules: BODY.rules }));
+    form.append("file", new Blob([Buffer.from("%PDF-1.4 fake")], { type: "application/pdf" }), "invoice.pdf");
+    const res = await fetch(`${base}/v1/verify`, { method: "POST", headers: { Authorization: "Bearer client-secret-123" }, body: form });
+    const out = await res.json();
+    assert.equal(res.status, 200, JSON.stringify(out));
+    assert.equal(out.meta.documents, 1);
+    assert.equal(out.score, 100);
+  }));

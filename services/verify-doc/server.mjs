@@ -1,7 +1,10 @@
 /* verify-doc: a document check any Elbrit app can call.
  *
  *   GET  /health     liveness, and whether a model key is configured
- *   POST /v1/verify   { documents, fields, rules?, context?, bands? }
+ *   POST /v1/extract  { documents, context?, fields? } -> what is ON the document
+ *                     (no expected values, no score): fields, line items, full text
+ *   POST /v1/verify   { documents, fields, rules?, context?, bands? } as JSON, or
+ *                     multipart/form-data: file part(s) + a "request" JSON part
  *                     -> { score, risk, fields, rules, summary, document, meta }
  *
  * Only Elbrit callers get in (lib/auth.mjs): a signed-in user (Firebase ID
@@ -13,7 +16,9 @@ import { createServer } from "node:http";
 import { allow, identify } from "./lib/auth.mjs";
 import { config } from "./lib/config.mjs";
 import { verify } from "./lib/verify.mjs";
+import { extract } from "./lib/extract.mjs";
 import { modelName } from "./lib/reader.mjs";
+import { bodyFromMultipart, isMultipart } from "./lib/multipart.mjs";
 
 function corsHeaders(req) {
   const origin = String(req.headers.origin || "").toLowerCase();
@@ -48,7 +53,7 @@ function readBody(req) {
         req.destroy();
       } else chunks.push(c);
     });
-    req.on("end", () => resolve(Buffer.concat(chunks).toString("utf8")));
+    req.on("end", () => resolve(Buffer.concat(chunks)));
     req.on("error", reject);
   });
 }
@@ -62,7 +67,7 @@ export function makeServer(deps = {}) {
       return res.end();
     }
     if (req.method === "GET" && path === "/health") return send(req, res, 200, { ok: true, provider: config.provider, model: modelName(), modelKey: !!(config.provider === "openrouter" ? config.openrouterKey : config.geminiKey) });
-    if (path !== "/v1/verify") return send(req, res, 404, { error: "Not found." });
+    if (path !== "/v1/verify" && path !== "/v1/extract") return send(req, res, 404, { error: "Not found." });
     if (req.method !== "POST") return send(req, res, 405, { error: "Use POST." });
     if (req.headers.origin && !Object.keys(corsHeaders(req)).length) return send(req, res, 403, { error: "This site may not call the service." });
 
@@ -74,13 +79,18 @@ export function makeServer(deps = {}) {
       if (!allow(who)) return send(req, res, 429, { error: "Too many checks in a minute -- try again shortly." });
       const raw = await readBody(req);
       let body;
-      try {
-        body = JSON.parse(raw);
-      } catch {
-        return send(req, res, 400, { error: "Body is not valid JSON." });
+      if (isMultipart(req.headers["content-type"])) {
+        // form-data: file part(s) + a "request" part with the JSON (Postman)
+        body = bodyFromMultipart(raw, req.headers["content-type"]);
+      } else {
+        try {
+          body = JSON.parse(raw.toString("utf8"));
+        } catch {
+          return send(req, res, 400, { error: "Body is not valid JSON." });
+        }
       }
-      const out = await verify(body, deps);
-      console.log(JSON.stringify({ at: "verify", who, ms: Date.now() - started, docs: out.meta.documents, score: out.score, risk: out.risk, tokens: out.meta.tokens }));
+      const out = path === "/v1/extract" ? await extract(body, deps) : await verify(body, deps);
+      console.log(JSON.stringify({ at: path, who, ms: Date.now() - started, docs: out.meta.documents, score: out.score, risk: out.risk, tokens: out.meta.tokens }));
       return send(req, res, 200, out);
     } catch (e) {
       const status = e.status || (e.name === "TimeoutError" ? 504 : 500);

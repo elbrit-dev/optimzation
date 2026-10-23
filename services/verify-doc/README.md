@@ -59,6 +59,16 @@ Response:
 matches — computed in `lib/score.mjs`, never by the model. The model is never shown the
 expected numbers, dates or exact text, only what it must judge by meaning.
 
+## Which model reads
+
+`MODEL_PROVIDER`: `openrouter` (`OPENROUTER_API_KEY` + `OPENROUTER_MODEL`, e.g.
+`openai/gpt-6-luna`, picked by `bench/run.mjs`: 8/8 bills, ~₹0.02 each) or `gemini` (Google's API, `GEMINI_API_KEY` + `GEMINI_MODEL`).
+Through OpenRouter the answer uses **structured outputs**: `response_format` json_schema with
+`strict: true`, `provider.require_parameters: true` (only endpoints that honour the schema)
+and the `response-healing` plugin; a model with no such endpoint is asked again plainly and
+parsed tolerantly. `node scripts/try.mjs --openrouter-models [filter]` lists vision models
+and prices. Scoring is the same whichever model reads.
+
 ## Run, test, deploy
 
 ```sh

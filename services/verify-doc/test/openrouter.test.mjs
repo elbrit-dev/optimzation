@@ -4,9 +4,14 @@ import { config } from "../lib/config.mjs";
 import { parseJsonAnswer, toJsonSchema } from "../lib/openrouter.mjs";
 import { verify } from "../lib/verify.mjs";
 
-test("Gemini-style schema becomes plain JSON Schema", () => {
-  const s = toJsonSchema({ type: "OBJECT", properties: { a: { type: "STRING", nullable: true }, b: { type: "ARRAY", items: { type: "NUMBER" } } }, required: ["a"] });
-  assert.deepEqual(s, { type: "object", properties: { a: { type: ["string", "null"] }, b: { type: "array", items: { type: "number" } } }, required: ["a"] });
+test("Gemini-style schema becomes strict-ready JSON Schema", () => {
+  const s = toJsonSchema({ type: "OBJECT", properties: { a: { type: "STRING", nullable: true }, b: { type: "ARRAY", items: { type: "NUMBER" } }, c: { type: "STRING" } }, required: ["a", "b"] });
+  assert.deepEqual(s, {
+    type: "object",
+    properties: { a: { type: ["string", "null"] }, b: { type: "array", items: { type: "number" } }, c: { type: ["string", "null"] } },
+    required: ["a", "b", "c"],
+    additionalProperties: false,
+  });
 });
 
 test("answers wrapped in a code fence still parse", () => {
@@ -49,6 +54,10 @@ test("a verification through OpenRouter: images as data URLs, PDFs as files, sam
       { fetchImpl },
     );
     const parts = sent.messages[0].content;
+    assert.equal(sent.response_format.json_schema.strict, true);
+    assert.equal(sent.provider.require_parameters, true);
+    assert.deepEqual(sent.plugins, [{ id: "response-healing" }]);
+    assert.equal(sent.response_format.json_schema.schema.additionalProperties, false);
     assert.equal(sent.model, "google/gemini-2.5-flash");
     assert.ok(!parts[0].text.includes("500"), "the expected amount must not reach the model");
     assert.match(parts[1].image_url.url, /^data:image\/jpeg;base64,/);
@@ -63,5 +72,34 @@ test("a verification through OpenRouter: images as data URLs, PDFs as files, sam
     config.provider = before.provider;
     config.openrouterKey = before.key;
     config.openrouterModel = before.model;
+  }
+});
+
+test("OCR_MODE=both: Docling's text goes to the model alongside the image; a Docling failure falls back to the image", async () => {
+  const { applyOcr } = await import("../lib/ocr.mjs");
+  const before = { mode: config.ocrMode, key: config.doclingKey };
+  config.ocrMode = "both";
+  config.doclingKey = "dk";
+  const img = { kind: "media", mimeType: "image/jpeg", data: Buffer.from([0xff, 0xd8]).toString("base64"), name: "bill.jpg" };
+  try {
+    const ok = await applyOcr([img], { fetchImpl: async (url, opts) => {
+      assert.match(url, /\/v1\/convert\/file$/);
+      assert.equal(opts.headers["X-Api-Key"], "dk");
+      return new Response(JSON.stringify({ status: "success", document: { md_content: "## Bill\nTOTAL 450" } }));
+    } });
+    assert.equal(ok.documents.length, 2);
+    assert.equal(ok.documents[0].kind, "text");
+    assert.match(ok.documents[0].text, /TOTAL 450/);
+    assert.equal(ok.documents[1], img);
+    assert.equal(ok.ocr.text, "## Bill\nTOTAL 450");
+    config.ocrMode = "docling";
+    const only = await applyOcr([img], { fetchImpl: async () => new Response(JSON.stringify({ status: "success", document: { md_content: "x" } })) });
+    assert.deepEqual(only.documents.map((d) => d.kind), ["text"]);
+    const down = await applyOcr([img], { fetchImpl: async () => new Response("{}", { status: 503 }) });
+    assert.equal(down.documents[0], img, "falls back to the image");
+    assert.ok(down.ocr.docling[0].error);
+  } finally {
+    config.ocrMode = before.mode;
+    config.doclingKey = before.key;
   }
 });

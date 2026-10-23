@@ -19,6 +19,9 @@ test("dates read day-first", () => {
   assert.equal(parseDate("2026-10-21"), "2026-10-21");
   assert.equal(parseDate("31/02/2026"), null);
   assert.equal(parseDate("46316"), "2026-10-21"); // Excel serial
+  assert.equal(parseDate("19-OCT-2026 07:12"), "2026-10-19"); // with a time
+  assert.equal(parseDate("20/10/2026, 6:42 PM"), "2026-10-20");
+  assert.equal(parseDate("2026-10-20T18:42:00"), "2026-10-20");
   assert.equal(parseMonth("Sep-2026"), "2026-09");
   assert.equal(parseMonth("09/2026"), "2026-09");
 });
@@ -65,6 +68,15 @@ test("nothing found and unreadable documents score 0 / High", () => {
   assert.equal(r.score, 0);
   assert.equal(r.risk, "High");
   assert.equal(r.fields.amount.reason, "Not found on the document");
+});
+
+test("read-only fields come back typed, with the printed text kept", () => {
+  const r = scoreReading({ d: { type: "date" }, n: { type: "number" }, t: { type: "text" } }, { fields: [{ key: "d", value: "07 Aug, 2026", confidence: 1 }, { key: "n", value: "Rs. 65/-", confidence: 1 }, { key: "t", value: "Ola", confidence: 1 }] });
+  assert.equal(r.fields.d.found, "2026-08-07");
+  assert.equal(r.fields.d.raw, "07 Aug, 2026");
+  assert.equal(r.fields.n.found, 65);
+  assert.equal(r.fields.t.found, "Ola");
+  assert.equal(r.fields.t.raw, undefined);
 });
 
 test("read-only requests have no score", () => {

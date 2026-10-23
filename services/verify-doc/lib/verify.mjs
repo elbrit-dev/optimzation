@@ -4,6 +4,7 @@
 import { config } from "./config.mjs";
 import { DocError, loadDocuments } from "./documents.mjs";
 import { modelName, readDocuments } from "./reader.mjs";
+import { applyOcr } from "./ocr.mjs";
 import { DEFAULT_BANDS, scoreReading } from "./score.mjs";
 
 const TYPES = new Set(["text", "number", "date", "month", "table"]);
@@ -41,13 +42,15 @@ function summarize(reading, scored) {
   const failed = (reading.rules || []).filter((r) => r.pass === false).map((r) => `rule ${r.index + 1}: ${r.reason}`);
   const head = reading.summary || "";
   const tail = [...problems, ...failed];
-  return tail.length ? `${head} Differences: ${tail.slice(0, 8).join("; ")}${tail.length > 8 ? "; …" : ""}.` : `${head} Everything checked matches.`;
+  const clean = (t) => String(t).trim().replace(/[.s]+$/, "");
+  return tail.length ? `${head} Differences: ${tail.slice(0, 8).map(clean).join("; ")}${tail.length > 8 ? "; …" : ""}.` : `${head} Everything checked matches.`;
 }
 
 export async function verify(body, deps = {}) {
   validateRequest(body);
   const started = Date.now();
-  const documents = await loadDocuments(body.documents);
+  const loaded = await loadDocuments(body.documents);
+  const { documents, ocr } = await applyOcr(loaded, deps);
   const { reading, usage } = await readDocuments({ fields: body.fields, rules: body.rules || [], context: body.context, documents }, deps);
   const bands = body.bands ? { low: Number(body.bands.low), medium: Number(body.bands.medium) } : DEFAULT_BANDS;
   const scored = scoreReading(body.fields, reading, bands);
@@ -62,6 +65,7 @@ export async function verify(body, deps = {}) {
     rules,
     summary: summarize(reading, scored).trim(),
     document: reading.document || null,
-    meta: { provider: config.provider, model: modelName(), ms: Date.now() - started, documents: documents.length, tokens: usage?.totalTokenCount ?? null },
+    ...(ocr ? { ocr: { mode: ocr.mode, text: ocr.text, docling: ocr.docling } } : {}),
+    meta: { provider: config.provider, model: modelName(), ocr: ocr ? ocr.mode : "vision", ms: Date.now() - started, documents: loaded.length, tokens: usage?.totalTokenCount ?? null },
   };
 }

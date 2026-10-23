@@ -34,12 +34,14 @@
 
 FALLBACK = "sathish.admin@elbrit.org"    # Sathishkumar Kumaresan
 
-# Advance rules. An advance claim holds only Advance rows (one claim = one
-# advance). Spends are separate claims with custom_advance pointing at the
+# Advance rules. An advance claim holds exactly ONE Advance row (one claim =
+# one advance, one amount, one purpose -- 22 Oct 2026). Spends are separate claims with custom_advance pointing at the
 # employee's own released (Verified) advance; they never ask for an advance.
 types = [r.expense_type for r in doc.expenses or []]
 if "Advance" in types and len([t for t in types if t != "Advance"]) > 0:
     frappe.throw("An advance claim holds only Advance rows. Add the spends as a separate claim against the advance.")
+if "Advance" in types and len(types) > 1:
+    frappe.throw("An advance request is one line: one amount for one purpose. Ask for another advance separately.")
 if doc.get("custom_advance"):
     if "Advance" in types:
         frappe.throw("A claim against an advance cannot ask for another advance.")

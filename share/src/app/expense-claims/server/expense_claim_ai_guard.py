@@ -9,6 +9,8 @@
 # The AI check writes what it read off each bill and a score:
 #   row    custom_bill_amount / custom_bill_date / custom_bill_vendor
 #          custom_ai_score (0-100) / custom_ai_reason
+#          custom_bill_meta: everything read off the bill, as JSON (vendor,
+#          GSTIN, bill no., bill date, what for, payment mode...)
 #   claim  custom_ai_score (0-100) / custom_ai_summary
 # and this script sets custom_ai_risk (row and claim) from the score:
 #   90+ Low, 70-89 Medium, below 70 High.
@@ -31,7 +33,7 @@
 # =====================================================================
 
 AI_USERS = ["Administrator"]
-ROW_AI = ["custom_bill_amount", "custom_bill_date", "custom_bill_vendor", "custom_ai_score", "custom_ai_reason"]
+ROW_AI = ["custom_bill_amount", "custom_bill_date", "custom_bill_vendor", "custom_ai_score", "custom_ai_reason", "custom_bill_meta"]
 ROW_INPUT = ["amount", "expense_date", "expense_type", "custom_sub_type", "custom_bill"]
 
 old = doc.get_doc_before_save()

@@ -30,7 +30,11 @@ function iso(y, m, d) {
 /* Dates read Indian style: 03/04/2026 is 3 April, not March 4. */
 export function parseDate(v) {
   if (v == null) return null;
-  const s = String(v).trim();
+  // Drop a trailing time ("19-OCT-2026 07:12", "20/10/2026, 6:42 PM", ISO "T18:42").
+  const s = String(v)
+    .trim()
+    .replace(/(?:[T\s,]+|\s+at\s+)\d{1,2}[:.]\d{2}(?::\d{2})?(?:\.\d+)?\s*(?:[ap]\.?m\.?)?(?:\s*(?:z|[+-]\d{2}:?\d{2}|ist))?$/i, "")
+    .trim();
   let m;
   if ((m = /^(\d{4})-(\d{1,2})-(\d{1,2})/.exec(s))) return iso(+m[1], +m[2], +m[3]);
   if ((m = /^(\d{1,2})[/.\-](\d{1,2})[/.\-](\d{2,4})$/.exec(s))) return iso(fullYear(+m[3]), +m[2], +m[1]);

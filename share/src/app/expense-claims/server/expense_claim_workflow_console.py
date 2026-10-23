@@ -36,12 +36,14 @@ W = "WOULD " if DRY else ""
 APPROVER_SCRIPT = r'''
 FALLBACK = "sathish.admin@elbrit.org"    # Sathishkumar Kumaresan
 
-# Advance rules. An advance claim holds only Advance rows (one claim = one
-# advance). Spends are separate claims with custom_advance pointing at the
+# Advance rules. An advance claim holds exactly ONE Advance row (one claim =
+# one advance, one amount, one purpose -- 22 Oct 2026). Spends are separate claims with custom_advance pointing at the
 # employee's own released (Verified) advance; they never ask for an advance.
 types = [r.expense_type for r in doc.expenses or []]
 if "Advance" in types and len([t for t in types if t != "Advance"]) > 0:
     frappe.throw("An advance claim holds only Advance rows. Add the spends as a separate claim against the advance.")
+if "Advance" in types and len(types) > 1:
+    frappe.throw("An advance request is one line: one amount for one purpose. Ask for another advance separately.")
 if doc.get("custom_advance"):
     if "Advance" in types:
         frappe.throw("A claim against an advance cannot ask for another advance.")
@@ -103,7 +105,7 @@ if doc.employee and (sending or moved or not doc.expense_approver):
 
 GUARD_SCRIPT = r'''
 AI_USERS = ["Administrator"]
-ROW_AI = ["custom_bill_amount", "custom_bill_date", "custom_bill_vendor", "custom_ai_score", "custom_ai_reason"]
+ROW_AI = ["custom_bill_amount", "custom_bill_date", "custom_bill_vendor", "custom_ai_score", "custom_ai_reason", "custom_bill_meta"]
 ROW_INPUT = ["amount", "expense_date", "expense_type", "custom_sub_type", "custom_bill"]
 
 old = doc.get_doc_before_save()
@@ -366,6 +368,9 @@ FIELDS = [
      "insert_after": "custom_ai_score", "read_only": 1, "no_copy": 1},
     {"dt": "Expense Claim Detail", "fieldname": "custom_ai_reason", "label": "AI Reason", "fieldtype": "Small Text",
      "insert_after": "custom_ai_risk", "read_only": 1, "no_copy": 1},
+    {"dt": "Expense Claim Detail", "fieldname": "custom_bill_meta", "label": "Bill Details (AI)", "fieldtype": "JSON",
+     "insert_after": "custom_ai_reason", "read_only": 1, "no_copy": 1,
+     "description": "Everything the AI read off this row's bill: vendor, GSTIN, bill no., bill date, what for, payment mode, checks."},
 ]
 for f in FIELDS:
     key = f["dt"] + "-" + f["fieldname"]

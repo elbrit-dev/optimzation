@@ -20,14 +20,22 @@ env:
     secret: verify-doc-clients
   - variable: GEMINI_MODEL
     value: gemini-2.5-pro
-  # OpenRouter (the reader in use while Google billing is sorted). Uncomment
-  # once the secret exists -- a missing secret fails the rollout.
-  # - variable: OPENROUTER_API_KEY
-  #   secret: verify-doc-openrouter-key
-  # - variable: MODEL_PROVIDER
-  #   value: openrouter
-  # - variable: OPENROUTER_MODEL
-  #   value: google/gemini-3.8-flash
+  # OpenRouter: the reader in use (22 Oct 2026). Model picked by
+  # bench/run.mjs: GPT-6 Luna, 8/8 test bills at ~₹0.02 each.
+  - variable: OPENROUTER_API_KEY
+    secret: verify-doc-openrouter-key
+  - variable: MODEL_PROVIDER
+    value: openrouter
+  - variable: OPENROUTER_MODEL
+    value: openai/gpt-6-luna
+  # OCR: Docling (IT's converter, project elbrit-services) extracts the text,
+  # and the model gets that text AND the image ("both": 11/11 in bench/run.mjs;
+  # Docling's text alone missed faint / Tamil / blurry bills). Uncomment once
+  # the secret exists -- a missing secret fails the rollout.
+  # - variable: OCR_MODE
+  #   value: both
+  # - variable: DOCLING_API_KEY
+  #   secret: verify-doc-docling-key
   - variable: FIREBASE_PROJECT_ID
     value: elbrit-sso-d01d9
   - variable: ERP_URL

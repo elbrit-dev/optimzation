@@ -701,9 +701,12 @@ export function ClaimForm({ conn, me, types, claims = [], claim, copyFrom, today
             );
           })}
 
-          <button type="button" className="ecf-add" onClick={addRow}>
-            <Icon d={IC.plus} size={16} />{mode === "advance" ? "Add another line" : "Add another expense"}
-          </button>
+          {/* An advance is one line: one amount for one purpose (the ERP refuses more). */}
+          {mode === "expense" && (
+            <button type="button" className="ecf-add" onClick={addRow}>
+              <Icon d={IC.plus} size={16} />Add another expense
+            </button>
+          )}
 
           <label className="ecf-card" style={{ padding: 16, display: "flex", flexDirection: "column", gap: 8 }}>
             <span className="ecf-lbl">Note <span style={{ textTransform: "none", letterSpacing: 0, fontWeight: 500, color: "#98a2b3" }}>· optional · for your reporting officer</span></span>

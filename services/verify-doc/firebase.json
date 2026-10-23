@@ -3,7 +3,7 @@
     {
       "backendId": "verify-doc",
       "rootDir": "/",
-      "ignore": ["node_modules", ".git", "firebase-debug.log", "firebase-debug.*.log", "test", "scripts", "postman", ".env*"]
+      "ignore": ["node_modules", ".git", "firebase-debug.log", "firebase-debug.*.log", "test", "scripts", "postman", "bench", ".env*"]
     }
   ]
 }

@@ -5,9 +5,11 @@
 //      x-erp-token:   <the user's ERP token>
 //
 // Checks every bill on an Expense Claim with verify-doc and saves the result
-// on the claim: each row's amount / date / vendor read off its bill, its AI
-// score and reason; the claim's score (money-weighted over its rows) and
-// summary. The ERP turns the score into Low / Medium / High risk ("Expense
+// on the claim: each row's AI score (the AMOUNT check -- bill vs claim within
+// 2%) and reason, the amount / date / vendor read off its bill, and every
+// detail read off the bill as JSON (custom_bill_meta); the claim's score
+// (money-weighted over its rows) and summary. Runs when the employee sends
+// the claim for approval -- before the reporting officer sees it. The ERP turns the score into Low / Medium / High risk ("Expense
 // Claim AI Guard"), and "Expense Claim Route" uses it after the reporting
 // officer approves: 90+ is verified without a person.
 //
@@ -51,18 +53,38 @@ async function erp(origin, token, path, init = {}) {
   return json;
 }
 
-function rowRequest(row, origin, userErpToken) {
+/* The check is a VALUE check: the employee enters only type, date and amount,
+   so the score is the amount alone (bill vs claim, within 2%). Everything
+   else is READ off the bill, not scored, and kept on the row as JSON
+   (custom_bill_meta) -- vendor, GSTIN, bill no., bill date, what it is for. */
+const META_FIELDS = {
+  document_type: { type: "text", description: "what kind of document this is (tax invoice, fuel receipt, cab receipt, toll ticket, restaurant bill, hand-written bill...)" },
+  vendor: { type: "text", description: "the shop, company or person who issued the bill" },
+  vendor_gstin: { type: "text", description: "the seller's GSTIN, if printed" },
+  invoice_no: { type: "text", description: "the bill / invoice / receipt / ride number" },
+  bill_date: { type: "date", description: "the bill or transaction date" },
+  customer: { type: "text", description: "the customer / passenger / bill-to name, if printed" },
+  payment_mode: { type: "text", description: "how it was paid (cash, UPI, card, FASTag...), if shown" },
+  what_for: { type: "text", description: "what was bought or paid for, in a few words" },
+};
+
+function rowRequest(row, origin, userErpToken, employeeName) {
   const kind = [row.expense_type, row.custom_sub_type].filter(Boolean).join(" / ");
   return {
     documents: [{ url: origin + row.custom_bill, headers: { Authorization: tokenHeader(userErpToken) } }],
-    context: `Employee expense claim in India, amounts in INR. Expense: ${kind}.${row.description ? " Employee's note: " + String(row.description).replace(/<[^>]*>/g, " ").slice(0, 200) : ""}`,
+    context: `Employee expense claim in India, amounts in INR. Expense: ${kind}.`,
     fields: {
-      amount: { type: "number", expected: flt(row.amount), weight: 70, tolerance: "2%", description: "the final total paid on the bill" },
-      date: { type: "date", expected: row.expense_date, weight: 15, toleranceDays: 3, description: "the bill or transaction date" },
-      category: { type: "text", expected: kind, match: "meaning", weight: 15, description: "what the bill is for (fuel, toll, food, cab, rent…)" },
-      vendor: { type: "text", description: "the shop, company or person who issued the bill" },
+      amount: {
+        type: "number", expected: flt(row.amount), weight: 100, tolerance: "2%",
+        description: "the FINAL amount actually paid: the grand / total amount, INCLUDING any handwritten additions or corrections (e.g. '950 +20 = 970' means 970) and any handling or delivery fee -- never a sub-total, a tax line or a single item",
+      },
+      ...META_FIELDS,
     },
-    rules: ["It must be a bill, receipt, ticket or invoice -- not a selfie, a blank page or an unrelated photo"],
+    rules: [
+      "It must be a bill, receipt, ticket or invoice -- not a selfie, a blank page or an unrelated photo",
+      // Recorded in the bill details (Sathishkumar sees it), not scored: many bills carry no name.
+      `If the bill names a customer, it should be the employee "${employeeName || "the employee"}" or the company Elbrit (a bill with no customer name passes)`,
+    ],
     bands: { low: 90, medium: 70 },
   };
 }
@@ -107,23 +129,51 @@ export default async function handler(req, res) {
         const r = await fetch(`${VERIFY_URL}/v1/verify`, {
           method: "POST",
           headers: { "Content-Type": "application/json", Authorization: `Bearer ${idToken}`, "X-ERP-Token": tokenHeader(userErp) },
-          body: JSON.stringify(rowRequest(row, origin, userErp)),
+          body: JSON.stringify(rowRequest(row, origin, userErp, claim.employee_name)),
           signal: AbortSignal.timeout(100000),
         });
         const out = await r.json().catch(() => ({}));
         if (r.status === 503) return { row, unavailable: out.error || "verify-doc is not ready" };
         if (!r.ok) return { row, failed: out.error || `verify-doc answered HTTP ${r.status}` };
         const f = out.fields || {};
-        const reasons = ["amount", "date", "category"].filter((k) => f[k] && f[k].ok === false).map((k) => f[k].reason);
-        const failedRule = (out.rules || []).find((x) => x.pass === false);
-        if (failedRule) reasons.push(failedRule.reason);
+        const reasons = [];
+        if (f.amount && f.amount.ok === false) reasons.push(f.amount.reason);
+        const notABill = (out.rules || [])[0];
+        if (notABill && notABill.pass === false) reasons.push(notABill.reason);
+        if (out.document && out.document.readable === false) reasons.push("The bill could not be read.");
+        const iso = (v) => (typeof v === "string" && /^\d{4}-\d{2}-\d{2}$/.test(v) ? v : null);
+        const val = (k) => (f[k] && f[k].found != null && f[k].found !== "" ? f[k].found : null);
+        // Everything read off the bill, for the row's custom_bill_meta (JSON).
+        const meta = {
+          read_at: new Date().toISOString(),
+          model: out.meta?.model || null,
+          readable: out.document?.readable ?? null,
+          document_type: val("document_type") || out.document?.kind || null,
+          vendor: val("vendor"),
+          vendor_gstin: val("vendor_gstin"),
+          invoice_no: val("invoice_no"),
+          bill_date: iso(val("bill_date")) || val("bill_date"),
+          bill_date_printed: f.bill_date?.raw || null,
+          customer: val("customer"),
+          payment_mode: val("payment_mode"),
+          what_for: val("what_for"),
+          total_on_bill: val("amount"),
+          amount_confidence: f.amount?.confidence ?? null,
+          language: out.document?.language || null,
+          checks: (out.rules || []).map((r) => ({ rule: r.rule, pass: r.pass, reason: r.reason })),
+          summary: out.summary || null,
+          // What Docling (IT's OCR) extracted from the bill, when OCR is on.
+          ocr_mode: out.ocr?.mode || "vision",
+          ocr_text: out.ocr?.text ? String(out.ocr.text).slice(0, 4000) : null,
+        };
         return {
           row,
           score: out.score ?? 0,
-          reason: reasons.length ? reasons.join("; ") : "Bill matches the claim.",
-          amount: f.amount?.found ?? null,
-          date: typeof f.date?.found === "string" && /^\d{4}-\d{2}-\d{2}$/.test(f.date.found) ? f.date.found : null,
-          vendor: f.vendor?.found ? String(f.vendor.found).slice(0, 140) : null,
+          reason: reasons.length ? reasons.join("; ") : "Bill amount matches the claim.",
+          amount: val("amount"),
+          date: iso(val("bill_date")),
+          vendor: val("vendor") ? String(val("vendor")).slice(0, 140) : null,
+          meta,
         };
       } catch (e) {
         return { row, failed: e.name === "TimeoutError" ? "the check took too long" : e.message };
@@ -160,6 +210,7 @@ export default async function handler(req, res) {
         custom_bill_vendor: x.vendor,
         custom_ai_score: x.score,
         custom_ai_reason: x.reason.slice(0, 500),
+        custom_bill_meta: JSON.stringify(x.meta || {}),
       };
     });
     doc.custom_ai_score = claimScore;

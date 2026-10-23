@@ -34,6 +34,61 @@ function usePhone() {
   return phone;
 }
 
+/* GROUP BY, as one button beside Filters: it names the grouping that is on
+   ("By: City") and opens a short menu of the three. Not inside Filters — it
+   does not narrow the list, it changes what the list is made of — and not a
+   segmented control across the card, which spent a whole row on a choice
+   made once. A popover on every screen size: three options do not need a
+   bottom sheet.
+
+   options: [{ id, label }] */
+export function GroupByMenu({ options, value, onChange }) {
+  const [open, setOpen] = useState(false);
+  const current = options.find((o) => o.id === value) ?? options[0];
+  return (
+    <Popover.Root open={open} onOpenChange={setOpen} backName="visit-doctor-group">
+      <Popover.Trigger
+        className={`flex h-8 flex-none items-center gap-1.5 whitespace-nowrap rounded-lg border px-3 text-12 font-semibold transition-colors ${
+          value !== options[0]?.id ? 'border-brand bg-brand-tint-weak text-brand-text' : 'border-line bg-surface text-heading hover:bg-brand-tint-weak'
+        }`}
+        aria-label={`Group doctors by ${current?.label}`}
+      >
+        <i className="pi pi-objects-column text-11" aria-hidden="true" />
+        <span className="font-medium text-ds-secondary">By:</span>
+        {current?.label}
+        <i className="pi pi-chevron-down text-10" aria-hidden="true" />
+      </Popover.Trigger>
+      <Popover.Portal>
+        <Popover.Positioner side="bottom" align="end" sideOffset={6}>
+          <Popover.Popup className="min-w-[180px] rounded-xl border border-line-subtle bg-surface p-1.5" style={{ boxShadow: '0 12px 32px rgba(16,24,40,.16)' }}>
+            <div className="px-2.5 pb-1 pt-1.5 text-11 font-semibold uppercase tracking-wide text-ds-muted">Group by</div>
+            <div role="radiogroup" aria-label="Group doctors by">
+              {options.map((o) => {
+                const on = o.id === value;
+                return (
+                  <button
+                    key={o.id}
+                    type="button"
+                    role="radio"
+                    aria-checked={on}
+                    onClick={() => { onChange(o.id); setOpen(false); }}
+                    className={`flex w-full items-center justify-between gap-3 rounded-lg px-2.5 py-2 text-left text-13 hover:bg-sunken ${
+                      on ? 'font-semibold text-brand-text' : 'text-heading'
+                    }`}
+                  >
+                    {o.label}
+                    {on ? <i className="pi pi-check text-11" aria-hidden="true" /> : null}
+                  </button>
+                );
+              })}
+            </div>
+          </Popover.Popup>
+        </Popover.Positioner>
+      </Popover.Portal>
+    </Popover.Root>
+  );
+}
+
 export function DoctorFilters({ groups, count, result, onToggle, onClearGroup, onClearAll }) {
   const [open, setOpen] = useState(false);
   const [tab, setTab] = useState(groups[0]?.id);

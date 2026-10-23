@@ -27,7 +27,13 @@ export const config = {
   // OpenRouter when its key is set.
   provider: String(process.env.MODEL_PROVIDER || (process.env.OPENROUTER_API_KEY ? "openrouter" : "gemini")).toLowerCase(),
   openrouterKey: process.env.OPENROUTER_API_KEY || "",
-  openrouterModel: process.env.OPENROUTER_MODEL || "google/gemini-3.8-flash",
+  openrouterModel: process.env.OPENROUTER_MODEL || "openai/gpt-6-luna",
+  // OCR before the model (lib/ocr.mjs): "vision" (the model reads the image),
+  // "docling" (only Docling's text) or "both" (text + image).
+  ocrMode: String(process.env.OCR_MODE || "vision").toLowerCase(),
+  doclingUrl: String(process.env.DOCLING_URL || "https://docling-serve-42ppaqlnqq-as.a.run.app").replace(/\/+$/, ""),
+  doclingKey: process.env.DOCLING_API_KEY || "",
+  doclingTimeoutMs: Number(process.env.DOCLING_TIMEOUT_MS) || 150000,
   clients: clients(process.env.VERIFY_DOC_CLIENTS),
   // Exact hosts, or ".example.com" for any subdomain.
   allowedHosts: list(process.env.ALLOWED_DOC_HOSTS, "erp.elbrit.org,uat.elbrit.org,firebasestorage.googleapis.com"),
