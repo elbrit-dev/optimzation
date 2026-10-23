@@ -50,10 +50,16 @@ function fyStart(date) {
   return new Date(d.getMonth() >= 3 ? d.getFullYear() : d.getFullYear() - 1, 3, 1);
 }
 
-export function PeriodTabs({ value, range, dayRange, maxDate, onChange, onRangeChange, onDayChange }) {
+/* Stacked by default; `inline` puts the tabs and the picker on one row from
+   @2xl, for the report's top bar where the height is what is scarce. A
+   phone keeps the stack: beside 176px of tabs the picker had ~120px and
+   cut the day to "Fri, 2…". */
+export function PeriodTabs({ value, range, dayRange, maxDate, onChange, onRangeChange, onDayChange, inline = false }) {
   return (
-    <div className="flex flex-col gap-3">
-      <Tabs items={ITEMS} value={value} onChange={onChange} ariaLabel="Period" />
+    <div className={inline ? 'flex flex-col gap-3 @2xl/report:flex-row @2xl/report:items-center @2xl/report:gap-2' : 'flex flex-col gap-3'}>
+      <div className={inline ? '@2xl/report:w-44 @2xl/report:shrink-0' : undefined}>
+        <Tabs items={ITEMS} value={value} onChange={onChange} ariaLabel="Period" />
+      </div>
       {value === 'month' ? (
         <FyMonthPicker
           min={fyStart(maxDate)}

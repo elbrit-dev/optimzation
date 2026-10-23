@@ -36,8 +36,9 @@ export function AttendanceCard({ counts, working, inScope, overlapping = false, 
     <Card className="h-full">
       <div className="flex items-start justify-between gap-3">
         <Eyebrow as="h3">{heading}</Eyebrow>
-        <span className="shrink-0 text-13 font-semibold tabular-nums text-heading">
-          {working} of {inScope} reported
+        <span className="shrink-0 tabular-nums">
+          <span className="text-20 font-bold text-heading">{working}</span>
+          <span className="text-12 text-ds-muted"> of {inScope} reported</span>
         </span>
       </div>
 
@@ -59,11 +60,9 @@ export function AttendanceCard({ counts, working, inScope, overlapping = false, 
           small; `overlapping` is passed down so the caption can say so rather
           than leaving the reader to assume the segments add to 100%.
 
-          mt-2, and the legend row takes no margin at all: the chips already
-          carry 8px of their own block padding for the tap target (see
-          LegendChip), so a margin under the bar reads as 12px of air on top
-          of that and was most of what made this card the odd one out. */}
-      <div className="mt-2">
+          mt-3 on both the bar and the boxed counts below it: the cells
+          carry their own padding now, so the spacing is plain margin. */}
+      <div className="mt-3">
         <StackedBar
           size="lg"
           label={ATTENDANCE.map((k) => `${ATTENDANCE_LABEL[k]}: ${counts[k]}`).join(', ')}
@@ -76,27 +75,22 @@ export function AttendanceCard({ counts, working, inScope, overlapping = false, 
         />
       </div>
 
-      {/* SIX STATES DO NOT FIT ON ONE LINE. The shared one-line legend row
-          shrinks its type to fit, which held four chips and ran five into
-          each other (each count sat on the next chip's dot). Here they sit
-          in columns and wrap, full-size and tappable.
-
-          COLUMNS AS WIDE AS THEIR CHIPS, NOT EQUAL THIRDS. A third of a
-          384px card is ~100px and "Not reported 27 ›" is ~112; the chip
-          cannot wrap, so it ran its chevron into Absent's dot while the
-          space to the right of "Absent 11" sat empty (seen on a handset,
-          21 Oct 2026). Sized to content and spread edge to edge, the slack
-          goes where it is needed. Below 360px three cannot fit at all, so
-          it drops to two. */}
-      <div className="grid grid-cols-[repeat(3,auto)] justify-between gap-x-3 max-[359px]:grid-cols-[repeat(2,auto)]">
+      {/* SIX STATES IN TWO ROWS OF THREE, each count in its own tinted
+          cell. Three across at every width from @2xl: a third row made this
+          the tallest card in the band and left the four KPI cards beside it
+          either short or padded out. The chevron is gone to make the room —
+          the underline on the label already says the cell opens something.
+          Below @2xl the card is a phone's width and keeps two across. */}
+      <div className="mt-3 grid grid-cols-2 gap-1.5 @2xl/report:grid-cols-3">
         {ATTENDANCE.map((k) => (
           <LegendChip
             key={k}
-            className="min-w-0 whitespace-nowrap"
+            className="ds-visit-chip min-w-0 whitespace-nowrap"
             label={ATTENDANCE_LABEL[k]}
             value={counts[k]}
             tone={ATTENDANCE_TONE[k]}
             onClick={onDrill ? () => onDrill(k) : undefined}
+            showChevron={false}
           />
         ))}
       </div>

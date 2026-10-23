@@ -6,7 +6,6 @@ import {
   Button,
   Card,
   DisclosureRow,
-  SectionLabel,
   StatusPill,
 } from '@/design-system';
 import { childrenOf, kidsOf, rollupFor } from '../data/selectors';
@@ -331,9 +330,19 @@ export function TeamTree({ team, rows, pob, rootIds = [], onDoctorPlan, overRang
   const tops = rootIds.map((id) => byId.get(id)).filter(Boolean);
 
   return (
-    <section className="flex flex-col gap-2">
-      <SectionLabel>Team tree · tap to expand</SectionLabel>
-      <Card>
+    /* The heading sits INSIDE the card, as the doctor list's does: from
+       @5xl the two stand side by side, and a title above one card and inside
+       the other puts their tops at different heights. */
+    /* `h-full` and a scrolling body: on a desktop the panel is as tall as
+       the doctor list beside it (the report sets the height) and the tree
+       scrolls inside it, rather than one list stretching the page. */
+    <section className="flex h-full flex-col">
+      <Card className="flex h-full min-h-0 flex-col">
+        <div className="mb-2 flex shrink-0 flex-col gap-0.5">
+          <h3 className="text-16 font-semibold text-heading">Team</h3>
+          <p className="text-12 text-ds-muted">Tap a name to expand</p>
+        </div>
+        <div className="min-h-0 @5xl/report:flex-1 @5xl/report:overflow-y-auto @5xl/report:pr-1">
         {tops.length === 0 ? (
           <p className="text-10 text-ds-muted">No reports in this scope.</p>
         ) : (
@@ -357,6 +366,7 @@ export function TeamTree({ team, rows, pob, rootIds = [], onDoctorPlan, overRang
             />
           ))
         )}
+        </div>
       </Card>
     </section>
   );

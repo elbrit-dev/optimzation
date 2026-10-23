@@ -27,8 +27,10 @@ import { cx } from '../lib/cx';
 
    Root takes what decides BEHAVIOUR — open state, and where it lives:
      side        'auto' | 'bottom' | 'right'  (see base/Drawer)
-     desktop     'drawer' (default): from 768px a right-hand side drawer —
-                           anything with rows, details, filters
+     desktop     'drawer' (default): from 768px a centred popup (the base
+                           Drawer's `side="auto"`; a right-hand side drawer
+                           until 2026-10-23) — anything with rows, details,
+                           filters. `side="right"` still pins the old edge.
                  'dialog': from 768px a centred dialog — ONLY for something
                            small: a confirmation ("Discard changes?"), a short
                            form ("Reason for rework"). Content that needs room

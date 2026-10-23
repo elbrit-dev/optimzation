@@ -48,9 +48,9 @@ export function HqCard({ label, planned, happened, verified, force, selected, on
       }
     >
       <div className="flex items-baseline justify-between gap-3">
-        <span className="truncate text-12 font-medium text-ds-secondary">{name}</span>
+        <span className="truncate text-13 font-semibold text-heading">{name}</span>
         <span className="shrink-0 tabular-nums">
-          <span className="text-20 font-semibold text-heading">{happened}</span>
+          <span className="text-20 font-bold tracking-tight text-heading">{happened}</span>
           <span className="text-12 text-ds-muted">/{planned}</span>
         </span>
       </div>

@@ -659,7 +659,7 @@ export default function ProductStockSheet({
     <Drawer.Root
       open={Boolean(visible)}
       onOpenChange={(next) => { if (!next) close(); }}
-      side={isDesktop ? "right" : "bottom"}
+      side={isDesktop ? "auto" : "bottom"}
       backName="product-stock"
     >
       <Drawer.Portal>
@@ -670,7 +670,7 @@ export default function ProductStockSheet({
             className={className}
             style={
               isDesktop
-                ? { inlineSize: desktopWidth, maxInlineSize: "95vw", background: "#fff" }
+                ? { inlineSize: desktopWidth, maxInlineSize: "95vw", blockSize: "min(52rem, calc(100dvh - 48px))", background: "#fff" }
                 : { blockSize: sheetHeight, maxBlockSize: sheetHeight, maxInlineSize: "none", background: "#fff", borderTopLeftRadius: "1rem", borderTopRightRadius: "1rem" }
             }
           >

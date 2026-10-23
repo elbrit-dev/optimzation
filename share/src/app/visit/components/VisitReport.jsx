@@ -140,13 +140,13 @@ export function VisitReport({ gqlEnvironment, gqlToken } = {}) {
      inside the tree closes an attendance sheet rather than stacking a
      second scrim on the first. */
   const [sheet, setSheet] = useState(null);
-  /* ON A PHONE the two long lists under the HQ chart — the team tree and the
-     doctor-wise list — share one place behind a Team | Doctors switch, so
-     the page is not one long scroll. Everything above stays as it is. From
-     @2xl both show and the switch is not drawn; `mobileOnly` hides a section
-     only below @2xl. */
+  /* BELOW @5xl — phones and tablets — the two long lists under the HQ
+     chart, the team tree and the doctor-wise list, share one place behind a
+     Team | Doctors switch, so the page is not one long scroll. From @5xl
+     they stand side by side and the switch is not drawn; `mobileOnly` hides
+     a section only below @5xl. */
   const [mobileTab, setMobileTab] = useState('team');
-  const mobileOnly = (tab) => (mobileTab === tab ? '' : 'hidden @2xl/report:block');
+  const mobileOnly = (tab) => (mobileTab === tab ? '' : 'hidden @5xl/report:block');
 
   /* undefined, not null, for both: `useVisitKpi` and `periodWindow` read
      absence as "the month today falls in", and a null would have to be
@@ -520,57 +520,58 @@ export function VisitReport({ gqlEnvironment, gqlToken } = {}) {
   );
 
   return (
+    /* FILLS ITS PARENT. No max width and no centring: dropped in a Plasmic
+       stack, the report is as wide as the stack and lays itself out from
+       that width (the @container queries below), not from the window's. A
+       cap here left a grey band either side on a desktop. */
     <div
       data-surface="app"
-      className="@container/report min-h-full bg-sunken"
+      className="ds-visit-report @container/report flex min-h-full w-full min-w-0 flex-col bg-sunken"
     >
-      <div className="mx-auto flex w-full max-w-md flex-col gap-4 p-3 @2xl/report:max-w-3xl @2xl/report:gap-5 @2xl/report:p-5 @5xl/report:max-w-6xl @5xl/report:gap-6 @5xl/report:p-6">
-        {/* Controls. Narrow, they stack — 390px cannot hold a title, a picker
-            and two tabs without one of them becoming a hit-target hazard.
-            From @2xl they collapse into a single bar: same components, same
-            state, no duplicate markup. */}
-        <div className="flex flex-col gap-4 @2xl/report:flex-row @2xl/report:items-start @2xl/report:justify-between @2xl/report:gap-6">
-          <div className="flex flex-col gap-4 @2xl/report:gap-1">
-            <ReportHeader
-              root={focus}
-              period={period}
-              window={win}
-              asOf={asOf}
-              /* Two titles, not three. "3 selected" described the PICKER
-                 rather than the report — the reader does not need the page
-                 counting their own clicks back at them, and the caption
-                 below already says how many branches were summed. One person
-                 is My Report; anything wider is a team, however many
-                 branches it was assembled from. */
-              title={isMine ? 'My report' : 'Team report'}
-              caption={scopeCaption}
-            />
-            {/* Below the header when narrow, where full width is worth more
-                than adjacency; beside it from @2xl. */}
-            <div className="@2xl/report:hidden">{scopePicker}</div>
-          </div>
+      {/* THE TOP BAR. Sticky, so the scope and the period stay in reach
+          while the lists below scroll. Narrow, it stacks — 390px cannot
+          hold a title, a picker and two tabs without one of them becoming a
+          hit-target hazard. From @7xl it is one row; at 1024 the title
+          wrapped to two lines beside the picker and the date. */}
+      <div className="sticky top-0 z-10 flex flex-col gap-3 border-b border-line-subtle bg-surface/90 px-4 py-3 backdrop-blur @2xl/report:px-6 @5xl/report:px-7 @7xl/report:flex-row @7xl/report:items-center @7xl/report:justify-between @7xl/report:gap-6">
+        <ReportHeader
+          root={focus}
+          period={period}
+          window={win}
+          asOf={asOf}
+          /* Two titles, not three. "3 selected" described the PICKER
+             rather than the report — the reader does not need the page
+             counting their own clicks back at them, and the caption
+             below already says how many branches were summed. One person
+             is My Report; anything wider is a team, however many
+             branches it was assembled from. */
+          title={isMine ? 'My report' : 'Team report'}
+          caption={scopeCaption}
+        />
 
-          <div className="flex flex-col gap-3 @2xl/report:w-72 @2xl/report:shrink-0">
-            <div className="hidden @2xl/report:block">{scopePicker}</div>
-            <PeriodTabs
-              value={period}
-              range={monthRange ?? defaultRange}
-              maxDate={maxMonth}
-              onChange={setPeriod}
-              onRangeChange={setMonthRange}
-              dayRange={dayRange}
-              onDayChange={(r) => {
-                const d = r?.[0];
-                const key = d ? `${toMonthKey(d)}-${String(d.getDate()).padStart(2, '0')}` : null;
-                setDay(key && key !== today ? key : null);
-                /* The open sheet and selected HQ belong to the old day. */
-                setSheet(null);
-                setHq(ALL_HQS);
-              }}
-            />
-          </div>
+        <div className="flex flex-col gap-3 @2xl/report:flex-row @2xl/report:items-center @7xl/report:shrink-0">
+          <div className="min-w-0 @2xl/report:flex-1 @7xl/report:w-72 @7xl/report:flex-none">{scopePicker}</div>
+          <PeriodTabs
+            inline
+            value={period}
+            range={monthRange ?? defaultRange}
+            maxDate={maxMonth}
+            onChange={setPeriod}
+            onRangeChange={setMonthRange}
+            dayRange={dayRange}
+            onDayChange={(r) => {
+              const d = r?.[0];
+              const key = d ? `${toMonthKey(d)}-${String(d.getDate()).padStart(2, '0')}` : null;
+              setDay(key && key !== today ? key : null);
+              /* The open sheet and selected HQ belong to the old day. */
+              setSheet(null);
+              setHq(ALL_HQS);
+            }}
+          />
         </div>
+      </div>
 
+      <div className="flex w-full flex-col gap-4 p-4 @2xl/report:gap-5 @2xl/report:p-6 @5xl/report:p-7">
         {error ? (
           <p className="rounded-lg border border-danger/30 bg-danger/5 p-3 text-12 text-danger">
             Could not load live visit data: {error.message ?? String(error)}
@@ -619,9 +620,9 @@ export function VisitReport({ gqlEnvironment, gqlToken } = {}) {
                 way round. The attendance card has since lost the 8px that made it
                 the odd one out, so the height they share is the KPI cards' own
                 and nothing is padded out to reach it. */}
-            <div className="grid gap-4 @5xl/report:grid-cols-3 @5xl/report:gap-6">
+            <div className={isMine ? 'grid gap-4 @5xl/report:gap-6' : 'grid gap-4 @5xl/report:gap-6 @7xl/report:grid-cols-[minmax(0,5fr)_minmax(0,8fr)]'}>
               {isMine ? null : (
-                <div className="@5xl/report:col-span-1">
+                <div className="min-w-0">
                   <AttendanceCard
                     period={period}
                     dayWord={daySuffix(dayKey, today)}
@@ -638,7 +639,7 @@ export function VisitReport({ gqlEnvironment, gqlToken } = {}) {
               {/* The KPIs take the attendance card's columns too when there is
                   no attendance card — four numbers across a third of the grid
                   would wrap to two lines to leave a gap where a card is not. */}
-              <div className={isMine ? 'min-w-0 @5xl/report:col-span-3' : 'min-w-0 @5xl/report:col-span-2'}>
+              <div className="min-w-0">
                 <KpiGrid
                   periodSuffix={suffix}
                   planned={view.planned}
@@ -651,76 +652,83 @@ export function VisitReport({ gqlEnvironment, gqlToken } = {}) {
               </div>
             </div>
 
-            {/* Detail. One column until @5xl — the hourly chart needs the width
-                more than the tree does, so they only sit side by side where both
-                fit without either being squeezed. */}
-            <div className="grid gap-4 @5xl/report:grid-cols-3 @5xl/report:items-start @5xl/report:gap-6">
-              <div className="min-w-0 @5xl/report:col-span-2">
-                <HqSection
-                  showReps={!isMine}
-                  hqRows={view.hqRows}
-                  activeHq={view.activeHq}
-                  onSelectHq={setHq}
-                  hourly={view.hourly}
-                  geo={view.geo}
-                  totals={view.totals}
-                  onDrillVisits={(selection) => setSheet({ kind: 'hour', selection })}
-                />
-                {/* Phone only: Team | Doctors, for the two lists below. */}
-                <SegmentedControl
-                  className="mt-4 @2xl/report:hidden"
-                  block
-                  shape="pill"
-                  ariaLabel="Show team or doctors"
-                  items={[
-                    { id: 'team', label: 'Team' },
-                    { id: 'doctors', label: 'Doctors' },
-                  ]}
-                  value={mobileTab}
-                  onChange={setMobileTab}
-                />
-                {/* Doctor-wise: which doctors were visited, by whom, on which
-                    days. In the column's free space under the HQ chart.
-                    Keyed on its request so search and the open doctor reset
-                    when the scope, period or HQ changes. */}
-                <div className={`mt-4 @5xl/report:mt-6 ${mobileOnly('doctors')}`}>
-                  <DoctorVisitsCard
-                    key={JSON.stringify(doctorRequest ?? view.activeHq)}
-                    rows={countsOnly ? doctorList.rows : view.chartRows}
-                    loading={countsOnly && doctorList.loading}
-                    error={countsOnly ? doctorList.error : null}
-                    mapped={mappedList.rows}
-                    support={supportList.rows}
-                    mappedLoading={mappedList.loading}
-                    mappedNote={mappedNote}
-                    scope={scoped.team}
-                    /* Only to name each person's rung (BE / ABM). */
-                    team={team}
-                    isMine={isMine}
-                    periodLabel={planLabel}
-                    scopeLabel={view.activeHq === ALL_HQS ? 'All HQs' : hqLabel(view.activeHq)}
-                  />
-                </div>
-              </div>
+            {/* "Where the visits happened" — the HQ strip and the hourly
+                chart, full width at every size. It used to share its row
+                with the team tree from @5xl, which left the chart two
+                thirds of the width it needs. */}
+            <HqSection
+              showReps={!isMine}
+              hqRows={view.hqRows}
+              activeHq={view.activeHq}
+              onSelectHq={setHq}
+              hourly={view.hourly}
+              geo={view.geo}
+              totals={view.totals}
+              onDrillVisits={(selection) => setSheet({ kind: 'hour', selection })}
+            />
 
+            {/* The two long lists, below the chart. Side by side from @5xl,
+                where each still gets ~500px, at ONE fixed height with their
+                own scroll — a 300-person tree beside a short doctor list made
+                the page as long as the longer of them. Under @5xl a Team |
+                Doctors switch shows one at a time, and the page scrolls. */}
+            {/* Hidden on a WRAPPER: `.ds-segmented` sets its own display
+                outside Tailwind's layers, so a `hidden` on the control
+                itself loses to it. */}
+            <div className="@5xl/report:hidden">
+              <SegmentedControl
+                block
+                shape="pill"
+                ariaLabel="Show team or doctors"
+                items={[
+                  { id: 'team', label: 'Team' },
+                  { id: 'doctors', label: 'Doctors' },
+                ]}
+                value={mobileTab}
+                onChange={setMobileTab}
+              />
+            </div>
+            <div className="grid gap-4 @5xl/report:grid-cols-2 @5xl/report:items-start @5xl/report:gap-6">
               {/* The scoped branch in full, even when the cards are reporting
                   on one person -- it is the breakdown of what the picker
                   could widen to, and hiding it would leave no way to see
                   what "own" is being measured against. */}
-              <div className={`min-w-0 ${mobileOnly('team')}`}>
-              <TeamTree
-                key={selection.map((pick) => pick.id).join(',')}
-                team={team}
-                rows={rows}
-                pob={pob}
-                rootIds={selection.map((pick) => pick.id)}
-                onDoctorPlan={(member) => setSheet({ kind: 'plan', memberId: member.id })}
-                /* The tree classifies attendance the same way the card above
-                   it does, or the two disagree about the same person. */
-                overRange={overRange}
-                monthDays={monthDays}
-                today={today}
-              />
+              <div className={`min-w-0 @5xl/report:h-[44rem] ${mobileOnly('team')}`}>
+                <TeamTree
+                  key={selection.map((pick) => pick.id).join(',')}
+                  team={team}
+                  rows={rows}
+                  pob={pob}
+                  rootIds={selection.map((pick) => pick.id)}
+                  onDoctorPlan={(member) => setSheet({ kind: 'plan', memberId: member.id })}
+                  /* The tree classifies attendance the same way the card above
+                     it does, or the two disagree about the same person. */
+                  overRange={overRange}
+                  monthDays={monthDays}
+                  today={today}
+                />
+              </div>
+
+              {/* Doctor-wise: which doctors were visited, by whom, on which
+                  days. Keyed on its request so search and the open doctor
+                  reset when the scope, period or HQ changes. */}
+              <div className={`min-w-0 @5xl/report:h-[44rem] ${mobileOnly('doctors')}`}>
+                <DoctorVisitsCard
+                  key={JSON.stringify(doctorRequest ?? view.activeHq)}
+                  rows={countsOnly ? doctorList.rows : view.chartRows}
+                  loading={countsOnly && doctorList.loading}
+                  error={countsOnly ? doctorList.error : null}
+                  mapped={mappedList.rows}
+                  support={supportList.rows}
+                  mappedLoading={mappedList.loading}
+                  mappedNote={mappedNote}
+                  scope={scoped.team}
+                  /* Only to name each person's rung (BE / ABM). */
+                  team={team}
+                  isMine={isMine}
+                  periodLabel={planLabel}
+                  scopeLabel={view.activeHq === ALL_HQS ? 'All HQs' : hqLabel(view.activeHq)}
+                />
               </div>
             </div>
 
@@ -736,6 +744,13 @@ export function VisitReport({ gqlEnvironment, gqlToken } = {}) {
                  under. A sheet that re-derived either would be free to
                  disagree with the chip that opened it. */
               rows={attendanceRows}
+              /* The card's own counts, so the six at the top of the popup
+                 are the six the reader just pressed. */
+              counts={view.att.counts}
+              /* The overview panel's kicker and title: "VISIT · LIVE TODAY",
+                 "Reps reporting · today". */
+              kicker={period !== 'month' && (!dayKey || dayKey === today) ? 'Visit · live today' : `Visit · ${planLabel}`}
+              periodWord={period !== 'month' && (!dayKey || dayKey === today) ? 'today' : planLabel}
               overRange={overRange}
               /* The same calendar the card counted with, so the list a chip
                  opens is measured over the same days. */

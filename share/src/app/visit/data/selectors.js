@@ -1645,21 +1645,46 @@ export function asOfFrom(rows) {
  * were seen, how often, and by whom on which days — the Visit report's answer
  * to the Support report's doctor-wise view.
  *
- * One row is one person's visit (a joint call is a row per attendee), so a
- * doctor's count is visits, not calls, the same unit as every other count on
- * this screen. Rows with no visit time are plans, not visits, and are left
- * out. A row's person is its attributed `employeeId`; `team` only names
- * their rung (BE / ABM…).
+ * A VISIT HERE IS A DEPARTMENT-DAY, not an attendance. One row is one
+ * person's attendance, so a joint call arrives as a row per attendee — and
+ * when a CND ABM, a CND RBM and a CND BE all see a doctor on the same day,
+ * the doctor was visited ONCE by CND, not three times. A doctor's `visits` is
+ * the number of (department, day) pairs; `attendances` keeps the old
+ * per-person count for anyone who needs it.
+ *
+ * A person's department is their seat's (`team`). Someone whose seat has
+ * none — a ZSM, say — takes the department of whoever else was on the same
+ * Event, since that is whose call they joined; only with no one to borrow
+ * from do they fall under NO_DEPARTMENT. Rows with no visit time are plans,
+ * not visits, and are left out.
  *
  * -> [{ doctorId, doctorName, city, specialty, categories, hq, visits,
- *       lastDate, people: [{ employeeId, name, short, visits, dates }] }]
- *    most-visited first; each doctor's people likewise; dates newest first. */
+ *       attendances, lastDate,
+ *       people: [{ employeeId, name, short, department, visits, dates }],
+ *       departments: [{ department, visits, lastDate,
+ *                       days: [{ date, joint, people: [{ employeeId, name, short }] }] }] }]
+ *    most-visited first; each doctor's people and departments likewise;
+ *    dates newest first. */
+export const NO_DEPARTMENT = 'No department';
+
 export function doctorsVisited(rows = [], team = []) {
   const shortOf = new Map(team.map((m) => [m.id, m.short]));
   const deptOf = new Map(team.map((m) => [m.id, m.department || '']));
+  const done = rows.filter((r) => r?.visitTime && r.doctorId);
+  const idOf = (r) => r.employeeId || r.participantId || '';
+
+  /* The departments present on each Event, for the attendees who have none
+     of their own. */
+  const eventDepts = new Map();
+  for (const r of done) {
+    const dept = deptOf.get(idOf(r));
+    if (!dept || r.eventId == null) continue;
+    if (!eventDepts.has(r.eventId)) eventDepts.set(r.eventId, new Set());
+    eventDepts.get(r.eventId).add(dept);
+  }
+
   const byDoctor = new Map();
-  for (const r of rows) {
-    if (!r?.visitTime || !r.doctorId) continue;
+  for (const r of done) {
     let d = byDoctor.get(r.doctorId);
     if (!d) {
       d = {
@@ -1669,31 +1694,72 @@ export function doctorsVisited(rows = [], team = []) {
         specialty: r.doctorSpecialty || '',
         categories: r.doctorCategories || [],
         hq: r.hq || '',
-        visits: 0,
+        attendances: 0,
         lastDate: '',
         byPerson: new Map(),
+        byDept: new Map(),
       };
       byDoctor.set(r.doctorId, d);
     }
     const date = String(r.visitTime).slice(0, 10) || r.plannedDate;
-    d.visits += 1;
+    const id = idOf(r);
+    const name = r.employeeName || r.participantName || id;
+    d.attendances += 1;
     if (date > d.lastDate) d.lastDate = date;
-    const id = r.employeeId || r.participantId || '';
+
     let p = d.byPerson.get(id);
     if (!p) {
-      p = { employeeId: id, name: r.employeeName || r.participantName || id, short: shortOf.get(id) || '', department: deptOf.get(id) || '', visits: 0, dates: [] };
+      p = { employeeId: id, name, short: shortOf.get(id) || '', department: deptOf.get(id) || '', visits: 0, dates: [] };
       d.byPerson.set(id, p);
     }
     p.visits += 1;
     p.dates.push(date);
+
+    /* Own department first; else every department on the same Event — on
+       a call two departments made together, the borrower is listed under
+       both, because both visits are the ones they were on. */
+    const own = deptOf.get(id);
+    const depts = own ? [own] : [...(eventDepts.get(r.eventId) ?? [NO_DEPARTMENT])];
+    for (const dept of depts) {
+      let g = d.byDept.get(dept);
+      if (!g) {
+        g = { department: dept, byDay: new Map() };
+        d.byDept.set(dept, g);
+      }
+      let day = g.byDay.get(date);
+      if (!day) {
+        day = { date, people: new Map() };
+        g.byDay.set(date, day);
+      }
+      if (!day.people.has(id)) day.people.set(id, { employeeId: id, name, short: shortOf.get(id) || '' });
+    }
   }
+
   return [...byDoctor.values()]
-    .map(({ byPerson, ...d }) => ({
-      ...d,
-      people: [...byPerson.values()]
-        .map((p) => ({ ...p, dates: [...p.dates].sort((a, b) => b.localeCompare(a)) }))
-        .sort((a, b) => b.visits - a.visits || a.name.localeCompare(b.name)),
-    }))
+    .map(({ byPerson, byDept, ...d }) => {
+      const departments = [...byDept.values()]
+        .map((g) => {
+          const days = [...g.byDay.values()]
+            .map((day) => {
+              const people = [...day.people.values()].sort((a, b) => a.name.localeCompare(b.name));
+              return { date: day.date, joint: people.length > 1, people };
+            })
+            .sort((a, b) => b.date.localeCompare(a.date));
+          return { department: g.department, visits: days.length, lastDate: days[0]?.date ?? '', days };
+        })
+        .sort((a, b) =>
+          b.visits - a.visits
+          || (a.department === NO_DEPARTMENT) - (b.department === NO_DEPARTMENT)
+          || a.department.localeCompare(b.department));
+      return {
+        ...d,
+        visits: departments.reduce((n, g) => n + g.visits, 0),
+        departments,
+        people: [...byPerson.values()]
+          .map((p) => ({ ...p, dates: [...p.dates].sort((a, b) => b.localeCompare(a)) }))
+          .sort((a, b) => b.visits - a.visits || a.name.localeCompare(b.name)),
+      };
+    })
     .sort((a, b) => b.visits - a.visits || a.doctorName.localeCompare(b.doctorName));
 }
 
@@ -1708,7 +1774,7 @@ export function doctorsVisited(rows = [], team = []) {
  *    visited first, most-visited first, then the unvisited by name. */
 export function doctorCoverage(rows = [], mapped = [], scope = [], team = scope, support = []) {
   const visited = doctorsVisited(rows, team);
-  const byId = new Map(visited.map((d) => [d.doctorId, { ...d, people: [...d.people], mapped: false }]));
+  const byId = new Map(visited.map((d) => [d.doctorId, { ...d, people: [...d.people], departments: [...d.departments], mapped: false }]));
   const holders = new Map();
   for (const m of scope) {
     if (!m?.roleProfile) continue;
@@ -1721,7 +1787,8 @@ export function doctorCoverage(rows = [], mapped = [], scope = [], team = scope,
     if (!d) {
       d = {
         doctorId: r.doctorId, doctorName: r.doctorName || r.doctorId, city: r.city || '',
-        specialty: r.specialty || '', categories: [], hq: r.hq || '', visits: 0, lastDate: '', people: [], mapped: true,
+        specialty: r.specialty || '', categories: [], hq: r.hq || '', visits: 0, attendances: 0, lastDate: '',
+        people: [], departments: [], mapped: true,
       };
       byId.set(r.doctorId, d);
     }
@@ -1744,7 +1811,7 @@ export function doctorCoverage(rows = [], mapped = [], scope = [], team = scope,
     if (!d) {
       d = {
         doctorId: line.doctorId, doctorName: line.doctorId, city: '', specialty: '', categories: [], hq: '',
-        visits: 0, lastDate: '', people: [], mapped: false,
+        visits: 0, attendances: 0, lastDate: '', people: [], departments: [], mapped: false,
       };
       byId.set(line.doctorId, d);
     }

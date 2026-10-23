@@ -1,6 +1,6 @@
 'use client';
 
-import { Card, Eyebrow, LegendChip, SectionLabel, StackedBar } from '@/design-system';
+import { Card, LegendChip, SectionLabel } from '@/design-system';
 import { HqStrip } from './HqStrip';
 import { VisitsByHourChart } from './VisitsByHourChart';
 import { hqLabel } from '../data/format';
@@ -56,76 +56,63 @@ export function HqSection({
       />
 
       <Card>
-        <div className="flex flex-wrap items-baseline justify-between gap-x-3 gap-y-1">
-          <Eyebrow as="h3">Visits by hour · {label}</Eyebrow>
-          {detail ? (
-            <p className="text-10 text-ds-secondary">
-              {/* "reps active" is a fact about a TEAM. In My Report the team
-                  is one person, and the ratio would read 0/0 for any
-                  manager — reps are counted as BEs everywhere on this
-                  screen (see byHq), and a manager is not one. */}
-              {showReps ? (
+        {/* Title and its facts on the left, the two series on the right.
+            The legend moved up here from under the chart: it is the chart's
+            key, and a key read before the bars is a key you do not have to
+            scroll back to. */}
+        <div className="flex flex-wrap items-start justify-between gap-x-4 gap-y-2">
+          <div className="flex min-w-0 flex-col gap-0.5">
+            <h3 className="text-16 font-semibold text-heading">Visits by hour</h3>
+            <p className="text-12 text-ds-muted">
+              {label}
+              {detail ? (
                 <>
-                  <span className="tabular-nums">
-                    {detail.activeReps}/{detail.totalReps}
-                  </span>{' '}
-                  reps active ·{' '}
+                  {/* "reps active" is a fact about a TEAM. In My Report the
+                      team is one person, and the ratio would read 0/0 for any
+                      manager — reps are counted as BEs everywhere on this
+                      screen (see byHq), and a manager is not one. */}
+                  {showReps ? (
+                    <>
+                      {' · '}
+                      <span className="tabular-nums">
+                        {detail.activeReps}/{detail.totalReps}
+                      </span>{' '}
+                      reps active
+                    </>
+                  ) : null}
+                  {' · '}
+                  <span className="tabular-nums">{detail.force}</span> force visits
                 </>
               ) : null}
-              <span className="tabular-nums">{detail.force}</span> force visits
             </p>
-          ) : null}
-        </div>
-
-        <div className="mt-3">
-          <VisitsByHourChart
-            data={hourly}
-            onSelectHour={onDrillVisits ? (hour) => onDrillVisits({ hour }) : undefined}
-          />
-        </div>
-
-        <div className="mt-4">
-          <StackedBar
-            size="md"
-            label={
-              `${VISIT_STATUS_LABEL.verified}: ${geo.verified}, `
-              + `${VISIT_STATUS_LABEL.force}: ${geo.force}`
-            }
-            segments={[
-              { key: 'verified', value: geo.verified, tone: 'success', label: VISIT_STATUS_LABEL.verified },
-              { key: 'force', value: geo.force, tone: 'danger', label: VISIT_STATUS_LABEL.force },
-            ]}
-          />
-          {/* This legend is the CHART's legend as much as the bar's — both are
-              built from the same rows and the same two tones, which is why the
-              chart above does not carry a second one.
-
-              Interactive, so it is also the way into a series across the whole
-              window: the bars answer "who was out at 2pm", these answer "show
-              me every force visit today", which is the question the red is
-              there to provoke in the first place. `size` drops back to the
-              default when pressable — LegendChip refuses to shrink a tap
-              target, and a 15px control is not one.
-
-              A zero segment stays a plain span: there are no rows behind it. */}
-          <div className="flex gap-4">
+          </div>
+          {/* Interactive, so it is also the way into a series across the
+              whole window: the bars answer "who was out at 2pm", these
+              answer "show me every force visit today". A zero series stays a
+              plain span: there are no rows behind it. */}
+          <div className="flex gap-2">
             <LegendChip
+              className="ds-visit-chip"
               label={VISIT_STATUS_LABEL.verified}
               value={geo.verified}
               tone="success"
               onClick={onDrillVisits && geo.verified > 0 ? () => onDrillVisits({ tone: 'verified' }) : undefined}
             />
             <LegendChip
+              className="ds-visit-chip"
               label={VISIT_STATUS_LABEL.force}
               value={geo.force}
               tone="danger"
               onClick={onDrillVisits && geo.force > 0 ? () => onDrillVisits({ tone: 'force' }) : undefined}
             />
           </div>
-          {/* The "nothing happened yet" sentence used to live here too. It is
-              the chart's now (VisitsByHourChart renders it in place of its
-              bars), because that is where the emptiness is actually visible —
-              saying it twice in one card read as two different problems. */}
+        </div>
+
+        <div className="mt-4">
+          <VisitsByHourChart
+            data={hourly}
+            onSelectHour={onDrillVisits ? (hour) => onDrillVisits({ hour }) : undefined}
+          />
         </div>
       </Card>
     </section>

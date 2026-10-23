@@ -48,14 +48,14 @@ export function KpiGrid({
        instead of four. A row you read ACROSS should not have a ragged
        baseline — and it is this height the attendance card beside them
        stretches to match. */
-    <div className="grid auto-rows-fr grid-cols-2 gap-3 @2xl/report:grid-cols-4 @2xl/report:gap-4">
+    <div className="grid h-full auto-rows-fr grid-cols-2 gap-3 @2xl/report:grid-cols-4 @2xl/report:gap-4">
       <Card className="h-full">
         <Metric
           label={`Visits planned ${periodSuffix}`}
           value={planned}
           caption={repCount ? `planned across ${repCount} reps` : 'planned visits'}
           tone="brand"
-          dot
+          icon="calendar"
         />
       </Card>
 
@@ -65,7 +65,7 @@ export function KpiGrid({
           value={happened}
           caption={attainment == null ? 'no plan' : `${formatPercent(attainment)} of plan`}
           tone={attainment != null && attainment >= 0.8 ? 'success' : 'warning'}
-          dot
+          icon="check-circle"
           progress={{ value: happened, max: Math.max(planned, 1) }}
         />
       </Card>
@@ -80,7 +80,7 @@ export function KpiGrid({
              doesn't have yet. */
           caption={pobPerCall != null ? `${formatCurrency(pobPerCall)} / visit` : 'no visits done'}
           tone="brand"
-          dot
+          icon="indian-rupee"
         />
       </Card>
 
@@ -90,7 +90,7 @@ export function KpiGrid({
           value={formatDecimal(callAverage)}
           caption={`visits ÷ reps reported · std ${callStandard}`}
           tone={callAverage != null && callAverage >= callStandard ? 'success' : 'danger'}
-          dot
+          icon="chart-line"
           progress={{ value: callAverage ?? 0, max: callStandard }}
         />
       </Card>

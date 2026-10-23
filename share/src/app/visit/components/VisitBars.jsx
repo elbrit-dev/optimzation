@@ -1,7 +1,7 @@
 'use client';
 
 import { useState } from 'react';
-import { Bar, BarChart, Cell, LabelList, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts';
+import { Bar, BarChart, CartesianGrid, Cell, LabelList, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts';
 import { toneFill } from '@/design-system';
 import { VISIT_STATUS_LABEL } from '../data/shape';
 
@@ -86,6 +86,10 @@ export function VisitBars({
      arrived at the hard way. */
   minColumnWidth = 0,
   className = 'h-32',
+  /* Dashed horizontal guides and a value scale on the left. Off by default:
+     a rep's small daily trend reads as a shape and needs no scale; the
+     full-width hourly chart is big enough that a number on the axis helps. */
+  grid = false,
 }) {
   const interactive = typeof onSelect === 'function';
   /* Which column the pointer is over, for the readout below — only used by
@@ -171,9 +175,24 @@ export function VisitBars({
             tickLine={false}
             axisLine={{ stroke: 'var(--border-subtle)' }}
           />
-          {/* Scaled to the data, never to a round number: these are shape
-              questions, and a fixed axis just makes every bar short. */}
-          <YAxis hide domain={[0, 'dataMax']} />
+          {/* Scaled to the data, never to a fixed number: these are shape
+              questions, and a fixed axis just makes every bar short. With
+              `grid` the ceiling rounds up to the next tick, no further. */}
+          {grid ? (
+            <CartesianGrid vertical={false} strokeDasharray="4 4" stroke="var(--border-subtle)" />
+          ) : null}
+          <YAxis
+            hide={!grid}
+            /* Round ticks once a scale is printed — "6,698" as the top line
+               reads as a target. Without one the bars keep the data's own
+               ceiling, so the tallest column fills the box. */
+            domain={grid ? [0, 'auto'] : [0, 'dataMax']}
+            width={36}
+            tick={AXIS_TICK}
+            tickLine={false}
+            axisLine={false}
+            allowDecimals={false}
+          />
 
           {/* RECHARTS' OWN CARD ONLY WHERE IT FITS — that is, where the chart
               is no wider than the box around it.
@@ -212,6 +231,10 @@ export function VisitBars({
               reads a stack from the bottom and the baseline is the normal
               case. Force lands on top, where an unusual amount of it shows as
               a red cap rather than being buried under the green. */}
+          {/* ROUNDED TOPS on whichever segment is the top of its column:
+              force when there is any, verified when there is none. A radius
+              on the verified series alone would round the seam under every
+              red cap. */}
           <Bar
             dataKey="verified"
             stackId="v"
@@ -219,11 +242,16 @@ export function VisitBars({
             activeBar={{ fillOpacity: 0.82 }}
             isAnimationActive={false}
             cursor={interactive ? 'pointer' : undefined}
-          />
+          >
+            {series.map((d) => (
+              <Cell key={d.key} radius={d.force > 0 ? 0 : [6, 6, 0, 0]} />
+            ))}
+          </Bar>
           <Bar
             dataKey="force"
             stackId="v"
             fill={toneFill('danger')}
+            radius={[6, 6, 0, 0]}
             activeBar={{ fillOpacity: 0.82 }}
             isAnimationActive={false}
             cursor={interactive ? 'pointer' : undefined}

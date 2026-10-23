@@ -1,6 +1,7 @@
 'use client';
 
-import { Avatar } from '@/design-system';
+import Link from 'next/link';
+import { Avatar, Icon } from '@/design-system';
 import { formatDayHeading, formatMonthRange } from '../data/format';
 
 /* The top bar: who you are and what you are looking at.
@@ -27,11 +28,25 @@ import { formatDayHeading, formatMonthRange } from '../data/format';
  * clause can come back without re-deriving it, and asOfFrom() in selectors.js
  * has the note on why it is the latest visit rather than Date.now(). */
 
-export function ReportHeader({ root, period, window: win, title, caption, control, children }) {
+/* THE WAY OUT IS HOME, always: "/", not history.back(). The report is
+   opened from the home screen, from a shared link and from a fresh tab, and
+   in the last two there is no history to go back through — a back button
+   that does nothing is worse than none. `backHref={null}` drops it, for a
+   host that draws its own. */
+export function ReportHeader({ root, period, window: win, title, caption, control, backHref = '/', children }) {
   const subtitle = period === 'month' ? formatMonthRange(win.from, win.to) : formatDayHeading(win.to);
 
   return (
-    <header className="flex items-center gap-3">
+    <header className="flex min-w-0 items-center gap-3">
+      {backHref ? (
+        <Link
+          href={backHref}
+          aria-label="Back to home"
+          className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl border border-line-subtle bg-surface text-heading transition-colors hover:bg-brand-tint-weak focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand"
+        >
+          <Icon name="arrow-left" size="sm" />
+        </Link>
+      ) : null}
       <Avatar name={root?.name} size="md" />
       <div className="min-w-0 flex-1">
         {/* The title is a CONTROL when there is a choice to make — Team
@@ -39,7 +54,7 @@ export function ReportHeader({ root, period, window: win, title, caption, contro
             Putting the switch anywhere else would leave a heading that
             names one thing sitting above a picker that changes it. */}
         {control ?? (
-          <h1 className="text-16 font-semibold text-heading @2xl/report:text-20">{title}</h1>
+          <h1 className="text-16 font-bold tracking-tight text-heading @2xl/report:text-20">{title}</h1>
         )}
         {/* WHO, THEN WHEN. The scope line sits directly under the title
             because it finishes the sentence the title starts — "Team report:

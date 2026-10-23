@@ -257,16 +257,16 @@ export default function SupportReport({ url, token, className }) {
   const closeDrawer = () => set({ drawer: null });
   const closeModal = () => set({ modal: null, drawer: null });
 
-  /* The doctor drawer: a bottom sheet on a phone, a right-hand drawer on a
-     desktop. Opened from a person's popup it is NESTED in that popup's
+  /* The doctor drawer: a bottom sheet on a phone, a centred popup on a
+     desktop (the design system's side="auto"). Opened from a person's popup it is NESTED in that popup's
      drawer (rendered inside it below), so it stacks on top and Escape / back
      close it first, returning to the list. */
   const doctorDrawer = dw.open ? (
-    <Drawer.Root open onOpenChange={(next) => { if (!next) closeDrawer(); }} side={mob ? "bottom" : "right"} backName="support-doctor">
+    <Drawer.Root open onOpenChange={(next) => { if (!next) closeDrawer(); }} side={mob ? "bottom" : "auto"} backName="support-doctor">
       <Drawer.Portal>
         <Drawer.Backdrop />
         <Drawer.Viewport>
-          <Drawer.Popup className="sr-root" aria-label="Details" style={{ background: "#F8F9FB", display: "flex", flexDirection: "column", overflow: "hidden", ...(mob ? { blockSize: DR.h, maxBlockSize: DR.h, maxInlineSize: "none" } : { inlineSize: DR.w, maxInlineSize: "none", borderRadius: 0 }) }}>
+          <Drawer.Popup className="sr-root" aria-label="Details" style={{ background: "#F8F9FB", display: "flex", flexDirection: "column", overflow: "hidden", ...(mob ? { blockSize: DR.h, maxBlockSize: DR.h, maxInlineSize: "none" } : { inlineSize: DR.w, maxInlineSize: "none", blockSize: "min(52rem, calc(100dvh - 48px))" }) }}>
             <Drawer.Handle />
             <div style={{ background: "#fff", padding: DR.hPad, borderBottom: "1px solid #EAECF0", display: "flex", flexDirection: "column", gap: 12 }}>
               <div style={{ display: "flex", gap: 10, alignItems: "center" }}>
@@ -756,11 +756,11 @@ export default function SupportReport({ url, token, className }) {
       {/* ── Person popup: a team member's doctors. Sits below the drawer so a
           doctor opened from it slides over it and closing returns here. ── */}
       {pw.open ? (
-        <Drawer.Root open onOpenChange={(next) => { if (!next) closeModal(); }} side={mob ? "bottom" : "right"} backName="support-person">
+        <Drawer.Root open onOpenChange={(next) => { if (!next) closeModal(); }} side={mob ? "bottom" : "auto"} backName="support-person">
           <Drawer.Portal>
             <Drawer.Backdrop />
             <Drawer.Viewport>
-          <Drawer.Popup className="sr-root" aria-label={pw.title + " · doctors"} style={{ background: "#F8F9FB", display: "flex", flexDirection: "column", overflow: "hidden", ...(mob ? { blockSize: "86vh", maxBlockSize: "86vh", maxInlineSize: "none" } : { inlineSize: "min(640px, calc(100vw - 32px))", maxInlineSize: "none" }) }}>
+          <Drawer.Popup className="sr-root" aria-label={pw.title + " · doctors"} style={{ background: "#F8F9FB", display: "flex", flexDirection: "column", overflow: "hidden", ...(mob ? { blockSize: "86vh", maxBlockSize: "86vh", maxInlineSize: "none" } : { inlineSize: "min(640px, calc(100vw - 32px))", maxInlineSize: "none", blockSize: "min(52rem, calc(100dvh - 48px))" }) }}>
             <Drawer.Handle />
             <div style={{ background: "#fff", padding: mob ? "12px 16px 14px" : "18px 22px 16px", borderBottom: "1px solid #EAECF0", display: "flex", flexDirection: "column", gap: 12 }}>
               <div style={{ display: "flex", gap: 10, alignItems: "center" }}>

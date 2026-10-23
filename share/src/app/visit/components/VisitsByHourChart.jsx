@@ -88,8 +88,10 @@ export function VisitsByHourChart({ data, label, onSelectHour }) {
            unchanged. */
         minColumnWidth={44}
         /* Grows with the container: a chart that stays phone-sized on a 27"
-           screen is the bug this rule exists for. */
-        className="h-32 @2xl/report:h-40 @5xl/report:h-48"
+           screen is the bug this rule exists for. Taller since it took the
+           full width of the report — the tree no longer shares its row. */
+        className="h-48 @2xl/report:h-64 @5xl/report:h-72"
+        grid
       />
     </figure>
   );

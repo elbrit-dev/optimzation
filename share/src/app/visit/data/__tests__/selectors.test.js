@@ -13,6 +13,7 @@ import {
   doctorCoverage,
   doctorPlan,
   doctorsVisited,
+  NO_DEPARTMENT,
   forEmployees,
   geoSplit,
   happened,
@@ -1508,7 +1509,9 @@ describe('doctorsVisited', () => {
       v('D2', 'BE1', '2026-10-03'),
       v('D2', 'BE1', '2026-10-05', { visitTime: null }), // a plan, not a visit
     ], team);
-    expect(out.map((d) => [d.doctorId, d.visits])).toEqual([['D1', 3], ['D2', 1]]);
+    // No departments in this roster: D1's two people share one bucket, so the
+    // 9th is one visit with two attendances.
+    expect(out.map((d) => [d.doctorId, d.visits, d.attendances])).toEqual([['D1', 2, 3], ['D2', 1, 1]]);
     expect(out[0].lastDate).toBe('2026-10-09');
     expect(out[0].people).toEqual([
       { employeeId: 'BE1', name: 'BE1', short: 'BE', department: '', visits: 2, dates: ['2026-10-09', '2026-10-02'] },
@@ -1518,6 +1521,39 @@ describe('doctorsVisited', () => {
 
   it('is empty when nothing was visited', () => {
     expect(doctorsVisited([v('D1', 'BE1', '2026-10-02', { visitTime: null })])).toEqual([]);
+  });
+
+  it('counts a visit per department per day, however many went', () => {
+    // 23 Oct: CND's ABM, RBM and BE together (with a ZSM who has no
+    // department of their own), and an Elbrit BE alone — two visits, not five.
+    const team = [
+      { id: 'ABM', short: 'ABM', department: 'CND Trichy' },
+      { id: 'RBM', short: 'RBM', department: 'CND Trichy' },
+      { id: 'BEC', short: 'BE', department: 'CND Trichy' },
+      { id: 'BEE', short: 'BE', department: 'Elbrit Trichy' },
+      { id: 'ZSM', short: 'ZSM', department: '' },
+    ];
+    const day = '2026-10-23';
+    const [d] = doctorsVisited([
+      v('D1', 'ABM', day, { eventId: 'E1' }),
+      v('D1', 'RBM', day, { eventId: 'E1' }),
+      v('D1', 'BEC', day, { eventId: 'E2' }),
+      v('D1', 'ZSM', day, { eventId: 'E1' }),
+      v('D1', 'BEE', day, { eventId: 'E3' }),
+    ], team);
+    expect(d.visits).toBe(2);
+    expect(d.attendances).toBe(5);
+    expect(d.departments.map((g) => [g.department, g.visits])).toEqual([['CND Trichy', 1], ['Elbrit Trichy', 1]]);
+    const cnd = d.departments[0].days[0];
+    expect(cnd.joint).toBe(true);
+    // The ZSM joined the CND call, so they are listed under CND.
+    expect(cnd.people.map((p) => p.employeeId)).toEqual(['ABM', 'BEC', 'RBM', 'ZSM']);
+    expect(d.departments[1].days[0]).toMatchObject({ joint: false, people: [{ employeeId: 'BEE' }] });
+  });
+
+  it('puts someone with no department and no colleague on the call under No department', () => {
+    const [d] = doctorsVisited([v('D1', 'ZSM', '2026-10-23', { eventId: 'E9' })], [{ id: 'ZSM', short: 'ZSM' }]);
+    expect(d.departments.map((g) => [g.department, g.visits])).toEqual([[NO_DEPARTMENT, 1]]);
   });
 });
 

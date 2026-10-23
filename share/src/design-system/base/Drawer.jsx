@@ -17,9 +17,11 @@ import { useIsDesktop, useOverlayRoot } from './useOverlayRoot';
    so every overlay in both apps behaves the same way.
 
    ONE EDGE PER SCREEN SIZE. `side="auto"` (the default) is a bottom sheet on
-   a phone and a right-hand side drawer from 768px up. Swipe-to-dismiss follows
-   the edge: down for a bottom sheet, right for a side drawer. `side="bottom"`
-   or `side="right"` pins it.
+   a phone and, from 768px up, a CENTRED POPUP — app-wide, since 2026-10-23;
+   it used to be a right-hand side drawer, and a desktop reader got a tall
+   strip pinned to the edge of a wide screen. Swipe-to-dismiss follows the
+   edge: down for a bottom sheet and for the popup, right for a side drawer.
+   `side="bottom"`, `side="right"` or `side="center"` pins it.
 
    Back closes it — see useOverlayRoot.
 
@@ -30,7 +32,7 @@ import { useIsDesktop, useOverlayRoot } from './useOverlayRoot';
 
 const EdgeContext = createContext('bottom');
 
-const SWIPE_FOR_EDGE = { bottom: 'down', right: 'right', left: 'left' };
+const SWIPE_FOR_EDGE = { bottom: 'down', center: 'down', right: 'right', left: 'left' };
 
 function Root({
   open: openProp,
@@ -43,7 +45,7 @@ function Root({
   ...rest
 }) {
   const desktop = useIsDesktop();
-  const edge = side === 'auto' ? (desktop ? 'right' : 'bottom') : side;
+  const edge = side === 'auto' ? (desktop ? 'center' : 'bottom') : side;
   const { open, onOpenChange } = useOverlayRoot({
     open: openProp,
     defaultOpen,

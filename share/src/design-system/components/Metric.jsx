@@ -2,6 +2,7 @@
 
 import { cx } from '../lib/cx';
 import { Eyebrow } from './Eyebrow';
+import { Icon } from './Icon';
 import { ProgressBar } from './ProgressBar';
 import { toneFill } from '../lib/tone';
 
@@ -25,6 +26,9 @@ export function Metric({
   caption,
   tone = 'brand',
   dot = false,
+  /* A PrimeIcons name for a tinted icon chip before the label. The chip is
+     the tone's own fill at low alpha, so it agrees with the dot and bar. */
+  icon,
   progress,
   className,
   ...rest
@@ -32,6 +36,17 @@ export function Metric({
   return (
     <div className={cx('ds-metric', className)} {...rest}>
       <div className="ds-metric__head">
+        {icon ? (
+          <span
+            className="ds-metric__icon"
+            style={{
+              color: toneFill(tone),
+              backgroundColor: `color-mix(in srgb, ${toneFill(tone)} 12%, transparent)`,
+            }}
+          >
+            <Icon name={icon} size="inherit" />
+          </span>
+        ) : null}
         <Eyebrow>{label}</Eyebrow>
         {dot ? (
           <span

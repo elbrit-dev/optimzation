@@ -1,14 +1,52 @@
 'use client';
 
 import { useMemo, useState } from 'react';
-import { Avatar, Button, Card, DisclosureRow, Eyebrow, Field, SegmentedControl } from '@/design-system';
-import { formatCurrency, formatPlanDay } from '../data/format';
-import { doctorCoverage } from '../data/selectors';
+import { Avatar, Button, Card, DisclosureRow, Field, SegmentedControl } from '@/design-system';
+import { formatCurrency, formatPlanDay, hqLabel } from '../data/format';
+import { NO_DEPARTMENT, doctorCoverage } from '../data/selectors';
 import { Chevron } from './icons';
+import { DoctorFilters } from './DoctorFilters';
 
 const PAGE = 15;
 
-/* DOCTOR-WISE VISITS: the scope's done visits read by doctor, the Visit
+/* The doctor filters, as the Support report's: which facets, and how each
+   reads a doctor. A doctor can sit in several departments, so every facet
+   returns a LIST and a doctor matches when any of its values is picked. */
+const FACETS = [
+  { id: 'specialty', title: 'Speciality', of: (d) => (d.specialty ? [d.specialty] : []), name: (v) => v },
+  { id: 'category', title: 'Category', of: (d) => (d.categories?.length ? d.categories : []), name: (v) => v },
+  { id: 'hq', title: 'HQ', of: (d) => (d.hq ? [d.hq] : []), name: hqLabel },
+  {
+    id: 'department',
+    title: 'Department',
+    of: (d) => [...new Set([
+      ...(d.departments ?? []).map((g) => g.department),
+      ...d.people.map((p) => p.department).filter(Boolean),
+    ])],
+    name: (v) => v,
+  },
+];
+const NO_FILTERS = { specialty: [], category: [], hq: [], department: [] };
+
+/* Sort applies to the doctors inside each HQ; the HQs keep busiest first. */
+const SORTS = [
+  ['visits', 'Most visits', (a, b) => b.visits - a.visits || a.doctorName.localeCompare(b.doctorName)],
+  ['fewest', 'Fewest visits', (a, b) => a.visits - b.visits || a.doctorName.localeCompare(b.doctorName)],
+  ['recent', 'Last visited', (a, b) => (b.lastDate || '').localeCompare(a.lastDate || '') || b.visits - a.visits],
+  ['name', 'Name A–Z', (a, b) => a.doctorName.localeCompare(b.doctorName)],
+];
+
+/* DOCTOR-WISE VISITS: the scope's done visits read HQ › doctor › department.
+ *
+ * A doctor's visit count is DEPARTMENT-DAYS (see doctorsVisited): the CND
+ * ABM, RBM and BE seeing a doctor together on the 23rd is one CND visit, and
+ * the list says who was on it and that it was joint rather than counting
+ * each of them. Opening a doctor lists its departments, and under each the
+ * days it was seen and by whom.
+ *
+ * The original note, still true of the data underneath:
+ *
+ * DOCTOR-WISE VISITS: the scope's done visits read by doctor, the Visit
  * report's answer to the Support report's doctor-wise view. A card in the
  * report's left column, under the HQ chart.
  *
@@ -27,9 +65,17 @@ export function DoctorVisitsCard({
   mappedNote = null, isMine = false, periodLabel, scopeLabel,
 }) {
   const [openId, setOpenId] = useState(null);
+  /* HQ groups the reader has toggled, against a default worked out below:
+     one HQ opens on its own, several start closed. A Set of flips rather
+     than of open ids, so the default can follow the data without this
+     having to be reset. */
+  const [flipped, setFlipped] = useState(() => new Set());
   const [query, setQuery] = useState('');
-  const [limit, setLimit] = useState(PAGE);
+  const [limits, setLimits] = useState({});
   const [show, setShow] = useState('all');
+  const [filters, setFilters] = useState(NO_FILTERS);
+  const [sort, setSort] = useState('visits');
+  const filterCount = FACETS.reduce((n, f) => n + filters[f.id].length, 0) + (sort === 'visits' ? 0 : 1);
 
   const all = useMemo(() => doctorCoverage(rows, mapped, scope, team, support), [rows, mapped, scope, team, support]);
   const visitedCount = all.filter((d) => d.visits > 0).length;
@@ -38,31 +84,112 @@ export function DoctorVisitsCard({
     () => (show === 'visited' ? all.filter((d) => d.visits > 0) : show === 'not' ? all.filter((d) => d.visits === 0) : all),
     [all, show],
   );
+  /* Every value each facet can take among the doctors on the current tab,
+     with how many doctors carry it — the options the filter panel offers,
+     busiest first. */
+  const facetOptions = useMemo(() => {
+    const out = {};
+    for (const f of FACETS) {
+      const counts = new Map();
+      for (const d of doctors) for (const v of f.of(d)) counts.set(v, (counts.get(v) ?? 0) + 1);
+      out[f.id] = [...counts.entries()]
+        .map(([value, count]) => ({ value, count }))
+        .sort((a, b) => b.count - a.count || f.name(a.value).localeCompare(f.name(b.value)));
+    }
+    return out;
+  }, [doctors]);
   const shownDoctors = useMemo(() => {
     const q = query.trim().toLowerCase();
-    if (!q) return doctors;
+    const by = SORTS.find(([id]) => id === sort)?.[2] ?? SORTS[0][2];
     return doctors.filter((d) =>
-      [d.doctorName, d.doctorId, d.city, d.specialty, ...d.people.map((p) => p.name)]
-        .some((v) => String(v ?? '').toLowerCase().includes(q)),
-    );
-  }, [doctors, query]);
+      FACETS.every((f) => !filters[f.id].length || f.of(d).some((v) => filters[f.id].includes(v)))
+      && (!q || [d.doctorName, d.doctorId, d.city, d.specialty, ...d.people.map((p) => p.name)]
+        .some((v) => String(v ?? '').toLowerCase().includes(q))))
+      .sort(by);
+  }, [doctors, query, filters, sort]);
+  const toggleFilter = (facet, value) => {
+    if (facet === 'sort') setSort(value);
+    else {
+      setFilters((prev) => {
+        const on = prev[facet].includes(value);
+        return { ...prev, [facet]: on ? prev[facet].filter((v) => v !== value) : [...prev[facet], value] };
+      });
+    }
+    setLimits({});
+  };
+  const clearGroup = (facet) => {
+    setFilters((prev) => ({ ...prev, [facet]: [] }));
+    setLimits({});
+  };
+  const clearAll = () => {
+    setFilters(NO_FILTERS);
+    setSort('visits');
+    setLimits({});
+  };
+  const filterGroups = [
+    {
+      id: 'sort', title: 'Sort by', single: true,
+      opts: SORTS.map(([id, label]) => ({ key: id, label, n: '', on: sort === id })),
+    },
+    ...FACETS.map((f) => ({
+      id: f.id,
+      title: f.title,
+      opts: facetOptions[f.id].map((o) => ({
+        key: o.value, label: f.name(o.value), n: String(o.count), on: filters[f.id].includes(o.value),
+      })),
+    })),
+  ];
+  /* The picks as removable chips under the search, as on the Support report. */
+  const chips = [
+    ...(sort === 'visits' ? [] : [{ key: 'sort', label: SORTS.find(([id]) => id === sort)?.[1], onClick: () => setSort('visits') }]),
+    ...FACETS.flatMap((f) => filters[f.id].map((v) => ({
+      key: `${f.id}:${v}`, label: f.name(v), onClick: () => toggleFilter(f.id, v),
+    }))),
+  ];
 
   const visits = all.reduce((n, d) => n + d.visits, 0);
-  const visible = shownDoctors.slice(0, limit);
+
+  /* HQ › doctors, busiest HQ first; the doctors keep their own order. */
+  const hqs = useMemo(() => {
+    const by = new Map();
+    for (const d of shownDoctors) {
+      const key = d.hq || '';
+      if (!by.has(key)) by.set(key, { hq: key, doctors: [], visits: 0 });
+      const g = by.get(key);
+      g.doctors.push(d);
+      g.visits += d.visits;
+    }
+    return [...by.values()].sort((a, b) =>
+      b.visits - a.visits || b.doctors.length - a.doctors.length || hqLabel(a.hq).localeCompare(hqLabel(b.hq)));
+  }, [shownDoctors]);
+  /* A search opens every HQ it matched in: the reader asked for a doctor,
+     not for a list of territories to open one by one. */
+  const searching = query.trim() !== '' || FACETS.some((f) => filters[f.id].length > 0);
+  const isOpen = (hq) => searching || (hqs.length === 1) !== flipped.has(hq);
+  const toggleHq = (hq) =>
+    setFlipped((prev) => {
+      const next = new Set(prev);
+      if (next.has(hq)) next.delete(hq);
+      else next.add(hq);
+      return next;
+    });
+  const limitOf = (hq) => limits[hq] ?? PAGE;
 
   return (
-    <Card>
-      <div className="flex flex-col gap-3">
+    /* Fills the height the report gives it on a desktop: the controls stay
+       put and only the HQ list scrolls. */
+    <Card className="flex h-full min-h-0 flex-col">
+      <div className="flex min-h-0 flex-1 flex-col gap-3">
         <div className="flex items-start justify-between gap-3">
           <div className="flex min-w-0 flex-col gap-1">
-            <Eyebrow as="h3">Doctor-wise visits</Eyebrow>
-            <span className="text-12 text-ds-secondary">
+            <h3 className="text-16 font-semibold text-heading">Doctor-wise visits</h3>
+            <span className="text-12 text-ds-muted">
               {[periodLabel, scopeLabel].filter(Boolean).join(' · ')}
               {isMine ? ' · your doctors' : " · your team's doctors, who visited and when"}
             </span>
           </div>
           {!loading && !error ? (
-            <span className="shrink-0 text-right text-13 font-semibold tabular-nums text-heading">
+            <span className="shrink-0 text-right text-20 font-bold tabular-nums text-heading">
               {visitedCount}
               {mapped.length ? <span className="text-11 font-normal text-ds-muted">/{all.length}</span> : null}
               <span className="text-11 font-normal text-ds-muted"> visited</span>
@@ -86,7 +213,7 @@ export function DoctorVisitsCard({
             value={show}
             onChange={(next) => {
               setShow(next);
-              setLimit(PAGE);
+              setLimits({});
               setOpenId(null);
             }}
           />
@@ -94,18 +221,47 @@ export function DoctorVisitsCard({
         {mappedNote && !loading ? <p className="text-11 text-ds-muted">{mappedNote}</p> : null}
 
         {all.length > 0 ? (
-          <Field
-            size="sm"
-            value={query}
-            onChange={(next) => {
-              setQuery(next ?? '');
-              setLimit(PAGE);
-            }}
-            placeholder="Search doctor, code or person…"
-            aria-label="Search doctors"
-            prefix={<i className="pi pi-search" />}
-            className="w-full"
-          />
+          <div className="flex shrink-0 items-center gap-2">
+            <div className="min-w-0 flex-1">
+              <Field
+                size="sm"
+                value={query}
+                onChange={(next) => {
+                  setQuery(next ?? '');
+                  setLimits({});
+                }}
+                placeholder="Search doctor, code or person…"
+                aria-label="Search doctors"
+                prefix={<i className="pi pi-search" />}
+                className="w-full"
+              />
+            </div>
+            <DoctorFilters
+              groups={filterGroups}
+              count={filterCount}
+              result={shownDoctors.length}
+              onToggle={toggleFilter}
+              onClearGroup={clearGroup}
+              onClearAll={clearAll}
+            />
+          </div>
+        ) : null}
+
+        {chips.length ? (
+          <div className="flex shrink-0 flex-wrap gap-1.5">
+            {chips.map((c) => (
+              <button
+                key={c.key}
+                type="button"
+                onClick={c.onClick}
+                className="flex h-[26px] items-center gap-1.5 rounded-full bg-brand-tint-weak pl-2.5 pr-2 text-12 font-medium text-brand-text"
+              >
+                {c.label}
+                <span className="text-11" aria-hidden="true">✕</span>
+                <span className="ds-visually-hidden">Remove</span>
+              </button>
+            ))}
+          </div>
         ) : null}
 
         {loading ? (
@@ -114,33 +270,62 @@ export function DoctorVisitsCard({
           <p className="py-2 text-12 text-danger">Could not load the visits. Try again in a moment.</p>
         ) : shownDoctors.length === 0 ? (
           <p className="py-2 text-12 text-ds-secondary">
-            {query.trim()
-              ? 'No doctor matches this search.'
+            {query.trim() || chips.length
+              ? 'No doctors match these filters.'
               : show === 'not'
                 ? mappedLoading ? 'Loading the mapped doctors…' : 'Every mapped doctor has been visited.'
                 : 'No visits in this period.'}
           </p>
         ) : (
-          <div className="flex flex-col">
-            {visible.map((d) => (
-              <DisclosureRow
-                key={d.doctorId}
-                className="ds-card-row"
-                expandable
-                expanded={openId === d.doctorId}
-                onToggle={() => setOpenId(openId === d.doctorId ? null : d.doctorId)}
-                header={<DoctorHeader doctor={d} expanded={openId === d.doctorId} />}
-              >
-                <DoctorPeople people={d.people} />
-              </DisclosureRow>
-            ))}
-            {shownDoctors.length > limit ? (
-              <div className="pt-2">
-                <Button type="default" size="sm" onClick={() => setLimit(limit + PAGE)}>
-                  Show more ({shownDoctors.length - limit} left)
-                </Button>
-              </div>
-            ) : null}
+          <div className="flex flex-col gap-2 min-h-0 @5xl/report:flex-1 @5xl/report:overflow-y-auto @5xl/report:pr-1">
+            {hqs.map((g) => {
+              const open = isOpen(g.hq);
+              const limit = limitOf(g.hq);
+              return (
+                <section key={g.hq || '—'} className="rounded-xl border border-line-subtle">
+                  <button
+                    type="button"
+                    aria-expanded={open}
+                    onClick={() => toggleHq(g.hq)}
+                    className="flex w-full items-center gap-3 rounded-xl px-3 py-2.5 text-left transition-colors hover:bg-brand-tint-weak"
+                  >
+                    <span className="flex min-w-0 flex-1 flex-col">
+                      <span className="truncate text-14 font-semibold text-heading">{g.hq ? hqLabel(g.hq) : 'No HQ'}</span>
+                      <span className="text-11 text-ds-muted">
+                        {g.doctors.length} {g.doctors.length === 1 ? 'doctor' : 'doctors'}
+                      </span>
+                    </span>
+                    <span className="shrink-0 text-14 font-bold tabular-nums text-heading">
+                      {g.visits} <span className="text-11 font-normal text-ds-muted">{g.visits === 1 ? 'visit' : 'visits'}</span>
+                    </span>
+                    <Chevron open={open} />
+                  </button>
+                  {open ? (
+                    <div className="flex flex-col border-t border-line-subtle p-2">
+                      {g.doctors.slice(0, limit).map((d) => (
+                        <DisclosureRow
+                          key={d.doctorId}
+                          className="ds-card-row"
+                          expandable
+                          expanded={openId === d.doctorId}
+                          onToggle={() => setOpenId(openId === d.doctorId ? null : d.doctorId)}
+                          header={<DoctorHeader doctor={d} expanded={openId === d.doctorId} />}
+                        >
+                          <DoctorDepartments doctor={d} />
+                        </DisclosureRow>
+                      ))}
+                      {g.doctors.length > limit ? (
+                        <div className="pt-2">
+                          <Button type="default" size="sm" onClick={() => setLimits({ ...limits, [g.hq]: limit + PAGE })}>
+                            Show more ({g.doctors.length - limit} left)
+                          </Button>
+                        </div>
+                      ) : null}
+                    </div>
+                  ) : null}
+                </section>
+              );
+            })}
           </div>
         )}
       </div>
@@ -153,7 +338,9 @@ function DoctorHeader({ doctor, expanded }) {
     doctor.doctorId,
     doctor.specialty,
     doctor.city,
-    `${doctor.people.length} ${doctor.people.length === 1 ? 'person' : 'people'}`,
+    doctor.departments?.length
+      ? `${doctor.departments.length} ${doctor.departments.length === 1 ? 'department' : 'departments'}`
+      : null,
     doctor.lastDate ? `last ${formatPlanDay(doctor.lastDate)}` : null,
   ].filter(Boolean).join(' · ');
   return (
@@ -165,8 +352,8 @@ function DoctorHeader({ doctor, expanded }) {
       </span>
       <span className="flex shrink-0 flex-col items-end">
         {doctor.visits > 0 ? (
-          <span className="text-12 font-semibold tabular-nums text-heading">
-            {doctor.visits} <span className="text-10 font-normal text-ds-muted">{doctor.visits === 1 ? 'visit' : 'visits'}</span>
+          <span className="rounded-full bg-sunken px-2.5 py-0.5 text-12 font-semibold tabular-nums text-heading">
+            {doctor.visits} <span className="text-11 font-normal text-ds-muted">{doctor.visits === 1 ? 'visit' : 'visits'}</span>
           </span>
         ) : (
           <span className="text-11 font-semibold text-danger">Not visited</span>
@@ -180,33 +367,82 @@ function DoctorHeader({ doctor, expanded }) {
   );
 }
 
-/* Who went, and when — one tight row per person, for a phone: name, role and
-   department on the left; visits with their days, and the month's support
-   when their seat has some, on the right. No support line, no figure. */
-function DoctorPeople({ people }) {
+/* DEPARTMENT › DAY › WHO. One block per department, its visit count being
+   the days it was seen; under it one line per day with everyone who went,
+   and a Joint tag when that was more than one person. People in scope whose
+   seat holds the doctor and who did not go close their department as "No
+   visit", so the block still says whose doctor it is. Support, where a seat
+   books some, is summed onto its department. */
+function DoctorDepartments({ doctor }) {
+  const blocks = new Map(
+    (doctor.departments ?? []).map((g) => [g.department, { ...g, missing: [], support: 0 }]),
+  );
+  for (const p of doctor.people) {
+    /* Someone who went is already listed under the department of the call
+       they were on — a ZSM with no department of their own shows under CND
+       when they joined CND. Only a no-show or a seat's support opens a block
+       here, or that ZSM would add an empty "No department" to every doctor
+       they visited. */
+    if (p.visits > 0 && !p.support) continue;
+    const dept = p.department || NO_DEPARTMENT;
+    if (!blocks.has(dept)) blocks.set(dept, { department: dept, visits: 0, days: [], missing: [], support: 0 });
+    const b = blocks.get(dept);
+    if (p.visits === 0) b.missing.push(p);
+    if (p.support) b.support += p.support;
+  }
+
   return (
-    <div className="flex flex-col divide-y divide-line-subtle text-11">
-      {people.map((p) => (
-        <div key={p.employeeId} className="flex items-center gap-2 py-1">
-          <span className="min-w-0 flex-1 truncate">
-            <span className="font-semibold text-heading">{p.name}</span>
-            {p.short || p.department ? (
-              <span className="text-10 text-ds-muted"> · {[p.short, p.department].filter(Boolean).join(' · ')}</span>
-            ) : null}
-          </span>
-          <span className="flex shrink-0 flex-col items-end leading-tight">
-            {p.visits > 0 ? (
-              <span className="tabular-nums text-heading">
-                <span className="font-semibold">{p.visits}</span>
-                <span className="text-10 text-ds-muted"> · {p.dates.map(formatPlanDay).join(', ')}</span>
-              </span>
-            ) : (
-              <span className="font-semibold text-danger">No visit</span>
-            )}
-            {p.support ? (
-              <span className="text-10 tabular-nums text-status-info-text">{formatCurrency(p.support)} support</span>
-            ) : null}
-          </span>
+    <div className="flex flex-col gap-2 pt-1">
+      {[...blocks.values()].map((b) => (
+        <div key={b.department} className="rounded-lg bg-sunken px-3 py-2">
+          <div className="flex items-baseline justify-between gap-2">
+            <span className="min-w-0 truncate text-12 font-semibold text-heading">{b.department}</span>
+            <span className="flex shrink-0 items-baseline gap-2">
+              {b.support ? (
+                <span className="text-10 tabular-nums text-status-info-text">{formatCurrency(b.support)} support</span>
+              ) : null}
+              {b.visits > 0 ? (
+                <span className="text-12 font-semibold tabular-nums text-heading">
+                  {b.visits} <span className="text-10 font-normal text-ds-muted">{b.visits === 1 ? 'visit' : 'visits'}</span>
+                </span>
+              ) : (
+                <span className="text-11 font-semibold text-danger">Not visited</span>
+              )}
+            </span>
+          </div>
+          {b.days.length || b.missing.length ? (
+            <div className="mt-1.5 flex flex-col divide-y divide-line-subtle text-11">
+              {b.days.map((day) => (
+                <div key={day.date} className="flex items-start gap-2 py-1.5">
+                  <span className="w-12 shrink-0 tabular-nums text-ds-secondary">{formatPlanDay(day.date)}</span>
+                  <span className="min-w-0 flex-1">
+                    {day.people.map((p, i) => (
+                      <span key={p.employeeId}>
+                        {i > 0 ? ', ' : ''}
+                        <span className="font-semibold text-heading">{p.name}</span>
+                        {p.short ? <span className="text-10 text-ds-muted"> ({p.short})</span> : null}
+                      </span>
+                    ))}
+                  </span>
+                  {day.joint ? (
+                    <span className="shrink-0 rounded-full bg-brand-tint-weak px-2 py-0.5 text-10 font-semibold text-brand-text">
+                      Joint
+                    </span>
+                  ) : null}
+                </div>
+              ))}
+              {b.missing.map((p) => (
+                <div key={p.employeeId} className="flex items-center gap-2 py-1.5">
+                  <span className="w-12 shrink-0 text-ds-muted">—</span>
+                  <span className="min-w-0 flex-1 truncate">
+                    <span className="font-semibold text-heading">{p.name}</span>
+                    {p.short ? <span className="text-10 text-ds-muted"> ({p.short})</span> : null}
+                  </span>
+                  <span className="shrink-0 font-semibold text-danger">No visit</span>
+                </div>
+              ))}
+            </div>
+          ) : null}
         </div>
       ))}
     </div>

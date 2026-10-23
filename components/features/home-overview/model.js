@@ -226,7 +226,17 @@ function buildVisit(v, level) {
     slide: {
       key: "visit", name: "Visit", dot: G, kicker: live ? "Visits · today, live" : "Visits · " + period, title: done + "/" + plan, sub: "visits done", isBars: true,
       bars: hours.map((_, i) => ({ gh: "0%", h: (tots[i] / max) * 86 + "%", c: grad(i) })),
-      mstats: [{ v: Math.max(plan - done, 0), l: "visits pending" }, { v: forceT, l: "force visits", c: "#b42318" }, { v: sum(geo), l: "geo-tagged", c: "#067647" }, reps ? { v: reps.reported + "/" + reps.total, l: "reps reported" } : { v: plan, l: "planned" }],
+      /* Not reported and Other work in the middle two, where force visits
+         and geo-tagged used to be: the slide answers "who is out", and the
+         force / geo split is already in its bars. Without a roster there is
+         nobody to count, so those two fall back to the visit split. */
+      mstats: [
+        { v: Math.max(plan - done, 0), l: "visits pending" },
+        ...(reps
+          ? [{ v: notN, l: "not reported", c: "#b42318" }, { v: reps.other, l: "other work", c: OTHER_C }]
+          : [{ v: forceT, l: "force visits", c: "#b42318" }, { v: sum(geo), l: "geo-tagged", c: "#067647" }]),
+        reps ? { v: reps.reported + "/" + reps.total, l: "reps reported" } : { v: plan, l: "planned" },
+      ],
     },
     fU: fU && fU.forceN ? fU : null,
   };
