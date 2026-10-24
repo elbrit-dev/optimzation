@@ -1,6 +1,7 @@
 import path from 'path';
 import { execSync } from 'child_process';
 import { fileURLToPath } from 'url';
+import { withSentryConfig } from '@sentry/nextjs/config';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -104,4 +105,18 @@ const nextConfig = {
   },
 };
 
-export default nextConfig;
+/* Sentry (instrumentation-client.js). Source maps go to our Sentry only when the
+   build has SENTRY_AUTH_TOKEN, and are deleted from the output after upload; without
+   it none are made, so the app's source is never served. Errors still arrive either
+   way — with minified stack traces. */
+export default withSentryConfig(nextConfig, {
+  org: 'elbrit',
+  project: 'elbrit-app',
+  sentryUrl: 'https://sentry.elbrit.org/',
+  authToken: process.env.SENTRY_AUTH_TOKEN,
+  release: { name: `elbrit-app@${CORE_COMMIT}` },
+  sourcemaps: { disable: !process.env.SENTRY_AUTH_TOKEN },
+  widenClientFileUpload: true,
+  silent: true,
+  telemetry: false,
+});
