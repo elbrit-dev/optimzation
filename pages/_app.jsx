@@ -3,6 +3,7 @@ import 'primeicons/primeicons.css';
 import '../firebase'; // Initialize Firebase
 import { DataProvider } from '@plasmicapp/host';
 import { startConsoleCapture } from '../lib/consoleCapture';
+import { followSignedInUser } from '../lib/sentryUser';
 import PwaBackGuard from '../components/PwaBackGuard';
 import UpdateCheck from '../components/UpdateCheck';
 import { CORE_VERSION, plasmicVersionOf } from '../lib/coreVersion';
@@ -305,6 +306,8 @@ if (typeof window !== 'undefined') {
   // errors people report happen during page load, so capture has to be running
   // before then — not when the report form mounts. See lib/consoleCapture.js.
   startConsoleCapture();
+  // Sentry (instrumentation-client.js) learns who is signed in.
+  followSignedInUser();
 
   window.addEventListener('unhandledrejection', (event) => {
     console.error('Unhandled promise rejection:', event.reason);
