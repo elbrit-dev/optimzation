@@ -122,6 +122,17 @@ env:
   - variable: NEXT_PUBLIC_RECAPTCHA_SITE_KEY
     value: 6LcmaJwrAAAAAEGFqE-gNB5KucWfnQejPc_UnLBT
 
+  # ── Sentry (instrumentation-client.js) ────────────────────────────────────
+  # Project elbrit-one-app on sentry.elbrit.org. The DSN is a public key (every
+  # browser receives it); apphosting.prod.yaml only switches the environment.
+  # SENTRY_AUTH_TOKEN (readable stack traces) is optional: once created with
+  #   firebase apphosting:secrets:set SENTRY_AUTH_TOKEN
+  # list it here as a BUILD secret; until then builds simply skip the upload.
+  - variable: NEXT_PUBLIC_SENTRY_DSN
+    value: https://fee517585dad3176385bc7027d87b3f4@sentry.elbrit.org/4
+  - variable: NEXT_PUBLIC_SENTRY_ENVIRONMENT
+    value: uat
+
   # ── Plasmic + release guard (see plasmic-init.js, scripts/release-guard.js)
   # "dev" loads the LATEST publish of any tag, so a dev publish in Studio shows
   # here (after the page's 10-min ISR window) while live stays on "prod".

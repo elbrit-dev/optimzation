@@ -1,4 +1,4 @@
-/* SENTRY IN THE BROWSER — project elbrit-app on our own Sentry (sentry.elbrit.org),
+/* SENTRY IN THE BROWSER — project elbrit-one-app on our own Sentry (sentry.elbrit.org),
    environments "production" (app.elbrit.org) and "uat" (app-uat), from
    NEXT_PUBLIC_SENTRY_DSN / NEXT_PUBLIC_SENTRY_ENVIRONMENT in apphosting*.yaml.
    No DSN (local dev, a build without it): Sentry stays off.

@@ -15,3 +15,7 @@ env:
   - variable: APP_URL
     value: https://app.elbrit.org
     availability: [RUNTIME]
+
+  # Sentry: same project and DSN as apphosting.yaml, filed as production.
+  - variable: NEXT_PUBLIC_SENTRY_ENVIRONMENT
+    value: production

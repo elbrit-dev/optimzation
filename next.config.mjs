@@ -115,7 +115,7 @@ const nextConfig = {
    way — with minified stack traces. */
 export default withSentryConfig(nextConfig, {
   org: 'elbrit',
-  project: 'elbrit-app',
+  project: 'elbrit-one-app',
   sentryUrl: 'https://sentry.elbrit.org/',
   authToken: process.env.SENTRY_AUTH_TOKEN,
   release: { name: `elbrit-app@${CORE_COMMIT}` },
