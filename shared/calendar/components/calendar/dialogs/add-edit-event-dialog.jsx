@@ -38,7 +38,7 @@ import {
 	searchDoctors,
 	searchEmployees,
 } from "@calendar/components/calendar/module/event/services/master-data.service";
-import { buildParticipantsWithDetails, getAvailableItems, normalizeMeetingTimes, normalizeNonMeetingDates, resolveLatLong, showFirstFormErrorAsToast, syncPobItemRates, updatePobRow } from "@calendar/lib/helper";
+import { buildParticipantsWithDetails, getAvailableItems, getLocationPermissionState, normalizeMeetingTimes, normalizeNonMeetingDates, resolveLatLong, showFirstFormErrorAsToast, syncPobItemRates, updatePobRow } from "@calendar/lib/helper";
 import { Button } from "@calendar/components/ui/button";
 import { isBackdatedVisit, isVisitDay } from "@calendar/lib/calendar/visit";
 import { BACKDATE_TYPES, isBackdateOpen, useBackdateWindows } from "@calendar/lib/calendar/backdate";
@@ -1010,9 +1010,22 @@ export function AddEditEventDialog({
 		// it only happens on the plan's own day — never ahead of it or after.
 		if (!isVisitDay(event?.startDate)) return;
 		if (selectedTag !== TAG_IDS.DOCTOR_VISIT_PLAN) return;
-		handleRequestLocation("auto");
+		// Start by itself only when the phone already allows location. In the
+		// installed app an automatic request that needs the permission prompt
+		// is refused without showing it (Sentry, 26 Oct: every "denied" capture
+		// was automatic with permission "prompt", and the Request Location tap
+		// that followed worked). Otherwise wait for that tap. "unknown" (no
+		// Permissions API, older iPhones) keeps starting by itself as before.
+		let stale = false;
+		getLocationPermissionState().then((state) => {
+			if (stale || state === "prompt" || state === "denied") return;
+			handleRequestLocation("auto");
+		});
 		// Closing the form stops the GPS watch.
-		return cancelLocationRequest;
+		return () => {
+			stale = true;
+			cancelLocationRequest();
+		};
 	}, [isEditing, isOpen, selectedTag, isVisitAlreadyRecorded, event?.startDate, backdateVersion]);
 	useEffect(() => {
 		if (!isOpen) {

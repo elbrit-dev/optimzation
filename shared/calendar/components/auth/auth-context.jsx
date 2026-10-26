@@ -2,6 +2,7 @@
 import React, { createContext, useContext, useEffect } from "react";
 import { LOGGED_IN_USER } from "@calendar/components/auth/calendar-users";
 import { AUTH_CONFIG } from "@calendar/components/auth/calendar-users";
+import { tagSentryEmployee } from "@calendar/lib/sentryEmployee";
 
 const AuthContext = createContext(null);
 
@@ -27,6 +28,11 @@ export function AuthProvider({
     LOGGED_IN_USER.roleId = me.roleId;
     LOGGED_IN_USER.leave_approver = me.leave_approver;
     LOGGED_IN_USER.escalation_approver = me.escalation_approver ?? null;
+    tagSentryEmployee({
+      employee: LOGGED_IN_USER.id,
+      "employee.name": LOGGED_IN_USER.name,
+      "employee.role": LOGGED_IN_USER.roleId,
+    });
   }
   
   // 🔁 Redirect if not logged in

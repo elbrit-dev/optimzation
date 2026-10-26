@@ -3,7 +3,8 @@ import * as Sentry from "@sentry/nextjs";
 /* ---------------------------------------------
    VISIT LOCATION TELEMETRY
 --------------------------------------------- */
-// Every visit location capture, good or bad, is sent to Sentry (project
+// Every visit location capture, good or bad (except a quick, harmless
+// "cancelled", see finish()), is sent to Sentry (project
 // elbrit-one-app) as ONE event titled "Visit location: <outcome>". Events
 // group by outcome, so the Issues list doubles as a tally: how many captures
 // ended "good", "no_fix", "denied" ... and Discover can split them by the
@@ -224,6 +225,10 @@ export function startLocationTrace({ platform, trigger, attempt, visit } = {}) {
       finished = true;
       cleanup();
       const finalOutcome = outcome ?? "unknown";
+      // The form cancels and restarts its own capture once as it opens; on
+      // 26 Oct that was 265 of 269 "cancelled" reports. Not worth sending.
+      const snap = snapshot(finalOutcome, extra);
+      if (finalOutcome === "cancelled" && snap.level === "info") return;
       send(`Visit location: ${finalOutcome}`, finalOutcome, {
         ...extra,
         afterStuckReport: stuckReported,
