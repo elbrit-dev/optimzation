@@ -125,13 +125,18 @@ env:
   # ── Sentry (instrumentation-client.js) ────────────────────────────────────
   # Project elbrit-one-app on sentry.elbrit.org. The DSN is a public key (every
   # browser receives it); apphosting.prod.yaml only switches the environment.
-  # SENTRY_AUTH_TOKEN (readable stack traces) is optional: once created with
-  #   firebase apphosting:secrets:set SENTRY_AUTH_TOKEN
-  # list it here as a BUILD secret; until then builds simply skip the upload.
   - variable: NEXT_PUBLIC_SENTRY_DSN
     value: https://fee517585dad3176385bc7027d87b3f4@sentry.elbrit.org/4
   - variable: NEXT_PUBLIC_SENTRY_ENVIRONMENT
     value: uat
+  # Readable stack traces: the build uploads its source maps to Sentry with this
+  # token, then deletes them from the output (next.config.mjs), so they are never
+  # served. It is an org token "elbrit-one-app source maps (Firebase App Hosting
+  # builds)", scope org:ci (upload only), in Secret Manager of elbrit-sso-d01d9;
+  # build only, never at runtime. Both backends read it (app-uat, app-prod).
+  - variable: SENTRY_AUTH_TOKEN
+    secret: SENTRY_AUTH_TOKEN
+    availability: [BUILD]
 
   # ── Plasmic + release guard (see plasmic-init.js, scripts/release-guard.js)
   # "dev" loads the LATEST publish of any tag, so a dev publish in Studio shows
