@@ -1,4 +1,5 @@
 import { LOGGED_IN_USER } from "@calendar/components/auth/calendar-users";
+import { isLoggedInUserEmail } from "@calendar/lib/leavePermissions";
 import { isTagEnabled, STATUS, TAG_IDS } from "@calendar/components/calendar/constants";
 import {
   isTravelApprovalTodo,
@@ -266,7 +267,7 @@ export function buildLeaveNotifications(
       (event) =>
         event.tags === TAG_IDS.LEAVE &&
         event.status?.toLowerCase() === STATUS.OPEN.toLowerCase() &&
-        event.leave_approver === LOGGED_IN_USER.email
+        isLoggedInUserEmail(event.leave_approver)
     )
     .map((leave) => ({
       id: leave.erpName,

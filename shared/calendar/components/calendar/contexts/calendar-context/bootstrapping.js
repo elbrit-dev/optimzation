@@ -85,6 +85,17 @@ function buildLoggedInUserFallback() {
   };
 }
 
+// The page hands the calendar the company email, but ERP names approvers by
+// their User. Look the logged-in employee up and keep their User alongside, so
+// leave approvals match either one (see leavePermissions.js).
+function rememberLoginEmail(employees = []) {
+  if (!LOGGED_IN_USER?.id) return;
+  const me = employees.find((employee) => employee.name === LOGGED_IN_USER.id);
+  if (me?.user_id) {
+    LOGGED_IN_USER.login_email = me.user_id;
+  }
+}
+
 export async function fetchCalendarBootstrapData() {
   const [employeesResult, rolesResult, customersResult] =
     await Promise.allSettled([
@@ -92,6 +103,10 @@ export async function fetchCalendarBootstrapData() {
       fetchElbritRoleEdges(),
       fetchAllCustomers(),
     ]);
+
+  if (employeesResult.status === "fulfilled") {
+    rememberLoginEmail(employeesResult.value);
+  }
 
   const employeeUsers =
     employeesResult.status === "fulfilled"
