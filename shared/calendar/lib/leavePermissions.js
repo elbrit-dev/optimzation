@@ -8,6 +8,20 @@ function normalizeEmail(email) {
 }
 
 /**
+ * Is this email the logged-in user? Matches the company email the page passes
+ * in OR the ERP User (login_email). ERP stores approvers by User, and when the
+ * two differ the approver lost Approve/Reject on their team's leaves.
+ */
+export function isLoggedInUserEmail(email) {
+  const target = normalizeEmail(email);
+  if (!target || !LOGGED_IN_USER) return false;
+  return (
+    target === normalizeEmail(LOGGED_IN_USER.email) ||
+    target === normalizeEmail(LOGGED_IN_USER.login_email)
+  );
+}
+
+/**
  * Resolve leave permissions for current logged-in user
  */
 export function resolveLeavePermissions({
@@ -23,22 +37,16 @@ export function resolveLeavePermissions({
   }
 
   const loggedUserId = LOGGED_IN_USER.id;
-  const loggedUserEmail = normalizeEmail(LOGGED_IN_USER.email);
 
   const eventEmployeeId = event.employee;
-  const eventApproverEmail = normalizeEmail(event.leave_approver);
-  const eventEscalationApproverEmail = normalizeEmail(
-    event.escalation_approver
-  );
   const isOwner = eventEmployeeId === loggedUserId;
 
   // The leave can be approved/rejected by EITHER the assigned approver (one level
   // up — e.g. the ABM) OR the escalation approver (one extra level up — e.g. the
   // RBM). Match the logged-in user against both.
   const isApprover =
-    (!!eventApproverEmail && loggedUserEmail === eventApproverEmail) ||
-    (!!eventEscalationApproverEmail &&
-      loggedUserEmail === eventEscalationApproverEmail);
+    isLoggedInUserEmail(event.leave_approver) ||
+    isLoggedInUserEmail(event.escalation_approver);
 
   const isOpen = event.status === STATUS.OPEN;
 

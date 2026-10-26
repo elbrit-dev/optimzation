@@ -7,7 +7,12 @@ export const LOGGED_IN_USER = {
   status: null,
   roleId:null,
   leave_approver:null,
-  escalation_approver:null
+  escalation_approver:null,
+  // The ERP User (Employee.user_id). `email` is the company email the page
+  // passes in, and for some people it differs from the login ERP writes into
+  // leave_approver (Sainudheen K V: sainudheen.kv@ vs sainudheen.abm@).
+  // Filled in by the calendar bootstrap from the employee list.
+  login_email:null
 };
 /**
  * Global ERP auth configuration
