@@ -155,9 +155,11 @@ export function startLocationTrace({ platform, trigger, attempt, visit } = {}) {
     };
   };
 
+  // captureEvent, not captureMessage: captureMessage adds a synthetic stack
+  // trace, and Sentry then titles the issue after its top frame ("y").
   const send = (title, finalOutcome, extra) => {
     try {
-      Sentry.captureMessage(title, snapshot(finalOutcome, extra));
+      Sentry.captureEvent({ message: title, ...snapshot(finalOutcome, extra) });
     } catch {
       // Telemetry must never break a visit.
     }
