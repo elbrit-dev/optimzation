@@ -2,6 +2,7 @@ import { toast } from "sonner";
 import { set, addMinutes } from "date-fns";
 import { TAG_IDS } from "@calendar/components/calendar/constants";
 import { saveEvent } from "@calendar/components/calendar/module/event/services/event.service";
+import { startLocationTrace } from "@calendar/lib/locationTelemetry";
 
 function normalizeAttendingChoice(value) {
   if (typeof value !== "string") return "";
@@ -253,7 +254,7 @@ const MAX_WAIT_MS = 45000;
 const UNAVAILABLE_GRACE_MS = 5000;
 const COARSE_FIX_M = 500;
 
-function watchForAccuratePosition(signal) {
+function watchForAccuratePosition(signal, trace) {
   return new Promise((resolve, reject) => {
     let done = false;
     let best = null;
@@ -272,43 +273,59 @@ function watchForAccuratePosition(signal) {
       signal?.removeEventListener("abort", onAbort);
       settle(value);
     };
-    const onAbort = () => finish(resolve, null);
+    const onAbort = () => {
+      trace?.outcome("cancelled");
+      finish(resolve, null);
+    };
 
     if (signal?.aborted) {
+      trace?.outcome("cancelled");
       resolve(null);
       return;
     }
     signal?.addEventListener("abort", onAbort);
 
     deadlineTimer = setTimeout(() => {
-      if (best) finish(resolve, best);
-      else finish(reject, { code: 3 });
+      if (best) {
+        trace?.outcome("best_at_deadline");
+        finish(resolve, best);
+      } else {
+        trace?.outcome("no_fix");
+        finish(reject, { code: 3 });
+      }
     }, MAX_WAIT_MS);
 
     watchId = navigator.geolocation.watchPosition(
       (pos) => {
+        trace?.fix(pos);
         clearTimeout(unavailableTimer);
         if (!best || pos.coords.accuracy < best.coords.accuracy) best = pos;
 
         if (best.coords.accuracy <= GOOD_FIX_M) {
+          trace?.outcome("good");
           finish(resolve, best);
           return;
         }
         if (best.coords.accuracy <= USABLE_FIX_M && !settleTimer) {
-          settleTimer = setTimeout(() => finish(resolve, best), SETTLE_MS);
+          settleTimer = setTimeout(() => {
+            trace?.outcome("usable");
+            finish(resolve, best);
+          }, SETTLE_MS);
         }
       },
       (err) => {
+        trace?.positionError(err);
         if (err.code === 1) {
+          trace?.outcome("denied");
           finish(reject, err);
           return;
         }
         // Anything else is a gap between fixes; keep watching.
         if (err.code === 2 && !best && !unavailableTimer) {
-          unavailableTimer = setTimeout(
-            () => finish(reject, err),
-            UNAVAILABLE_GRACE_MS
-          );
+          unavailableTimer = setTimeout(() => {
+            trace?.outcome("unavailable");
+            finish(reject, err);
+          }, UNAVAILABLE_GRACE_MS);
         }
       },
       // A fix from the last 30 s is still where the user is standing.
@@ -318,7 +335,9 @@ function watchForAccuratePosition(signal) {
 }
 
 // Resolves with the GeolocationPosition used, or null when nothing was set.
-export async function resolveLatLong(form, isEditing, toast, { signal } = {}) {
+// trigger ("auto" on open / "button"), attempt (1 = first in this form) and
+// visit (the Event name) only label the Sentry report.
+export async function resolveLatLong(form, isEditing, toast, { signal, trigger, attempt, visit } = {}) {
   if (!isEditing) return null;
 
   const currentLatitude = form.getValues("custom_latitude");
@@ -338,12 +357,17 @@ export async function resolveLatLong(form, isEditing, toast, { signal } = {}) {
     });
   };
 
+  // Every attempt is reported to Sentry, failures included (locationTelemetry.js).
+  const trace = startLocationTrace({ platform: getPlatform(), trigger, attempt, visit });
+
   if (typeof window !== "undefined" && window.isSecureContext === false) {
     toast.error("Location needs a secure (https) page", {
       description: "Open the calendar from its https:// link and try again.",
       duration: 10000,
     });
     setFallback();
+    trace.outcome("insecure_page");
+    trace.finish();
     return null;
   }
 
@@ -353,22 +377,31 @@ export async function resolveLatLong(form, isEditing, toast, { signal } = {}) {
       duration: 10000,
     });
     setFallback();
+    trace.outcome("no_geolocation");
+    trace.finish();
     return null;
   }
 
   const stateBefore = await getLocationPermissionState();
+  trace.permissionChecked(stateBefore);
 
   let pos;
   try {
-    pos = await watchForAccuratePosition(signal);
+    pos = await watchForAccuratePosition(signal, trace);
   } catch (err) {
     const { title, description } = describeLocationError(err, stateBefore);
     toast.error(title, { description, duration: 15000 });
     setFallback();
+    trace.outcome(err?.code ? `error_${err.code}` : "error");
+    trace.finish({ errorCode: err?.code ?? null, errorMessage: err?.message ?? null, shownTitle: title });
     return null;
   }
   // The form was closed while we waited.
-  if (!pos) return null;
+  if (!pos) {
+    trace.finish();
+    return null;
+  }
+  trace.finish({ accuracyM: Math.round(pos.coords.accuracy) });
 
   const latitude = parseFloat(pos.coords.latitude);
   const longitude = parseFloat(pos.coords.longitude);

@@ -181,6 +181,8 @@ export function AddEditEventDialog({
 	const [isResolvingLocation, setIsResolvingLocation] = useState(false);
 	const [locationAccuracyM, setLocationAccuracyM] = useState(null);
 	const locationAbortRef = useRef(null);
+	// Location tries since the form opened; labels the Sentry report.
+	const locationAttemptRef = useRef(0);
 	const [distanceKm, setDistanceKm] = useState(null);
 	const endDateTouchedRef = useRef(false); // existing
 	const pobRowsEndRef = useRef(null);
@@ -1008,7 +1010,7 @@ export function AddEditEventDialog({
 		// it only happens on the plan's own day — never ahead of it or after.
 		if (!isVisitDay(event?.startDate)) return;
 		if (selectedTag !== TAG_IDS.DOCTOR_VISIT_PLAN) return;
-		handleRequestLocation();
+		handleRequestLocation("auto");
 		// Closing the form stops the GPS watch.
 		return cancelLocationRequest;
 	}, [isEditing, isOpen, selectedTag, isVisitAlreadyRecorded, event?.startDate, backdateVersion]);
@@ -1016,6 +1018,7 @@ export function AddEditEventDialog({
 		if (!isOpen) {
 			cancelLocationRequest();
 			setLocationAccuracyM(null);
+			locationAttemptRef.current = 0;
 		}
 	}, [isOpen]);
 	/* ---------------------------------------------
@@ -1050,15 +1053,19 @@ export function AddEditEventDialog({
 		locationAbortRef.current = null;
 		setIsResolvingLocation(false);
 	}
-	async function handleRequestLocation() {
+	async function handleRequestLocation(trigger) {
 		// One GPS watch at a time: the auto capture on open may still be running.
 		if (locationAbortRef.current) return;
 		const controller = new AbortController();
 		locationAbortRef.current = controller;
+		locationAttemptRef.current += 1;
 		setIsResolvingLocation(true);
 		try {
 			const pos = await resolveLatLong(form, isEditing, toast, {
 				signal: controller.signal,
+				trigger,
+				attempt: locationAttemptRef.current,
+				visit: event?.erpName,
 			});
 			if (pos) setLocationAccuracyM(Math.round(pos.coords.accuracy));
 		} finally {
@@ -4007,7 +4014,7 @@ export function AddEditEventDialog({
 						disabled={isSubmitDisabled}
 						showCaptureLocation={shouldShowRequestLocation}
 						showSubmit={!isDoctorVisitWithoutLocation}
-						onCaptureLocation={handleRequestLocation}
+						onCaptureLocation={() => handleRequestLocation("button")}
 						isResolvingLocation={isResolvingLocation}
 						onSubmit={form.handleSubmit(onSubmit, onInvalid)}
 					/>
