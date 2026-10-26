@@ -161,7 +161,7 @@ function getPlatform() {
   return "desktop";
 }
 
-async function getLocationPermissionState() {
+export async function getLocationPermissionState() {
   try {
     const status = await navigator.permissions?.query({ name: "geolocation" });
     return status?.state ?? "unknown";

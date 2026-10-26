@@ -3,6 +3,7 @@ import { ELBRIT_ROLEID, normalizeRoleProfiles } from "@calendar/components/calen
 import { fetchEmployeeNodes } from "@calendar/components/calendar/module/event/services/master-data.service";
 import { mapEmployeesToCalendarUsers } from "@calendar/components/calendar/module/event/services/employee-to-calendar-user";
 import { LOGGED_IN_USER } from "@calendar/components/auth/calendar-users";
+import { tagSentryEmployee } from "@calendar/lib/sentryEmployee";
 import { getCached } from "@calendar/lib/data-cache";
 import { graphqlRequest } from "@calendar/lib/graphql-client";
 
@@ -93,6 +94,7 @@ function rememberLoginEmail(employees = []) {
   const me = employees.find((employee) => employee.name === LOGGED_IN_USER.id);
   if (me?.user_id) {
     LOGGED_IN_USER.login_email = me.user_id;
+    tagSentryEmployee({ "employee.login": me.user_id });
   }
 }
 
