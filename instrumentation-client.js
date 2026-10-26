@@ -35,6 +35,9 @@ if (dsn) {
         maskAllInputs: false,
         blockAllMedia: false,
         mask: ['input[type="password"]'],
+        // Info events (e.g. a good visit location fix, shared/calendar/lib/
+        // locationTelemetry.js) are a tally, not a problem: no replay for them.
+        beforeErrorSampling: (event) => event.level !== 'info',
       }),
     ],
   });
