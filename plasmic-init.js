@@ -17,6 +17,8 @@ import SectionPage from "./components/features/section-page";
 import FirebaseUIComponent from "./components/FirebaseUIComponent";
 import LoginHelpForm from "./components/LoginHelpForm";
 import { MaintenanceMode } from "./components/MaintenanceGate";
+import { Impersonation } from "./components/Impersonation";
+import ImpersonateSwitch from "./components/ImpersonateSwitch";
 import HelpSupport from "./components/features/help-support";
 import SupportReport from "./components/features/support-report";
 import CalendarPage from "@calendar/components/CalendarPage";
@@ -263,6 +265,122 @@ PLASMIC.registerGlobalContext(MaintenanceMode, {
   },
   importPath: "./components/MaintenanceGate",
   importName: "MaintenanceMode",
+});
+
+// The header's Impersonate modal stays in Studio; this keeps track of the real
+// person so Switch and Back to me work from inside someone else's account.
+// See components/Impersonation.jsx.
+PLASMIC.registerGlobalContext(Impersonation, {
+  name: "Impersonation",
+  displayName: "Impersonation",
+  description:
+    "Switch into another person's account and back. Data: $ctx.impersonation.active / .target / .reason / .actor and $ctx.impersonation.isAllowed(me) for the Switch button's visibility. Actions: Switch to person, Back to me.",
+  props: {
+    allowedDepartments: {
+      type: "array",
+      displayName: "Allowed departments",
+      description: "isAllowed(me) is true for these ERP departments (exact names).",
+      defaultValue: ["IT - ELPL", "MIS - ELPL", "Marketing - ELPL"],
+    },
+    allowedDesignations: {
+      type: "array",
+      displayName: "Allowed designations",
+      description: "...and for these designations.",
+      defaultValue: ["Chief Executive Officer"],
+    },
+  },
+  providesData: true,
+  globalActions: {
+    switchTo: {
+      displayName: "Switch to person",
+      description:
+        "Signs in as that person. The first switch saves your own account; switching again from inside someone else's keeps it.",
+      parameters: [
+        { name: "id", displayName: "Phone or email", type: "string" },
+        { name: "reason", displayName: "Reason", type: "string" },
+        { name: "name", displayName: "Your name (optional, for the log)", type: "string" },
+      ],
+    },
+    backToSelf: {
+      displayName: "Back to me",
+      description: "Returns to your own account and opens the home page.",
+      parameters: [],
+    },
+  },
+  importPath: "./components/Impersonation",
+  importName: "Impersonation",
+});
+
+PLASMIC.registerComponent(ImpersonateSwitch, {
+  name: "ImpersonateSwitch",
+  displayName: "Impersonate Switch",
+  description:
+    "The header's Impersonate button and its panel: a bottom sheet on a phone, a centred popup on desktop. Search a person, give a reason, Switch. While impersonating the button reads \"Viewing as …\" and the panel offers Back to me, and Switch stays available to jump to the next person. Hides itself for anyone not allowed (see `me`).",
+  isDefaultExport: true,
+  importPath: "./components/ImpersonateSwitch",
+  props: {
+    people: {
+      type: "object",
+      description:
+        "The people to pick from: an array of objects with email and/or phone (also read: mobile_no, cell_number, full_name, employee_name, first_name, last_name). Bind it to the employee query the old modal used, e.g. $queries.employee.data.response.data.Users.edges.map(e => e.node). Switching uses phone, else email.",
+    },
+    me: {
+      type: "object",
+      description:
+        "The signed-in ERP user (the `me` the header already loads). The button shows only if their department or designation is allowed, or while impersonating.",
+    },
+    allowedDepartments: {
+      type: "array",
+      displayName: "Allowed departments",
+      defaultValue: ["IT - ELPL", "MIS - ELPL", "Marketing - ELPL"],
+      description: "Exact ERP department names that may impersonate.",
+    },
+    allowedDesignations: {
+      type: "array",
+      displayName: "Allowed designations",
+      defaultValue: ["Chief Executive Officer"],
+      description: "...and designations.",
+    },
+    requireReason: {
+      type: "boolean",
+      displayName: "Require a reason",
+      defaultValue: true,
+      description: "Switch stays disabled until a reason is typed. The reason is logged.",
+    },
+    triggerLabel: {
+      type: "string",
+      displayName: "Button label",
+      defaultValue: "Impersonate",
+      description: "Shown when not impersonating. While impersonating it reads \"Viewing as <person>\".",
+    },
+    title: {
+      type: "string",
+      defaultValue: "Switch account",
+      description: "Heading of the panel.",
+    },
+    previewState: {
+      type: "choice",
+      displayName: "Preview state",
+      options: [
+        { value: "auto", label: "Auto (real session)" },
+        { value: "idle", label: "Not impersonating" },
+        { value: "impersonating", label: "Impersonating" },
+      ],
+      defaultValue: "auto",
+      description:
+        "Editor preview only: show the button as it looks in each state (and show it even without `me`). Leave on Auto for the live app.",
+    },
+    previewOpen: {
+      type: "boolean",
+      displayName: "Preview open",
+      defaultValue: false,
+      description: "Editor preview only: keep the panel open on the canvas so you can see it. Leave OFF for the live app.",
+    },
+  },
+  refActions: {
+    open: { displayName: "Open panel", argTypes: [] },
+    close: { displayName: "Close panel", argTypes: [] },
+  },
 });
 
 PLASMIC.registerFunction(jmespath_plus.search, {
