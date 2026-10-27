@@ -322,7 +322,7 @@ PLASMIC.registerComponent(ImpersonateSwitch, {
     people: {
       type: "object",
       description:
-        "The employees to pick from: $queries.employee.data.response.data.Users.edges.map(e => e.node), as the old modal. Each needs email and/or phone; switching uses phone, else email. Add an employee code (employee / employee_id / employee_code, or a name like E01288) and a name (full_name / employee_name / first_name + last_name) to the query to search and show those too. Also read: company_email, user_id, mobile_no, cell_number.",
+        "The employees to pick from. Best: an Employees query returning name, employee_name, cell_number, company_email, user_id__name, bound as $queries.employee.data.response.data.Employees.edges.map(e => e.node); the switch then uses the ERP login (user_id__name). The old Users list (…Users.edges.map(e => e.node), email + phone) still works and switches by phone, else email. Also read: full_name, mobile_no, employee / employee_id / employee_code.",
     },
     me: {
       type: "object",

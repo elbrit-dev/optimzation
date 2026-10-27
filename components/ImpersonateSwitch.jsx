@@ -41,18 +41,33 @@ const PREVIEW_TARGET = '9876543210';
 
 const EMPLOYEE_CODE = /^[A-Z]{1,4}\d{3,}$/i;
 
+/* `people` comes in two shapes. The old query listed ERP Users (email, phone);
+   an Employees query has name (the code), employee_name, cell_number,
+   company_email and the ERP login as user_id__name. */
+
+function isEmployee(p) {
+  return Boolean(p?.employee_name || p?.cell_number || p?.user_id__name);
+}
+
+/** The ERP login (User id) behind an Employee row, when the query has it. */
+function personLogin(p) {
+  const link = p?.user_id__name || p?.user_id;
+  return typeof link === 'string' ? link : link?.name || '';
+}
+
 function personPhone(p) {
   return p?.phone || p?.mobile_no || p?.cell_number || p?.cell_phone || '';
 }
 
 function personEmail(p) {
-  return p?.email || p?.company_email || p?.user_id || p?.personal_email || '';
+  return p?.email || p?.company_email || personLogin(p) || p?.personal_email || '';
 }
 
 function personCode(p) {
   const code = p?.employee || p?.employee_id || p?.employee_code || p?.code;
   if (code) return String(code);
-  return p?.name && EMPLOYEE_CODE.test(p.name) ? p.name : '';
+  if (!p?.name) return '';
+  return isEmployee(p) || EMPLOYEE_CODE.test(p.name) ? String(p.name) : '';
 }
 
 function personName(p) {
@@ -64,8 +79,15 @@ function personName(p) {
   );
 }
 
-/** What the switch signs in with: phone, else email (as the old modal did). */
+/**
+ * What the switch signs in with. The ERP's userToken looks the person up by
+ * User email / mobile_no / phone, so an Employee row switches by its ERP login
+ * (user_id): its cell_number need not match the User's mobile_no. A User row
+ * switches by phone, else email, as the old modal did.
+ */
 function personId(p) {
+  const login = personLogin(p);
+  if (login) return login;
   return String(personPhone(p) || personEmail(p) || p?.id || '');
 }
 
@@ -80,7 +102,9 @@ function personDetail(p) {
 
 function matches(p, needle) {
   if (!needle) return true;
-  const text = [personEmail(p), personName(p), personCode(p), personPhone(p)].join(' ').toLowerCase();
+  const text = [personEmail(p), personLogin(p), personName(p), personCode(p), personPhone(p)]
+    .join(' ')
+    .toLowerCase();
   if (text.includes(needle)) return true;
   const digits = needle.replace(/\D/g, '');
   return digits.length >= 3 && personPhone(p).replace(/\D/g, '').includes(digits);
