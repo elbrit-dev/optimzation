@@ -315,14 +315,14 @@ PLASMIC.registerComponent(ImpersonateSwitch, {
   name: "ImpersonateSwitch",
   displayName: "Impersonate Switch",
   description:
-    "The header's Impersonate button and its panel: a bottom sheet on a phone, a centred popup on desktop. Search a person, give a reason, Switch. While impersonating the button reads \"Viewing as …\" and the panel offers Back to me, and Switch stays available to jump to the next person. Hides itself for anyone not allowed (see `me`).",
+    "The header's Impersonate button and its form (Employee, UID, your email + Reason, Cancel / Switch): a bottom sheet on a phone, a small centred dialog on desktop. The Employee picker searches email, phone, employee code and name. While impersonating the button reads \"Viewing as …\", the form offers Back to me, and Switch stays available to jump to the next person. Hides itself for anyone not allowed (see `me`).",
   isDefaultExport: true,
   importPath: "./components/ImpersonateSwitch",
   props: {
     people: {
       type: "object",
       description:
-        "The people to pick from: an array of objects with email and/or phone (also read: mobile_no, cell_number, full_name, employee_name, first_name, last_name). Bind it to the employee query the old modal used, e.g. $queries.employee.data.response.data.Users.edges.map(e => e.node). Switching uses phone, else email.",
+        "The employees to pick from: $queries.employee.data.response.data.Users.edges.map(e => e.node), as the old modal. Each needs email and/or phone; switching uses phone, else email. Add an employee code (employee / employee_id / employee_code, or a name like E01288) and a name (full_name / employee_name / first_name + last_name) to the query to search and show those too. Also read: company_email, user_id, mobile_no, cell_number.",
     },
     me: {
       type: "object",
@@ -355,8 +355,8 @@ PLASMIC.registerComponent(ImpersonateSwitch, {
     },
     title: {
       type: "string",
-      defaultValue: "Switch account",
-      description: "Heading of the panel.",
+      defaultValue: "Impersonate",
+      description: "Heading of the form.",
     },
     previewState: {
       type: "choice",

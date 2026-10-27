@@ -69,7 +69,8 @@ function readToken() {
   }
 }
 
-function currentActor() {
+/** The person really signed in (Firebase), whoever's ERP token is in use. */
+export function currentActor() {
   try {
     const user = app.auth().currentUser;
     if (!user) return null;

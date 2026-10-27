@@ -1,37 +1,58 @@
-import { forwardRef, useImperativeHandle, useMemo, useState } from 'react';
-import { Button, Field, ListRow, Sheet } from '@/design-system';
+import { forwardRef, useId, useImperativeHandle, useMemo, useRef, useState } from 'react';
+import { Button, Field, Sheet } from '@/design-system';
 import {
   DEFAULT_DEPARTMENTS,
   DEFAULT_DESIGNATIONS,
   actorLabel,
   backToSelf,
+  currentActor,
   isAllowed,
   switchTo,
   useImpersonation,
 } from './Impersonation';
 
 /**
- * ImpersonateSwitch: the header's "Impersonate" button and the panel it
- * opens, replacing the Studio-built modal (combobox + uid + name + reason).
+ * ImpersonateSwitch: the header's "Impersonate" button and its form, the same
+ * shape as the Studio modal it replaces (Employee, UID, your email + Reason,
+ * Cancel / Switch).
  *
- * The panel is the design system's Sheet: a bottom sheet on a phone (swipe
- * down or back to close), a centred popup from 768px. It holds a search over
- * `people`, a reason, and Switch. While impersonating, the button reads
- * "Viewing as <person>" and the panel leads with "Back to me", and Switch
- * stays available, so jumping from one person to the next never needs a
- * logout. The switching itself is components/Impersonation.jsx.
+ * A short form, so the design system's Sheet with desktop="dialog": a bottom
+ * sheet on a phone (swipe down or back to close), a small centred dialog from
+ * 768px.
+ *
+ * The Employee picker searches what people sign in with and are known by:
+ * email, phone, employee code and name, and each option shows all of them.
+ * Matches open inline under the field rather than in a floating dropdown, so
+ * on a phone with the keyboard up they are never clipped or hidden.
+ *
+ * While impersonating, the button reads "Viewing as <person>", the form leads
+ * with Back to me, and Switch stays available, so jumping from one person to
+ * the next never needs a logout. The switching itself is
+ * components/Impersonation.jsx.
  *
  * It hides itself for anyone who may not switch: `me` outside the allowed
  * departments/designations, unless they are being impersonated right now.
  */
 
-// A long list is searched, not scrolled: past this, typing narrows it.
-const MAX_ROWS = 60;
+// A picker, not a directory: past this many matches, typing narrows it.
+const MAX_OPTIONS = 8;
 
 const PREVIEW_TARGET = '9876543210';
 
-function personId(p) {
-  return String(p?.phone || p?.mobile_no || p?.cell_number || p?.email || p?.id || p?.name || '');
+const EMPLOYEE_CODE = /^[A-Z]{1,4}\d{3,}$/i;
+
+function personPhone(p) {
+  return p?.phone || p?.mobile_no || p?.cell_number || p?.cell_phone || '';
+}
+
+function personEmail(p) {
+  return p?.email || p?.company_email || p?.user_id || p?.personal_email || '';
+}
+
+function personCode(p) {
+  const code = p?.employee || p?.employee_id || p?.employee_code || p?.code;
+  if (code) return String(code);
+  return p?.name && EMPLOYEE_CODE.test(p.name) ? p.name : '';
 }
 
 function personName(p) {
@@ -39,27 +60,30 @@ function personName(p) {
     p?.full_name ||
     p?.employee_name ||
     [p?.first_name, p?.last_name].filter(Boolean).join(' ') ||
-    p?.email ||
-    personId(p)
+    ''
   );
 }
 
+/** What the switch signs in with: phone, else email (as the old modal did). */
+function personId(p) {
+  return String(personPhone(p) || personEmail(p) || p?.id || '');
+}
+
+function personLabel(p) {
+  return personEmail(p) || personName(p) || personId(p);
+}
+
 function personDetail(p) {
-  const name = personName(p);
-  return [p?.email, p?.phone || p?.mobile_no || p?.cell_number]
-    .filter((v) => v && v !== name)
-    .join(' · ');
+  const label = personLabel(p);
+  return [personCode(p), personPhone(p), personName(p)].filter((v) => v && v !== label).join(' · ');
 }
 
 function matches(p, needle) {
   if (!needle) return true;
+  const text = [personEmail(p), personName(p), personCode(p), personPhone(p)].join(' ').toLowerCase();
+  if (text.includes(needle)) return true;
   const digits = needle.replace(/\D/g, '');
-  const hay = [personName(p), p?.email, p?.phone, p?.mobile_no, p?.cell_number, p?.employee, p?.name]
-    .filter(Boolean)
-    .join(' ')
-    .toLowerCase();
-  if (hay.includes(needle)) return true;
-  return digits.length >= 3 && hay.replace(/\D/g, '').includes(digits);
+  return digits.length >= 3 && personPhone(p).replace(/\D/g, '').includes(digits);
 }
 
 function asList(value, fallback) {
@@ -67,6 +91,27 @@ function asList(value, fallback) {
   if (typeof value === 'string' && value.trim()) return value.split(',').map((s) => s.trim());
   return fallback;
 }
+
+const listStyle = {
+  margin: 'var(--space-4) 0 0',
+  padding: 'var(--space-4)',
+  listStyle: 'none',
+  border: 'var(--border-w) solid var(--border-subtle)',
+  borderRadius: 'var(--radius-8, 8px)',
+  background: 'var(--surface-card)',
+  boxShadow: 'var(--ds-shadow-card)',
+};
+
+// .ds-listrow is width:100%, and an interactive one bleeds -12px past its
+// container (made for edge-to-edge sheet lists). Inside this bordered list it
+// must stay within the border: no bleed, padding inside the width.
+const optionStyle = {
+  boxSizing: 'border-box',
+  width: 'auto',
+  marginInline: 0,
+  paddingInline: 'var(--space-8)',
+  borderRadius: 'var(--radius-6, 6px)',
+};
 
 const ImpersonateSwitch = forwardRef(function ImpersonateSwitch(
   {
@@ -76,7 +121,7 @@ const ImpersonateSwitch = forwardRef(function ImpersonateSwitch(
     allowedDesignations,
     requireReason = true,
     triggerLabel = 'Impersonate',
-    title = 'Switch account',
+    title = 'Impersonate',
     previewState = 'auto',
     previewOpen = false,
     className,
@@ -87,9 +132,13 @@ const ImpersonateSwitch = forwardRef(function ImpersonateSwitch(
   const live = useImpersonation();
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState('');
+  const [listOpen, setListOpen] = useState(false);
+  const [highlight, setHighlight] = useState(0);
   const [picked, setPicked] = useState(null);
   const [reason, setReason] = useState('');
   const [busy, setBusy] = useState(false);
+  const inputRef = useRef(null);
+  const listId = useId();
 
   useImperativeHandle(ref, () => ({ open: () => setOpen(true), close: () => setOpen(false) }), []);
 
@@ -104,10 +153,7 @@ const ImpersonateSwitch = forwardRef(function ImpersonateSwitch(
   const list = useMemo(() => (Array.isArray(people) ? people.filter(Boolean) : []), [people]);
   const needle = query.trim().toLowerCase();
   const found = useMemo(() => list.filter((p) => matches(p, needle)), [list, needle]);
-  const shown = found.slice(0, MAX_ROWS);
-
-  const current = state.active ? list.find((p) => personId(p) === state.target) : null;
-  const currentName = state.active ? (current ? personName(current) : state.target) : null;
+  const options = found.slice(0, MAX_OPTIONS);
 
   const allowed =
     previewState !== 'auto' ||
@@ -118,11 +164,49 @@ const ImpersonateSwitch = forwardRef(function ImpersonateSwitch(
     });
   if (!allowed) return null;
 
+  const current = state.active ? list.find((p) => personId(p) === state.target) : null;
+  const currentName = state.active ? (current ? personLabel(current) : state.target) : null;
+  // You, whoever's account is in use: the saved actor while impersonating,
+  // else the Firebase user, else the ERP `me`.
+  const you = actorLabel(live.actor || currentActor() || (me?.email ? { email: me.email } : null));
+
   const close = () => {
     setOpen(false);
     setQuery('');
+    setListOpen(false);
     setPicked(null);
     setReason('');
+  };
+
+  const choose = (p) => {
+    setPicked(p);
+    setQuery(personLabel(p));
+    setListOpen(false);
+  };
+
+  const onType = (value) => {
+    setQuery(value);
+    setPicked(null);
+    setHighlight(0);
+    setListOpen(true);
+  };
+
+  const onKeyDown = (event) => {
+    if (event.key === 'ArrowDown') {
+      event.preventDefault();
+      setListOpen(true);
+      setHighlight((h) => Math.min(h + 1, Math.max(options.length - 1, 0)));
+    } else if (event.key === 'ArrowUp') {
+      event.preventDefault();
+      setHighlight((h) => Math.max(h - 1, 0));
+    } else if (event.key === 'Enter' && listOpen && options[highlight]) {
+      event.preventDefault();
+      choose(options[highlight]);
+    } else if (event.key === 'Escape' && listOpen) {
+      // Close the list, not the whole sheet.
+      event.stopPropagation();
+      setListOpen(false);
+    }
   };
 
   const pickedId = picked ? personId(picked) : '';
@@ -132,13 +216,15 @@ const ImpersonateSwitch = forwardRef(function ImpersonateSwitch(
   const doSwitch = () => {
     if (!canSwitch) return;
     setBusy(true);
-    if (!switchTo(pickedId, reason.trim())) setBusy(false);
+    if (!switchTo(pickedId, reason.trim(), you)) setBusy(false);
   };
 
   const doBack = () => {
     setBusy(true);
     backToSelf();
   };
+
+  const showList = listOpen;
 
   return (
     <>
@@ -153,87 +239,124 @@ const ImpersonateSwitch = forwardRef(function ImpersonateSwitch(
         {state.active ? `Viewing as ${currentName}` : triggerLabel}
       </Button>
 
-      <Sheet.Root open={open || Boolean(previewOpen)} onOpenChange={(next) => !next && close()}>
-        <Sheet.Popup surface="app" aria-label={title}>
+      <Sheet.Root open={open || Boolean(previewOpen)} onOpenChange={(next) => !next && close()} desktop="dialog">
+        <Sheet.Popup surface="app" aria-label={title} initialFocus={inputRef}>
           <Sheet.Header>
             <Sheet.Title>{title}</Sheet.Title>
-            <Sheet.Description>
-              {state.active
-                ? `Viewing as ${currentName}. Your own account${live.actor ? ` (${actorLabel(live.actor)})` : ''} is kept.`
-                : 'See the app the way someone else sees it.'}
-            </Sheet.Description>
+            {state.active ? <Sheet.Description>Viewing as {currentName}</Sheet.Description> : null}
             <Sheet.Close />
           </Sheet.Header>
 
-          <Sheet.Toolbar>
+          <Sheet.Body style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-8)' }}>
             {state.active ? (
               <Button type="default" size="app" block disabled={busy} onClick={doBack}>
-                Back to me
+                Back to me ({you})
               </Button>
             ) : null}
-            <Field
-              size="app"
-              type="search"
-              placeholder="Search name, email or phone…"
-              value={query}
-              onChange={setQuery}
-              autoComplete="off"
-              aria-label="Search people"
-            />
-          </Sheet.Toolbar>
 
-          <Sheet.Body>
-            {list.length === 0 ? (
-              <p className="ds-field-hint" style={{ padding: 'var(--space-16) 0' }}>
-                No people to show yet. The list comes from the page.
-              </p>
-            ) : shown.length === 0 ? (
-              <p className="ds-field-hint" style={{ padding: 'var(--space-16) 0' }}>
-                Nobody matches “{query}”.
-              </p>
-            ) : (
-              shown.map((p) => {
-                const id = personId(p);
-                const isPicked = id === pickedId;
-                const isCurrent = state.active && id === state.target;
-                return (
-                  <ListRow
-                    key={id}
-                    dense
-                    title={personName(p)}
-                    subtitle={personDetail(p) || null}
-                    onClick={isCurrent ? undefined : () => setPicked(p)}
-                    aria-pressed={isCurrent ? undefined : isPicked}
-                    style={isPicked ? { backgroundColor: 'var(--intent-info-wash)' } : undefined}
-                    trailing={
-                      isCurrent ? (
-                        <span className="ds-listrow__subtitle">Current</span>
-                      ) : isPicked ? (
-                        <i className="pi pi-check" aria-hidden="true" style={{ color: 'var(--brand-text)' }} />
-                      ) : null
-                    }
+            <div>
+              <Field
+                ref={inputRef}
+                size="app"
+                placeholder="Select an Employee"
+                value={query}
+                onChange={onType}
+                onFocus={() => setListOpen(true)}
+                onBlur={() => setListOpen(false)}
+                onKeyDown={onKeyDown}
+                autoComplete="off"
+                role="combobox"
+                aria-label="Employee"
+                aria-expanded={showList}
+                aria-controls={listId}
+                aria-autocomplete="list"
+                suffix={
+                  <i
+                    className={showList ? 'pi pi-chevron-up' : 'pi pi-chevron-down'}
+                    aria-hidden="true"
+                    style={{ fontSize: 'var(--icon-sm, 12px)' }}
+                    onMouseDown={(e) => {
+                      e.preventDefault();
+                      setListOpen((v) => !v);
+                      inputRef.current?.focus();
+                    }}
                   />
-                );
-              })
-            )}
-            {found.length > shown.length ? (
-              <p className="ds-field-hint" style={{ padding: 'var(--space-8) 0' }}>
-                {found.length - shown.length} more. Type to narrow down.
-              </p>
-            ) : null}
+                }
+              />
+              {showList ? (
+                <ul id={listId} role="listbox" aria-label="Employees" style={listStyle}>
+                  {list.length === 0 ? (
+                    <li className="ds-field-hint" style={{ padding: 'var(--space-8)' }}>
+                      No employees loaded.
+                    </li>
+                  ) : options.length === 0 ? (
+                    <li className="ds-field-hint" style={{ padding: 'var(--space-8)' }}>
+                      Nobody matches “{query}”.
+                    </li>
+                  ) : (
+                    options.map((p, i) => {
+                      const id = personId(p);
+                      const isCurrent = state.active && id === state.target;
+                      const detail = personDetail(p);
+                      return (
+                        <li
+                          key={`${id}-${i}`}
+                          role="option"
+                          aria-selected={i === highlight}
+                          aria-disabled={isCurrent || undefined}
+                          className="ds-listrow ds-listrow--dense ds-listrow--interactive"
+                          style={{
+                            ...optionStyle,
+                            backgroundColor: i === highlight ? 'var(--intent-info-wash)' : undefined,
+                            opacity: isCurrent ? 0.5 : undefined,
+                          }}
+                          // mousedown, not click: the field's blur would close the list first.
+                          onMouseDown={(e) => {
+                            e.preventDefault();
+                            if (!isCurrent) choose(p);
+                          }}
+                          onMouseEnter={() => setHighlight(i)}
+                        >
+                          <span className="ds-listrow__main">
+                            <span className="ds-listrow__title">{personLabel(p)}</span>
+                            {detail ? <span className="ds-listrow__subtitle">{detail}</span> : null}
+                          </span>
+                          {isCurrent ? <span className="ds-listrow__subtitle">Current</span> : null}
+                        </li>
+                      );
+                    })
+                  )}
+                  {found.length > options.length ? (
+                    <li className="ds-field-hint" style={{ padding: 'var(--space-4) var(--space-8)' }}>
+                      {found.length - options.length} more. Keep typing to narrow down.
+                    </li>
+                  ) : null}
+                </ul>
+              ) : null}
+            </div>
+
+            <Field size="app" placeholder="UID" value={pickedId} readOnly disabled aria-label="UID" />
+
+            <div style={{ display: 'flex', gap: 'var(--space-8)' }}>
+              <Field size="app" value={you} readOnly disabled aria-label="You" style={{ flex: 1, minWidth: 0 }} />
+              <Field
+                size="app"
+                placeholder={requireReason ? 'Reason' : 'Reason (optional)'}
+                value={reason}
+                onChange={setReason}
+                maxLength={200}
+                aria-label="Reason"
+                style={{ flex: 1, minWidth: 0 }}
+              />
+            </div>
           </Sheet.Body>
 
-          <Sheet.Footer>
-            <Field
-              size="app"
-              label={requireReason ? 'Reason' : 'Reason (optional)'}
-              placeholder="Why you're switching…"
-              value={reason}
-              onChange={setReason}
-              maxLength={200}
-            />
-            <Button size="app" block disabled={!canSwitch} loading={busy} onClick={doSwitch}>
-              {picked ? `Switch to ${personName(picked)}` : 'Pick a person'}
+          <Sheet.Footer style={{ flexDirection: 'row', justifyContent: 'flex-end' }}>
+            <Button type="default" size="app" onClick={close}>
+              Cancel
+            </Button>
+            <Button size="app" disabled={!canSwitch} loading={busy} onClick={doSwitch}>
+              Switch
             </Button>
           </Sheet.Footer>
         </Sheet.Popup>
