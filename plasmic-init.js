@@ -344,8 +344,8 @@ PLASMIC.registerComponent(ImpersonateSwitch, {
     requireReason: {
       type: "boolean",
       displayName: "Require a reason",
-      defaultValue: true,
-      description: "Switch stays disabled until a reason is typed. The reason is logged.",
+      defaultValue: false,
+      description: "On: Switch stays disabled until a reason is typed. Off (default): the reason is optional. Either way a typed reason is logged.",
     },
     triggerLabel: {
       type: "string",

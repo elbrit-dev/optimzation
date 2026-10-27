@@ -143,7 +143,7 @@ const ImpersonateSwitch = forwardRef(function ImpersonateSwitch(
     me,
     allowedDepartments,
     allowedDesignations,
-    requireReason = true,
+    requireReason = false,
     triggerLabel = 'Impersonate',
     title = 'Impersonate',
     previewState = 'auto',
