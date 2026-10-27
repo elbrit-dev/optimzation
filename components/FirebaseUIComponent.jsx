@@ -5,6 +5,7 @@ import 'firebase/compat/auth';
 import dynamic from 'next/dynamic';
 import { Loader2 } from 'lucide-react';
 import { Toaster, toast } from 'sonner';
+import { instrumentAuth, loginErpDone, loginFirebaseOk } from '../lib/loginTelemetry';
 
 /**
  * FirebaseUIComponent — native Firebase Auth UI (Google & Phone) with a busy
@@ -269,6 +270,8 @@ const FirebaseUIComponent = ({
         // Awaiting covers a Plasmic interaction that returns a promise; a plain
         // handler resolves at once and we fall straight through to the toast.
         await Promise.resolve(onSuccessRef.current?.({ firebaseUser: user }));
+        // Before the mounted check: a successful host step navigates away.
+        loginErpDone();
         if (!mountedRef.current) return;
         if (showToastsRef.current) {
           const who = identifyUser(user);
@@ -285,6 +288,7 @@ const FirebaseUIComponent = ({
         // widget back, otherwise the user is left staring at FirebaseUI's spent
         // blank screen with no way to retry.
         console.error("Post-login step failed:", error);
+        loginErpDone(error);
         if (!mountedRef.current) return;
         setFinishing(false);
         if (showToastsRef.current) toast.error(describeError(error));
@@ -295,6 +299,9 @@ const FirebaseUIComponent = ({
 
     const initializeFirebaseUI = async () => {
       const auth = app.auth(); // using compat auth
+      // FirebaseUI signs in on this instance and keeps phone errors to itself;
+      // the wrap reports every attempt to Sentry (lib/loginTelemetry.js).
+      instrumentAuth(auth);
 
       const firebaseui = await import('firebaseui');
       await import('firebaseui/dist/firebaseui.css');
@@ -321,6 +328,7 @@ const FirebaseUIComponent = ({
         callbacks: {
           signInSuccessWithAuthResult: (authResult) => {
             console.log('Login successful:', authResult.user.phoneNumber || authResult.user.email);
+            loginFirebaseOk(authResult.user);
             finishSignIn(authResult.user);
             return false; // Prevent redirect — we drive the overlay/toast ourselves
           },

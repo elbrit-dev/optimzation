@@ -17,6 +17,26 @@ import * as Sentry from '@sentry/nextjs';
 
 const dsn = process.env.NEXT_PUBLIC_SENTRY_DSN;
 
+/* The Plasmic Login page runs a "userToken" lookup on load with the route's id.
+   Everyone signing in normally opens the page as the literal
+   /login/[id]/[name]/[reason], so that looks up "[id]" and fails with "User not
+   found in ERPNext" on every visit (ELBRIT-ONE-APP-7: 83 events, 28 people on
+   day 1), which reads like a real sign-in failure. Only that case is dropped;
+   the same error under a real id still reports. Sign-in attempts themselves
+   report through lib/loginTelemetry.js. */
+function isLoginPagePlaceholderLookup(event) {
+  if (typeof window === 'undefined') return false;
+  let path = window.location.pathname;
+  try {
+    path = decodeURIComponent(path);
+  } catch {
+    // keep it raw
+  }
+  if (path !== '/login/[id]/[name]/[reason]') return false;
+  const text = (event.exception?.values || []).map((v) => v.value || '').join(' ');
+  return text.includes('User not found in ERPNext');
+}
+
 if (dsn) {
   Sentry.init({
     dsn,
@@ -29,6 +49,7 @@ if (dsn) {
     tracePropagationTargets: [/^\//, /^https:\/\/erp\.elbrit\.org\//],
     replaysSessionSampleRate: 0.1,
     replaysOnErrorSampleRate: 1.0,
+    beforeSend: (event) => (isLoginPagePlaceholderLookup(event) ? null : event),
     integrations: [
       Sentry.replayIntegration({
         maskAllText: false,
@@ -36,7 +57,8 @@ if (dsn) {
         blockAllMedia: false,
         mask: ['input[type="password"]'],
         // Info events (e.g. a good visit location fix, shared/calendar/lib/
-        // locationTelemetry.js) are a tally, not a problem: no replay for them.
+        // locationTelemetry.js, or a sign-in, lib/loginTelemetry.js) are a
+        // tally, not a problem: no replay for them.
         beforeErrorSampling: (event) => event.level !== 'info',
       }),
     ],
