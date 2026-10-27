@@ -7,6 +7,7 @@ import { TAG_FORM_CONFIG } from "@calendar/lib/calendar/form-config";
 import { useCalendar } from "@calendar/components/calendar/contexts/calendar-context";
 import { AddEditEventDialog } from "@calendar/components/calendar/dialogs/add-edit-event-dialog";
 import { VisitPobEditor } from "@calendar/components/calendar/module/event/components/event-details/VisitPobEditor";
+import { PobAttachments } from "@calendar/components/calendar/module/event/components/event-details/PobAttachments";
 import { TAG_IDS } from "@calendar/components/calendar/constants";
 import { LOGGED_IN_USER } from "@calendar/components/auth/calendar-users";
 import { buildParticipantsWithDetails } from "@calendar/lib/helper";
@@ -678,6 +679,11 @@ export function EventDoctorVisitDialog({
                     </span>
                   </div>
                 </div>
+              )}
+
+              {/* Shows itself only when the POB has files. */}
+              {!isEditingPob && Number(event.pob_given) === 1 && event.reference_docname && (
+                <PobAttachments quotationName={event.reference_docname} />
               )}
             </div>
           )}

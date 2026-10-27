@@ -14,6 +14,12 @@ import { getAvailableItems, syncPobItemRates, updatePobRow } from "@calendar/lib
 import { fetchItemsByDepartment } from "@calendar/components/calendar/module/event/services/master-data.service";
 import { fetchAllCustomers, saveVisitPob } from "@calendar/components/calendar/module/event/services/event.service";
 import { mapDoctorVisitToQuotation } from "@calendar/components/calendar/module/event/mappers/quotation-to-erp";
+import {
+    EMPTY_POB_FILE_CHANGES,
+    describeFailedPobFiles,
+    savePobFiles,
+} from "@calendar/components/calendar/module/event/services/pob-files.service";
+import { PobAttachments } from "@calendar/components/calendar/module/event/components/event-details/PobAttachments";
 
 const EMPTY_ROW = { item__name: "", qty: 1, rate: 0, amount: 0 };
 
@@ -39,6 +45,7 @@ export function VisitPobEditor({ event, onDone }) {
     // opened for this visit.
     const [customerOptions, setCustomerOptions] = useState([]);
     const [isSaving, setIsSaving] = useState(false);
+    const [fileChanges, setFileChanges] = useState(EMPTY_POB_FILE_CHANGES);
 
     const form = useForm({
         mode: "onChange",
@@ -202,7 +209,13 @@ export function VisitPobEditor({ event, onDone }) {
                     : {}),
             });
 
-            toast.success("POB saved");
+            // Files hang on the Quotation, so they go up once it is saved.
+            const { failed } = givesPob
+                ? await savePobFiles(saved.reference_docname, fileChanges)
+                : { failed: [] };
+
+            if (failed.length) toast.warning(describeFailedPobFiles(failed));
+            else toast.success("POB saved");
             onDone?.();
         } catch (error) {
             console.error("Failed to save POB", error);
@@ -354,6 +367,13 @@ export function VisitPobEditor({ event, onDone }) {
                                         </p>
                                     )}
                                 </div>
+
+                                <PobAttachments
+                                    quotationName={event.reference_docname || null}
+                                    changes={fileChanges}
+                                    onChange={setFileChanges}
+                                    disabled={isSaving}
+                                />
                             </div>
                         ) : null}
                     </>

@@ -47,6 +47,12 @@ import {
   formatDateForERP,
   saveDocToQuotation,
 } from "@calendar/components/calendar/module/event/services/event.service";
+import {
+  EMPTY_POB_FILE_CHANGES,
+  describeFailedPobFiles,
+  savePobFiles,
+} from "@calendar/components/calendar/module/event/services/pob-files.service";
+import { PobAttachments } from "@calendar/components/calendar/module/event/components/event-details/PobAttachments";
 
 import { getEndpointConfigFromUrlKeyAsync } from "@/app/graphql-playground/constants";
 
@@ -869,6 +875,8 @@ export default function DoctorPobDialog({
   const [bootError, setBootError] = useState(null);
   const [isLoading, setIsLoading] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
+  // Photos and PDFs for this POB; uploaded once the Quotation exists.
+  const [fileChanges, setFileChanges] = useState(EMPTY_POB_FILE_CHANGES);
 
   const [span, setSpan] = useState(null);
   const [fetchedRoles, setFetchedRoles] = useState([]);
@@ -921,6 +929,7 @@ export default function DoctorPobDialog({
     setFetchedRoles([]);
     setDoctorTerritory(null);
     setBootError(null);
+    setFileChanges(EMPTY_POB_FILE_CHANGES);
     // form is a stable RHF instance.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open]);
@@ -1505,7 +1514,11 @@ export default function DoctorPobDialog({
 
       const saved = await saveDocToQuotation(quotationDoc);
 
-      toast.success(`POB saved — ${saved.name}`);
+      // Files hang on the Quotation, so they go up once it is saved.
+      const { failed } = await savePobFiles(saved.name, fileChanges);
+
+      if (failed.length) toast.warning(describeFailedPobFiles(failed));
+      else toast.success(`POB saved — ${saved.name}`);
       onSaved?.({
         quotation: saved.name,
         doctorId,
@@ -1802,6 +1815,15 @@ export default function DoctorPobDialog({
                     </button>
                   </div>
                 )}
+              </Section>
+
+              <Section title="Attachments" hint="Optional">
+                <PobAttachments
+                  title={null}
+                  changes={fileChanges}
+                  onChange={setFileChanges}
+                  disabled={isSaving}
+                />
               </Section>
             </div>
           </Form>

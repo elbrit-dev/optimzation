@@ -95,6 +95,12 @@ import { resolvePobDepartments } from "@calendar/lib/calendar/pobDepartments";
 import { saveDocToErp } from "@calendar/components/calendar/module/todo/services/todo.service";
 import { uploadFileToDoc, uploadLeaveMedicalCertificate } from "@calendar/lib/file.service";
 import {
+	EMPTY_POB_FILE_CHANGES,
+	describeFailedPobFiles,
+	savePobFiles,
+} from "@calendar/components/calendar/module/event/services/pob-files.service";
+import { PobAttachments } from "@calendar/components/calendar/module/event/components/event-details/PobAttachments";
+import {
 	TRAVEL_MODE_OPTIONS,
 	TRAVEL_MODES,
 	canUseTravelRequest,
@@ -186,6 +192,8 @@ export function AddEditEventDialog({
 	const [distanceKm, setDistanceKm] = useState(null);
 	const endDateTouchedRef = useRef(false); // existing
 	const pobRowsEndRef = useRef(null);
+	// Files picked or removed on the POB; written after the Quotation is saved.
+	const [pobFileChanges, setPobFileChanges] = useState(EMPTY_POB_FILE_CHANGES);
 	const [showReason, setShowReason] = useState(false);
 	const [googleCalendarEnabled, setGoogleCalendarEnabled] = useState(false);
 	const [meetingMode, setMeetingMode] = useState("physical");
@@ -1395,6 +1403,7 @@ export function AddEditEventDialog({
 		`${prefix}-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
 	const resetAndCloseDialog = () => {
 		endDateTouchedRef.current = false;
+		setPobFileChanges(EMPTY_POB_FILE_CHANGES);
 		reset({
 			title: "", description: "", employees: undefined,
 			doctor: isDoctorMulti ? [] : undefined,
@@ -1977,6 +1986,8 @@ export function AddEditEventDialog({
 				toast.error("You're on leave on this day");
 				return;
 			}
+			// Files picked before a Cancel are not carried into the next open.
+			setPobFileChanges(EMPTY_POB_FILE_CHANGES);
 			onOpen();
 			return;
 		}
@@ -2137,6 +2148,16 @@ export function AddEditEventDialog({
 			updateEvent(savedCalendarEvent);
 		} else {
 			addEvent(savedCalendarEvent);
+		}
+
+		// Files hang on the Quotation, so they go up once it is saved. A file that
+		// fails does not undo the visit or the POB; the user is told which.
+		if (quotationDoc && workingDoc.reference_docname) {
+			const { failed } = await savePobFiles(
+				workingDoc.reference_docname,
+				pobFileChanges
+			);
+			if (failed.length) toast.warning(describeFailedPobFiles(failed));
 		}
 
 		finalize(isEditing ? "Event updated" : "Event created");
@@ -3974,6 +3995,13 @@ export function AddEditEventDialog({
 										+ Add Item
 									</Button>
 									<div ref={pobRowsEndRef} aria-hidden="true" />
+
+									<PobAttachments
+										quotationName={event?.reference_docname || null}
+										changes={pobFileChanges}
+										onChange={setPobFileChanges}
+										disabled={form.formState.isSubmitting}
+									/>
 								</div>
 							)}
 						{/* ================= Notes ================= */}
