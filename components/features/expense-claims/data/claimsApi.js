@@ -258,7 +258,16 @@ async function addRunningFields(conn, employee, nodes) {
     fields: JSON.stringify(["name"]),
     limit_page_length: "500",
   });
-  const running = new Set(((await rest(conn, `/api/resource/Expense%20Claim?${q}`)).data || []).map((r) => r.name));
+  // An ERP without the field yet (prod before its console run) has no running
+  // claims: read on without them rather than fail the whole page.
+  let found;
+  try {
+    found = (await rest(conn, `/api/resource/Expense%20Claim?${q}`)).data || [];
+  } catch (e) {
+    console.warn("[expense-claims] running claims unreadable on this ERP:", e.message);
+    return;
+  }
+  const running = new Set(found.map((r) => r.name));
   await Promise.all(nodes.filter((n) => running.has(n.name)).map(async (n) => {
     const doc = (await rest(conn, `/api/resource/Expense%20Claim/${encodeURIComponent(n.name)}`)).data || {};
     const rows = new Map((doc.expenses || []).map((r) => [r.name, r]));
