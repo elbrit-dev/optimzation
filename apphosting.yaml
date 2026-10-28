@@ -118,7 +118,9 @@ env:
   # Claim AI Guard" and "Expense Running Guard". "token <api_key>:<api_secret>",
   # one per ERP (the secret differs): the page's ERP picks which is used.
   - variable: ERP_AI_CHECKER_TOKEN
-    secret: erp-ai-checker-token
+    # Pinned: App Hosting kept resolving the disabled version 1 after version 2
+    # (it@elbrit.org's prod key, 28 Oct 2026) was added. Bump on rotation.
+    secret: erp-ai-checker-token@2
     availability: [RUNTIME]
   - variable: ERP_AI_CHECKER_TOKEN_UAT
     secret: erp-ai-checker-token-uat
