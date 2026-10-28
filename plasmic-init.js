@@ -315,7 +315,7 @@ PLASMIC.registerComponent(ImpersonateSwitch, {
   name: "ImpersonateSwitch",
   displayName: "Impersonate Switch",
   description:
-    "The header's Impersonate button and its form (Employee, UID, your email + Reason, Cancel / Switch): a bottom sheet on a phone, a small centred dialog on desktop. The Employee picker searches email, phone, employee code and name. The button is a mask icon on a phone and icon + label from 768px; while impersonating it turns amber (the name is in its tooltip), the form offers Back to me, and Switch stays available to jump to the next person. Hides itself for anyone not allowed (see `me`).",
+    "The header's Impersonate button and its form (Employee, your email + Reason, Cancel / Switch): a bottom sheet on a phone, a small centred dialog on desktop. The Employee picker searches email, phone, employee code and name. The button is a mask icon on a phone and icon + label from 768px; while impersonating it turns amber (the name is in its tooltip), the form offers Back to me, and Switch stays available to jump to the next person. Hides itself for anyone not allowed (see `me`).",
   isDefaultExport: true,
   importPath: "./components/ImpersonateSwitch",
   props: {

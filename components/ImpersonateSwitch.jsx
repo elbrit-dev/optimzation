@@ -13,9 +13,9 @@ import {
 } from './Impersonation';
 
 /**
- * ImpersonateSwitch: the header's "Impersonate" button and its form, the same
- * shape as the Studio modal it replaces (Employee, UID, your email + Reason,
- * Cancel / Switch).
+ * ImpersonateSwitch: the header's "Impersonate" button and its form, the
+ * Studio modal it replaces minus its UID box (Employee, your email + Reason,
+ * Cancel / Switch), with large controls for a phone.
  *
  * A short form, so the design system's Sheet with desktop="dialog": a bottom
  * sheet on a phone (swipe down or back to close), a small centred dialog from
@@ -53,6 +53,14 @@ const TRIGGER_CSS = `
 @media (max-width: 767.98px) {
   .imp-switch .imp-switch__label { display: none; }
   .imp-switch.ds-btn { aspect-ratio: 1; padding-inline: 0; justify-content: center; }
+}
+/* The form is filled on a phone: large controls (40px) need text to match.
+   16px on a phone also stops iOS zooming into a focused input. */
+.imp-form .ds-field-input { font-size: var(--fs-14); }
+.imp-form .ds-listrow__title { font-size: var(--fs-14); }
+.imp-form .ds-listrow__subtitle { font-size: var(--fs-12); }
+@media (max-width: 767.98px) {
+  .imp-form .ds-field-input { font-size: var(--fs-16); }
 }
 `;
 
@@ -292,16 +300,25 @@ const ImpersonateSwitch = forwardRef(function ImpersonateSwitch(
       </Button>
 
       <Sheet.Root open={open || Boolean(previewOpen)} onOpenChange={(next) => !next && close()} desktop="dialog">
-        <Sheet.Popup surface="app" aria-label={title} initialFocus={inputRef}>
+        {/* No focus on open for touch or mouse: a focused search raises the
+            phone keyboard, and the back button then only drops the keyboard
+            and needs a second press to close. Keyboard users land in the
+            search as before. */}
+        <Sheet.Popup
+          surface="app"
+          aria-label={title}
+          className="imp-form"
+          initialFocus={(openType) => (openType === 'keyboard' ? inputRef.current : false)}
+        >
           <Sheet.Header>
             <Sheet.Title>{title}</Sheet.Title>
             {state.active ? <Sheet.Description>Viewing as {currentName}</Sheet.Description> : null}
             <Sheet.Close />
           </Sheet.Header>
 
-          <Sheet.Body style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-8)' }}>
+          <Sheet.Body style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-12)' }}>
             {state.active ? (
-              <Button type="default" size="app" block disabled={busy} onClick={doBack}>
+              <Button type="default" size="lg" block disabled={busy} onClick={doBack}>
                 Back to me ({you})
               </Button>
             ) : null}
@@ -309,7 +326,7 @@ const ImpersonateSwitch = forwardRef(function ImpersonateSwitch(
             <div>
               <Field
                 ref={inputRef}
-                size="app"
+                size="lg"
                 placeholder="Select an Employee"
                 value={query}
                 onChange={onType}
@@ -326,7 +343,7 @@ const ImpersonateSwitch = forwardRef(function ImpersonateSwitch(
                   <i
                     className={showList ? 'pi pi-chevron-up' : 'pi pi-chevron-down'}
                     aria-hidden="true"
-                    style={{ fontSize: 'var(--icon-sm, 12px)' }}
+                    style={{ fontSize: 'var(--fs-14)', padding: 'var(--space-8)', cursor: 'pointer' }}
                     onMouseDown={(e) => {
                       e.preventDefault();
                       setListOpen((v) => !v);
@@ -356,7 +373,7 @@ const ImpersonateSwitch = forwardRef(function ImpersonateSwitch(
                           role="option"
                           aria-selected={i === highlight}
                           aria-disabled={isCurrent || undefined}
-                          className="ds-listrow ds-listrow--dense ds-listrow--interactive"
+                          className="ds-listrow ds-listrow--interactive"
                           style={{
                             ...optionStyle,
                             backgroundColor: i === highlight ? 'var(--intent-info-wash)' : undefined,
@@ -387,12 +404,10 @@ const ImpersonateSwitch = forwardRef(function ImpersonateSwitch(
               ) : null}
             </div>
 
-            <Field size="app" placeholder="UID" value={pickedId} readOnly disabled aria-label="UID" />
-
             <div style={{ display: 'flex', gap: 'var(--space-8)' }}>
-              <Field size="app" value={you} readOnly disabled aria-label="You" style={{ flex: 1, minWidth: 0 }} />
+              <Field size="lg" value={you} readOnly disabled aria-label="You" style={{ flex: 1, minWidth: 0 }} />
               <Field
-                size="app"
+                size="lg"
                 placeholder={requireReason ? 'Reason' : 'Reason (optional)'}
                 value={reason}
                 onChange={setReason}
@@ -403,11 +418,11 @@ const ImpersonateSwitch = forwardRef(function ImpersonateSwitch(
             </div>
           </Sheet.Body>
 
-          <Sheet.Footer style={{ flexDirection: 'row', justifyContent: 'flex-end' }}>
-            <Button type="default" size="app" onClick={close}>
+          <Sheet.Footer style={{ flexDirection: 'row' }}>
+            <Button type="default" size="lg" style={{ flex: 1 }} onClick={close}>
               Cancel
             </Button>
-            <Button size="app" disabled={!canSwitch} loading={busy} onClick={doSwitch}>
+            <Button size="lg" style={{ flex: 1 }} disabled={!canSwitch} loading={busy} onClick={doSwitch}>
               Switch
             </Button>
           </Sheet.Footer>
