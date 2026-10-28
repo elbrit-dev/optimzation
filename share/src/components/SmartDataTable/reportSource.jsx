@@ -129,6 +129,14 @@ function _nestRows(flatRows, pathDimensions = null) {
       const parent = depth > 0 ? stack[depth - 1] : null;
       (parent ? parent._children : roots).push(row);
       stack[depth] = row;
+    } else if (raw.indent != null && depth < stack.length) {
+      // A leaf above the deepest open group closes the groups below it. In a
+      // full-depth export a childless HQ (a target, nothing billed) comes right
+      // after the previous HQ's deepest rows: it belongs to its Department, not
+      // to the last Brand opened under that other HQ.
+      stack.length = depth;
+      const parent = depth > 0 ? stack[depth - 1] : null;
+      (parent ? parent._children : roots).push(row);
     } else {
       const parent = stack[stack.length - 1] ?? null;
       (parent ? parent._children : roots).push(row);
