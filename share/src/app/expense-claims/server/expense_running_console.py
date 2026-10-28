@@ -10,7 +10,7 @@
 #               Checking  -> Verified   AI score 90+ (written by the checker)
 #                         -> In Review  below 90 -> a Task in Accounts
 #               In Review -> Verified / Rejected (Accounts, Rejected needs a
-#                            Review note)
+#                            Review note; never on their own claim)
 #             sanctioned_amount = amount when Verified, else 0. No reporting
 #             officer step.
 #   Cycle     from one payment to the next. When a Payment Entry for an
@@ -85,8 +85,11 @@ if doc.get("custom_running"):
         accounts = bool(frappe.db.exists("Project User", {"parent": PROJECT, "parenttype": "Project", "user": me}))
 
     emp = frappe.db.get_value("Employee", doc.employee, ["user_id"], as_dict=True) or {}
-    if not accounts and emp.get("user_id") != me:
+    own = emp.get("user_id") == me
+    if not accounts and not own:
         frappe.throw("You can only add bills to your own claim.")
+    # Who may decide a bill In Review: Accounts, never on their own claim.
+    decider = checker or (accounts and not own)
     if doc.docstatus == 0:
         other = frappe.db.get_value("Expense Claim", {"employee": doc.employee, "custom_running": 1, "docstatus": 0, "name": ["!=", doc.name]}, "name")
         if other:
@@ -127,7 +130,9 @@ if doc.get("custom_running"):
         elif edited and not checker:
             st = "Checking"
         elif st != was:
-            if not accounts:
+            if own and not checker and was == "In Review" and st in ["Verified", "Rejected"]:
+                frappe.throw("Bill " + str(r.idx) + ": a bill on your own claim is decided by someone else in Accounts.")
+            if not decider:
                 st = was
             elif was == "In Review" and st in ["Verified", "Rejected"]:
                 if st == "Rejected" and not str(r.get("custom_review_note") or "").strip():
@@ -140,7 +145,7 @@ if doc.get("custom_running"):
         r.custom_bill_status = st
         # Accounts' note is written only while the bill is In Review (when they decide);
         # any other save keeps it -- a save that leaves the field out must not wipe it.
-        if not (accounts and was == "In Review") and not carry:
+        if not (decider and was == "In Review") and not carry:
             r.custom_review_note = o.get("custom_review_note") if o else None
         if not carry:
             r.custom_task = o.get("custom_task") if o else None    # set only by the Route / Close scripts

@@ -513,7 +513,7 @@ async function firebaseIdToken() {
    comparison and score still happen on send (checkClaim). Also says whether
    it is a printed bill at all (kind), so the form can refuse a handwritten
    bill or a wrong photo before anything is saved.
-   -> { amount, date, vendor, what, kind } (null = not read) */
+   -> { amount, date, vendor, what, kind, readable } (null = not read) */
 const VERIFY_URL = (process.env.NEXT_PUBLIC_VERIFY_DOC_URL || "https://verify-doc--elbrit-sso-d01d9.asia-southeast1.hosted.app").replace(/\/+$/, "");
 const BILL_FIELDS = {
   amount: { type: "number", description: "the FINAL amount actually paid: the grand / total amount, INCLUDING any handwritten additions or corrections and any handling or delivery fee -- never a sub-total, a tax line or a single item" },
@@ -523,10 +523,12 @@ const BILL_FIELDS = {
   // Only printed bills are accepted (27 Oct 2026): the form refuses anything else.
   kind: {
     type: "text",
+    judge: true, // not printed on the bill -- the model's own reading (verify-doc asks it never to be null)
     description: "classify the image, answer with exactly one of: PRINTED (a machine-printed bill, receipt, invoice or ticket -- a thermal till slip, a computer print-out, an e-ticket, a ride receipt; a printed slip with a small handwritten note or addition on it is still PRINTED); HANDWRITTEN (a bill whose items and amounts are written by hand, including a printed bill-book page with only the shop's name printed and the items and amounts filled in by hand); NOT_A_BILL (anything else -- a selfie, a person, a product, a screenshot of a chat or an app screen, a blank or unreadable page)",
   },
 };
-/* PRINTED / HANDWRITTEN / NOT_A_BILL as the AI answered it -> printed | handwritten | not_a_bill | null */
+/* PRINTED / HANDWRITTEN / NOT_A_BILL as the AI answered it -> printed | handwritten | not_a_bill | null
+   (null: no verdict -- a verify-doc without "judge" fields reads it as a printed value and leaves it empty) */
 const kindOf = (v) => {
   const s = String(v || "").toUpperCase().replace(/[^A-Z]/g, "");
   return s.startsWith("PRINT") ? "printed" : s.startsWith("HAND") ? "handwritten" : s.startsWith("NOT") ? "not_a_bill" : null;
@@ -552,6 +554,7 @@ export async function extractBill(conn, file, type) {
     vendor: v("vendor"),
     what: v("what_for"),
     kind: kindOf(v("kind")),
+    readable: json.document?.readable !== false,
   };
 }
 

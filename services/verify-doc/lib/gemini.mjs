@@ -74,6 +74,9 @@ export function buildPrompt({ fields, rules = [], context = "" }) {
       continue;
     }
     let line = `- "${key}" (${type})${desc}`;
+    // A judgement about the document itself (printed or handwritten, is it a
+    // bill at all) -- nothing on the page says it, so "as printed" would be null.
+    if (spec.judge) line += ". JUDGEMENT: your own reading of the document itself, not text printed on it -- always answer, never null";
     if (type === "text" && spec.match === "meaning" && spec.expected) {
       line += `. Also set matchesExpected: does the document fit "${spec.expected}"?`;
     }
@@ -84,7 +87,7 @@ export function buildPrompt({ fields, rules = [], context = "" }) {
     "You read business documents (bills, receipts, statements) for a verification service.",
     context ? `Context: ${context}` : "",
     "",
-    "Report ONLY what is printed on the documents. Never guess or compute a value that is not shown; use null when a value is absent or unreadable.",
+    "Report ONLY what is printed on the documents. Never guess or compute a value that is not shown; use null when a value is absent or unreadable. (A field marked JUDGEMENT is the one exception: answer it from how the document looks.)",
     'Copy values as printed (e.g. "₹1,250.00", "21/10/2026", "Sep-2026"). For an amount use the final payable total, not a sub-total or tax line.',
     "Several documents or pages may belong together; read them as one.",
     "confidence (0 to 1) = how sure you are that you read the value correctly.",

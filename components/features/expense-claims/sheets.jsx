@@ -107,8 +107,11 @@ export function BillSheet({ conn, me, claims = [], advances = [], today = new Da
     setRead({ busy: true });
     extractBill(conn, f, "Miscellaneous")
       .then((x) => {
-        // Only a bill the AI confirmed as printed is taken: handwritten, not a bill or unreadable is refused here.
-        if (x.kind !== "printed") return setRead((r) => (r?.busy ? { busy: false, wrong: x.kind || "unreadable" } : r));
+        // Handwritten, not a bill or unreadable is refused here. No verdict on a readable
+        // bill (an older verify-doc) goes through: the check on send still caps a
+        // handwritten bill and sends it to Accounts.
+        const wrong = x.kind === "handwritten" || x.kind === "not_a_bill" ? x.kind : !x.readable ? "unreadable" : null;
+        if (wrong) return setRead((r) => (r?.busy ? { busy: false, wrong } : r));
         setRead((r) => (r?.busy ? { ...x, busy: false, filled: !amount && x.amount ? x.amount : null } : r));
         if (x.amount && !(Number(amount) > 0)) setAmount(String(x.amount));
         if (x.date && x.date <= todayIso) setDate(x.date);

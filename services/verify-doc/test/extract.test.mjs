@@ -42,3 +42,11 @@ test("extract: no expected values, returns what was read -- typed, with items an
     config.openrouterKey = before.key;
   }
 });
+
+test("extract: a judge field is asked for as the model's own reading, never null", async () => {
+  const { buildPrompt } = await import("../lib/gemini.mjs");
+  const p = buildPrompt({ fields: { kind: { type: "text", description: "PRINTED or HANDWRITTEN", judge: true }, amount: { type: "number" } } });
+  assert.match(p, /"kind" \(text\) -- PRINTED or HANDWRITTEN\. JUDGEMENT: .*never null/);
+  assert.doesNotMatch(p, /"amount" \(number\)\. JUDGEMENT/);
+  assert.match(p, /A field marked JUDGEMENT is the one exception/);
+});
