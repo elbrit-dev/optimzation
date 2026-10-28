@@ -1,0 +1,1584 @@
+# ONE console for prod ERP, 28 Oct 2026 -- everything the app needs there:
+#   PART 1  Miscellaneous bills up to verification (no settlement): fields,
+#           Expense Running Guard / Route, Expense Claim AI Guard, workflow
+#           conditions  (= expense_verification_console.py)
+#   PART 2  Ring Nav: Expense / Verify tiles for the IT department only
+#           (= ring_nav_expense_it_console.py)
+# Built from those two files; do not edit by hand.
+#
+# Miscellaneous bills on PROD -- up to verification only (28 Oct 2026).
+# Generated from expense_running_console.py / expense_claim_ai_guard.py /
+# expense_claim_workflow_console.py: the code UAT runs. Do not edit by hand.
+#
+#   Bills     the employee's one open Miscellaneous claim (custom_running),
+#             one row per bill (photo in custom_bill). Bill status:
+#               Checking  -> Verified   AI score 90+ (written by it@elbrit.org)
+#                         -> In Review  below 90 -> a "Bill check" Task in
+#                                       Accounts (PROJ-2026-2027-0012), no one
+#                                       assigned
+#               In Review -> Verified / Rejected (Accounts; Rejected needs a
+#                            Review note; never on their own claim)
+#   Not here  settlement: no advances, no booking, no Accounts Payable, no
+#             Pay Task. The claim stays Draft; Verified is the final step.
+#   Workflow  "Expense Claim Approval": no approval action on a running claim
+#             (Withdraw only); Administrator may approve / reject / withdraw any.
+#
+# Installs / updates:
+#   fields   Expense Claim.custom_running, Expense Claim Detail.custom_bill_status
+#            / custom_review_note / custom_task / custom_bill_meta
+#   scripts  Expense Running Guard (Before Validate), Expense Running Route
+#            (After Save), Expense Claim AI Guard (Before Save)
+#   workflow transition conditions
+#
+# Paste into ERP > System Console (type Python), logged in as Administrator.
+# 1) DRY = True, "Commit" unticked: only prints.  2) DRY = False, tick Commit.
+# Safe to re-run. After running: Frappe Cloud -> Clear Cache, and restart the
+# site so GraphQL sees the new fields.
+
+DRY = True
+W = "WOULD " if DRY else ""
+
+FIELDS = [
+ {
+  "dt": "Expense Claim",
+  "fieldname": "custom_running",
+  "label": "Running claim (Miscellaneous)",
+  "fieldtype": "Check",
+  "insert_after": "approval_status",
+  "read_only": 1,
+  "no_copy": 1,
+  "in_standard_filter": 1,
+  "description": "The employee's open Miscellaneous claim: one row per bill, each verified by the AI check or by Accounts."
+ },
+ {
+  "dt": "Expense Claim Detail",
+  "fieldname": "custom_bill_status",
+  "label": "Bill status",
+  "fieldtype": "Select",
+  "options": "Checking\nVerified\nIn Review\nRejected",
+  "default": "Checking",
+  "insert_after": "custom_ai_reason",
+  "in_list_view": 1,
+  "columns": 1,
+  "no_copy": 1
+ },
+ {
+  "dt": "Expense Claim Detail",
+  "fieldname": "custom_review_note",
+  "label": "Review note",
+  "fieldtype": "Small Text",
+  "insert_after": "custom_bill_status",
+  "no_copy": 1,
+  "description": "Accounts: why the bill is rejected (required), or what was checked by hand"
+ },
+ {
+  "dt": "Expense Claim Detail",
+  "fieldname": "custom_task",
+  "label": "Accounts Task",
+  "fieldtype": "Link",
+  "options": "Task",
+  "insert_after": "custom_review_note",
+  "read_only": 1,
+  "no_copy": 1
+ },
+ {
+  "dt": "Expense Claim Detail",
+  "fieldname": "custom_bill_meta",
+  "label": "Bill Details (AI)",
+  "fieldtype": "JSON",
+  "insert_after": "custom_ai_reason",
+  "read_only": 1,
+  "no_copy": 1,
+  "description": "Everything the AI read off this row's bill: vendor, GSTIN, bill no., bill date, what for, payment mode, checks."
+ }
+]
+
+GUARD = r'''
+AI_USERS = ["Administrator", "it@elbrit.org"]                 # the AI bill checker
+PROJECT = "PROJ-2026-2027-0012"              # "Accounts"
+SEE_ALL = ["System Manager", "Accounts Manager", "Accounts User"]
+AUTO_SCORE = 90
+ROW_INPUT = ["amount", "expense_date", "expense_type", "description", "custom_bill"]
+
+old = doc.get_doc_before_save()
+if old and old.get("custom_running"):
+    doc.custom_running = 1
+if doc.get("custom_running"):
+    me = frappe.session.user
+    carry = bool(doc.flags.get("carry"))     # set by "Expense Cycle Close"
+    checker = me in AI_USERS or carry
+    # (no frappe.get_roles in this sandbox, and comprehensions cannot see SEE_ALL)
+    accounts = checker or bool(frappe.db.get_value("Has Role", {"parent": me, "parenttype": "User", "role": ["in", SEE_ALL]}, "role"))
+    if not accounts:
+        accounts = bool(frappe.db.exists("Project User", {"parent": PROJECT, "parenttype": "Project", "user": me}))
+
+    emp = frappe.db.get_value("Employee", doc.employee, ["user_id"], as_dict=True) or {}
+    own = emp.get("user_id") == me
+    if not accounts and not own:
+        frappe.throw("You can only add bills to your own claim.")
+    # Who may decide a bill In Review: Accounts, never on their own claim.
+    decider = checker or (accounts and not own)
+    if doc.docstatus == 0:
+        other = frappe.db.get_value("Expense Claim", {"employee": doc.employee, "custom_running": 1, "docstatus": 0, "name": ["!=", doc.name]}, "name")
+        if other:
+            frappe.throw(str(doc.employee_name or doc.employee) + " already has an open claim, " + other + ". Add the bill there.")
+
+    if not doc.cost_center:
+        doc.cost_center = frappe.get_cached_value("Company", doc.company, "cost_center")
+    prev = {}
+    if old:
+        for o in old.expenses or []:
+            prev[o.name] = o
+    seen = []
+    for r in doc.expenses or []:
+        o = prev.get(r.name)
+        seen.append(r.name)
+        if not r.cost_center:
+            r.cost_center = doc.cost_center      # the claim cannot be booked without it
+        if r.expense_type != "Miscellaneous":
+            frappe.throw("Bill " + str(r.idx) + ": only Miscellaneous bills go on this claim.")
+        r.description = " ".join(str(r.description or "").split())
+        if not r.description:
+            frappe.throw("Bill " + str(r.idx) + ": say what it was for.")
+        was = (o.get("custom_bill_status") or "Checking") if o else None
+        st = r.get("custom_bill_status") or was or "Checking"   # not sent = unchanged
+        edited = False
+        if o:
+            for f in ROW_INPUT:
+                if f == "amount":
+                    if frappe.utils.flt(r.get(f)) != frappe.utils.flt(o.get(f)):   # 85 vs 85.0
+                        edited = True
+                elif str(r.get(f) or "") != str(o.get(f) or ""):
+                    edited = True
+        if edited and was != "Checking" and not checker:
+            frappe.throw("Bill " + str(r.idx) + " is already " + was + " and can no longer change.")
+        if not o:
+            if not checker:
+                st = "Checking"
+        elif edited and not checker:
+            st = "Checking"
+        elif st != was:
+            if own and not checker and was == "In Review" and st in ["Verified", "Rejected"]:
+                frappe.throw("Bill " + str(r.idx) + ": a bill on your own claim is decided by someone else in Accounts.")
+            if not decider:
+                st = was
+            elif was == "In Review" and st in ["Verified", "Rejected"]:
+                if st == "Rejected" and not str(r.get("custom_review_note") or "").strip():
+                    frappe.throw("Bill " + str(r.idx) + ": say why it is rejected (Review note).")
+            elif not checker:
+                frappe.throw("Bill " + str(r.idx) + " is " + was + ": only a bill In Review can be decided.")
+        # The AI checker's result decides a bill still being checked
+        if st == "Checking" and me in AI_USERS and r.get("custom_ai_reason"):
+            st = "Verified" if frappe.utils.flt(r.get("custom_ai_score")) >= AUTO_SCORE else "In Review"
+        r.custom_bill_status = st
+        # Accounts' note is written only while the bill is In Review (when they decide);
+        # any other save keeps it -- a save that leaves the field out must not wipe it.
+        if not (decider and was == "In Review") and not carry:
+            r.custom_review_note = o.get("custom_review_note") if o else None
+        if not carry:
+            r.custom_task = o.get("custom_task") if o else None    # set only by the Route / Close scripts
+        r.sanctioned_amount = r.amount if st == "Verified" else 0
+    for name in prev:
+        if name not in seen and (prev[name].get("custom_bill_status") or "Checking") != "Checking" and not checker:
+            frappe.throw("Bill " + str(prev[name].idx) + " is " + str(prev[name].custom_bill_status) + " and cannot be removed.")
+'''
+
+ROUTE = r'''
+PROJECT = "PROJ-2026-2027-0012"              # "Accounts"
+OPEN = ["Open", "Working", "Pending Review", "Overdue"]
+
+if doc.get("custom_running"):
+    who = str(doc.employee_name or doc.employee)
+    link = frappe.utils.get_url() + "/app/expense-claim/" + doc.name
+    for r in doc.expenses or []:
+        st = r.get("custom_bill_status")
+        if st == "In Review" and not r.get("custom_task"):
+            amount = frappe.utils.fmt_money(r.amount, currency="INR")
+            title = str(r.description or "").replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
+            why = str(r.get("custom_ai_reason") or "No AI reason recorded.").replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
+            body = "<p><b>" + who + "</b> (" + str(doc.employee) + "), claim <a href='" + link + "'>" + doc.name + "</a>, bill " + str(r.idx) + ": <b>"
+            body = body + title + "</b>, " + amount + " on " + str(r.expense_date) + ".</p><p>AI score " + str(frappe.utils.cint(r.get("custom_ai_score")))
+            body = body + " (" + str(r.get("custom_ai_risk") or "") + "): " + why + "</p>"
+            if r.get("custom_bill"):
+                body = body + "<p><a href='" + frappe.utils.get_url() + str(r.custom_bill) + "'>Open the bill</a></p>"
+            body = body + "<p>Open the claim, set the bill's <b>Bill status</b> to Verified, or to Rejected with a Review note, and save.</p>"
+            t = frappe.get_doc({"doctype": "Task", "subject": "Bill check - " + who + " - " + str(r.description) + " - " + amount + " (" + doc.name + ")",
+                "project": PROJECT, "status": "Open", "priority": "Medium", "exp_start_date": frappe.utils.today(), "description": body})
+            t.flags.ignore_permissions = True
+            t.insert()
+            frappe.db.set_value("Expense Claim Detail", r.name, "custom_task", t.name)
+        elif st in ["Verified", "Rejected"] and r.get("custom_task"):
+            if frappe.db.get_value("Task", r.custom_task, "status") in OPEN:
+                frappe.db.set_value("Task", r.custom_task, "status", "Completed" if st == "Verified" else "Cancelled")
+'''
+
+AI_GUARD = r'''
+AI_USERS = ["Administrator", "it@elbrit.org"]
+ROW_AI = ["custom_bill_amount", "custom_bill_date", "custom_bill_vendor", "custom_ai_score", "custom_ai_reason", "custom_bill_meta"]
+ROW_INPUT = ["amount", "expense_date", "expense_type", "custom_sub_type", "custom_bill"]
+
+old = doc.get_doc_before_save()
+prev = {}
+if old:
+    for o in old.expenses or []:
+        prev[o.name] = o
+
+checker = frappe.session.user in AI_USERS
+stale = False
+
+for r in doc.expenses or []:
+    o = prev.get(r.name)
+    if not checker:
+        for f in ROW_AI:
+            r.set(f, o.get(f) if o else None)
+    changed = o is None
+    if o:
+        for f in ROW_INPUT:
+            if f == "amount":
+                if frappe.utils.flt(r.get(f)) != frappe.utils.flt(o.get(f)):   # 85 vs 85.0
+                    changed = True
+            elif str(r.get(f) or "") != str(o.get(f) or ""):
+                changed = True
+    if changed and not (checker and r.get("custom_ai_reason")):
+        for f in ROW_AI:
+            r.set(f, None)
+        stale = True
+
+if old and len(old.expenses or []) != len(doc.expenses or []):
+    stale = True
+
+# Money bookkeeping is written only by "Expense Claim Route" (db.set_value,
+# which skips this script) -- a save from anyone else keeps what was there.
+for f in ["custom_additional_salary", "custom_advance_balance", "custom_advance_spent", "custom_advance_covered"]:
+    doc.set(f, old.get(f) if old else None)
+
+if not checker:
+    doc.custom_ai_score = old.get("custom_ai_score") if old else None
+    doc.custom_ai_summary = old.get("custom_ai_summary") if old else None
+if stale and not (checker and doc.get("custom_ai_summary")):
+    doc.custom_ai_score = None
+    doc.custom_ai_summary = None
+
+# Risk always follows the score, never typed: 90+ Low, 70-89 Medium, else High.
+# An empty Percent reads back as 0, so "checked" means the AI wrote its
+# reason (row) / summary (claim) -- it always does. Unchecked = no risk.
+for r in doc.expenses or []:
+    s = frappe.utils.flt(r.get("custom_ai_score"))
+    r.custom_ai_risk = None if not r.get("custom_ai_reason") else ("Low" if s >= 90 else ("Medium" if s >= 70 else "High"))
+s = frappe.utils.flt(doc.get("custom_ai_score"))
+doc.custom_ai_risk = None if not doc.get("custom_ai_summary") else ("Low" if s >= 90 else ("Medium" if s >= 70 else "High"))
+'''
+
+for f in FIELDS:
+    key = f["dt"] + "-" + f["fieldname"]
+    if frappe.db.exists("Custom Field", key):
+        print("ok: field " + key)
+    else:
+        print(W + "add field " + key)
+        if not DRY:
+            d = {"doctype": "Custom Field"}
+            for k in f:
+                d[k] = f[k]
+            frappe.get_doc(d).insert(ignore_permissions=True)
+
+SCRIPTS = [
+    {"name": "Expense Running Guard", "script_type": "DocType Event", "reference_doctype": "Expense Claim", "doctype_event": "Before Validate", "script": GUARD},
+    {"name": "Expense Running Route", "script_type": "DocType Event", "reference_doctype": "Expense Claim", "doctype_event": "After Save", "script": ROUTE},
+    {"name": "Expense Claim AI Guard", "script_type": "DocType Event", "reference_doctype": "Expense Claim", "doctype_event": "Before Save", "script": AI_GUARD},
+]
+for s in SCRIPTS:
+    if frappe.db.exists("Server Script", s["name"]):
+        print(W + "update Server Script " + s["name"])
+        if not DRY:
+            ss = frappe.get_doc("Server Script", s["name"])
+            for k in s:
+                if k != "name":
+                    ss.set(k, s[k])
+            ss.disabled = 0
+            ss.save(ignore_permissions=True)
+    else:
+        print(W + "create Server Script " + s["name"])
+        if not DRY:
+            d = {"doctype": "Server Script", "disabled": 0}
+            for k in s:
+                d[k] = s[k]
+            frappe.get_doc(d).insert(ignore_permissions=True)
+
+# Workflow: the same conditions as expense_claim_workflow_console.py.
+VERIFIER = "sathish.admin@elbrit.org"
+NOT_RUNNING = "not doc.get(\"custom_running\")"
+ADMIN = "frappe.session.user == \"Administrator\""
+APPROVER = "(doc.expense_approver == frappe.session.user or " + ADMIN + ") and " + NOT_RUNNING
+OWNER = "doc.owner == frappe.session.user or " + ADMIN + " or doc.get(\"custom_running\")"
+VERIFY = "frappe.session.user in ['" + VERIFIER + "', 'Administrator'] and " + NOT_RUNNING
+WANT = {
+    "Draft|Send for Approval": NOT_RUNNING,
+    "Rejected|Send for Approval": NOT_RUNNING,
+    "Waiting for Approval|Withdraw": OWNER,
+    "Waiting for Approval|Approve": APPROVER,
+    "Waiting for Approval|Reject": APPROVER,
+    "In Review|Verify": VERIFY,
+    "In Review|Reject": VERIFY,
+}
+WF = "Expense Claim Approval"
+if not frappe.db.exists("Workflow", WF):
+    print("MISSING workflow " + WF + " -- run expense_claim_workflow_console.py first")
+else:
+    wf = frappe.get_doc("Workflow", WF)
+    n = 0
+    for t in wf.transitions:
+        k = str(t.state) + "|" + str(t.action)
+        if k in WANT and (t.condition or "") != WANT[k]:
+            print(W + "set condition " + k + ": " + WANT[k])
+            t.condition = WANT[k]
+            n = n + 1
+    if n == 0:
+        print("ok: workflow conditions")
+    elif not DRY:
+        wf.save(ignore_permissions=True)
+
+
+# ======================================================= PART 2: Ring Nav
+NAME = "Elbrit Ring Nav"
+BASE_SHA1 = "9ca11ad5aaa58f2e535e13897ca6e95f6b31a82b"
+BASE_LEN = 56127
+
+SCRIPT = r'''# =====================================================================
+# SERVER SCRIPT — the source of truth for the ERP's copy. Keep in step.
+#
+#   Name        : Elbrit Ring Nav
+#   Script Type : API
+#   API Method  : elbrit_ring_nav
+#   Allow Guest : NO
+#
+#   GET /api/method/elbrit_ring_nav
+#   GET /api/method/elbrit_ring_nav?month=2026-09     entries of that month
+#   GET /api/method/elbrit_ring_nav?today=2026-10-03  as if it were that day
+#
+# THE CALENDAR. A month's secondary is keyed in during the next month
+# (July's trackers were all raised in August on production), due by
+# its task's due day — SECONDARY AND DOCTOR SUPPORT THE 10TH (TASKS
+# "due_day"; ENTRY_DUE_DAY otherwise. A due day past a month's last day
+# would be that last day, so 31 means "month end"):
+#   - the entry month is LAST month (`month` overrides it);
+#   - the Secondary entry tile is on the strip from ENTRY_FROM_DAY to the
+#     due day, its caption the due date, "10 Oct", while anything is left —
+#     except for users whose Role Profile is "IT", who see it every day;
+#   - the approval tile keeps the same window — for IT too: past the due
+#     day nobody gets it — and the same due date as its caption while
+#     anything waits;
+#     its "approved" counts that same month.
+# `today` stands in for the server's date — to preview the strip on the 3rd.
+#
+# The Elbrit app's Ring Nav tiles for the CALLER, ready to draw: the app
+# renders `items` as they come. READ-ONLY, and AS THE CALLER: every count
+# is a frappe.get_list, so the ERP's own permissions decide what is counted
+# — the same rows the caller sees on Secondary Entry and Secondary
+# Approval. Nothing here decides who approves whom; no raw SQL.
+#
+# Answer:
+#   { "user", "seat", "month", "items": [ <tile>, ... ] }
+# A tile is Ring Nav's item: { id, label, href, icon, statusIcon,
+#   statusTone, count, caption, captionTone, segments: [{ key, value,
+#   tone, label }] }. Entry tiles first, then approval tiles. More tasks
+#   are more tiles. SERVICE (Doctor Service) is apart: two tiles by role,
+#   every day -- see "SERVICE" near the end. So is EXPENSE (claim approval
+#   for reporting officers, verification for the verifier) -- see "EXPENSE".
+#
+# TWO TASKS, the same rules (TASKS below): SECONDARY (Secondary Data Entry,
+# per stockist) and DOCTOR SUPPORT (Doctor Support, per doctor). Each gets an
+# entry tile and an approval tile as described here for Secondary. A task
+# marked "it_only" in TASKS gives its tiles to the IT role profile alone
+# (none is, now: Doctor Support is open to everyone).
+#
+# SECONDARY ENTRY — every entry the caller may see for the entry month (the
+# "Secondary Data Entry Permission Query" decides), each in ONE bucket for
+# the caller's seat (their active Employee's custom_role_profile). Within an entry only
+# the seat's lines count — an entry carries several seats' lines:
+#   approved  its approval row says "... Approved and Waiting for
+#             Verification" or verified — green at once, MIS verifying is
+#             not waited for — whatever its lines say
+#   rejected  its approval row says Rejected, or Rework (sent back while
+#             waiting) — back to the BE (likewise)
+#   draft     otherwise: none of the seat's lines yet, or any still Draft
+#   waiting   otherwise: all out of Draft, "... Approval Waiting" (or no
+#             row yet)
+# A decided approval (approved / rejected) wins over Draft lines: it proves
+# the seat submitted.
+# The approval's state is read from the entry's status rows: a BE cannot
+# read their own trackers.
+#
+# NO SEAT, IT ROLE PROFILE — an OVERVIEW instead: every stockist x seat
+# across the entries they may see, bucketed the same way (a seat's lines on
+# an entry are one unit, as one approval; an entry with no lines at all is
+# one draft unit). Anyone else without a seat gets no entry tile.
+#
+# SECONDARY APPROVAL — for someone with work waiting on them, and for every
+# MANAGER (anyone with people under them in the reporting chain), in the
+# entry window, for the entry month (last month — as the Approval screen
+# shows). Waiting on them: a Secondary tracker in "... Approval Waiting"
+# whose next_approver is the caller — or, for a manager, any of their
+# team's trackers waiting on anyone (read past permissions, their subtree
+# only). A BE, with no team and nothing waiting, gets none.
+#   waiting   the PEOPLE (sales persons who raised figures) with at least
+#             one of those trackers — not stockists: one person raises many
+#   approved  the PEOPLE whose every tracker of the month the caller can see
+#             (the "Operational Tracker Restriction" decides) is approved —
+#             from "Waiting for Verification" on; "... Verification Rejected"
+#             is not. A tracker's month is its record's own `date` field.
+# The IT role profile ALWAYS gets it, as an overview: the people with anything
+# of the entry month waiting, and the people fully approved.
+#
+# safe_exec: no import, no .format(), no set literals, no tuple
+# unpacking, no underscore-prefixed names.
+# =====================================================================
+
+HREFS = {"secondary-entry": "/secondary/entry",
+         "secondary-approval": "/secondary/approval",
+         "doctor-support-entry": "/doctor-support/entry",
+         "doctor-support-approval": "/doctor-support/approval"}
+ENTRY_FROM_DAY = 1
+ENTRY_DUE_DAY = 13     # default due day; a task's "due_day" overrides it (past the month's end would mean its last day)
+ALWAYS_ROLE_PROFILE = "IT"   # users with this Role Profile see the tiles every day
+MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun",
+          "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"]
+
+
+def bucket_of(ws):
+    s = (ws or "").lower()
+    if not s:
+        return "waiting"
+    if "rejected" in s or s == "rework":
+        return "rejected"
+    if s.endswith("approval waiting"):
+        return "waiting"
+    if "approved" in s or "verified" in s:
+        return "approved"
+    return "waiting"
+
+
+def valid_month(m):
+    if not m or len(m) != 7 or m[4] != "-":
+        return False
+    return m[:4].isdigit() and m[5:].isdigit() and 1 <= int(m[5:]) <= 12
+
+
+def valid_date(d):
+    if not d or len(d) != 10 or d[4] != "-" or d[7] != "-":
+        return False
+    return (d[:4].isdigit() and d[5:7].isdigit() and d[8:].isdigit()
+            and valid_month(d[:7]) and 1 <= int(d[8:]) <= 31)
+
+
+def month_before(m):
+    y = int(m[:4])
+    mo = int(m[5:])
+    if mo == 1:
+        return str(y - 1) + "-12"
+    return str(y) + "-" + ("0" if mo - 1 < 10 else "") + str(mo - 1)
+
+
+def count(doctype, filters):
+    rows = frappe.get_list(doctype, filters=filters,
+                           fields=["count(name) as n"], limit_page_length=0)
+    return int((rows[0].get("n") if rows else 0) or 0)
+
+
+me = frappe.session.user
+today = frappe.form_dict.get("today") or ""
+if not valid_date(today):
+    today = frappe.utils.nowdate()
+day = int(today[8:])
+month = frappe.form_dict.get("month") or ""
+if not valid_month(month):
+    month = month_before(today[:7])
+# The user's Role Profile — the one on the User, or any of several where
+# the ERP allows more than one (the "User Role Profile" table).
+always = frappe.db.get_value("User", me, "role_profile_name") == ALWAYS_ROLE_PROFILE
+if not always:
+    try:
+        always = bool(frappe.db.exists("User Role Profile", {
+            "parenttype": "User", "parent": me,
+            "role_profile": ALWAYS_ROLE_PROFILE}))
+    except Exception:
+        always = False
+# The due day, capped at this month's last day — so 31 is "the end of the
+# month" every month, February included.
+last_day = int(str(frappe.utils.get_last_day(today))[8:10])
+due_day = ENTRY_DUE_DAY if ENTRY_DUE_DAY < last_day else last_day
+
+
+def window_of(task):
+    # A task's own due day (TASKS "due_day", else ENTRY_DUE_DAY), capped at
+    # this month's last day. The window both its tiles keep: ENTRY_FROM_DAY
+    # to the due day, the due day's end included. The entry tile shows for
+    # the IT role profile on any day; the approval tile never past the due
+    # day, IT included.
+    d = task.get("due_day") or ENTRY_DUE_DAY
+    d = d if d < last_day else last_day
+    open_now = ENTRY_FROM_DAY <= day <= d
+    return {"open": open_now, "entry": always or open_now,
+            "label": str(d) + " " + MONTHS[int(today[5:7]) - 1]}
+first = month + "-01"
+last = str(frappe.utils.get_last_day(first))
+in_month = ["date", "between", [first, last]]
+
+emp = frappe.get_list("Employee",
+                      filters={"user_id": me, "status": "Active"},
+                      fields=["name", "role_id", "custom_role_profile"],
+                      limit_page_length=1)
+seat = ""
+if emp:
+    # custom_role_profile, as the ERP's tracker scripts route on it: role_id
+    # is stale for some people (an old seat, e.g. from before a promotion).
+    seat = emp[0].get("custom_role_profile") or emp[0].get("role_id") or ""
+
+# ---- THE CALLER'S TEAM: the seats of everyone under them in the reporting
+# chain (Employee reports_to, any depth). A manager's approval tile counts
+# their whole team, as their Approval screen lists it — read past
+# permissions (frappe.get_all), for that subtree only.
+team_seats = {}
+if emp and emp[0].get("name"):
+    frontier = [emp[0].get("name")]
+    reached = {frontier[0]: 1}
+    hops = 0
+    while frontier and hops < 8:
+        hops = hops + 1
+        below = []
+        i = 0
+        while i < len(frontier):
+            part = frontier[i:i + 500]
+            i = i + 500
+            for e in frappe.get_all("Employee",
+                                    filters=[["reports_to", "in", part], ["status", "=", "Active"]],
+                                    fields=["name", "custom_role_profile"], limit_page_length=0):
+                if reached.get(e.get("name")):
+                    continue
+                reached[e.get("name")] = 1
+                below.append(e.get("name"))
+                if e.get("custom_role_profile"):
+                    team_seats[e.get("custom_role_profile")] = 1
+        frontier = below
+has_team = len(team_seats) > 0
+
+
+def is_vacant_name(n):
+    return (n or "")[:6].lower() == "vacant"
+
+
+def owner_seat(s):
+    # The seat whose approval carries `s`'s lines — as the ERP's tracker
+    # scripts (src/app/tracker/server) raise it: `s` itself when someone real
+    # holds it; else the nearest seat above with a live holder, up reports_to
+    # from its placeholder holder, or up the Role Profile tree when no one
+    # holds it.
+    holders = frappe.get_all("Employee", filters={"custom_role_profile": s, "status": "Active"},
+                             fields=["employee_name", "reports_to"], limit=20)
+    climb = None
+    for h in holders:
+        if not is_vacant_name(h.get("employee_name")):
+            return s
+        if climb is None:
+            climb = h.get("reports_to")
+    if holders:
+        cur = climb
+        hops = 0
+        while cur and hops < 15:
+            hops = hops + 1
+            m = frappe.db.get_value("Employee", cur,
+                                    ["employee_name", "status", "reports_to", "custom_role_profile"], as_dict=True)
+            if not m:
+                break
+            if m.get("status") == "Active" and not is_vacant_name(m.get("employee_name")) and m.get("custom_role_profile"):
+                return m.get("custom_role_profile")
+            cur = m.get("reports_to")
+        return s
+    cur = frappe.db.get_value("Role Profile", s, "parent_role_profile")
+    hops = 0
+    while cur and hops < 15:
+        hops = hops + 1
+        for h in frappe.get_all("Employee", filters={"custom_role_profile": cur, "status": "Active"},
+                                fields=["employee_name"], limit=20):
+            if not is_vacant_name(h.get("employee_name")):
+                return cur
+        cur = frappe.db.get_value("Role Profile", cur, "parent_role_profile")
+    return s
+
+
+# ---- THE VACANT SEATS THE CALLER COVERS, as Elbrit Secondary Entry finds
+# them: the seats below theirs, at any level, that no Active Employee holds,
+# and the seats held only by "Vacant_" placeholders below them in the
+# reporting chain (walked through placeholders only). Their records count in
+# the caller's own entry tile — the caller enters them.
+covered = []
+if seat:
+    for r in frappe.get_all("Role Profile", filters={"parent_role_profile": seat}, pluck="name"):
+        if (r or "").startswith("BE") and not frappe.get_all(
+                "Employee", filters={"custom_role_profile": r, "status": "Active"}, limit=1):
+            covered.append(r)
+if emp and emp[0].get("name"):
+    frontier = [emp[0].get("name")]
+    reached = {frontier[0]: 1}
+    hops = 0
+    while frontier and hops < 8:
+        hops = hops + 1
+        below = []
+        for e in frappe.get_all("Employee", filters=[["reports_to", "in", frontier], ["status", "=", "Active"]],
+                                fields=["name", "employee_name", "custom_role_profile"], limit_page_length=0):
+            if reached.get(e.get("name")) or not is_vacant_name(e.get("employee_name")):
+                continue
+            reached[e.get("name")] = 1
+            below.append(e.get("name"))
+            s = e.get("custom_role_profile")
+            if not s or s in covered:
+                continue
+            live = 0
+            for h in frappe.get_all("Employee", filters={"custom_role_profile": s, "status": "Active"},
+                                    fields=["employee_name"], limit_page_length=20):
+                if not is_vacant_name(h.get("employee_name")):
+                    live = 1
+            if not live:
+                covered.append(s)
+        frontier = below
+# ... and the seats below theirs, at any level, that no Active Employee holds,
+# down the Role Profile tree through seats with no live holder.
+if seat:
+    frontier = [seat]
+    reached = {seat: 1}
+    hops = 0
+    while frontier and hops < 8:
+        hops = hops + 1
+        kids = []
+        for r in frappe.get_all("Role Profile", filters=[["parent_role_profile", "in", frontier]], pluck="name"):
+            if not reached.get(r):
+                reached[r] = 1
+                kids.append(r)
+        held = {}
+        live = {}
+        if kids:
+            for e in frappe.get_all("Employee", filters=[["custom_role_profile", "in", kids], ["status", "=", "Active"]],
+                                    fields=["custom_role_profile", "employee_name"], limit_page_length=0):
+                held[e.get("custom_role_profile")] = 1
+                if not is_vacant_name(e.get("employee_name")):
+                    live[e.get("custom_role_profile")] = 1
+        below = []
+        for k in kids:
+            if live.get(k):
+                continue
+            below.append(k)
+            if not held.get(k) and k not in covered:
+                covered.append(k)
+        frontier = below
+# ... and, for an EXTRA USER, every seat under theirs: they enter and approve
+# for their whole team (the list is copied by hand into Elbrit Secondary
+# Entry, Elbrit Doctor Support Entry, Operational Tracker Restriction and the
+# "Approval flow" steps: change them all together).
+EXTRA_USERS = ["kamesh@elbrit.org", "ramu@elbrit.org", "rahulbhargav@elbrit.org"]
+# ...and EVERY RBM AND SM: anyone whose own seat is an RBM or SM seat (RBM-,
+# SRBM-, Deputy RBM, SM-) is an extra user too, for their whole team.
+EXTRA_SEATS = ["RBM", "SRBM", "Deputy RBM", "SM"]
+if (me in EXTRA_USERS or (seat or "").split("-")[0] in EXTRA_SEATS) and seat:
+    frontier = [seat]
+    reached = {seat: 1}
+    hops = 0
+    while frontier and hops < 10:
+        hops = hops + 1
+        below = []
+        for r in frappe.get_all("Role Profile", filters=[["parent_role_profile", "in", frontier]], pluck="name"):
+            if not reached.get(r):
+                reached[r] = 1
+                below.append(r)
+                if r not in covered:
+                    covered.append(r)
+        frontier = below
+
+items = []
+# The tasks on the strip, each with an entry tile and an approval tile. The
+# same rules for both; only where the records live differs:
+#   doctype      the record a seat fills (one per stockist / doctor per date)
+#   party        its stockist / doctor field; party_doctype the record that
+#                lists which seats it is assigned to (Role Profile table)
+#   child        its lines' child doctype; rp / status their seat and status
+#   link         the Operational Tracker field naming the record
+#   prefix       tracker names: "<prefix><record>-<seat>"
+#   enabled      False: the task gets no tiles at all (entry or approval)
+#   it_only      True: only users with the IT role profile get its tiles
+#   due_day      the day of the month its entry is due (else ENTRY_DUE_DAY):
+#                its tiles' window and caption
+#   show_add     True: a seat with nothing to enter yet but stockists /
+#                doctors it could ADD (elbrit_secondary_add /
+#                elbrit_doctor_support_add) gets the entry tile, how many in
+#                its badge and the due date as its caption; False: no tile
+#   add_tone     that badge's and caption's tone: "warning" (amber), "brand",
+#                "danger" (CountBadge's tones)
+#   rp / status  the plain names; a child that has only custom_<name> (Doctor
+#                Support's Support Items on production) uses that instead
+TASKS = [
+    {"id": "secondary", "label": "Secondary", "icon": "calendar-clock",
+     "doctype": "Secondary Data Entry", "child": "Secondary Data Table",
+     "party": "distributor", "party_doctype": "Customer",
+     "rp": "custom_role_profile", "status": "custom_status",
+     "link": "custom_ref_secondary_data_entry", "prefix": "Secondary Data Entry-",
+     "due_day": 13, "hide_empty": False, "enabled": True,
+     "show_add": True, "add_tone": "warning"},
+    # A seat with no Doctor Support in the month gets no entry tile.
+    {"id": "doctor-support", "label": "Support", "icon": "file-check",
+     "doctype": "Doctor Support", "child": "Support Items",
+     "party": "doctor", "party_doctype": "Lead",
+     "rp": "role_profile", "status": "status",
+     "link": "reference", "prefix": "Doctor Support-",
+     "due_day": 13, "hide_empty": True, "enabled": True,
+     "show_add": True, "add_tone": "warning"},
+]
+
+
+def line_field(child, plain):
+    # A child's field as THIS ERP names it: the plain name unless only
+    # custom_<name> exists (Support Items: role_profile on UAT,
+    # custom_role_profile on production).
+    meta = frappe.get_meta(child)
+    if not meta.has_field(plain) and meta.has_field("custom_" + plain):
+        return "custom_" + plain
+    return plain
+
+
+for t in TASKS:
+    t["rp"] = line_field(t["child"], t["rp"])
+    t["status"] = line_field(t["child"], t["status"])
+
+
+READABLE = {}
+
+
+def can_read(doctype):
+    # Someone the ERP does not let read a doctype at all (a BE, MIS or SCM
+    # user and Operational Tracker, say) gets an empty list, not an error:
+    # frappe.get_list raises for them, and every such call used to land in
+    # the Error Log. frappe.has_permission and frappe.get_roles are not
+    # available to server scripts, so both are read from the tables: the
+    # user's roles (Has Role, plus the All and Guest every user has), and the
+    # doctype's role permissions — its Custom DocPerm rows when it has any
+    # (they replace the standard ones), else its DocPerm rows. Readable when
+    # any of the user's roles may read it.
+    if doctype in READABLE:
+        return READABLE[doctype]
+    if "roles" not in READABLE:
+        mine = ["All", "Guest"]
+        for r in frappe.get_all("Has Role", filters={"parenttype": "User", "parent": me},
+                                fields=["role"], limit_page_length=0):
+            mine.append(r.get("role"))
+        READABLE["roles"] = mine
+    roles = READABLE["roles"]
+    ok = me == "Administrator" or "System Manager" in roles
+    if not ok:
+        rows = frappe.get_all("Custom DocPerm", filters={"parent": doctype, "permlevel": 0},
+                              fields=["role", "read"], limit_page_length=0)
+        if not rows:
+            rows = frappe.get_all("DocPerm", filters={"parent": doctype, "parenttype": "DocType", "permlevel": 0},
+                                  fields=["role", "read"], limit_page_length=0)
+        for r in rows:
+            if r.get("read") and r.get("role") in roles:
+                ok = True
+                break
+    READABLE[doctype] = ok
+    return ok
+
+
+def record_of(t, task):
+    # The record a tracker is for: its link field, else from its name.
+    rec = t.get(task["link"])
+    if rec:
+        return rec
+    rec = t.get("name") or ""
+    if rec.startswith(task["prefix"]):
+        rec = rec[len(task["prefix"]):]
+    rp = t.get("role_profile") or ""
+    if rp and rec.endswith("-" + rp):
+        rec = rec[:-(len(rp) + 1)]
+    return rec
+
+
+# Who may ADD a party to the month (elbrit_secondary_add / elbrit_doctor_support_add):
+# a seat's own unadded stockists / doctors — a party whose Role Profile table
+# lists the seat (an enabled Customer, an Active Lead) and that has none of
+# the seat's lines in the month. Counted over the caller's seat and the seats
+# they enter for (covered vacant seats; an extra user's whole team), as the
+# Add scripts take them.
+PARTY_LIVE = {"Customer": [["disabled", "=", 0]], "Lead": [["status", "=", "Active"]]}
+
+
+def addable_count(task, seat_list):
+    n = 0
+    for s in seat_list:
+        mapped = []
+        for r in frappe.get_all("Role Profile Multiselect",
+                                filters={"parenttype": task["party_doctype"], "role_profile_list": s},
+                                fields=["parent"], limit_page_length=0):
+            if r.get("parent") and r.get("parent") not in mapped:
+                mapped.append(r.get("parent"))
+        if not mapped:
+            continue
+        live = {}
+        i = 0
+        while i < len(mapped):
+            for r in frappe.get_all(task["party_doctype"],
+                                    filters=[["name", "in", mapped[i:i + 500]]] + PARTY_LIVE.get(task["party_doctype"], []),
+                                    fields=["name"], limit_page_length=0):
+                live[r.get("name")] = 1
+            i = i + 500
+        have = {}
+        for r in frappe.get_all(task["doctype"], filters=[[task["child"], task["rp"], "=", s], in_month],
+                                fields=[task["party"]], limit_page_length=0):
+            have[r.get(task["party"])] = 1
+        for p in mapped:
+            if live.get(p) and not have.get(p):
+                n = n + 1
+    return n
+
+
+def entry_tile(task):
+    # ------------------------------------------------ <task>: entry
+    # Only while entry is open: ENTRY_FROM_DAY to the due day (IT: always).
+    overview = (not seat) and always
+    win = window_of(task)
+    if not ((seat or overview) and win["entry"]):
+        return
+    line = "`tab" + task["child"] + "`"
+    # unit -> 1 while any of its lines is Draft (or it has none yet)
+    has_draft = {}
+    # unit -> the approval's state
+    state_of = {}
+    if seat:
+        # The caller's seat, and the vacant seats they cover (their records
+        # are the caller's to enter): a unit is a record OF THE SEAT'S — the
+        # seat has lines on it (below), as the entry scripts list them — and
+        # only the seat's lines count. The ERP lets a BE read far more records
+        # than theirs. A covered seat's unit is "<record>|<seat>".
+        if not can_read(task["doctype"]):
+            return
+        for s in [seat]:
+            own = s == seat
+            # Covered seats are read past permissions, as the Entry screen
+            # reads them (the caller covers them).
+            lister = frappe.get_list if own else frappe.get_all
+            key = "" if own else "|" + s
+            # A record is the seat's once the seat has LINES on it — as the
+            # entry scripts list them: a stockist / doctor assigned to the seat
+            # with none of its lines is offered under "Add", not counted.
+            # The IT role profile (`always`: the USER's role profile) is the
+            # one exception: every record of the month.
+            see_all = always and own
+            if see_all:
+                for r in lister(task["doctype"], filters=[in_month],
+                                fields=["name"], limit_page_length=0):
+                    has_draft[r.get("name") + key] = 1      # no line of the seat's yet
+            seen = {}
+            for r in lister(
+                    task["doctype"],
+                    filters=[[task["child"], task["rp"], "=", s], in_month],
+                    fields=["name", line + "." + task["status"] + " as st"],
+                    limit_page_length=0):
+                n = r.get("name") + key
+                st = r.get("st") or ""
+                draft = 1 if (st == "" or st == "Draft") else 0
+                seen[n] = max(seen.get(n, 0), draft)
+            for n in seen:
+                has_draft[n] = seen[n]
+            # The approval's state: the record's own copy of it, then the
+            # tracker's, which is what counts (the copy is not always kept up
+            # to date). A BE cannot read Operational Tracker, so these are
+            # read directly — only the seat's own. A vacant seat's lines roll
+            # up onto its OWNER's approval (the covering manager's): that one.
+            o = owner_seat(s)
+            approval_of = {}
+            for r in lister(
+                    task["doctype"],
+                    filters=[["secondary tracker", "role_profile", "in", [s, o]], in_month],
+                    fields=["name", "`tabsecondary tracker`.role_profile as rp",
+                            "`tabsecondary tracker`.status as st",
+                            "`tabsecondary tracker`.tracker as tr"],
+                    limit_page_length=0):
+                n = r.get("name") + key
+                if r.get("rp") == s or not approval_of.get(n):
+                    approval_of[n] = r
+            tracker_of = {}
+            for n in approval_of:
+                state_of[n] = approval_of[n].get("st") or ""
+                if approval_of[n].get("tr"):
+                    tracker_of[approval_of[n].get("tr")] = n
+            names = list(tracker_of.keys())
+            i = 0
+            while i < len(names):
+                part = names[i:i + 500]
+                i = i + 500
+                for t in frappe.get_all("Operational Tracker",
+                                        filters=[["name", "in", part], ["role_profile", "in", [s, o]]],
+                                        fields=["name", "workflow_state"]):
+                    if t.get("workflow_state"):
+                        state_of[tracker_of[t.get("name")]] = t.get("workflow_state")
+        # The COVERED seats (vacant ones; an extra user's / RBM's / SM's whole
+        # team), counted exactly as the caller's own seat above but read
+        # together, past permissions — a few queries for the whole team, not
+        # four per seat: an SM's 57 seats took the nav bar 27 seconds.
+        if covered:
+            ownr = {}
+            wanted = []
+            for s in covered:
+                o = owner_seat(s)
+                ownr[s] = o
+                for w in [s, o]:
+                    if w not in wanted:
+                        wanted.append(w)
+            i = 0
+            while i < len(covered):
+                part = covered[i:i + 500]
+                i = i + 500
+                seen = {}
+                for r in frappe.get_all(
+                        task["doctype"],
+                        filters=[[task["child"], task["rp"], "in", part], in_month],
+                        fields=["name", line + "." + task["rp"] + " as seat_of",
+                                line + "." + task["status"] + " as st"],
+                        limit_page_length=0):
+                    n = (r.get("name") or "") + "|" + (r.get("seat_of") or "")
+                    st = r.get("st") or ""
+                    draft = 1 if (st == "" or st == "Draft") else 0
+                    seen[n] = max(seen.get(n, 0), draft)
+                for n in seen:
+                    has_draft[n] = seen[n]
+            # Each record's approval rows, by seat: a covered seat takes its own
+            # row, else its owner's — as approval_of above.
+            rows = {}
+            i = 0
+            while i < len(wanted):
+                part = wanted[i:i + 500]
+                i = i + 500
+                for r in frappe.get_all(
+                        task["doctype"],
+                        filters=[["secondary tracker", "role_profile", "in", part], in_month],
+                        fields=["name", "`tabsecondary tracker`.role_profile as rp",
+                                "`tabsecondary tracker`.status as st",
+                                "`tabsecondary tracker`.tracker as tr"],
+                        limit_page_length=0):
+                    k = (r.get("name") or "") + "|" + (r.get("rp") or "")
+                    if not rows.get(k):
+                        rows[k] = r
+            trackers_of = {}
+            for n in has_draft:
+                bar = n.find("|")
+                if bar < 0:
+                    continue
+                rec = n[:bar]
+                s = n[bar + 1:]
+                if s not in ownr:
+                    continue
+                r = rows.get(rec + "|" + s) or rows.get(rec + "|" + ownr[s])
+                if not r:
+                    continue
+                state_of[n] = r.get("st") or ""
+                if r.get("tr"):
+                    trackers_of.setdefault(r.get("tr"), []).append(n)
+            names = list(trackers_of.keys())
+            i = 0
+            while i < len(names):
+                part = names[i:i + 500]
+                i = i + 500
+                for t in frappe.get_all("Operational Tracker",
+                                        filters=[["name", "in", part], ["role_profile", "in", wanted]],
+                                        fields=["name", "workflow_state"], limit_page_length=0):
+                    if t.get("workflow_state"):
+                        for n in trackers_of.get(t.get("name")) or []:
+                            state_of[n] = t.get("workflow_state")
+    else:
+        # OVERVIEW: a unit is a record x seat, every seat.
+        for r in frappe.get_list(
+                task["doctype"], filters=[in_month],
+                fields=["name", line + "." + task["rp"] + " as rp",
+                        line + "." + task["status"] + " as st"],
+                limit_page_length=0):
+            k = (r.get("name") or "") + "|" + (r.get("rp") or "")
+            st = r.get("st") or ""
+            draft = 1 if (st == "" or st == "Draft") else 0
+            has_draft[k] = max(has_draft.get(k, 0), draft)
+        for r in frappe.get_list(
+                task["doctype"], filters=[in_month],
+                fields=["name",
+                        "`tabsecondary tracker`.role_profile as rp",
+                        "`tabsecondary tracker`.status as st"],
+                limit_page_length=0):
+            if r.get("rp"):
+                state_of[(r.get("name") or "") + "|" + r.get("rp")] = r.get("st") or ""
+
+    e = {"draft": 0, "waiting": 0, "approved": 0, "rejected": 0}
+    for n in has_draft:
+        # A DECIDED approval (approved / rejected) wins over Draft lines —
+        # it proves the seat submitted. Draft lines only mean draft while
+        # the approval waits (sent back, being edited) or there is none.
+        st = state_of.get(n)
+        decided = bucket_of(st) if st else ""
+        if decided == "approved" or decided == "rejected":
+            b = decided
+        elif has_draft[n]:
+            b = "draft"
+        else:
+            b = bucket_of(st)
+        e[b] = e[b] + 1
+    total = len(has_draft)
+    # A MANAGER (anyone with people under them) has no entry tile unless their
+    # own seat has records this month (covering a vacant BE's stockists, say):
+    # their tile is the team's approval one. Doctor Support hides an empty
+    # tile for everyone. EXCEPT for whoever could ADD a stockist / doctor:
+    # with nothing to enter yet but parties to add, the tile shows, so the
+    # way to "Add" is there.
+    adds = 0
+    if not total and seat and task.get("show_add"):
+        adds = addable_count(task, [seat] + covered)
+    if not total and not adds and (task["hide_empty"] or (has_team and not always)):
+        return
+    todo = e["draft"] + e["rejected"]
+
+    caption = "Done"
+    tone = "success"
+    if not total and adds:
+        # How many there are to add rides in the badge, the due date is the
+        # caption, both in the task's add_tone (amber by default) — not the
+        # red of work owed: adding is optional.
+        caption = win["label"]
+        tone = task.get("add_tone") or "warning"
+    elif not total:
+        caption = "None"
+        tone = "neutral"
+    elif todo:
+        caption = win["label"]          # the due date, while any is left
+        tone = "danger"
+    elif e["waiting"]:
+        caption = str(e["waiting"]) + " waiting"
+        tone = "warning"
+
+    items.append({
+        "id": task["id"] + "-entry",
+        "label": task["label"],
+        "href": HREFS[task["id"] + "-entry"],
+        "icon": task["icon"],
+        "statusIcon": "pencil",
+        "count": todo or adds,
+        "countTone": (task.get("add_tone") or "warning") if (adds and not todo) else "danger",
+        "caption": caption,
+        "captionTone": tone,
+        "segments": [
+            {"key": "approved", "value": e["approved"], "tone": "success", "label": "Approved"},
+            {"key": "waiting", "value": e["waiting"], "tone": "warning", "label": "Awaiting approval"},
+            {"key": "draft", "value": todo, "tone": "danger", "label": "Draft"},
+        ],
+    })
+
+
+def month_people(task):
+    # The approval tile counts PEOPLE — the sales persons who raised figures
+    # (a tracker's `user`) — not stockists: one person raises many. Only the
+    # entry month's trackers, by the record's own `date` field (not the date
+    # in the names): we operate on last month alone, as the Approval screen
+    # does. A record the caller cannot read is not counted.
+    #   waiting   people with at least one tracker waiting on the caller —
+    #             a MANAGER: waiting on anyone, among their team (everyone
+    #             under them); IT: waiting on anyone at all
+    #   approved  people whose every tracker of the month is approved
+    # A manager's count takes in their team's trackers too, read past
+    # permissions — the ERP only lets them read what is routed to them.
+    lister = frappe.get_all if has_team else frappe.get_list
+    of_month = {}
+    if has_team or can_read(task["doctype"]):
+        for r in lister(task["doctype"], filters=[in_month], fields=["name"], limit_page_length=0):
+            of_month[r.get("name")] = 1
+    fields = ["name", "role_profile", "user", "workflow_state", "next_approver", task["link"]]
+    base = [["reference_doctype", "=", task["doctype"]]]
+    trackers = []
+    if can_read("Operational Tracker"):
+        trackers = frappe.get_list("Operational Tracker", filters=base, fields=fields, limit_page_length=0)
+    if has_team:
+        seen = {}
+        for t in trackers:
+            seen[t.get("name")] = 1
+        names = list(team_seats.keys())
+        i = 0
+        while i < len(names):
+            part = names[i:i + 500]
+            i = i + 500
+            for t in frappe.get_all("Operational Tracker", filters=base + [["role_profile", "in", part]],
+                                    fields=fields, limit_page_length=0):
+                if not seen.get(t.get("name")):
+                    seen[t.get("name")] = 1
+                    trackers.append(t)
+    waiting = {}
+    settled = {}     # person -> 1 while every tracker is approved, 0 otherwise
+    for t in trackers:
+        if not of_month.get(record_of(t, task)):
+            continue
+        who = t.get("user") or t.get("role_profile") or t.get("name")
+        ws = t.get("workflow_state") or ""
+        mine = always or t.get("next_approver") == me or team_seats.get(t.get("role_profile"))
+        if ws.endswith(" Approval Waiting") and mine:
+            waiting[who] = 1
+        ok = 1 if ("Approved" in ws and "Rejected" not in ws) or ws == "Approved and Verified" else 0
+        settled[who] = min(settled.get(who, 1), ok)
+    approved = 0
+    for who in settled:
+        if settled[who] and not waiting.get(who):
+            approved = approved + 1
+    return len(waiting), approved
+
+
+def approval_tile(task):
+    # --------------------------------------------- <task>: approval
+    # For someone with work WAITING ON THEM, and for every MANAGER (anyone
+    # with people under them): their team's month, whether or not anything
+    # waits on them — a BE, with no team and nothing waiting, gets none. The
+    # IT role profile gets it, as the overview of every tracker. Only in the
+    # window: past the due day nobody does, IT included.
+    win = window_of(task)
+    if not win["open"]:
+        return
+    counted = month_people(task)
+    waiting = counted[0]
+    approved = counted[1]
+    if not (always or has_team or waiting > 0):
+        return
+    items.append({
+        "id": task["id"] + "-approval",
+        "label": task["label"],
+        "href": HREFS[task["id"] + "-approval"],
+        "icon": task["icon"],
+        "statusIcon": "check-square",
+        "statusTone": "neutral",
+        "count": waiting,
+        "caption": win["label"] if waiting else "Clear",   # the due date, while any waits
+        "captionTone": "danger" if waiting else "success",
+        "segments": [
+            {"key": "approved", "value": approved, "tone": "success", "label": "People approved"},
+            {"key": "waiting", "value": waiting, "tone": "danger", "label": "People waiting for approval"},
+        ],
+    })
+
+
+# ---------------------------------------------------------------- SERVICE
+# Doctor Service (the app's /service pages) is not a monthly task: no entry
+# month, no window, no seat. Its two tiles go by ROLE alone, every day:
+#   Service entry     (/service/entry)    the MIS team -- MIS, User MIS,
+#                     MIS Admin, Manager MIS, CRM Manager -- and IT (the IT
+#                     role or the IT role profile). Not GM / CEO role
+#                     holders, unless on the IT role profile
+#   Service approval  (/service/approval) GM, CEO and IT
+# Nobody else gets either tile. The same roles as the Doctor Service API
+# scripts' viewer_of (elbrit_doctor_service_options.py) -- change both.
+# Only app-raised services (custom_via_app) count, by their tracker's state:
+#   entry     badge = sent back (Rework: MIS has to edit and resubmit),
+#             red; when none, the count in approval, amber;
+#             ring  = approved this month / in approval / sent back
+#   approval  badge = waiting at the caller's step (GM: "GM Approval
+#             Waiting", CEO: "CEO Approval Waiting"; IT: both, as an
+#             overview); ring = approved this month / waiting
+# "This month" is the tracker's last change, so the ring is not swamped by
+# every service ever approved.
+HREFS["service-entry"] = "/service/entry"
+HREFS["service-approval"] = "/service/approval"
+# The Service and Allocation tiles show the due date as their caption -- as
+# Secondary and Support do -- and the count in the badge. Due the 20th for
+# now (the allocation's edit cutoff too); capped at the month's last day.
+SERVICE_DUE_DAY = 20
+service_due = SERVICE_DUE_DAY if SERVICE_DUE_DAY < last_day else last_day
+SERVICE_DUE_LABEL = str(service_due) + " " + MONTHS[int(today[5:7]) - 1]
+SERVICE_ENTRY_ROLES = ["MIS", "User MIS", "MIS Admin", "Manager MIS", "CRM Manager", "IT"]
+SERVICE_STEP_OF = {"GM": "GM Approval Waiting", "CEO": "CEO Approval Waiting"}
+
+service_roles = []
+for r in frappe.get_all("Has Role", filters={"parenttype": "User", "parent": me},
+                        fields=["role"], limit_page_length=0):
+    service_roles.append(r.get("role"))
+service_it = me == "Administrator" or always or "IT" in service_roles
+# An APPROVER (GM / CEO role) gets the entry tile only through the IT role
+# profile (testers): the GM / CEO profiles carry the MIS and IT roles too
+# (full access), and the approvers' tile is the approval one.
+service_approver = "GM" in service_roles or "CEO" in service_roles
+service_enter = me == "Administrator" or always
+if not service_approver:
+    for r in SERVICE_ENTRY_ROLES:
+        if r in service_roles:
+            service_enter = True
+# The approval tile's badge is what waits at the caller's OWN step: the CEO
+# (who holds GM too) the CEO's, a GM the GM's. IT -- the IT role
+# profile, or the IT role without GM / CEO -- sees both, as an overview.
+if me == "Administrator" or always or (service_it and not service_approver):
+    service_steps = [SERVICE_STEP_OF["GM"], SERVICE_STEP_OF["CEO"]]
+elif "CEO" in service_roles:
+    service_steps = [SERVICE_STEP_OF["CEO"]]
+elif "GM" in service_roles:
+    service_steps = [SERVICE_STEP_OF["GM"]]
+else:
+    service_steps = []
+
+
+def service_rows():
+    # [{ state, at }] for every app-raised service: its tracker's state and
+    # when that last changed. Read past permissions: the role decides above.
+    recs = frappe.get_all("Doctor Service", filters={"custom_via_app": 1},
+                          fields=["name", "custom_tracker", "modified"], limit_page_length=0)
+    names = []
+    for r in recs:
+        if r.get("custom_tracker"):
+            names.append(r.get("custom_tracker"))
+    of = {}
+    i = 0
+    while i < len(names):
+        part = names[i:i + 500]
+        i = i + 500
+        for t in frappe.get_all("Operational Tracker", filters=[["name", "in", part]],
+                                fields=["name", "workflow_state", "modified"], limit_page_length=0):
+            of[t.get("name")] = t
+    out = []
+    for r in recs:
+        t = of.get(r.get("custom_tracker")) or {}
+        out.append({"state": t.get("workflow_state") or "", "at": str(t.get("modified") or r.get("modified") or "")})
+    return out
+
+
+def service_bucket(ws):
+    if ws == "Rework":
+        return "sentback"
+    if ws.endswith("Rejected"):
+        return "rejected"
+    if ws.endswith(" Approved and Verified") or ws.endswith(" Approved and Waiting for Verification"):
+        return "approved"
+    return "waiting"     # "... Approval Waiting", or no tracker yet
+
+
+def service_ring(segments):
+    # Nothing at all to count (no services yet, or none this month and none
+    # open): a whole green ring, as "Clear" says -- not an empty circle.
+    total = 0
+    for s in segments:
+        total = total + (s.get("value") or 0)
+    if total:
+        return segments
+    return [{"key": "clear", "value": 1, "tone": "success", "label": "Nothing pending"}]
+
+
+def service_tiles(entry):
+    rows = service_rows()
+    month_start = today[:8] + "01"
+    approved = 0
+    waiting = 0
+    sentback = 0
+    mine = 0
+    for r in rows:
+        b = service_bucket(r["state"])
+        if b == "approved" and r["at"][:10] >= month_start:
+            approved = approved + 1
+        elif b == "waiting":
+            waiting = waiting + 1
+            if r["state"] in service_steps:
+                mine = mine + 1
+        elif b == "sentback":
+            sentback = sentback + 1
+    if entry:
+        # The due date while anything is open; the badge is what is sent back.
+        caption = "Clear"
+        tone = "success"
+        if sentback:
+            caption = SERVICE_DUE_LABEL
+            tone = "danger"
+        elif waiting:
+            caption = SERVICE_DUE_LABEL
+            tone = "warning"
+        items.append({
+            "id": "service-entry",
+            "label": "Service",
+            "href": HREFS["service-entry"],
+            "icon": "cog",
+            "statusIcon": "pencil",
+            # The badge: what is sent back (red, MIS has to act), else what is
+            # in approval (amber) -- so the number is always there.
+            "count": sentback or waiting,
+            "countTone": "danger" if sentback else "warning",
+            "caption": caption,
+            "captionTone": tone,
+            "segments": service_ring([
+                {"key": "approved", "value": approved, "tone": "success", "label": "Approved this month"},
+                {"key": "waiting", "value": waiting, "tone": "warning", "label": "In approval"},
+                {"key": "sentback", "value": sentback, "tone": "danger", "label": "Sent back"},
+            ]),
+        })
+    else:
+        items.append({
+            "id": "service-approval",
+            "label": "Service",
+            "href": HREFS["service-approval"],
+            "icon": "cog",
+            "statusIcon": "check-square",
+            "statusTone": "neutral",
+            "count": mine,
+            "caption": SERVICE_DUE_LABEL if mine else "Clear",
+            "captionTone": "danger" if mine else "success",
+            "segments": service_ring([
+                {"key": "approved", "value": approved, "tone": "success", "label": "Approved this month"},
+                {"key": "waiting", "value": mine, "tone": "danger", "label": "Waiting for you"},
+            ]),
+        })
+
+
+# ---------------------------------------------------------------- SERVICE ALLOCATION
+# The GM's monthly service amount per SM / ZSM and the SM's split of it across
+# their departments (the app's /service/allocation page, one page for both;
+# the API scripts elbrit_service_allocation / _save -- change together).
+#   GM / CEO / IT   "Allocation" (IT: the IT role or role profile, full
+#                   access): badge = SMs not fully split this month
+#                   (no allocation yet, or Not split / Partly split)
+#   SM- seat holder (ZSMs too) "Budget split": badge = 1 while their month's
+#                   allocation is not fully split
+# Both say "locked" once the month's cutoff (the 20th) has passed.
+HREFS["service-allocation"] = "/service/allocation"
+# The SM / ZSM "Budget split" tile is HIDDEN for now (16 Oct 2026): set True to
+# give it back. The GM / CEO / IT "Allocation" tile is unaffected, and the
+# page itself still works for an SM opening it directly.
+SHOW_SPLIT_TILE = False
+ALLOC_CUTOFF_DAY = SERVICE_DUE_DAY
+alloc_month = today[:7]
+alloc_locked = today > alloc_month + "-" + str(ALLOC_CUTOFF_DAY)
+
+
+def alloc_rows():
+    of = {}
+    for a in frappe.get_all("Service Allocation", filters={"month_key": alloc_month},
+                            fields=["employee", "amount", "status"], limit_page_length=0):
+        of[a.get("employee")] = a
+    return of
+
+
+def allocation_tiles():
+    of = alloc_rows()
+    if service_approver or service_it:
+        sms = 0
+        done = 0
+        partly = 0
+        for e in frappe.get_all("Employee", filters=[["status", "=", "Active"], ["custom_role_profile", "like", "SM-%"]],
+                                fields=["name", "employee_name"], limit_page_length=0):
+            if (e.get("employee_name") or "").strip().lower()[:6] == "vacant":
+                continue
+            sms = sms + 1
+            a = of.get(e.get("name"))
+            if a and a.get("status") == "Split":
+                done = done + 1
+            elif a and a.get("status") == "Partly split":
+                partly = partly + 1
+        pending = sms - done
+        # SMs asking for more (Service Allocation Request rows still Pending)
+        asks = 0
+        if frappe.db.exists("DocType", "Service Allocation Request"):
+            parents = frappe.get_all("Service Allocation", filters={"month_key": alloc_month}, pluck="name",
+                                     limit_page_length=0)
+            if parents:
+                asks = len(frappe.get_all("Service Allocation Request",
+                                          filters=[["parenttype", "=", "Service Allocation"],
+                                                   ["parent", "in", parents], ["status", "=", "Pending"]],
+                                          pluck="name", limit_page_length=0))
+        if asks:
+            caption = str(asks) + (" request" if asks == 1 else " requests")
+            caption_tone = "danger"
+        else:
+            caption = ("locked" if alloc_locked else SERVICE_DUE_LABEL) if pending else "All split"
+            caption_tone = "neutral" if alloc_locked else ("danger" if pending else "success")
+        items.append({
+            "id": "service-allocation",
+            "label": "Allocation",
+            "href": HREFS["service-allocation"],
+            "icon": "wallet",
+            "statusIcon": "users",
+            # a request waiting is the GM's job right now; otherwise the
+            # SMs still to split
+            "count": asks if asks else pending,
+            "countTone": "danger",
+            "caption": caption,
+            "captionTone": caption_tone,
+            "segments": service_ring([
+                {"key": "split", "value": done, "tone": "success", "label": "Split"},
+                {"key": "partly", "value": partly, "tone": "warning", "label": "Partly split"},
+                {"key": "not", "value": pending - partly, "tone": "danger", "label": "Not split / not allocated"},
+            ]),
+        })
+    if SHOW_SPLIT_TILE and (seat or "")[:3].upper() == "SM-":
+        my = None
+        emp_id = frappe.db.get_value("Employee", {"user_id": me, "status": "Active"}, "name")
+        if emp_id:
+            my = of.get(emp_id)
+        if not my:
+            caption = "Not allocated yet"
+            tone = "neutral"
+            n = 0
+            segs = [{"key": "none", "value": 1, "tone": "neutral", "label": "Nothing allocated yet"}]
+        elif my.get("status") == "Split":
+            caption = "Split"
+            tone = "success"
+            n = 0
+            segs = [{"key": "split", "value": 1, "tone": "success", "label": "Split"}]
+        else:
+            caption = "locked" if alloc_locked else SERVICE_DUE_LABEL
+            tone = "neutral" if alloc_locked else "danger"
+            n = 0 if alloc_locked else 1
+            segs = [{"key": "pending", "value": 1, "tone": "danger" if my.get("status") == "Not split" else "warning",
+                     "label": my.get("status")}]
+        items.append({
+            "id": "service-split",
+            "label": "Budget split",
+            "href": HREFS["service-allocation"],
+            "icon": "wallet",
+            "statusIcon": "pencil",
+            "count": n,
+            "countTone": "danger",
+            "caption": caption,
+            "captionTone": tone,
+            "segments": segs,
+        })
+
+
+# ---------------------------------------------------------------- EXPENSE
+# Expense claims (workflow "Expense Claim Approval", 21 Oct 2026) -- the app's
+# /expense/approval page (ClaimApprovals), one page with two views:
+#   "Expense" approval  the REPORTING OFFICER: claims "Waiting for Approval"
+#                       whose expense_approver is the caller. Shown to anyone
+#                       with something waiting, and to every manager (someone
+#                       reports to them) even when clear; the IT team always.
+#                       -> ?view=approve
+# For now ONLY the IT team gets them at all (28 Oct 2026: EXPENSE_DEPARTMENTS
+# -- the IT department, not the "IT" role profile, which also sits on people
+# in Marketing, HR, Accounts and MIS; the app's claims gate is the same).
+#   "Verify" claims     the IT team (EXPENSE_VERIFIERS once it opens up):
+#                       claims "In Review" -- below the AI score bar, or
+#                       advances to release. -> ?view=verify
+# Every day, no due date: a claim waits until someone acts. Counted AS THE
+# CALLER (frappe.get_list): the ERP shares each claim with whoever must act.
+# The claim form itself stays on the overview's claims strip -- no tile.
+HREFS["expense-approval"] = "/expense/approval?view=approve"
+HREFS["expense-verify"] = "/expense/approval?view=verify"
+EXPENSE_VERIFIERS = ["sathish.admin@elbrit.org"]
+# TRIAL (28 Oct 2026): both expense tiles, every day, go ONLY to the IT team
+# -- active employees of these departments (and Administrator). To open them
+# to every reporting officer and the verifiers, set EXPENSE_TILES_FOR_ALL = True.
+EXPENSE_TILES_FOR_ALL = False
+EXPENSE_DEPARTMENTS = ["IT - ELPL"]
+expense_team = me == "Administrator" or bool(frappe.db.get_value(
+    "Employee", {"user_id": me, "status": "Active", "department": ["in", EXPENSE_DEPARTMENTS]}, "name"))
+
+
+def expense_tiles():
+    if not (EXPENSE_TILES_FOR_ALL or expense_team):
+        return
+    month_start = today[:8] + "01"
+    open_states = ["Waiting for Approval"]
+    done_states = ["Approved", "In Review", "Verified"]
+
+    waiting = count("Expense Claim", [["docstatus", "=", 0], ["workflow_state", "in", open_states], ["expense_approver", "=", me]])
+    my_emp = frappe.db.get_value("Employee", {"user_id": me, "status": "Active"}, "name")
+    manager = bool(my_emp) and bool(frappe.db.exists("Employee", {"reports_to": my_emp, "status": "Active"}))
+    if waiting or manager or expense_team:
+        approved = count("Expense Claim", [["docstatus", "=", 0], ["workflow_state", "in", done_states],
+                                           ["expense_approver", "=", me], ["modified", ">=", month_start]])
+        items.append({
+            "id": "expense-approval",
+            "label": "Expense",
+            "href": HREFS["expense-approval"],
+            "icon": "wallet",
+            "statusIcon": "check-square",
+            "statusTone": "neutral",
+            "count": waiting,
+            "caption": (str(waiting) + " to approve") if waiting else "Clear",
+            "captionTone": "danger" if waiting else "success",
+            "segments": service_ring([
+                {"key": "approved", "value": approved, "tone": "success", "label": "Approved this month"},
+                {"key": "waiting", "value": waiting, "tone": "danger", "label": "Waiting for you"},
+            ]),
+        })
+
+    if expense_team or (EXPENSE_TILES_FOR_ALL and me in EXPENSE_VERIFIERS):
+        review = count("Expense Claim", [["docstatus", "=", 0], ["workflow_state", "=", "In Review"]])
+        verified = count("Expense Claim", [["docstatus", "=", 0], ["workflow_state", "=", "Verified"], ["modified", ">=", month_start]])
+        items.append({
+            "id": "expense-verify",
+            "label": "Verify",
+            "href": HREFS["expense-verify"],
+            "icon": "wallet",
+            "statusIcon": "verified",
+            "statusTone": "neutral",
+            "count": review,
+            "caption": (str(review) + " to verify") if review else "Clear",
+            "captionTone": "warning" if review else "success",
+            "segments": service_ring([
+                {"key": "verified", "value": verified, "tone": "success", "label": "Verified this month"},
+                {"key": "review", "value": review, "tone": "warning", "label": "Waiting to be verified"},
+            ]),
+        })
+
+
+# Entry tiles first, then approval tiles. A task that cannot be counted
+# (its doctype not set up on this ERP yet, say) is left off and logged —
+# it never takes the other tasks' tiles down with it.
+TASKS = [t for t in TASKS if t.get("enabled") and (always or not t.get("it_only"))]
+for task in TASKS:
+    try:
+        entry_tile(task)
+    except Exception as err:
+        frappe.log_error(title="Elbrit Ring Nav: " + task["id"] + " entry tile", message=str(err))
+if service_enter:
+    try:
+        service_tiles(True)
+    except Exception as err:
+        frappe.log_error(title="Elbrit Ring Nav: service entry tile", message=str(err))
+for task in TASKS:
+    try:
+        approval_tile(task)
+    except Exception as err:
+        frappe.log_error(title="Elbrit Ring Nav: " + task["id"] + " approval tile", message=str(err))
+if service_steps:
+    try:
+        service_tiles(False)
+    except Exception as err:
+        frappe.log_error(title="Elbrit Ring Nav: service approval tile", message=str(err))
+
+if frappe.db.exists("DocType", "Service Allocation"):
+    try:
+        allocation_tiles()
+    except Exception as err:
+        frappe.log_error(title="Elbrit Ring Nav: service allocation tiles", message=str(err))
+
+if frappe.db.exists("Workflow", "Expense Claim Approval"):
+    try:
+        expense_tiles()
+    except Exception as err:
+        frappe.log_error(title="Elbrit Ring Nav: expense tiles", message=str(err))
+
+frappe.response["message"] = {
+    "user": me,
+    "seat": seat or None,
+    "month": month,
+    "today": today,
+    "due": today[:8] + ("0" if due_day < 10 else "") + str(due_day),
+    "items": items,
+}
+'''
+
+cur = frappe.db.get_value("Server Script", NAME, ["script", "disabled"], as_dict=True)
+if not cur:
+    print("MISSING: Server Script " + NAME)
+else:
+    now = (cur.script or "").replace(chr(13), "").strip()
+    if now == SCRIPT.replace(chr(13), "").strip():
+        print("ok: already up to date")
+    elif len(now) != BASE_LEN or "EXPENSE_TILES_FOR_ALL" not in now or "expense_team" in now:
+        print("STOP: the ERP copy changed since this was built (length " + str(len(now)) + ", expected " + str(BASE_LEN) + ") -- re-sync the repo first")
+    else:
+        print(("WOULD " if DRY else "") + "update " + NAME + " (Expense / Verify tiles: IT department only)")
+        if not DRY:
+            ss = frappe.get_doc("Server Script", NAME)
+            ss.script = SCRIPT
+            ss.save(ignore_permissions=True)
+            print("done")
+
+print("done" if not DRY else "DRY RUN: nothing changed. Set DRY = False, tick Commit, run again.")
