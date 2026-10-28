@@ -3249,7 +3249,7 @@ PLASMIC.registerComponent(HomeOverview, {
       type: "boolean",
       displayName: "Claims strip",
       defaultValue: true,
-      description: "Shows the Expense section under the greeting (ERP, as the token's own Employee): the Settle bar -- cash in hand (what is left of the advances Accounts paid, less verified bills) or what is owed to them, and this week's bills. Clicking it fires On open Claims; its camera opens "Add a bill" on this page (photo, AI check) and saves to the ERP. Needs the URL and token.",
+      description: "Shows the Expense section under the greeting (ERP, as the token's own Employee): the Settle bar -- cash in hand (what is left of the advances Accounts paid, less verified bills) or what is owed to them, and this week's bills. Clicking it fires On open Claims; its camera opens the Add a bill sheet on this page (photo, AI check) and saves to the ERP. Needs the URL and token.",
     },
     claimsPath: { type: "string", displayName: "Claims page", defaultValue: "/claims", description: "Where the claims strip goes when On open Claims is not wired. The strip's + never navigates: it opens the claim form on this page." },
     onOpenClaims: {
