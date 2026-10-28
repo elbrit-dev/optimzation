@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { DEFAULT_TYPES, canUseClaims, fetchClaimTypes, fetchClaims, fetchMe, invalidateClaims, makeConn } from "./claimsApi";
+import { DEFAULT_TYPES, canUseClaims, fetchAdvances, fetchClaimTypes, fetchClaims, fetchMe, invalidateClaims, makeConn } from "./claimsApi";
 
 /* Who is signed in, their claims and the claim types -- one read each, shared
    through erpClient's per-token cache so the home strip, the Claims page and
@@ -8,7 +8,7 @@ import { DEFAULT_TYPES, canUseClaims, fetchClaimTypes, fetchClaims, fetchMe, inv
  * "hidden": the person is not one claims is open to (canUseClaims) -- their
  * claims are never read, and every claims surface renders nothing.
  *
- *   { status: "idle" | "loading" | "ready" | "hidden" | "error", conn, me, claims, types, typeInfo, error, reload } */
+ *   { status: "idle" | "loading" | "ready" | "hidden" | "error", conn, me, claims, advances, types, typeInfo, error, reload } */
 export function useClaims({ url, token, employee, enabled = true }) {
   const { conn, error: connError } = useMemo(() => {
     if (!enabled || !url || !token) return {};
@@ -36,12 +36,14 @@ export function useClaims({ url, token, employee, enabled = true }) {
           if (alive) setState({ status: "hidden", me });
           return;
         }
-        const [claims, typeInfo] = await Promise.all([
+        const [claims, typeInfo, advances] = await Promise.all([
           fetchClaims(conn, me.id),
           fetchClaimTypes(conn).catch(() => DEFAULT_TYPES),
+          // Cash paid to them (Employee Advance); unreadable = none, not a dead page.
+          fetchAdvances(conn, me.id).catch((e) => { console.warn("[expense-claims] advances unreadable:", e.message); return []; }),
         ]);
         // types: names (filters, quick add); typeInfo: with sub types (the form).
-        if (alive) setState({ status: "ready", me, claims, types: typeInfo.map((t) => t.name), typeInfo });
+        if (alive) setState({ status: "ready", me, claims, advances, types: typeInfo.map((t) => t.name), typeInfo });
       } catch (e) {
         console.warn("[expense-claims] load failed:", e);
         if (alive) setState({ status: "error", error: e.message });

@@ -1014,14 +1014,6 @@ export default function HomeOverview({
       <link rel="stylesheet" href={FONT_HREF} />
       <style>{CSS}</style>
 
-      {/* Expense claims: this month's as a ticker. "+" opens the claim form
-          right here; anywhere else on the strip is On open Claims -- the one
-          event the page redirects with (Claims page when it is not wired). */}
-      {showClaims && (live || useSample) && (
-        <ClaimsStrip url={url} token={token} today={today} pad={L.pad} sample={useSample} desk={isDesk && cw >= 900}
-          onOpen={() => (onOpenClaims ? onOpenClaims() : nav(claimsPath))} />
-      )}
-
       {isDesk ? (
         <div style={{ display: "flex", alignItems: "flex-end", justifyContent: "space-between", gap: 12, padding: `14px ${L.pad} 0`, flexWrap: "wrap" }}>
           <div>
@@ -1035,6 +1027,15 @@ export default function HomeOverview({
           <div style={{ fontSize: 13, color: "#5b6576", ...ell }}>{[scopeTxt, T.short].filter(Boolean).join(" · ")}</div>
           <div style={{ fontSize: 22, fontWeight: 700, letterSpacing: "-0.02em" }}>{greeting}</div>
         </div>
+      )}
+
+      {/* Expense, under the greeting: the Settle bar (cash in hand or owed,
+          this week's bills). The camera opens "Add a bill" right here;
+          anywhere else is On open Claims -- the one event the page redirects
+          with (Claims page when not wired). */}
+      {showClaims && (live || useSample) && (
+        <ClaimsStrip url={url} token={token} today={today} pad={L.pad} sample={useSample} desk={isDesk && cw >= 900}
+          onOpen={() => (onOpenClaims ? onOpenClaims() : nav(claimsPath))} />
       )}
 
       {liveState.error && <div style={{ margin: `16px ${L.pad} 0`, padding: "14px 16px", borderRadius: 12, background: "#fef3f2", color: "#b42318", fontSize: 13 }}>{liveState.error}</div>}

@@ -30,12 +30,12 @@ env:
     value: openai/gpt-6-luna
   # OCR: Docling (IT's converter, project elbrit-services) extracts the text,
   # and the model gets that text AND the image ("both": 11/11 in bench/run.mjs;
-  # Docling's text alone missed faint / Tamil / blurry bills). Uncomment once
-  # the secret exists -- a missing secret fails the rollout.
-  # - variable: OCR_MODE
-  #   value: both
-  # - variable: DOCLING_API_KEY
-  #   secret: verify-doc-docling-key
+  # Docling's text alone missed faint / Tamil / blurry bills). Key copied from
+  # elbrit-services/mcp-docling-serve-key -- re-copy as a new version if IT rotates it.
+  - variable: OCR_MODE
+    value: both
+  - variable: DOCLING_API_KEY
+    secret: verify-doc-docling-key
   - variable: FIREBASE_PROJECT_ID
     value: elbrit-sso-d01d9
   - variable: ERP_URL

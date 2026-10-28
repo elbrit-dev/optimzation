@@ -280,7 +280,7 @@ function ReviewSheet({ conn, claim: c, kind, canAct = true, desk, onClose, onDon
       }
       setBusy(verify ? "Verifying…" : "Approving…");
       await applyAction(conn, c.id, verify ? "Verify" : "Approve");
-      onDone(`${c.id} ${verify ? "verified -- in next month's payroll" : "approved"}`);
+      onDone(`${c.id} ${verify ? "verified" : "approved"}`);
     } catch (e) {
       setBusy("");
       setError(/modified after/i.test(e.message) ? "The claim changed while it was open. Refresh and try again." : e.message);
@@ -325,7 +325,7 @@ function ReviewSheet({ conn, claim: c, kind, canAct = true, desk, onClose, onDon
         {c.ai?.summary && <Note tone={c.ai.risk === "Low" ? "ok" : "info"}><b>Bill check:</b> {c.ai.summary}</Note>}
         {!c.ai && !c.isAdvance && <Note tone="info">These bills have not been checked by the AI -- look at each one.</Note>}
         {c.isAdvance && <Note tone="info">Advance request -- no bills yet. {verify ? "Verify once the money is released to them." : "Approving sends it to be released."}</Note>}
-        {c.advanceOf && <span style={{ fontSize: 12, fontWeight: 600, color: "#5b21b6" }}>Spent from advance {c.advanceOf} -- covered by its balance first, only the rest goes to payroll.</span>}
+        {c.advanceOf && <span style={{ fontSize: 12, fontWeight: 600, color: "#5b21b6" }}>Spent from advance {c.advanceOf} — covered by its balance first; only the rest is paid to them.</span>}
         {c.remark && <span style={{ fontSize: 13, color: "#475467" }}><b style={{ fontWeight: 600 }}>Remark:</b> {c.remark}</span>}
         {c.lines.map((l) => {
           const col = typeColor(l.type);

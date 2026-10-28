@@ -23,14 +23,14 @@ export const fyLabel = (y) => `FY ${y}–${String(y + 1).slice(2)}`;
 /* The claim's state, in the words the page shows. Claims in the approval
    flow (since 21 Oct 2026) go Draft -> Waiting for Approval (reporting
    officer) -> In Review (verifier) or straight to Verified (AI score 90+) ->
-   paid with next month's salary; older HR-submitted ones keep the ERP's own
+   paid once verified (instant payment, built later); older HR-submitted ones keep the ERP's own
    Unpaid / Paid / Cancelled. */
 export const STATUS = {
   Draft: { label: "Not sent", bg: "#f2f4f7", fg: "#475467", dot: "#98a2b3" },
   "Waiting for Approval": { label: "With reporting officer", bg: "#fffaeb", fg: "#b54708", dot: "#d97706" },
   Approved: { label: "Approved", bg: "#eef3fe", fg: "#1d4ed8", dot: "#2563eb" },
   "In Review": { label: "Being verified", bg: "#eef3fe", fg: "#1d4ed8", dot: "#2563eb" },
-  Verified: { label: "Verified · in payroll", bg: "#ecfdf3", fg: "#067647", dot: "#12b76a" },
+  Verified: { label: "Verified", bg: "#ecfdf3", fg: "#067647", dot: "#12b76a" },
   Submitted: { label: "Approved", bg: "#eef3fe", fg: "#1d4ed8", dot: "#2563eb" },
   Unpaid: { label: "Approved · unpaid", bg: "#eef3fe", fg: "#1d4ed8", dot: "#2563eb" },
   Paid: { label: "Paid", bg: "#ecfdf3", fg: "#067647", dot: "#12b76a" },
@@ -58,6 +58,7 @@ const TYPE_COLORS = {
   Others: ["#8a93a3", "#f2f4f7", "#475467"],
   Miscellaneous: ["#0e7490", "#ecfeff", "#155e75"],
   Advance: ["#7c3aed", "#f4f0ff", "#5b21b6"],
+  Stay: ["#4f46e5", "#eef2ff", "#3730a3"],
 };
 export const typeColor = (t) => {
   const [c, bg, fg] = TYPE_COLORS[t] || ["#64748b", "#f1f5f9", "#334155"];
@@ -105,6 +106,102 @@ export function totals(claims, keep = () => true) {
     for (const l of ls) byType[l.type] = (byType[l.type] || 0) + l.amount;
   }
   return { claimed, sanctioned, reimbursed, rows, byStatus, byType };
+}
+
+/* Money that has cleared: verified (paid with next month's salary) or paid. */
+export const CLEARED = new Set(["Verified", "Paid"]);
+
+/* The settlement ledger (Settlements screen, home Settle bar), Miscellaneous
+ * only: cash paid to the employee (Employee Advance) and the bills on their
+ * running claims, in date order --
+ *   topup    an advance paid to them                                     +
+ *   request  an advance asked for, not paid yet (not counted)
+ *   bill     one bill; only a Verified one is counted                    −
+ *   payout   Accounts paid what a closed claim owed them                 +
+ * each with the balance after it (below zero = owed to them).
+ *
+ * The numbers come from the ERP's own books, not the walk: in hand = what
+ * is left of every advance (paid - claimed - returned) less the verified
+ * bills on the open claim; owed = that shortfall plus what closed claims
+ * still owe. Claims of the old flow (one claim per trip, reporting officer)
+ * are not part of it -- they stay under "All past claims". */
+export function ledger(claims, advances = []) {
+  const running = claims.filter((c) => c.running && live(c));
+  const open = running.find((c) => c.docstatus === 0) || null;
+  const ev = [];
+  for (const a of advances) {
+    if (a.docstatus === 2) continue;
+    if (a.waiting) ev.push({ kind: "request", date: a.date, amount: a.amount, adv: a, note: a.purpose });
+    else ev.push({ kind: "topup", date: a.date, amount: a.paid, adv: a, note: a.purpose });
+  }
+  for (const c of running) {
+    for (const l of c.lines) if (l.date) ev.push({ kind: "bill", date: l.date, amount: l.amount, claim: c, line: l, state: l.state || "Checking", open: c.docstatus === 0 });
+    if (c.reimbursed > 0) ev.push({ kind: "payout", date: String(c.modified || c.posting).slice(0, 10), amount: c.reimbursed, claim: c, note: `what ${c.id} owed you` });
+  }
+  const order = { topup: 0, payout: 1, request: 2, bill: 3 };
+  ev.sort((a, b) => a.date.localeCompare(b.date) || order[a.kind] - order[b.kind]);
+  let bal = 0, added = 0, spent = 0;
+  for (const e of ev) {
+    if (e.kind === "topup" || e.kind === "payout") bal += e.amount;
+    if (e.kind === "topup") added += e.amount;
+    if (e.kind === "bill" && e.state === "Verified") { bal -= e.amount; spent += e.amount; }
+    e.bal = bal;
+  }
+  const sum = (xs, f) => xs.reduce((s, x) => s + f(x), 0);
+  const openLines = open ? open.lines : [];
+  const unused = sum(advances.filter((a) => !a.waiting && a.docstatus === 1), (a) => a.left);
+  const inHand = unused - sum(openLines.filter((l) => l.state === "Verified"), (l) => l.amount);
+  const owedClosed = sum(running, (c) => c.owed || 0);
+  return {
+    entries: ev,
+    open,
+    added,
+    spent,
+    requested: sum(advances.filter((a) => a.waiting && a.docstatus !== 2), (a) => a.amount),
+    checking: sum(openLines.filter((l) => l.state === "Checking" || l.state === "In Review"), (l) => l.amount),
+    balance: Math.max(0, inHand),
+    over: Math.max(0, -inHand) + owedClosed,
+    owedClosed,
+    any: ev.length > 0,
+  };
+}
+
+/* In-hand cash in short (the home Settle bar). */
+export function cashOf(claims, advances) {
+  const L = ledger(claims, advances);
+  return { added: L.added, spent: L.spent, balance: L.balance, over: L.over, requested: L.requested, checking: L.checking, any: L.any };
+}
+
+/* A running-claim bill's status, in the page's words. */
+export const BILL_STATE = {
+  Checking: { tone: "#8a93a3", icon: "hist", text: "Checking", sub: "the AI is checking it" },
+  Verified: { tone: "#067647", icon: "shield", text: "Verified", sub: "counted" },
+  "In Review": { tone: "#b54708", icon: "eye", text: "Accounts checking", sub: "counts once they verify it" },
+  Rejected: { tone: "#b42318", icon: "x", text: "Rejected", sub: "not counted" },
+};
+
+/* One bill row's state in a line: the AI check and where the claim is. */
+export function billState(claim, line) {
+  if (claim?.running) {
+    const st = BILL_STATE[line?.state] || BILL_STATE.Checking;
+    return { tone: st.tone, icon: st.icon, text: st.text, where: line?.state === "Rejected" && line.review ? line.review : st.sub };
+  }
+  const s = line?.ai?.score;
+  const ai = s == null ? { tone: "#8a93a3", icon: "file", text: claim.status === "Draft" ? "Not sent" : "Not checked yet" }
+    : s >= 90 ? { tone: "#067647", icon: "shield", text: "AI verified" }
+    : { tone: "#b54708", icon: "eye", text: "In review" };
+  const where = { "Waiting for Approval": "with reporting officer", "In Review": "reviewer checking", Verified: "verified", Paid: "paid" }[claim.status];
+  return { ...ai, where: where || "" };
+}
+
+/* Monday-first weeks of a yyyy-mm month: [{ from, to }] as day numbers. */
+export function weeksOf(key) {
+  const y = +key.slice(0, 4), m = +key.slice(5, 7);
+  const last = new Date(y, m, 0).getDate();
+  const lead = (new Date(y, m - 1, 1).getDay() + 6) % 7; // days before the 1st since Monday
+  const out = [];
+  for (let s = 1 - lead; s <= last; s += 7) out.push({ from: Math.max(1, s), to: Math.min(last, s + 6) });
+  return out;
 }
 
 /* Which month a claim belongs to: the month of most of its expense rows,

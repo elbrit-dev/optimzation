@@ -3,23 +3,31 @@
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import Router from "next/router";
 import { useClaims } from "./data/useClaims";
-import { CSS, ClaimForm, DayCard, DaySheet, FONT_HREF, IC, Icon, Note, Spinner, btn, card, ell, tabNum, TypeDot } from "./ui";
-import { STATUS, groupDays, inr, monthKey, monthLabel, statusOf, totals, MON, kInr, typeColor } from "./model";
+import { fetchFileBlob } from "./data/claimsApi";
+import { CSS, FONT_HREF, Highlights, IC, Icon, Note, Sheet, Spinner, btn, card, ell, tabNum } from "./ui";
+import { BillSheet, CashSheet } from "./sheets";
+import { BILL_STATE, MON, WD, billState, dateOf, inr, ledger, monthKey, monthLabel, shortDate, weeksOf } from "./model";
 
-/* Expense claims -- the month's claims, day by day, and the way to file one.
+/* Expense claims -- the claims prototype's Settlements screen, in the app's
+ * theme, on the settlement model (Miscellaneous, 27 Oct 2026):
  *
- * Reads and writes the ERP's Expense Claim as the signed-in user (url +
- * token). A claim is entered with a bill on every row and sent for approval:
- * the reporting officer approves, the bills' AI check (or a reviewer)
- * verifies, and it is paid with next month's salary. Drafts and rejected
- * claims can be edited and sent again; approving happens in ClaimApprovals. Bills attach to the claim and
- * open in a preview.
+ *   Cash card     what is in hand -- what is left of the cash Accounts paid
+ *                 (Employee Advance) less the verified bills since -- or, below
+ *                 zero, what is owed to the person, as Paid to you -> Verified
+ *                 bills -> In hand / Owed, plus bills still being checked and
+ *                 cash asked for. "Scan a bill", "Request cash" (or, when
+ *                 owed, "Ask for it").
+ *   Highlights    the month: verified, cash paid, bills, AI-verified share.
+ *   Bills & cash  the month's bills and cash, newest first by week. Each bill
+ *                 shows its own status (Checking / Verified / Accounts
+ *                 checking / Rejected) and opens its detail.
  *
- * Opens on this month; the arrows step back through months that have
- * claims, since HR often posts last month's travel in the first week. Older
- * history lives on the profile's "Expense & claims" tab (historyPath).
+ * A bill counts once it is Verified: the AI check at once (90+), or Accounts.
+ * The next cash payment settles the open bills -- they come out of it first.
  *
- * `?new=1` in the URL, or newClaim, opens the form straight away. */
+ * Reads the ERP as the signed-in user (url + token). The month pill steps
+ * back through months with bills or cash. ?new=1 (or newClaim) opens "Add a
+ * bill". Claims of the old flow are under "All past claims". */
 
 function useWidth(ref) {
   const [w, setW] = useState(1024);
@@ -40,7 +48,124 @@ export function go(to) {
   try { Router.push(to)?.catch?.(hard); } catch { hard(); }
 }
 
-const ORDER = ["Draft", "Waiting for Approval", "In Review", "Verified", "Submitted", "Unpaid", "Paid", "Rejected", "Cancelled"];
+const kicker = { display: "flex", alignItems: "center", gap: 7, fontSize: 12, fontWeight: 600, letterSpacing: ".08em", textTransform: "uppercase", color: "#5b6576" };
+const ADV = "#7c3aed";
+const link = { display: "flex", alignItems: "center", gap: 5, height: 36, padding: "0 8px", borderRadius: 8, border: 0, background: "transparent", color: "#2563eb", fontSize: 13.5, fontWeight: 600, cursor: "pointer" };
+
+/* One step of the money flow: Paid to you > Verified bills > In hand. */
+function Step({ k, v, color, soft, dashed, small }) {
+  return (
+    <span style={{ flex: "1 0 auto", minWidth: 86, display: "flex", flexDirection: "column", gap: 2, padding: "10px 11px 9px", borderRadius: 14, background: soft || "#f4f5f7", boxShadow: dashed ? "inset 0 0 0 1.5px #fedf89" : "none" }}>
+      <span style={{ fontSize: 11, fontWeight: 700, color: dashed ? "#b54708" : "#667085" }}>{k}</span>
+      <b style={{ fontSize: 15, fontWeight: 700, color: color || "#0b1220", whiteSpace: "nowrap", ...tabNum }}>{v}</b>
+      {small && <span style={{ fontSize: 10, fontWeight: 700, color: "#b54708" }}>{small}</span>}
+    </span>
+  );
+}
+const arrow = (k) => <span key={k} aria-hidden style={{ alignSelf: "center", color: "#c0c5cf", display: "flex", flex: "none" }}><Icon d={IC.next} size={14} /></span>;
+
+/* One line of the ledger: a bill (−), cash paid (+), cash asked for, or a pay-back. */
+function Entry({ e, onOpen }) {
+  const dt = dateOf(e.date);
+  const day = (
+    <span style={{ display: "flex", flexDirection: "column", alignItems: "center", lineHeight: 1, gap: 3 }}>
+      <span style={{ fontSize: 17, fontWeight: 700, ...tabNum }}>{dt.getDate()}</span>
+      <span style={{ fontSize: 10, fontWeight: 600, color: "#8a93a3", textTransform: "uppercase" }}>{WD[dt.getDay()]}</span>
+    </span>
+  );
+  const rowStyle = { width: "100%", display: "grid", gridTemplateColumns: "40px minmax(0,1fr) auto", gap: 10, alignItems: "center", padding: "10px 4px", border: 0, borderTop: "1px solid #eef1f5", borderRadius: 10, background: "transparent", textAlign: "left" };
+  const after = e.bal < 0 ? `owed ${inr(-e.bal)}` : `${inr(e.bal)} in hand`;
+  if (e.kind !== "bill") {
+    const req = e.kind === "request";
+    const title = req ? "Cash requested" : e.kind === "payout" ? "Paid back by Accounts" : "Cash from Accounts";
+    return (
+      <div style={{ ...rowStyle, opacity: req ? 0.85 : 1 }}>
+        {day}
+        <span style={{ minWidth: 0 }}>
+          <span style={{ display: "block", fontSize: 14, fontWeight: 600, ...ell }}>{title}</span>
+          <span style={{ display: "block", fontSize: 12, color: "#5b6576", ...ell }}>{e.note}{req ? " · waiting for Accounts" : ""}</span>
+        </span>
+        <span style={{ textAlign: "right" }}>
+          <b style={{ display: "block", fontSize: 15, color: req ? "#b54708" : "#067647", whiteSpace: "nowrap", ...tabNum }}>+ {inr(e.amount)}</b>
+          <span style={{ fontSize: 11, color: "#8a93a3", whiteSpace: "nowrap" }}>{req ? "paid once approved" : after}</span>
+        </span>
+      </div>
+    );
+  }
+  const st = billState(e.claim, e.line);
+  const counted = e.state === "Verified";
+  return (
+    <button type="button" className="ec-ghost" onClick={onOpen} style={{ ...rowStyle, cursor: "pointer" }}>
+      {day}
+      <span style={{ minWidth: 0 }}>
+        <span style={{ display: "block", fontSize: 14, fontWeight: 600, ...ell }}>{e.line.note || e.line.type}</span>
+        <span style={{ display: "flex", alignItems: "center", gap: 4, fontSize: 12, fontWeight: 600, color: st.tone, minWidth: 0 }}>
+          <span style={{ flex: "none", display: "flex" }}><Icon d={IC[st.icon]} size={12} /></span><span style={{ minWidth: 0, ...ell }}>{st.text}{st.where ? <span style={{ color: "#8a93a3", fontWeight: 500 }}> · {st.where}</span> : null}</span>
+        </span>
+      </span>
+      <span style={{ textAlign: "right" }}>
+        <b style={{ display: "block", fontSize: 15, whiteSpace: "nowrap", color: e.state === "Rejected" ? "#98a2b3" : "#0b1220", textDecoration: e.state === "Rejected" ? "line-through" : "none", ...tabNum }}>− {inr(e.amount)}</b>
+        <span style={{ fontSize: 11, whiteSpace: "nowrap", color: counted && e.bal < 0 ? "#b42318" : "#8a93a3" }}>{counted ? after : e.state === "Rejected" ? "not counted" : "not counted yet"}</span>
+      </span>
+    </button>
+  );
+}
+
+/* A bill, opened: what it is, its status in full, the AI's reading,
+   Accounts' note, and the photo. */
+function BillDetail({ conn, e, onClose }) {
+  const [opening, setOpening] = useState(false);
+  const [err, setErr] = useState("");
+  const l = e.line;
+  const st = BILL_STATE[e.state] || BILL_STATE.Checking;
+  const explain = {
+    Checking: "The AI has not finished checking this bill yet. It counts once it is verified.",
+    Verified: "The bill matches what you entered. It counts towards your settlement.",
+    "In Review": "The AI could not confirm this bill, so Accounts are checking it by hand. It counts once they verify it.",
+    Rejected: "Accounts did not accept this bill. It does not count.",
+  }[e.state] || "";
+  const view = async () => {
+    setOpening(true);
+    setErr("");
+    try {
+      const blob = await fetchFileBlob(conn, l.bill);
+      const u = URL.createObjectURL(blob);
+      window.open(u, "_blank", "noopener");
+      setTimeout(() => URL.revokeObjectURL(u), 60000);
+    } catch (x) {
+      setErr(x.message);
+    }
+    setOpening(false);
+  };
+  const row = (k, v) => v ? <div style={{ display: "flex", justifyContent: "space-between", gap: 12, padding: "10px 0", fontSize: 14, borderTop: "1px solid #eef1f5" }}><span style={{ color: "#5b6576" }}>{k}</span><b style={{ textAlign: "right", ...tabNum }}>{v}</b></div> : null;
+  return (
+    <Sheet title={l.note || "Bill"} sub={`${shortDate(l.date)} · ${e.claim.id}`} onClose={onClose} desktop="dialog" maxWidth={480}>
+      <div style={{ display: "flex", flexDirection: "column", gap: 14, padding: "16px 20px 22px" }}>
+        <span style={{ fontSize: 34, fontWeight: 800, letterSpacing: "-0.04em", ...tabNum }}>{inr(l.amount)}</span>
+        <div style={{ display: "flex", gap: 10, padding: "12px 14px", borderRadius: 14, background: `color-mix(in srgb,${st.tone} 9%,#fff)` }}>
+          <span style={{ color: st.tone, display: "flex", flex: "none", marginTop: 1 }}><Icon d={IC[st.icon]} size={18} /></span>
+          <span style={{ display: "flex", flexDirection: "column", gap: 3 }}>
+            <b style={{ fontSize: 14, color: st.tone }}>{st.text}</b>
+            <span style={{ fontSize: 13, color: "#475467", lineHeight: 1.45 }}>{explain}</span>
+          </span>
+        </div>
+        {l.review && <Note tone={e.state === "Rejected" ? "error" : "info"}>Accounts: {l.review}</Note>}
+        <div style={{ ...card, padding: "0 14px" }}>
+          {row("AI score", l.ai?.score != null ? `${Math.round(l.ai.score)} / 100` : null)}
+          {row("AI says", l.ai?.reason)}
+          {row("On the bill", [l.ai?.amount ? inr(l.ai.amount) : null, l.ai?.date ? shortDate(l.ai.date) : null, l.ai?.vendor].filter(Boolean).join(" · ") || null)}
+          {row("Status", e.claim.docstatus === 1 ? "Settled" : "In your open bills")}
+        </div>
+        {l.bill && (
+          <button type="button" className="ec-ghost" disabled={opening} onClick={view} style={{ ...btn.ghost, height: 48, borderRadius: 14, display: "flex", alignItems: "center", justifyContent: "center", gap: 8 }}>
+            {opening ? <Spinner size={14} /> : <Icon d={IC.eye} size={16} />}View the bill
+          </button>
+        )}
+        {err && <Note>{err}</Note>}
+      </div>
+    </Sheet>
+  );
+}
 
 export default function ClaimReport({
   url, token, employee, asOf, viewport = "auto", newClaim = false,
@@ -53,232 +178,161 @@ export default function ClaimReport({
   const cur = monthKey(today);
 
   const data = useClaims({ url, token, employee });
-  const { conn, me, claims = [], types, typeInfo } = data;
+  const { conn, me, claims = [], advances = [] } = data;
 
+  const L = useMemo(() => ledger(claims, advances), [claims, advances]);
   const months = useMemo(() => {
     const set = new Set([cur]);
-    for (const c of claims) for (const l of c.lines) if (l.date && l.date.slice(0, 7) <= cur) set.add(l.date.slice(0, 7));
+    for (const e of L.entries) if (e.date && e.date.slice(0, 7) <= cur) set.add(e.date.slice(0, 7));
     return [...set].sort();
-  }, [claims, cur]);
+  }, [L, cur]);
   const [month, setMonth] = useState(cur);
   const mi = months.indexOf(month);
 
-  const [filter, setFilter] = useState(null);
-  const [day, setDay] = useState(null);
-  const [form, setForm] = useState(null); // { claim? }
+  const [bill, setBill] = useState(null);
+  const [sheet, setSheet] = useState(null); // "bill" | "cash"
   const [toast, setToast] = useState(null);
   const tt = useRef(null);
   const say = (m, tone = "ok") => { setToast({ m, tone }); clearTimeout(tt.current); tt.current = setTimeout(() => setToast(null), 3200); };
   useEffect(() => () => clearTimeout(tt.current), []);
 
-  /* ?new=1 (or newClaim) opens the form straight away. Opened once, then the
-     query is dropped so a refresh does not reopen it. */
+  /* ?new=1 (or newClaim) opens "Add a bill" once; the query is then dropped
+     so a refresh does not reopen it. */
   const asked = useRef(false);
   useEffect(() => {
     if (asked.current || data.status !== "ready") return;
     const q = typeof window !== "undefined" ? new URLSearchParams(window.location.search) : null;
     if (newClaim || q?.get("new") === "1") {
       asked.current = true;
-      setForm({});
+      setSheet("bill");
       if (q?.get("new")) { q.delete("new"); const s = q.toString(); window.history.replaceState(null, "", window.location.pathname + (s ? "?" + s : "")); }
     }
   }, [data.status, newClaim]);
 
-  const inMonth = (l) => l.date.slice(0, 7) === month;
-  const T = useMemo(() => totals(claims, inMonth), [claims, month]); // eslint-disable-line react-hooks/exhaustive-deps
-  const days = useMemo(() => groupDays(claims, (l, c) => inMonth(l) && (!filter || c.status === filter)), [claims, month, filter]); // eslint-disable-line react-hooks/exhaustive-deps
-  const nClaims = Object.values(T.byStatus).reduce((s, b) => s + b.n, 0);
-  const statuses = ORDER.filter((s) => T.byStatus[s] || ["Waiting for Approval", "Verified"].includes(s));
-  const barTotal = statuses.reduce((s, k) => s + (T.byStatus[k]?.amount || 0), 0) || 1;
-  const sanctionedCut = T.sanctioned && claims.some((c) => c.sanctioned != null && c.lines.some((l) => inMonth(l) && l.sanctioned !== l.amount));
-  const [y, m] = month.split("-").map(Number);
   const isCur = month === cur;
-  const lastDay = new Date(y, m, 0).getDate();
-  const kicker = isCur ? `${monthLabel(month)} · day ${today.getDate()} of ${lastDay}` : `${monthLabel(month)} · full month`;
+  const inMonth = L.entries.filter((e) => e.date.slice(0, 7) === month);
+  const bills = inMonth.filter((e) => e.kind === "bill");
+  const [y, m] = month.split("-").map(Number);
+  const weeks = useMemo(() => weeksOf(month)
+    .filter((wk) => !isCur || wk.from <= today.getDate())
+    .map((wk) => {
+      const es = inMonth.filter((e) => { const n = +e.date.slice(8, 10); return n >= wk.from && n <= wk.to; }).reverse();
+      const bs = es.filter((e) => e.kind === "bill");
+      return { ...wk, es, total: bs.reduce((s, e) => s + e.amount, 0), n: bs.length, now: isCur && wk.from <= today.getDate() && today.getDate() <= wk.to };
+    })
+    .filter((wk) => wk.es.length || wk.now)
+    .reverse(), [month, inMonth, isCur, today]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  /* Wide desktop: a side column beside the month -- the split by claim type,
-     the last six months, and quick-add by type -- so the width is used. */
-  const wide = isDesk && w >= 1180;
-  const listTwoCols = wide ? w - 420 >= 760 : isDesk && w >= 900;
-  const typeRows = Object.entries(T.byType).sort((a, b) => b[1] - a[1]);
-  const typeSum = typeRows.reduce((s, [, v]) => s + v, 0) || 1;
-  const trend = useMemo(() => Array.from({ length: 6 }, (_, i) => {
-    const k = monthKey(new Date(today.getFullYear(), today.getMonth() - 5 + i, 1));
-    const t = totals(claims, (l) => l.date.slice(0, 7) === k);
-    return { k, cl: t.claimed, sa: t.sanctioned };
-  }), [claims, today]);
-  const trendMax = Math.max(1, ...trend.map((x) => x.cl));
-  const pickMonth = (k) => { if (months.includes(k)) { setMonth(k); setFilter(null); } };
+  const hl = useMemo(() => {
+    const out = [];
+    const verified = bills.filter((e) => e.state === "Verified");
+    if (verified.length) out.push({ key: "paid", value: inr(verified.reduce((s, e) => s + e.amount, 0)), label: "verified · counted", tone: "ok" });
+    const added = inMonth.filter((e) => e.kind === "topup").reduce((s, e) => s + e.amount, 0);
+    if (added) out.push({ key: "added", value: inr(added), label: "cash from Accounts", tone: "settle" });
+    if (bills.length) out.push({ key: "bills", value: `${bills.length} ${bills.length === 1 ? "bill" : "bills"}`, label: `${inr(bills.reduce((s, e) => s + e.amount, 0))} this month`, tone: "field" });
+    const decided = bills.filter((e) => e.state !== "Checking");
+    if (decided.length) {
+      const clean = decided.filter((e) => e.line.ai?.score >= 90).length;
+      out.push({ key: "ai", value: `${clean}/${decided.length}`, label: `AI verified · ${decided.length - clean} by Accounts`, tone: "ok", pct: clean / decided.length });
+    }
+    return out;
+  }, [bills, inMonth]);
 
   const openHistory = () => (onOpenHistory ? onOpenHistory() : go(historyPath));
   const back = () => (onBack ? onBack() : go(homePath));
   const pad = isDesk ? 32 : 16;
-
-  const saved = ({ name, edited, sent, warning }) => {
-    setForm(null);
-    setDay(null);
+  const saved = ({ name, message }) => {
+    setSheet(null);
     data.reload();
-    if (warning) say(warning, "error");
-    else say(!sent ? `${name} saved as a draft` : edited ? `${name} sent for approval again` : `${name} sent for approval`);
+    say(`${message || "Saved"} · ${name}`);
   };
+
+  const over = L.over, has = L.added > 0 || L.balance > 0;
+  const say1 = over
+    ? <>You spent {inr(over)} of your own money. It comes back with your next cash from Accounts — or ask for it now.</>
+    : has
+      ? <>Left of the cash Accounts paid you. Bills you add come out of it once they are verified.</>
+      : <>No cash from Accounts yet. Add your bills as you spend — you are paid back once they are verified — or request cash up front.</>;
 
   return (
     <div ref={rootRef} className={"ec-root" + (className ? " " + className : "")} style={{ background: "#f4f5f7", width: "100%", minHeight: "100%" }}>
       <link rel="stylesheet" href={FONT_HREF} />
       <style>{CSS}</style>
-      <main style={{ display: "flex", flexDirection: "column", gap: 18, padding: `${isDesk ? 20 : 12}px ${pad}px ${isDesk ? 64 : 28}px`, maxWidth: 1600 }}>
+      <main style={{ display: "flex", flexDirection: "column", gap: 16, padding: `${isDesk ? 20 : 12}px ${pad}px ${isDesk ? 64 : 28}px`, maxWidth: 760, margin: "0 auto" }}>
         <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-          <button type="button" aria-label="Back" className="ec-ghost" onClick={back} style={{ ...btn.icon, width: 38, height: 38, background: "#fff", boxShadow: "0 0 0 1px #e4e7ec", color: "#344054" }}><Icon d={IC.back} size={18} /></button>
-          <div style={{ flex: 1, minWidth: 0 }}>
-            <div style={{ fontSize: isDesk ? 24 : 20, fontWeight: 700, letterSpacing: "-0.02em" }}>Expense claims</div>
-            <div style={{ fontSize: 13, color: "#5b6576", ...ell }}>{[me?.name, me?.department, "claims go to your reporting officer"].filter(Boolean).join(" · ")}</div>
-          </div>
-          <button type="button" className="ec-ghost" onClick={openHistory} style={{ ...btn.ghost, height: 40, padding: "0 14px", display: "flex", alignItems: "center", gap: 6, flex: "none" }}><Icon d={IC.hist} />{isDesk ? "Past claims" : "History"}</button>
+          <button type="button" aria-label="Back" className="ec-ghost" onClick={back} style={{ ...btn.icon, width: 40, height: 40, borderRadius: 12, background: "#fff", boxShadow: "0 0 0 1px #e4e7ec", color: "#344054" }}><Icon d={IC.back} size={18} /></button>
+          <span style={{ flex: 1, minWidth: 0, fontSize: isDesk ? 24 : 21, fontWeight: 700, letterSpacing: "-0.02em", ...ell }}>Settlements</span>
+          <span style={{ flex: "none", display: "flex", alignItems: "center", gap: 2, height: 36, padding: "0 4px", borderRadius: 99, background: "#fff", boxShadow: "0 0 0 1px #e4e7ec" }}>
+            <button type="button" aria-label="Previous month" disabled={mi <= 0} onClick={() => setMonth(months[mi - 1])} style={{ ...btn.icon, width: 28, height: 28, opacity: mi <= 0 ? 0.3 : 1 }}><Icon d={IC.back} size={14} /></button>
+            <span style={{ fontSize: 13, fontWeight: 700, whiteSpace: "nowrap" }}>{MON[m - 1]} {y}</span>
+            <button type="button" aria-label="Next month" disabled={mi >= months.length - 1} onClick={() => setMonth(months[mi + 1])} style={{ ...btn.icon, width: 28, height: 28, opacity: mi >= months.length - 1 ? 0.3 : 1 }}><Icon d={IC.next} size={14} /></button>
+          </span>
         </div>
 
         {data.status === "idle" && <Note tone="info">Pass the ERP GraphQL URL and the signed-in user’s token to load claims.</Note>}
         {data.status === "error" && <Note>{data.error}</Note>}
         {data.status === "hidden" && <Note tone="info">Expense claims are not open for your role yet.</Note>}
-        {data.status === "loading" && <div aria-busy="true" style={{ ...card, height: 220, display: "grid", placeItems: "center" }}><Spinner size={24} /></div>}
+        {data.status === "loading" && <div aria-busy="true" style={{ ...card, height: 260, display: "grid", placeItems: "center" }}><Spinner size={24} /></div>}
 
-        {data.status === "ready" && <div style={{ display: "grid", gridTemplateColumns: wide ? "minmax(0,1fr) 340px" : "minmax(0,1fr)", gap: 18, alignItems: "start" }}>
-          <div style={{ display: "flex", flexDirection: "column", gap: 18, minWidth: 0 }}>
-          <section style={{ ...card, boxShadow: "0 0 0 1px #e4e7ec,0 12px 28px -24px rgba(16,24,40,.35)", padding: "20px 22px", display: "flex", flexDirection: "column", gap: 18 }}>
-            <div style={{ display: "flex", alignItems: "center", gap: "8px 12px", flexWrap: "wrap" }}>
-              <button type="button" aria-label="Previous month" className="ec-ghost" disabled={mi <= 0} onClick={() => { setMonth(months[mi - 1]); setFilter(null); }} style={{ ...btn.icon, width: 30, height: 30, opacity: mi <= 0 ? 0.3 : 1 }}><Icon d={IC.back} /></button>
-              <span style={{ display: "flex", alignItems: "center", gap: 7, fontSize: 12, fontWeight: 600, letterSpacing: ".08em", textTransform: "uppercase", color: "#5b6576" }}><span style={{ width: 6, height: 6, borderRadius: "50%", background: "#2563eb" }} />{kicker}</span>
-              <button type="button" aria-label="Next month" className="ec-ghost" disabled={mi >= months.length - 1} onClick={() => { setMonth(months[mi + 1]); setFilter(null); }} style={{ ...btn.icon, width: 30, height: 30, opacity: mi >= months.length - 1 ? 0.3 : 1 }}><Icon d={IC.next} /></button>
-              <span style={{ flex: 1 }} />
-              {data.refreshing && <span style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 12, color: "#8a93a3" }}><Spinner size={12} />Updating</span>}
+        {data.status === "ready" && <>
+          <section style={{ ...card, padding: isDesk ? "20px 22px" : "16px", display: "flex", flexDirection: "column", gap: 12 }}>
+            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10 }}>
+              <span style={kicker}><span style={{ width: 6, height: 6, borderRadius: "50%", background: ADV }} />{over ? "Owed to you" : "Cash in hand"}</span>
+              {data.refreshing ? <span style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 12, color: "#8a93a3" }}><Spinner size={12} />Updating</span>
+                : L.checking > 0 && <span style={{ fontSize: 11, fontWeight: 700, padding: "3px 9px", borderRadius: 99, background: "#fffaeb", color: "#b54708" }}>{inr(L.checking)} being checked</span>}
             </div>
-            <div style={{ display: "grid", gridTemplateColumns: isDesk && w >= 860 ? "minmax(0,1fr) minmax(0,1.3fr)" : "minmax(0,1fr)", gap: "20px 36px", alignItems: "start" }}>
-              <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
-                <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
-                  <span style={{ fontSize: 13, fontWeight: 600, color: "#5b6576" }}>Total claimed</span>
-                  <span style={{ fontSize: isDesk ? 48 : 40, fontWeight: 700, letterSpacing: "-0.04em", lineHeight: 1, ...tabNum }}>{inr(T.claimed)}</span>
-                  <span style={{ fontSize: 13, color: "#8a93a3" }}>{T.rows} expense {T.rows === 1 ? "row" : "rows"} across {nClaims} {nClaims === 1 ? "claim" : "claims"}</span>
-                </div>
-                {T.sanctioned > 0 && (
-                  <div style={{ display: "flex", alignItems: "center", gap: 12, padding: "12px 14px", borderRadius: 12, background: "#eef3fe" }}>
-                    <span style={{ flex: "none", width: 32, height: 32, borderRadius: "50%", background: "#2563eb", color: "#fff", display: "grid", placeItems: "center" }}><Icon d={IC.check} sw={2.4} /></span>
-                    <span style={{ display: "flex", flexDirection: "column", gap: 1, minWidth: 0 }}>
-                      <span style={{ fontSize: 18, fontWeight: 700, color: "#1d4ed8", ...tabNum }}>{inr(T.sanctioned)} sanctioned</span>
-                      <span style={{ fontSize: 12, color: "#5b6576" }}>{sanctionedCut ? "Some amounts were cut · " : ""}{T.reimbursed ? inr(T.reimbursed) + " already paid" : "paid with salary"}</span>
-                    </span>
-                  </div>
-                )}
-              </div>
-              <div style={{ display: "flex", flexDirection: "column", gap: 10, minWidth: 0 }}>
-                <div style={{ display: "flex", height: 10, borderRadius: 99, overflow: "hidden", background: "#eef1f5", gap: 2 }}>
-                  {statuses.filter((s) => T.byStatus[s]?.amount).map((s) => <span key={s} style={{ width: (T.byStatus[s].amount / barTotal) * 100 + "%", background: statusOf(s).dot }} />)}
-                </div>
-                <div style={{ display: "flex", flexDirection: "column", gap: 2 }}>
-                  {statuses.map((s) => {
-                    const b = T.byStatus[s] || { n: 0, amount: 0 };
-                    const on = filter === s;
-                    const st = STATUS[s] || statusOf(s);
-                    return (
-                      <button key={s} type="button" aria-pressed={on} className="ec-ghost" disabled={!b.n} onClick={() => setFilter(on ? null : s)} style={{ display: "grid", gridTemplateColumns: "auto minmax(0,1fr) auto auto", alignItems: "center", gap: 10, minHeight: 44, padding: "0 10px", borderRadius: 10, border: 0, background: on ? "#eef3fe" : "transparent", boxShadow: on ? "inset 0 0 0 1px #b2c8f7" : "none", cursor: b.n ? "pointer" : "default", textAlign: "left", fontSize: 14 }}>
-                        <span style={{ width: 8, height: 8, borderRadius: "50%", background: st.dot }} />
-                        <span style={{ fontWeight: 600 }}>{st.label}</span>
-                        <span style={{ fontSize: 12, color: "#8a93a3" }}>{b.n} {b.n === 1 ? "claim" : "claims"}</span>
-                        <span style={{ minWidth: 84, textAlign: "right", fontWeight: 700, color: b.n ? "#0b1220" : "#c0c5cf", ...tabNum }}>{b.n ? inr(b.amount) : "—"}</span>
-                      </button>
-                    );
-                  })}
-                </div>
-              </div>
+            <div style={{ display: "flex", alignItems: "baseline", gap: 8 }}>
+              <span style={{ fontSize: isDesk ? 44 : 40, fontWeight: 800, letterSpacing: "-0.04em", lineHeight: 1, color: over ? "#b42318" : "#0b1220", ...tabNum }}>{inr(over || L.balance)}</span>
+              <span style={{ fontSize: 14, color: "#5b6576" }}>{over ? "owed to you" : "in hand"}</span>
+            </div>
+            <p style={{ margin: 0, fontSize: 14, lineHeight: 1.45, color: "#344054" }}>{say1}</p>
+            <div className="ec-rail" role="group" aria-label="Your settlement" style={{ display: "flex", alignItems: "stretch", gap: 4, overflowX: "auto" }}>
+              <Step k="Paid to you" v={`+ ${inr(L.added)}`} color="#067647" />{arrow("a1")}
+              <Step k="Verified bills" v={`− ${inr(L.spent)}`} />{arrow("a2")}
+              <Step k={over ? "Owed to you" : "In hand"} v={inr(over || L.balance)} color={over ? "#b42318" : undefined} />
+              {L.checking > 0 && <Step k="Being checked" v={inr(L.checking)} color="#b54708" soft="#fffaeb" dashed small="not counted yet" />}
+              {L.requested > 0 && <Step k="Requested" v={`+ ${inr(L.requested)}`} color="#b54708" soft="#fffaeb" dashed small="waiting for Accounts" />}
+            </div>
+            <button type="button" className="ec-cta" onClick={() => setSheet("bill")} style={{ ...btn.primary, height: 52, borderRadius: 14, fontSize: 16, display: "flex", alignItems: "center", justifyContent: "center", gap: 8, marginTop: 2 }}><Icon d={IC.camera} size={20} />Scan a bill</button>
+            <div style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: 10, color: "#c0c5cf" }}>
+              <button type="button" className="ec-link" onClick={() => setSheet("cash")} style={link}><Icon d={IC.wallet} size={14} />{over ? `Ask for ${inr(over)}` : "Request cash"}</button>
             </div>
           </section>
+
+          {hl.length > 0 && (
+            <section style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+              <span style={{ fontSize: 15, fontWeight: 700, color: "#5b6576" }}>Highlights · {monthLabel(month).split(" ")[0]}</span>
+              <Highlights items={hl} bleed={pad + "px"} />
+            </section>
+          )}
 
           <section style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10, minHeight: 32 }}>
-              <span style={{ fontSize: 15, fontWeight: 600 }}>{filter ? statusOf(filter).label : "Day by day"} · {days.length} {days.length === 1 ? "day" : "days"}</span>
-              {filter && <button type="button" className="ec-link" onClick={() => setFilter(null)} style={{ height: 32, padding: "0 10px", borderRadius: 8, border: 0, background: "transparent", color: "#1d4ed8", fontSize: 13, fontWeight: 600, cursor: "pointer" }}>Show all</button>}
+            <span style={{ fontSize: 15, fontWeight: 700, color: "#5b6576" }}>Bills &amp; cash</span>
+            <div style={{ ...card, padding: "4px 14px 10px" }}>
+              {weeks.map((wk) => (
+                <div key={wk.from}>
+                  <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8, padding: "12px 2px 4px" }}>
+                    <span style={{ fontSize: 13, fontWeight: 700, color: wk.now ? "#1d4ed8" : "#0b1220" }}>{wk.from} – {wk.to} {MON[m - 1]}{wk.now ? " · this week" : ""}</span>
+                    <span style={{ fontSize: 12, color: "#8a93a3", ...tabNum }}>{wk.n ? `${wk.n} ${wk.n === 1 ? "bill" : "bills"} · ${inr(wk.total)}` : "no bills yet"}</span>
+                  </div>
+                  {wk.es.map((e, i) => <Entry key={`${e.kind}|${e.line?.id || e.adv?.id || e.claim?.id}|${i}`} e={e} onOpen={() => setBill(e)} />)}
+                </div>
+              ))}
+              {!inMonth.length && (
+                <div style={{ padding: "22px 8px 12px", textAlign: "center", fontSize: 14, color: "#5b6576" }}>{isCur ? "No bills yet this month — scan one above." : `No bills for ${monthLabel(month)}.`}</div>
+              )}
             </div>
-            <div style={{ display: "grid", gridTemplateColumns: listTwoCols ? "repeat(2,minmax(0,1fr))" : "minmax(0,1fr)", gap: 8 }}>
-              {days.map((d) => <DayCard key={d.key} day={d} onOpen={() => setDay(d)} />)}
-            </div>
-            {!days.length && (
-              <div style={{ ...card, padding: "28px 16px", textAlign: "center", display: "flex", flexDirection: "column", alignItems: "center", gap: 12 }}>
-                <span style={{ fontSize: 14, color: "#5b6576" }}>{filter ? "No claims in this status this month." : isCur ? "No claims yet this month." : `No claims for ${monthLabel(month)}.`}</span>
-                {!filter && isCur && <button type="button" className="ec-cta" onClick={() => setForm({})} style={{ ...btn.primary, display: "flex", alignItems: "center", gap: 6 }}><Icon d={IC.plus} sw={2.4} />File a claim</button>}
-              </div>
-            )}
+            <button type="button" className="ec-link" onClick={openHistory} style={{ alignSelf: "flex-start", height: 32, padding: "0 8px", borderRadius: 8, border: 0, background: "transparent", color: "#1d4ed8", fontSize: 13, fontWeight: 600, cursor: "pointer" }}>All past claims →</button>
           </section>
-          </div>
-
-          {wide && (
-            <aside style={{ display: "flex", flexDirection: "column", gap: 12, position: "sticky", top: 16 }}>
-              <section style={{ ...card, padding: "16px 18px", display: "flex", flexDirection: "column", gap: 12 }}>
-                <div style={{ display: "flex", alignItems: "baseline", justifyContent: "space-between", gap: 8 }}>
-                  <span style={{ fontSize: 15, fontWeight: 600 }}>By claim type</span>
-                  <span style={{ fontSize: 12, color: "#8a93a3" }}>{monthLabel(month)}</span>
-                </div>
-                {typeRows.length ? <>
-                  <div style={{ display: "flex", height: 8, borderRadius: 99, overflow: "hidden", background: "#eef1f5", gap: 2 }}>
-                    {typeRows.map(([t, v]) => <span key={t} style={{ width: (v / typeSum) * 100 + "%", background: typeColor(t).c }} />)}
-                  </div>
-                  <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
-                    {typeRows.map(([t, v]) => (
-                      <div key={t} style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 13 }}>
-                        <TypeDot type={t} /><span style={{ flex: 1, color: "#344054", fontWeight: 600 }}>{t}</span>
-                        <span style={{ color: "#8a93a3", fontSize: 12 }}>{Math.round((v / typeSum) * 100)}%</span>
-                        <span style={{ minWidth: 76, textAlign: "right", fontWeight: 700, ...tabNum }}>{inr(v)}</span>
-                      </div>
-                    ))}
-                  </div>
-                </> : <span style={{ fontSize: 13, color: "#8a93a3" }}>Nothing claimed this month.</span>}
-              </section>
-
-              <section style={{ ...card, padding: "16px 18px", display: "flex", flexDirection: "column", gap: 10 }}>
-                <div style={{ display: "flex", alignItems: "baseline", justifyContent: "space-between", gap: 8 }}>
-                  <span style={{ fontSize: 15, fontWeight: 600 }}>Last 6 months</span>
-                  <span style={{ display: "flex", alignItems: "center", gap: 10, fontSize: 11, color: "#5b6576" }}>
-                    <span style={{ display: "flex", alignItems: "center", gap: 4 }}><span style={{ width: 8, height: 8, borderRadius: 2, background: "#d6e2fb" }} />Claimed</span>
-                    <span style={{ display: "flex", alignItems: "center", gap: 4 }}><span style={{ width: 8, height: 8, borderRadius: 2, background: "#2563eb" }} />Sanctioned</span>
-                  </span>
-                </div>
-                <div style={{ display: "flex", alignItems: "flex-end", gap: 6, height: 132 }}>
-                  {trend.map(({ k, cl, sa }) => {
-                    const on = k === month;
-                    const has = months.includes(k);
-                    return (
-                      <button key={k} type="button" disabled={!has} aria-pressed={on} onClick={() => pickMonth(k)} className="ec-ghost" title={`${monthLabel(k)} · claimed ${inr(cl)} · sanctioned ${inr(sa)}`} style={{ flex: 1, height: "100%", display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "flex-end", gap: 5, border: 0, borderRadius: 8, padding: "4px 0 0", background: on ? "#eef3fe" : "transparent", cursor: has ? "pointer" : "default" }}>
-                        <span style={{ fontSize: 10, fontWeight: 600, color: "#5b6576" }}>{cl ? kInr(cl) : ""}</span>
-                        <span style={{ position: "relative", width: "58%", height: Math.max(2, (cl / trendMax) * 82), borderRadius: "5px 5px 0 0", background: "#d6e2fb" }}>
-                          <span style={{ position: "absolute", left: 0, right: 0, bottom: 0, height: cl ? (sa / cl) * 100 + "%" : 0, borderRadius: "5px 5px 0 0", background: "#2563eb" }} />
-                        </span>
-                        <span style={{ fontSize: 11, fontWeight: on ? 700 : 500, color: on ? "#1d4ed8" : "#8a93a3" }}>{MON[+k.slice(5) - 1]}</span>
-                      </button>
-                    );
-                  })}
-                </div>
-                <button type="button" className="ec-link" onClick={openHistory} style={{ alignSelf: "flex-start", height: 30, padding: "0 8px", marginLeft: -8, borderRadius: 8, border: 0, background: "transparent", color: "#1d4ed8", fontSize: 13, fontWeight: 600, cursor: "pointer" }}>All past claims →</button>
-              </section>
-
-              <section style={{ ...card, padding: "16px 18px", display: "flex", flexDirection: "column", gap: 10 }}>
-                <span style={{ fontSize: 15, fontWeight: 600 }}>Quick add</span>
-                <span style={{ fontSize: 12, color: "#8a93a3" }}>Opens a new claim with today’s row of that type.</span>
-                <div style={{ display: "grid", gridTemplateColumns: "repeat(2,minmax(0,1fr))", gap: 8 }}>
-                  {[...(types?.length ? types : ["Travel", "Food", "Miscellaneous", "Advance"])].filter((t) => t !== "Advance").sort((a, b) => { const o = ["Travel", "Food", "Miscellaneous"]; return (o.indexOf(a) + 1 || 99) - (o.indexOf(b) + 1 || 99); }).map((t) => (
-                    <button key={t} type="button" className="ec-ghost" onClick={() => setForm({ copyFrom: { lines: [{ type: t, note: "", amount: "" }] } })} style={{ display: "flex", alignItems: "center", gap: 8, height: 40, padding: "0 12px", borderRadius: 10, border: "1px solid #e4e7ec", background: "#fff", fontSize: 13, fontWeight: 600, color: "#344054", cursor: "pointer", textAlign: "left" }}>
-                      <TypeDot type={t} size={8} />{t}<span style={{ flex: 1 }} /><Icon d={IC.plus} size={14} />
-                    </button>
-                  ))}
-                </div>
-              </section>
-            </aside>
-          )}
-        </div>}
+        </>}
       </main>
 
-      {day && <DaySheet conn={conn} day={day} onClose={() => setDay(null)} onChanged={() => { setDay(null); data.reload(); }} onEdit={(c) => { setDay(null); setForm({ claim: c }); }} />}
-      {form && conn && me && <ClaimForm conn={conn} me={me} types={typeInfo || types} claims={claims} claim={form.claim} copyFrom={form.copyFrom} today={today} desk={isDesk && w >= 900} onClose={() => setForm(null)} onSaved={saved} />}
+      {bill && <BillDetail conn={conn} e={bill} onClose={() => setBill(null)} />}
+      {sheet === "bill" && conn && me && <BillSheet conn={conn} me={me} claims={claims} advances={advances} today={today} desk={isDesk} onClose={() => setSheet(null)} onSaved={saved} />}
+      {sheet === "cash" && conn && me && <CashSheet conn={conn} me={me} claims={claims} advances={advances} today={today} desk={isDesk} onClose={() => setSheet(null)} onSaved={saved} />}
       {toast && (
         <div role="status" aria-live="polite" style={{ position: "fixed", left: "50%", bottom: isDesk ? 32 : 96, transform: "translateX(-50%)", zIndex: 95, maxWidth: "calc(100vw - 32px)", padding: "11px 18px", borderRadius: 10, background: toast.tone === "error" ? "#b42318" : "#101828", color: "#fff", fontSize: 13, fontWeight: 500, boxShadow: "0 12px 30px -10px rgba(16,24,40,.5)" }}>{toast.m}</div>
       )}
     </div>
   );
 }
-

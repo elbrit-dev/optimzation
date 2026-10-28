@@ -2864,7 +2864,7 @@ PLASMIC.registerComponent(ClaimReport, {
   name: "ClaimReport",
   displayName: "Claim Report",
   description:
-    "Expense claims page: the month's ERP Expense Claims day by day with their approval state and AI bill-check risk, and the New / Edit claim form (type + sub type, a bill on every row, advance requests, Send for approval). Approving happens in Claim Approvals. Reads and writes as the token's own Employee. Opens on this month; arrows step back through months with claims. ?new=1 in the URL opens the form.",
+    "Expense claims page, as the claims prototype's Settlements screen (Miscellaneous settlement): cash in hand (cash Accounts paid -> verified bills -> in hand, or what is owed to them), Scan a bill / Request cash, the month's highlights, and the month's bills and cash by week, each bill with its own status (Checking / Verified / Accounts checking / Rejected) and a detail view. A bill goes onto the person's open claim with its photo; the AI checks it at once -- 90+ is verified and counts, anything else goes to Accounts. The next cash payment settles the open bills. Reads and writes as the token's own Employee. ?new=1 opens Add a bill.",
   props: {
     url: { type: "string", displayName: "GraphQL URL", description: "ERP GraphQL URL, e.g. https://erp.elbrit.org/api/method/graphql." },
     token: { type: "string", displayName: "Auth token", description: "The signed-in user's ERP token (key:secret). Claims are filed as this user." },
@@ -3249,7 +3249,7 @@ PLASMIC.registerComponent(HomeOverview, {
       type: "boolean",
       displayName: "Claims strip",
       defaultValue: true,
-      description: "Shows the Expense claims strip at the top: this month's claims (ERP Expense Claim, as the token's own Employee) as a ticker. Clicking it fires On open Claims; its + opens the claim form on this page and saves to the ERP. Needs the URL and token.",
+      description: "Shows the Expense section under the greeting (ERP, as the token's own Employee): the Settle bar -- cash in hand (what is left of the advances Accounts paid, less verified bills) or what is owed to them, and this week's bills. Clicking it fires On open Claims; its camera opens "Add a bill" on this page (photo, AI check) and saves to the ERP. Needs the URL and token.",
     },
     claimsPath: { type: "string", displayName: "Claims page", defaultValue: "/claims", description: "Where the claims strip goes when On open Claims is not wired. The strip's + never navigates: it opens the claim form on this page." },
     onOpenClaims: {

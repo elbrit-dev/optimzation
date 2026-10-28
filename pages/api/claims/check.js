@@ -22,6 +22,11 @@
 //     the only login the AI Guard lets write scores -- so nobody can score
 //     their own claim by writing the fields directly.
 //
+// The running Miscellaneous claim (custom_running, 27 Oct 2026) is checked
+// bill by bill as each is added: only rows still "Checking" are scored, and
+// the score decides the bill at once in the ERP ("Expense Running Guard":
+// 90+ Verified, else In Review + an Accounts Task) -- no reporting officer.
+//
 // Not switched on (no checker login or no Gemini key yet) -> { skipped }.
 
 import { allowedErpHosts } from "../../../lib/erpServer";
@@ -69,7 +74,8 @@ const META_FIELDS = {
 };
 
 function rowRequest(row, origin, userErpToken, employeeName) {
-  const kind = [row.expense_type, row.custom_sub_type].filter(Boolean).join(" / ");
+  // The running Miscellaneous claim has no sub types: its row title says what it was for.
+  const kind = [row.expense_type, row.custom_sub_type || row.description].filter(Boolean).join(" / ");
   return {
     documents: [{ url: origin + row.custom_bill, headers: { Authorization: tokenHeader(userErpToken) } }],
     context: `Employee expense claim in India, amounts in INR. Expense: ${kind}.`,
@@ -82,6 +88,8 @@ function rowRequest(row, origin, userErpToken, employeeName) {
     },
     rules: [
       "It must be a bill, receipt, ticket or invoice -- not a selfie, a blank page or an unrelated photo",
+      // Only printed bills are accepted (27 Oct 2026); the form refuses others on attach, this catches the rest.
+      "It must be PRINTED -- a machine-printed bill, receipt, invoice or ticket (thermal till slip, computer print-out, e-ticket, ride receipt); a printed slip with a small handwritten note or addition still passes. A handwritten bill -- including a bill-book page with only the shop's name printed and the items and amounts written by hand -- fails",
       // Recorded in the bill details (Sathishkumar sees it), not scored: many bills carry no name.
       `If the bill names a customer, it should be the employee "${employeeName || "the employee"}" or the company Elbrit (a bill with no customer name passes)`,
     ],
@@ -119,11 +127,15 @@ export default async function handler(req, res) {
     return res.status(e.status === 403 || e.status === 404 ? 403 : 502).json({ error: e.status === 403 || e.status === 404 ? "You cannot see that claim." : `The ERP could not be read: ${e.message}` });
   }
 
-  // One verify-doc call per bill, in parallel.
+  // One verify-doc call per bill, in parallel. On the running claim only the
+  // bills still being checked: the rest were decided already (a score once
+  // written decides the bill -- "Expense Running Guard").
   const rows = claim.expenses || [];
+  const running = !!Number(claim.custom_running);
   const scored = await Promise.all(
     rows.map(async (row) => {
       if (NO_SCORE_TYPES.includes(row.expense_type)) return { row, skip: true };
+      if (running && (row.custom_bill_status || "Checking") !== "Checking") return { row, skip: true };
       if (!row.custom_bill) return { row, score: 0, reason: "No bill attached to this row." };
       try {
         const r = await fetch(`${VERIFY_URL}/v1/verify`, {
@@ -138,37 +150,58 @@ export default async function handler(req, res) {
         const f = out.fields || {};
         const reasons = [];
         if (f.amount && f.amount.ok === false) reasons.push(f.amount.reason);
-        const notABill = (out.rules || [])[0];
+        const [notABill, notPrinted] = out.rules || [];
         if (notABill && notABill.pass === false) reasons.push(notABill.reason);
+        if (notPrinted && notPrinted.pass === false) reasons.push(`Not a printed bill: ${notPrinted.reason}`);
         if (out.document && out.document.readable === false) reasons.push("The bill could not be read.");
         const iso = (v) => (typeof v === "string" && /^\d{4}-\d{2}-\d{2}$/.test(v) ? v : null);
         const val = (k) => (f[k] && f[k].found != null && f[k].found !== "" ? f[k].found : null);
-        // Everything read off the bill, for the row's custom_bill_meta (JSON).
+        // The row's custom_bill_meta (JSON): what is on the attachment, and how
+        // it compared with the claim -- nothing about the model that read it.
+        // The score is the amount check; a photo that is not a printed bill
+        // (or unreadable) is capped below the bar however well the amount
+        // matches, so a person always looks at it.
+        const wrong = notABill?.pass === false || notPrinted?.pass === false || out.document?.readable === false;
+        const score = wrong ? Math.min(out.score ?? 0, 40) : out.score ?? 0;
+        const claimed = flt(row.amount);
+        const onBill = typeof val("amount") === "number" ? val("amount") : null;
         const meta = {
-          read_at: new Date().toISOString(),
-          model: out.meta?.model || null,
-          readable: out.document?.readable ?? null,
-          document_type: val("document_type") || out.document?.kind || null,
-          vendor: val("vendor"),
-          vendor_gstin: val("vendor_gstin"),
-          invoice_no: val("invoice_no"),
-          bill_date: iso(val("bill_date")) || val("bill_date"),
-          bill_date_printed: f.bill_date?.raw || null,
-          customer: val("customer"),
-          payment_mode: val("payment_mode"),
-          what_for: val("what_for"),
-          total_on_bill: val("amount"),
-          amount_confidence: f.amount?.confidence ?? null,
-          language: out.document?.language || null,
-          checks: (out.rules || []).map((r) => ({ rule: r.rule, pass: r.pass, reason: r.reason })),
-          summary: out.summary || null,
-          // What Docling (IT's OCR) extracted from the bill, when OCR is on.
-          ocr_mode: out.ocr?.mode || "vision",
-          ocr_text: out.ocr?.text ? String(out.ocr.text).slice(0, 4000) : null,
+          bill: {
+            document_type: val("document_type") || out.document?.kind || null,
+            vendor: val("vendor"),
+            vendor_gstin: val("vendor_gstin"),
+            invoice_no: val("invoice_no"),
+            bill_date: iso(val("bill_date")) || val("bill_date"),
+            bill_date_printed: f.bill_date?.raw || null,
+            customer: val("customer"),
+            payment_mode: val("payment_mode"),
+            what_for: val("what_for"),
+            total_on_bill: onBill,
+            language: out.document?.language || null,
+            // The bill's full text as Docling (IT's OCR) extracted it.
+            text: out.ocr?.text ? String(out.ocr.text).slice(0, 4000) : null,
+          },
+          verification: {
+            status: out.document?.readable === false ? "Unreadable" : reasons.length ? "Mismatch" : "Matched",
+            checked_at: new Date().toISOString(),
+            score,
+            risk: score >= 90 ? "Low" : score >= 70 ? "Medium" : "High", // same bands as the ERP's AI Guard
+            amount: {
+              claimed,
+              on_bill: onBill,
+              difference: onBill == null ? null : Math.round((claimed - onBill) * 100) / 100,
+              tolerance: "2%",
+              match: f.amount ? f.amount.ok === true : false,
+              reason: f.amount?.reason || null,
+            },
+            checks: (out.rules || []).map((r) => ({ rule: r.rule, pass: r.pass, reason: r.reason })),
+            issues: reasons,
+            summary: out.summary || null,
+          },
         };
         return {
           row,
-          score: out.score ?? 0,
+          score,
           reason: reasons.length ? reasons.join("; ") : "Bill amount matches the claim.",
           amount: val("amount"),
           date: iso(val("bill_date")),
@@ -187,7 +220,7 @@ export default async function handler(req, res) {
   if (failed.length) return res.status(502).json({ error: `Bills could not be checked: ${failed[0].failed}` });
 
   const counted = scored.filter((s) => !s.skip);
-  if (!counted.length) return res.status(200).json({ skipped: true, reason: "Advance requests have no bills to check." });
+  if (!counted.length) return res.status(200).json({ skipped: true, reason: running ? "Every bill on this claim is checked already." : "Advance requests have no bills to check." });
   const money = counted.reduce((s, x) => s + flt(x.row.amount), 0) || 1;
   const claimScore = Math.round(counted.reduce((s, x) => s + x.score * flt(x.row.amount), 0) / money);
   const issues = counted.filter((x) => x.score < 90).map((x) => `Row ${x.row.idx} (${x.row.expense_type}, ${inr(flt(x.row.amount))}): ${x.reason}`);
@@ -220,7 +253,10 @@ export default async function handler(req, res) {
       score: saved.custom_ai_score,
       risk: saved.custom_ai_risk || null,
       summary: saved.custom_ai_summary,
-      rows: counted.map((x) => ({ name: x.row.name, idx: x.row.idx, score: x.score, reason: x.reason, amount: x.amount, date: x.date, vendor: x.vendor })),
+      rows: counted.map((x) => ({
+        name: x.row.name, idx: x.row.idx, score: x.score, reason: x.reason, amount: x.amount, date: x.date, vendor: x.vendor,
+        status: (saved.expenses || []).find((r) => r.name === x.row.name)?.custom_bill_status || null,
+      })),
       modified: saved.modified,
     });
   } catch (e) {

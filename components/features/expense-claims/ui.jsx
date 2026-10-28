@@ -4,7 +4,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { Dialog, Drawer } from "@/design-system";
 import {
   ADVANCE, ATTACH_ACCEPT, DEFAULT_TYPES, applyAction, checkClaim, checkFile, fetchClaim, fetchClaimComments, fetchClaimFiles, fetchFileBlob,
-  fileKind, invalidateClaims, saveClaim, uploadClaimFile,
+  extractBill, fileKind, invalidateClaims, saveClaim, uploadClaimFile,
 } from "./data/claimsApi";
 import { MON, RISK, WD, WDL, claimStatusLabel, dateOf, dayTotal, daySanctioned, inr, isoDay, shortDate, sizeLabel, spanOf, statusOf, typeColor } from "./model";
 
@@ -52,7 +52,37 @@ export const IC = {
   dl: "M12 4v11M7 10l5 5 5-5M5 20h14", trash: "M5 7h14M10 11v6M14 11v6M6 7l1 13h10l1-13M9 7V4h6v3",
   wallet: "M4 7h14a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2H4zM4 7l11-3v3M16 13.5h.01", hist: "M3 12a9 9 0 1 0 3-6.7L3 8M3 3v5h5M12 7v5l3 2",
   check: "M5 12l5 5 9-10", search: "M11 18a7 7 0 1 0 0-14 7 7 0 0 0 0 14zM20 20l-4-4", filter: "M4 6h16M7 12h10M10 18h4",
+  shield: "M20 13c0 5-3.5 7.5-7.7 9a1 1 0 0 1-.6 0C7.5 20.5 4 18 4 13V6a1 1 0 0 1 1-1c2 0 4.5-1.2 6.2-2.7a1.2 1.2 0 0 1 1.6 0C14.5 3.8 17 5 19 5a1 1 0 0 1 1 1zM9 12l2 2 4-4",
+  flame: "M12 22c4.4 0 7-2.9 7-6.6 0-2.4-1.3-4.3-2.6-5.9-.4 1.7-1.2 2.8-2.4 3.4-.3-2.9-1.9-5.6-5-7.9.4 3-.8 4.6-2 6.4-.9 1.4-1.4 2.6-1.4 3.9C5.6 19.3 8.1 22 12 22z",
+  camera: "M14.5 4h-5L7 7H4a2 2 0 0 0-2 2v9a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2V9a2 2 0 0 0-2-2h-3zM12 16a3 3 0 1 0 0-6 3 3 0 0 0 0 6z",
+  arrow: "M5 12h14M13 6l6 6-6 6",
 };
+
+/* The prototype's colour families: field blue, food orange, settle = the Advance purple,
+   ok green, reward amber. [ink, soft] */
+export const TONE = { ok: ["#067647", "#ecfdf3"], reward: ["#b54708", "#fffaeb"], field: ["#1d4ed8", "#eef3fe"], settle: ["#7c3aed", "#f4f0ff"] };
+const HL_ICON = { ai: "shield", bill: "clip", cleared: "check", streak: "flame", paid: "check", added: "wallet", bills: "file" };
+
+/* A sideways-scrolling row of highlight cards (model.highlights). `bleed`
+   lets the row run to the screen edge under a padded parent (a CSS length). */
+export function Highlights({ items, bleed = "0px", onTip }) {
+  if (!items?.length) return null;
+  return (
+    <div className="ec-rail" role="list" aria-label="Highlights" style={{ display: "flex", gap: 8, overflowX: "auto", scrollSnapType: "x proximity", margin: `0 calc(-1 * ${bleed})`, padding: `0 ${bleed} 2px` }}>
+      {items.map((a) => {
+        const [c, s] = TONE[a.tone] || TONE.field;
+        return (
+          <button key={a.key} type="button" role="listitem" title={a.tip} onClick={() => onTip?.(a.tip)} style={{ flex: "none", scrollSnapAlign: "start", minWidth: 148, display: "grid", gridTemplateColumns: "auto minmax(0,1fr)", columnGap: 9, alignItems: "center", padding: "10px 12px", borderRadius: 16, border: 0, background: a.tone === "reward" && a.pct === 1 ? s : "#fff", boxShadow: "0 0 0 1px #e4e7ec", cursor: "pointer", textAlign: "left" }}>
+            <span style={{ gridRow: "1 / 4", width: 30, height: 30, borderRadius: 10, background: s, color: c, display: "grid", placeItems: "center" }}><Icon d={IC[HL_ICON[a.key] || "check"]} size={16} /></span>
+            <span style={{ fontSize: 13.5, fontWeight: 700, letterSpacing: "-0.01em", whiteSpace: "nowrap", ...tabNum }}>{a.value}</span>
+            <span style={{ fontSize: 11, color: "#5b6576", ...ell }}>{a.label}</span>
+            {a.pct != null && <span aria-hidden style={{ height: 3, borderRadius: 99, background: "#eef1f5", overflow: "hidden", marginTop: 4 }}><span style={{ display: "block", height: "100%", width: Math.round(a.pct * 100) + "%", background: c, borderRadius: 99 }} /></span>}
+          </button>
+        );
+      })}
+    </div>
+  );
+}
 
 export function Spinner({ size = 16 }) {
   return <span aria-hidden style={{ width: size, height: size, borderRadius: "50%", border: "2px solid #d0d5dd", borderTopColor: "#2563eb", display: "inline-block", animation: "ec-spin .8s linear infinite" }} />;
@@ -501,14 +531,31 @@ export function ClaimForm({ conn, me, types, claims = [], claim, copyFrom, today
   const bad = rows.filter(rowError).length;
   const bills = rows.filter((r) => r.bill || r.file).length;
 
-  const pickBill = (key, e) => {
-    const f = e.target.files?.[0];
-    e.target.value = "";
-    if (!f) return;
+  /* A bill is read as soon as it is attached: its amount and date fill the
+     row (an amount the person typed is never overwritten -- the line below
+     says what the bill shows instead). Nothing is scored here; the
+     comparison and score happen on send, before the reporting officer. */
+  const attach = (key, f) => {
     const err = checkFile(f);
     if (err) return setError(err);
     setError("");
-    set(key, { file: f });
+    const row = rows.find((r) => r.key === key);
+    set(key, { file: f, read: { busy: true } });
+    extractBill(conn, f, row && [row.type, row.sub].filter(Boolean).join(" / "))
+      .then((x) => setRows((rs) => rs.map((r) => {
+        if (r.key !== key || r.file !== f) return r; // replaced meanwhile
+        const patch = { read: { ...x, busy: false } };
+        const typed = Number(r.amount) > 0 && Number(r.amount) !== r.read?.filled;
+        if (x.amount && !typed) { patch.amount = String(x.amount); patch.read.filled = x.amount; }
+        if (x.date && x.date >= minIso && x.date <= todayIso) patch.date = x.date;
+        return { ...r, ...patch };
+      })))
+      .catch((e) => setRows((rs) => rs.map((r) => (r.key === key && r.file === f ? { ...r, read: { busy: false, error: e.message } } : r))));
+  };
+  const pickBill = (key, e) => {
+    const f = e.target.files?.[0];
+    e.target.value = "";
+    if (f) attach(key, f);
   };
 
   const submit = async (send) => {
@@ -689,13 +736,14 @@ export function ClaimForm({ conn, me, types, claims = [], claim, copyFrom, today
                       wide={wide}
                       missing={!!err && !r.bill && !r.file}
                       onPick={() => fileRefs.current[r.key]?.click()}
-                      onDropFile={(f) => { const e2 = checkFile(f); if (e2) return setError(e2); setError(""); set(r.key, { file: f }); }}
-                      onClear={() => set(r.key, { file: null, bill: "" })}
+                      onDropFile={(f) => attach(r.key, f)}
+                      onClear={() => set(r.key, { file: null, bill: "", read: null })}
                       onPreview={() => setPreview(r.file ? { name: r.file.name, kind: r.file.type === "application/pdf" ? "pdf" : "image", local: r.file } : billFile(r.bill))}
                     />
                   )}
                   {mode === "expense" && <input ref={(el) => { fileRefs.current[r.key] = el; }} type="file" accept={ATTACH_ACCEPT} onChange={(e) => pickBill(r.key, e)} style={{ display: "none" }} />}
                 </div>
+                {mode === "expense" && r.read && <BillRead read={r.read} amount={Number(r.amount) || 0} onUse={(a) => set(r.key, { amount: String(a), read: { ...r.read, filled: a } })} />}
                 {err && <span style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 12.5, fontWeight: 600, color: "#b42318" }}><span style={{ width: 6, height: 6, borderRadius: "50%", background: "#f04438" }} />{err}</span>}
               </div>
             );
@@ -744,6 +792,25 @@ function Pill({ on, color, small, onClick, children }) {
       {children}
       {on && <Icon d={IC.check} size={13} sw={2.6} />}
     </button>
+  );
+}
+
+/* What the AI read off a row's bill, under the row: reading, read (amount ·
+   date · shop), the bill's amount when it differs from the row's, or that it
+   could not be read (the check on send still runs). */
+export function BillRead({ read, amount, onUse }) {
+  const line = { display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap", padding: "8px 10px", borderRadius: 10, fontSize: 12.5, fontWeight: 600, lineHeight: 1.35 };
+  if (read.busy) return <span style={{ ...line, background: "#f2f4f7", color: "#475467" }}><Spinner size={12} />Reading the bill…</span>;
+  if (read.error || (!read.amount && !read.date)) return <span style={{ ...line, background: "#f2f4f7", color: "#667085" }}><Icon d={IC.eye} size={14} />Couldn’t read this bill — enter the amount and date; it is checked again when you send.</span>;
+  const off = read.amount && amount && Math.abs(read.amount - amount) > read.amount * 0.02;
+  const what = [read.amount ? inr(read.amount) : null, read.date ? shortDate(read.date) : null, read.vendor].filter(Boolean).join(" · ");
+  return off ? (
+    <span style={{ ...line, background: "#fffaeb", color: "#b54708" }}>
+      <Icon d={IC.eye} size={14} />The bill says {inr(read.amount)}, you entered {inr(amount)}.
+      <button type="button" onClick={() => onUse(read.amount)} style={{ marginLeft: "auto", height: 28, padding: "0 10px", borderRadius: 8, border: 0, background: "#fff", boxShadow: "inset 0 0 0 1px #fedf89", color: "#b54708", fontSize: 12.5, fontWeight: 700, cursor: "pointer" }}>Use {inr(read.amount)}</button>
+    </span>
+  ) : (
+    <span style={{ ...line, background: "#ecfdf3", color: "#067647" }}><Icon d={IC.shield} size={14} /><span style={{ minWidth: 0 }}>Read from the bill · {what}</span></span>
   );
 }
 
@@ -822,7 +889,7 @@ function Summary({ mode, total, rows, bills, pct, byType, compact }) {
         <span style={{ fontSize: 12, color: "#475467", lineHeight: 1.5, textWrap: "pretty" }}>
           {mode === "advance"
             ? "Your reporting officer approves it, then it is released to you. Add your spends against it as you go — no deadline."
-            : "Your reporting officer approves it. Bills that match are verified at once and paid with next month’s salary; the rest are checked by a reviewer."}
+            : "Your reporting officer approves it. Bills that match are verified at once and paid; the rest are checked by a reviewer first."}
         </span>
       </div>
     </div>

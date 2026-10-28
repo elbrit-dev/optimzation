@@ -90,6 +90,30 @@
       }
     },
     {
+      "name": "7. Extract claim fields -- value + bill details (Docling OCR)",
+      "request": {
+        "method": "POST",
+        "url": "{{baseUrl}}/v1/extract",
+        "body": {
+          "mode": "formdata",
+          "formdata": [
+            {
+              "key": "file",
+              "type": "file",
+              "src": "",
+              "description": "Pick the bill photo or PDF"
+            },
+            {
+              "key": "request",
+              "type": "text",
+              "value": "{\n  \"context\": \"Employee expense bill in India, amounts in INR.\",\n  \"fields\": {\n    \"amount\": {\n      \"type\": \"number\",\n      \"description\": \"the FINAL amount actually paid: the grand / total amount, INCLUDING any handwritten additions or corrections (e.g. 950 +20 = 970 means 970) and any handling or delivery fee -- never a sub-total, a tax line or a single item\"\n    },\n    \"document_type\": {\n      \"type\": \"text\",\n      \"description\": \"what kind of document this is (tax invoice, fuel receipt, cab receipt, toll ticket, restaurant bill, hand-written bill...)\"\n    },\n    \"vendor\": {\n      \"type\": \"text\",\n      \"description\": \"the shop, company or person who issued the bill\"\n    },\n    \"vendor_gstin\": {\n      \"type\": \"text\",\n      \"description\": \"the seller GSTIN, if printed\"\n    },\n    \"invoice_no\": {\n      \"type\": \"text\",\n      \"description\": \"the bill / invoice / receipt / ride number\"\n    },\n    \"bill_date\": {\n      \"type\": \"date\",\n      \"description\": \"the bill or transaction date\"\n    },\n    \"customer\": {\n      \"type\": \"text\",\n      \"description\": \"the customer / passenger / bill-to name, if printed\"\n    },\n    \"payment_mode\": {\n      \"type\": \"text\",\n      \"description\": \"how it was paid (cash, UPI, card, FASTag...), if shown\"\n    },\n    \"what_for\": {\n      \"type\": \"text\",\n      \"description\": \"what was bought or paid for, in a few words\"\n    }\n  }\n}",
+              "description": "The fields the claims check reads -- no expected values"
+            }
+          ]
+        }
+      }
+    },
+    {
       "name": "2. Verify a bill stored in the ERP",
       "request": {
         "method": "POST",

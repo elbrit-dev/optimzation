@@ -44,35 +44,39 @@ const FLOW_FIELDS = `
 `;
 const FLOW_ROW = "custom_sub_type custom_bill custom_bill_amount custom_bill_date custom_bill_vendor custom_ai_score custom_ai_risk custom_ai_reason";
 
-const claimsQuery = (flow) => `
+/* The running Miscellaneous claim (ERP, 27 Oct 2026): the claim's flag and
+   each bill's own status and Accounts' note. Newest, so its own tier. */
+const RUN_FIELDS = "custom_running";
+const RUN_ROW = "custom_bill_status custom_review_note";
+
+/* tier 2 = flow + running fields, 1 = flow fields, 0 = base only. */
+const claimsQuery = (tier) => `
   query ExpenseClaimsOf($f: [DBFilterInput], $first: Int) {
     ExpenseClaims(first: $first, filter: $f, sortBy: { field: MODIFIED, direction: DESC }) {
-      edges { node { ${BASE_FIELDS} ${flow ? FLOW_FIELDS : ""} expenses { ${BASE_ROW} ${flow ? FLOW_ROW : ""} } } }
+      edges { node { ${BASE_FIELDS} ${tier ? FLOW_FIELDS : ""} ${tier > 1 ? RUN_FIELDS : ""} expenses { ${BASE_ROW} ${tier ? FLOW_ROW : ""} ${tier > 1 ? RUN_ROW : ""} } } }
     }
   }
 `;
-let flowFieldsOk = true;
+let fieldTier = 2;
 async function queryClaims(conn, f, first) {
-  if (flowFieldsOk) {
-    let flowError;
+  let firstError;
+  // Fewer fields each step: if a lower tier works, the fields it dropped were
+  // the problem (the GraphQL schema lags new ERP fields until a cache clear)
+  // -- stop asking for them this session. If all fail, the first error is
+  // the real one.
+  for (let tier = fieldTier; tier >= 0; tier--) {
     try {
-      return await gql(conn, claimsQuery(true), { f, first });
-    } catch (e) {
-      flowError = e;
-    }
-    // Same read without the flow fields: if THAT works, the flow fields were
-    // the problem -- stop asking for them this session. If it fails too, the
-    // first error is the real one.
-    try {
-      const d = await gql(conn, claimsQuery(false), { f, first });
-      console.warn("[expense-claims] flow fields unavailable, reading claims without them:", flowError.message);
-      flowFieldsOk = false;
+      const d = await gql(conn, claimsQuery(tier), { f, first });
+      if (tier < fieldTier) {
+        console.warn(`[expense-claims] claim fields of tier ${tier + 1}+ unavailable, reading without them:`, firstError.message);
+        fieldTier = tier;
+      }
       return d;
-    } catch {
-      throw flowError;
+    } catch (e) {
+      firstError = firstError || e;
     }
   }
-  return gql(conn, claimsQuery(false), { f, first });
+  throw firstError;
 }
 
 const ME_QUERY = `
@@ -148,6 +152,9 @@ export function shapeClaim(node) {
       amount: num(r.amount),
       sanctioned: num(r.sanctioned_amount),
       bill: r.custom_bill || "",
+      // Running claim only: Checking / Verified / In Review / Rejected.
+      state: r.custom_bill_status ? titleCase(String(r.custom_bill_status).replace(/_/g, " ")) : null,
+      review: String(r.custom_review_note || "").trim(),
       ai: r.custom_ai_reason
         ? {
             score: scoreOf(r.custom_ai_score, r.custom_ai_reason),
@@ -178,6 +185,11 @@ export function shapeClaim(node) {
     // figure means anything -- before that it is whatever the draft holds.
     sanctioned: docstatus === 1 || status === "Verified" ? num(node.total_sanctioned_amount) || lines.reduce((s, l) => s + (l.sanctioned || l.amount), 0) : null,
     reimbursed: num(node.total_amount_reimbursed),
+    // The employee's running Miscellaneous claim: open (docstatus 0) until the
+    // next advance payment closes it; then what the advances did not cover is
+    // owed to them (grand_total) until Accounts pays it.
+    running: !!Number(node.custom_running),
+    owed: docstatus === 1 ? Math.max(0, num(node.grand_total) - num(node.total_amount_reimbursed)) : 0,
     remark: String(node.remark || "").trim(),
     modified: node.modified,
     ai: node.custom_ai_summary ? { score: scoreOf(node.custom_ai_score, node.custom_ai_summary), risk: riskWord(node.custom_ai_risk), summary: node.custom_ai_summary } : null,
@@ -299,16 +311,20 @@ export function fileKind(name) {
 
 export function invalidateClaims(conn, employee) {
   evictCached(conn, `ec-claims|${employee}`);
+  evictCached(conn, `ec-adv|${employee}`);
 }
 
 /* Creates a Draft claim, or rewrites a Draft's rows. Rows keep their ERP
    names so editing one does not churn the child table. */
-export async function saveClaim(conn, { claim, employee, postingDate, remark, lines, advanceOf }) {
+export async function saveClaim(conn, { claim, employee, postingDate, remark, lines, advanceOf, running }) {
   const doc = {
     doctype: "Expense Claim",
     employee,
     posting_date: postingDate,
     remark: remark || "",
+    // The running Miscellaneous claim: no reporting officer, each bill is
+    // checked on its own ("Expense Running Guard").
+    ...(running ? { custom_running: 1 } : {}),
     expenses: lines.map((l) => ({
       doctype: "Expense Claim Detail",
       ...(l.id ? { name: l.id } : {}),
@@ -336,6 +352,52 @@ export async function saveClaim(conn, { claim, employee, postingDate, remark, li
   const name = d.saveDoc?.doc?.name;
   if (!name) throw new Error("The ERP did not return the claim number.");
   return name;
+}
+
+/* ---------------------------- Employee Advance -------------------------- */
+
+/* Every payment to an employee is an Employee Advance (paid by Accounts with
+   a Payment Entry). What is left of each -- paid less claimed less returned
+   -- is cash in hand; the running claim uses the oldest first when the next
+   payment closes it. REST: the advance list is small and GraphQL may not
+   carry the doctype. -> newest first */
+export function fetchAdvances(conn, employee) {
+  return cached(conn, `ec-adv|${employee}`, async () => {
+    const q = new URLSearchParams({
+      filters: JSON.stringify([["employee", "=", employee], ["docstatus", "<", 2]]),
+      fields: JSON.stringify(["name", "posting_date", "purpose", "advance_amount", "paid_amount", "claimed_amount", "return_amount", "status", "docstatus", "modified"]),
+      order_by: "posting_date desc, creation desc",
+      limit_page_length: "500",
+    });
+    const d = await rest(conn, `/api/resource/Employee%20Advance?${q}`);
+    return (d.data || []).map((a) => {
+      const paid = num(a.paid_amount);
+      return {
+        id: a.name,
+        date: String(a.posting_date || "").slice(0, 10),
+        purpose: String(a.purpose || "").trim(),
+        amount: num(a.advance_amount),
+        paid,
+        claimed: num(a.claimed_amount),
+        returned: num(a.return_amount),
+        left: Math.max(0, paid - num(a.claimed_amount) - num(a.return_amount)),
+        // Asked for and not paid yet (draft, or approved and waiting for the payment).
+        waiting: num(a.docstatus) === 0 || paid <= 0,
+        status: a.status || "",
+        docstatus: num(a.docstatus),
+      };
+    });
+  });
+}
+
+/* "Request cash": a draft Employee Advance -- the ERP fills the company and
+   advance account, and a Task goes to Accounts ("Employee Advance Task"),
+   who approve it and pay it. */
+export async function requestAdvance(conn, { employee, amount, purpose, date }) {
+  const body = JSON.stringify({ employee, posting_date: date, purpose, advance_amount: num(amount), currency: "INR", exchange_rate: 1 });
+  const d = await rest(conn, "/api/resource/Employee%20Advance", { method: "POST", headers: { "Content-Type": "application/json" }, body });
+  if (!d.data?.name) throw new Error("The ERP did not return the request number.");
+  return d.data.name;
 }
 
 /* One claim, fresh (e.g. to get its new `modified` and row names after a save). */
@@ -443,6 +505,54 @@ async function firebaseIdToken() {
   const user = app.auth().currentUser;
   if (!user) throw new Error("Sign in again to check bills.");
   return user.getIdToken();
+}
+
+/* Reads a bill the moment it is attached, so the form can fill the row in:
+   the browser sends the file straight to verify-doc's /v1/extract (CORS is
+   open to the app's origins) as the signed-in user. Only reads -- the
+   comparison and score still happen on send (checkClaim). Also says whether
+   it is a printed bill at all (kind), so the form can refuse a handwritten
+   bill or a wrong photo before anything is saved.
+   -> { amount, date, vendor, what, kind } (null = not read) */
+const VERIFY_URL = (process.env.NEXT_PUBLIC_VERIFY_DOC_URL || "https://verify-doc--elbrit-sso-d01d9.asia-southeast1.hosted.app").replace(/\/+$/, "");
+const BILL_FIELDS = {
+  amount: { type: "number", description: "the FINAL amount actually paid: the grand / total amount, INCLUDING any handwritten additions or corrections and any handling or delivery fee -- never a sub-total, a tax line or a single item" },
+  date: { type: "date", description: "the bill or transaction date" },
+  vendor: { type: "text", description: "the shop, company or person who issued the bill" },
+  what_for: { type: "text", description: "what was bought or paid for, in a few words" },
+  // Only printed bills are accepted (27 Oct 2026): the form refuses anything else.
+  kind: {
+    type: "text",
+    description: "classify the image, answer with exactly one of: PRINTED (a machine-printed bill, receipt, invoice or ticket -- a thermal till slip, a computer print-out, an e-ticket, a ride receipt; a printed slip with a small handwritten note or addition on it is still PRINTED); HANDWRITTEN (a bill whose items and amounts are written by hand, including a printed bill-book page with only the shop's name printed and the items and amounts filled in by hand); NOT_A_BILL (anything else -- a selfie, a person, a product, a screenshot of a chat or an app screen, a blank or unreadable page)",
+  },
+};
+/* PRINTED / HANDWRITTEN / NOT_A_BILL as the AI answered it -> printed | handwritten | not_a_bill | null */
+const kindOf = (v) => {
+  const s = String(v || "").toUpperCase().replace(/[^A-Z]/g, "");
+  return s.startsWith("PRINT") ? "printed" : s.startsWith("HAND") ? "handwritten" : s.startsWith("NOT") ? "not_a_bill" : null;
+};
+export async function extractBill(conn, file, type) {
+  const idToken = await firebaseIdToken();
+  const form = new FormData();
+  form.append("file", file, file.name || "bill");
+  form.append("request", JSON.stringify({ context: `Employee expense claim in India, amounts in INR.${type ? ` Expense: ${type}.` : ""}`, fields: BILL_FIELDS }));
+  const res = await fetch(`${VERIFY_URL}/v1/extract`, {
+    method: "POST",
+    headers: { Authorization: `Bearer ${idToken}`, "X-ERP-Token": conn.authToken },
+    body: form,
+    signal: AbortSignal.timeout(150000), // Docling's first read after a quiet spell can take a minute or two
+  });
+  const json = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(json.error || `The bill could not be read (HTTP ${res.status}).`);
+  const f = json.fields || {};
+  const v = (k) => (f[k] && f[k].value != null && f[k].value !== "" ? f[k].value : null);
+  return {
+    amount: typeof v("amount") === "number" && v("amount") > 0 ? v("amount") : null,
+    date: /^\d{4}-\d{2}-\d{2}$/.test(String(v("date") || "")) ? v("date") : null,
+    vendor: v("vendor"),
+    what: v("what_for"),
+    kind: kindOf(v("kind")),
+  };
 }
 
 /* Has the app server check every bill on the claim with verify-doc and save

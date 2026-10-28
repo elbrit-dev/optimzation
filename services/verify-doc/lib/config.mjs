@@ -20,19 +20,20 @@ const list = (raw, fallback) =>
 
 export const config = {
   port: Number(process.env.PORT) || 8080,
-  geminiKey: process.env.GEMINI_API_KEY || "",
+  geminiKey: String(process.env.GEMINI_API_KEY || "").trim(),
   model: process.env.GEMINI_MODEL || "gemini-2.5-pro",
   // Which model reads: "openrouter" (OPENROUTER_API_KEY + OPENROUTER_MODEL, any
   // model OpenRouter offers) or "gemini" (Google's API directly). Default:
   // OpenRouter when its key is set.
   provider: String(process.env.MODEL_PROVIDER || (process.env.OPENROUTER_API_KEY ? "openrouter" : "gemini")).toLowerCase(),
-  openrouterKey: process.env.OPENROUTER_API_KEY || "",
+  openrouterKey: String(process.env.OPENROUTER_API_KEY || "").trim(),
   openrouterModel: process.env.OPENROUTER_MODEL || "openai/gpt-6-luna",
   // OCR before the model (lib/ocr.mjs): "vision" (the model reads the image),
   // "docling" (only Docling's text) or "both" (text + image).
   ocrMode: String(process.env.OCR_MODE || "vision").toLowerCase(),
   doclingUrl: String(process.env.DOCLING_URL || "https://docling-serve-42ppaqlnqq-as.a.run.app").replace(/\/+$/, ""),
-  doclingKey: process.env.DOCLING_API_KEY || "",
+  // Keys trimmed: a secret copied through a PowerShell pipe ends in a line break.
+  doclingKey: String(process.env.DOCLING_API_KEY || "").trim(),
   doclingTimeoutMs: Number(process.env.DOCLING_TIMEOUT_MS) || 150000,
   clients: clients(process.env.VERIFY_DOC_CLIENTS),
   // Exact hosts, or ".example.com" for any subdomain.

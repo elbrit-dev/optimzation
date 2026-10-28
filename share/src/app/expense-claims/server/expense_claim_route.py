@@ -13,12 +13,17 @@
 #                             Approver" (Before Save) put in expense_approver
 #   -> Approved               the reporting officer approved. The AI score
 #                             (custom_ai_score, 0-100) decides:
-#                               >= AUTO_SCORE  -> Verified + payroll
+#                               >= AUTO_SCORE  -> Verified (+ payroll
+#                                                  when PAYROLL is on)
 #                               below / none   -> In Review + a Task in the
 #                                 "Expense claim" project for VERIFIER
-#   In Review -> Verified     VERIFIER verified it -> payroll, Task closed
+#   In Review -> Verified     VERIFIER verified it -> Task closed (+ payroll
+#                             when PAYROLL is on)
 #   In Review -> Rejected     Task closed
 #
+# PAYROLL is OFF since 27 Oct 2026: a verified bill is paid instantly (outside
+# payroll), and until that payment step exists the flow ends at Verified or
+# the review Task. With it on:
 # Payroll = one submitted Additional Salary (COMPONENT) for the claim's
 # non-Advance rows (sanctioned amount, else amount), on the last day of next
 # month, linked back in custom_additional_salary. If the Additional Salary is
@@ -50,6 +55,7 @@ VERIFIER = "sathish.admin@elbrit.org"     # Sathishkumar Kumaresan
 PROJECT = "PROJ-2026-2027-0016"           # "Expense claim"
 COMPONENT = "Field Expenses Reimbursement"
 NO_PAYROLL = ["Advance"]
+PAYROLL = False   # Additional Salary on Verified -- off: payment is instant, built later
 AUTO_SCORE = 90
 
 old = doc.get_doc_before_save()
@@ -123,8 +129,8 @@ if now and now != was:
                 frappe.db.set_value("Expense Claim", doc.name, "custom_advance_covered", covered)
                 pay = pay - covered
 
-        # 3c. Payroll for next month.
-        if pay > 0 and not doc.get("custom_additional_salary"):
+        # 3c. Payroll for next month (only while PAYROLL is on).
+        if PAYROLL and pay > 0 and not doc.get("custom_additional_salary"):
             try:
                 ads = frappe.get_doc({
                     "doctype": "Additional Salary",
