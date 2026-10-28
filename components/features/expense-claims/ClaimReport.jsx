@@ -2,9 +2,10 @@
 
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import Router from "next/router";
+import { Dialog } from "@/design-system";
 import { useClaims } from "./data/useClaims";
 import { fetchFileBlob } from "./data/claimsApi";
-import { CSS, FONT_HREF, Highlights, IC, Icon, Note, Sheet, Spinner, btn, card, ell, tabNum } from "./ui";
+import { CSS, FONT_HREF, Highlights, IC, Icon, Note, Rail, Sheet, Spinner, btn, card, ell, tabNum } from "./ui";
 import { BillSheet, CashSheet } from "./sheets";
 import { BILL_STATE, MON, WD, billState, dateOf, inr, ledger, monthKey, monthLabel, shortDate, weeksOf } from "./model";
 
@@ -112,27 +113,91 @@ function Entry({ e, onOpen }) {
   );
 }
 
-/* A bill, opened: what it is, its status in full, the AI's reading,
-   Accounts' note, and the photo. */
+/* A bill's journey, step by step: received -> AI check -> (Accounts review,
+   only when the AI did not pass it) -> verified -> settlement. Each step is
+   done, now (where the bill is), failed, or still to come. */
+function trackOf(e) {
+  const l = e.line, s = e.state || "Checking";
+  const score = l.ai?.score != null ? Math.round(l.ai.score) : null;
+  const aiPass = score != null && score >= 90;
+  const steps = [{ k: "Bill received", v: `Saved on ${e.claim.id}`, at: "done" }];
+  if (s === "Checking") steps.push({ k: "AI check", v: "Comparing the bill with what you entered…", at: "now" });
+  else steps.push({ k: "AI check", v: score == null ? "Done" : aiPass ? `Score ${score}/100 — matches the bill` : `Score ${score}/100 — needs a person`, note: aiPass ? null : l.ai?.reason, at: aiPass ? "done" : "flag" });
+  if (s === "In Review") steps.push({ k: "In review", v: "Accounts are checking it by hand", at: "now" });
+  else if (s === "Rejected") steps.push({ k: "Reviewed by Accounts", v: "Not accepted — it does not count", note: l.review, at: "fail" });
+  else if (s === "Verified" && !aiPass) steps.push({ k: "Reviewed by Accounts", v: "Accepted", note: l.review, at: "done" });
+  if (s !== "Rejected") {
+    steps.push({ k: "Verified", v: s === "Verified" ? "Counts toward your settlement" : "Counts once verified", at: s === "Verified" ? "done" : "next" });
+    const settled = e.claim.docstatus === 1;
+    steps.push({ k: "Settlement", v: settled ? "Settled by Accounts" : s === "Verified" ? "Accounts settle it with you later" : "After it is verified", at: settled ? "done" : s === "Verified" ? "now" : "next" });
+  }
+  return steps;
+}
+
+const TRACK = { done: ["#067647", IC.check], now: ["#2563eb", null], flag: ["#b54708", IC.eye], fail: ["#b42318", IC.x], next: ["#c0c5cf", null] };
+function Track({ steps }) {
+  return (
+    <ol aria-label="Bill status" style={{ ...card, listStyle: "none", margin: 0, padding: "14px 16px 4px" }}>
+      {steps.map((s, i) => {
+        const [c, ic] = TRACK[s.at];
+        const last = i === steps.length - 1;
+        return (
+          <li key={s.k} aria-current={s.at === "now" ? "step" : undefined} style={{ display: "grid", gridTemplateColumns: "22px minmax(0,1fr)", columnGap: 12 }}>
+            <span style={{ display: "flex", flexDirection: "column", alignItems: "center" }}>
+              <span style={{ width: 22, height: 22, borderRadius: 99, flex: "none", display: "grid", placeItems: "center", color: "#fff", background: s.at === "next" ? "#fff" : s.at === "now" ? "#fff" : c, boxShadow: s.at === "next" ? `inset 0 0 0 2px ${c}` : s.at === "now" ? `inset 0 0 0 2px ${c}, 0 0 0 4px color-mix(in srgb,${c} 18%,transparent)` : "none" }}>
+                {ic ? <Icon d={ic} size={12} sw={2.6} /> : s.at === "now" ? <span style={{ width: 8, height: 8, borderRadius: 99, background: c }} /> : null}
+              </span>
+              {!last && <span style={{ flex: 1, width: 2, minHeight: 14, margin: "3px 0", borderRadius: 2, background: s.at === "next" ? "#e4e7ec" : `color-mix(in srgb,${c} 45%,#e4e7ec)` }} />}
+            </span>
+            <span style={{ display: "flex", flexDirection: "column", gap: 2, paddingBottom: last ? 10 : 14, minWidth: 0 }}>
+              <b style={{ fontSize: 14, lineHeight: "22px", color: s.at === "next" ? "#8a93a3" : "#0b1220" }}>{s.k}</b>
+              <span style={{ fontSize: 13, color: s.at === "next" ? "#98a2b3" : s.at === "fail" ? "#b42318" : "#475467", lineHeight: 1.4 }}>{s.v}</span>
+              {s.note && <span style={{ fontSize: 12.5, color: "#5b6576", lineHeight: 1.45, padding: "7px 10px", marginTop: 4, borderRadius: 10, background: "#f7f8fa" }}>{s.note}</span>}
+            </span>
+          </li>
+        );
+      })}
+    </ol>
+  );
+}
+
+/* The bill's photo (or PDF) in a popup over the page -- never a new tab. A
+   nested dialog, so it sits above the bill's own popup (Esc / back / the X
+   close it alone) on a solid dark backdrop. */
+function BillViewer({ src, pdf, onClose }) {
+  return (
+    <Dialog.Root open onOpenChange={(next) => { if (!next) onClose(); }} backName="expense-claims-bill">
+      <Dialog.Portal>
+        <Dialog.Backdrop style={{ background: "rgba(8,11,18,.94)", backdropFilter: "blur(4px)", opacity: 1 }} />
+        <Dialog.Viewport>
+          <Dialog.Popup aria-label="The bill" style={{ inlineSize: "100vw", blockSize: "100dvh", maxInlineSize: "none", maxBlockSize: "none", margin: 0, padding: "56px 16px 16px", borderRadius: 0, background: "transparent", boxShadow: "none", display: "flex", alignItems: "center", justifyContent: "center" }}>
+            <Dialog.Close aria-label="Close" style={{ ...btn.icon, position: "absolute", top: 12, right: 12, background: "rgba(255,255,255,.16)", color: "#fff", borderRadius: 99 }}><Icon d={IC.x} size={20} /></Dialog.Close>
+            {pdf
+              ? <iframe title="The bill" src={src} style={{ width: "min(900px,100%)", height: "100%", border: 0, borderRadius: 12, background: "#fff" }} />
+              : <img src={src} alt="The bill" style={{ maxWidth: "100%", maxHeight: "100%", objectFit: "contain", borderRadius: 10, boxShadow: "0 20px 50px -20px rgba(0,0,0,.7)" }} />}
+          </Dialog.Popup>
+        </Dialog.Viewport>
+      </Dialog.Portal>
+    </Dialog.Root>
+  );
+}
+
+/* A bill, opened: its amount, where it is in its journey, what the bill
+   says against what was entered, and the photo. */
 function BillDetail({ conn, e, onClose }) {
   const [opening, setOpening] = useState(false);
   const [err, setErr] = useState("");
   const l = e.line;
   const st = BILL_STATE[e.state] || BILL_STATE.Checking;
-  const explain = {
-    Checking: "The AI has not finished checking this bill yet. It counts once it is verified.",
-    Verified: "The bill matches what you entered. It counts towards your settlement.",
-    "In Review": "The AI could not confirm this bill, so Accounts are checking it by hand. It counts once they verify it.",
-    Rejected: "Accounts did not accept this bill. It does not count.",
-  }[e.state] || "";
+  const steps = trackOf(e);
+  const [shown, setShown] = useState(null); // { src, pdf }
+  useEffect(() => () => { if (shown) URL.revokeObjectURL(shown.src); }, [shown]);
   const view = async () => {
     setOpening(true);
     setErr("");
     try {
       const blob = await fetchFileBlob(conn, l.bill);
-      const u = URL.createObjectURL(blob);
-      window.open(u, "_blank", "noopener");
-      setTimeout(() => URL.revokeObjectURL(u), 60000);
+      setShown({ src: URL.createObjectURL(blob), pdf: blob.type === "application/pdf" || /\.pdf$/i.test(l.bill) });
     } catch (x) {
       setErr(x.message);
     }
@@ -142,20 +207,14 @@ function BillDetail({ conn, e, onClose }) {
   return (
     <Sheet title={l.note || "Bill"} sub={`${shortDate(l.date)} · ${e.claim.id}`} onClose={onClose} desktop="dialog" maxWidth={480}>
       <div style={{ display: "flex", flexDirection: "column", gap: 14, padding: "16px 20px 22px" }}>
-        <span style={{ fontSize: 34, fontWeight: 800, letterSpacing: "-0.04em", ...tabNum }}>{inr(l.amount)}</span>
-        <div style={{ display: "flex", gap: 10, padding: "12px 14px", borderRadius: 14, background: `color-mix(in srgb,${st.tone} 9%,#fff)` }}>
-          <span style={{ color: st.tone, display: "flex", flex: "none", marginTop: 1 }}><Icon d={IC[st.icon]} size={18} /></span>
-          <span style={{ display: "flex", flexDirection: "column", gap: 3 }}>
-            <b style={{ fontSize: 14, color: st.tone }}>{st.text}</b>
-            <span style={{ fontSize: 13, color: "#475467", lineHeight: 1.45 }}>{explain}</span>
-          </span>
+        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12 }}>
+          <span style={{ fontSize: 34, fontWeight: 800, letterSpacing: "-0.04em", ...tabNum }}>{inr(l.amount)}</span>
+          <span style={{ display: "flex", alignItems: "center", gap: 5, flex: "none", padding: "4px 10px", borderRadius: 99, fontSize: 12.5, fontWeight: 700, color: st.tone, background: `color-mix(in srgb,${st.tone} 10%,#fff)` }}><Icon d={IC[st.icon]} size={13} />{st.text}</span>
         </div>
-        {l.review && <Note tone={e.state === "Rejected" ? "error" : "info"}>Accounts: {l.review}</Note>}
+        <Track steps={steps} />
         <div style={{ ...card, padding: "0 14px" }}>
-          {row("AI score", l.ai?.score != null ? `${Math.round(l.ai.score)} / 100` : null)}
-          {row("AI says", l.ai?.reason)}
           {row("On the bill", [l.ai?.amount ? inr(l.ai.amount) : null, l.ai?.date ? shortDate(l.ai.date) : null, l.ai?.vendor].filter(Boolean).join(" · ") || null)}
-          {row("Status", e.claim.docstatus === 1 ? "Settled" : "In your open bills")}
+          {row("You entered", `${inr(l.amount)} · ${shortDate(l.date)}`)}
         </div>
         {l.bill && (
           <button type="button" className="ec-ghost" disabled={opening} onClick={view} style={{ ...btn.ghost, height: 48, borderRadius: 14, display: "flex", alignItems: "center", justifyContent: "center", gap: 8 }}>
@@ -164,6 +223,7 @@ function BillDetail({ conn, e, onClose }) {
         )}
         {err && <Note>{err}</Note>}
       </div>
+      {shown && <BillViewer src={shown.src} pdf={shown.pdf} onClose={() => setShown(null)} />}
     </Sheet>
   );
 }
@@ -290,13 +350,13 @@ export default function ClaimReport({
               <span style={{ fontSize: 14, color: "#5b6576" }}>{over ? "owed to you" : "in hand"}</span>
             </div>
             <p style={{ margin: 0, fontSize: 14, lineHeight: 1.45, color: "#344054" }}>{say1}</p>
-            <div className="ec-rail" role="group" aria-label="Your settlement" style={{ display: "flex", alignItems: "stretch", gap: 4, overflowX: "auto" }}>
+            {/* What is still being checked shows as the tag above, not as a step here. */}
+            <Rail label="Your settlement" gap={4} role="group">
               <Step k="Paid to you" v={`+ ${inr(L.added)}`} color="#067647" />{arrow("a1")}
               <Step k="Verified bills" v={`− ${inr(L.spent)}`} />{arrow("a2")}
               <Step k={over ? "Owed to you" : "In hand"} v={inr(over || L.balance)} color={over ? "#b42318" : undefined} />
-              {L.checking > 0 && <Step k="Being checked" v={inr(L.checking)} color="#b54708" soft="#fffaeb" dashed small="not counted yet" />}
               {L.requested > 0 && <Step k="Requested" v={`+ ${inr(L.requested)}`} color="#b54708" soft="#fffaeb" dashed small="waiting for Accounts" />}
-            </div>
+            </Rail>
             <button type="button" className="ec-cta" onClick={() => setSheet("bill")} style={{ ...btn.primary, height: 52, borderRadius: 14, fontSize: 16, display: "flex", alignItems: "center", justifyContent: "center", gap: 8, marginTop: 2 }}><Icon d={IC.camera} size={20} />Scan a bill</button>
             <div style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: 10, color: "#c0c5cf" }}>
               <button type="button" className="ec-link" onClick={() => setSheet("cash")} style={link}><Icon d={IC.wallet} size={14} />Request cash</button>
@@ -306,7 +366,7 @@ export default function ClaimReport({
           {hl.length > 0 && (
             <section style={{ display: "flex", flexDirection: "column", gap: 8 }}>
               <span style={{ fontSize: 15, fontWeight: 700, color: "#5b6576" }}>Highlights · {monthLabel(month).split(" ")[0]}</span>
-              <Highlights items={hl} bleed={wide ? "0px" : pad + "px"} wrap={isDesk} />
+              <Highlights items={hl} bleed={wide ? "0px" : pad + "px"} />
             </section>
           )}
           </div>

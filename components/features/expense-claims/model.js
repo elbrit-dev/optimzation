@@ -174,9 +174,9 @@ export function cashOf(claims, advances) {
 
 /* A running-claim bill's status, in the page's words. */
 export const BILL_STATE = {
-  Checking: { tone: "#8a93a3", icon: "hist", text: "Checking", sub: "the AI is checking it" },
+  Checking: { tone: "#2563eb", icon: "hist", text: "AI check", sub: "in progress" },
   Verified: { tone: "#067647", icon: "shield", text: "Verified", sub: "counted" },
-  "In Review": { tone: "#b54708", icon: "eye", text: "Accounts checking", sub: "counts once they verify it" },
+  "In Review": { tone: "#b54708", icon: "eye", text: "In review", sub: "with Accounts" },
   Rejected: { tone: "#b42318", icon: "x", text: "Rejected", sub: "not counted" },
 };
 

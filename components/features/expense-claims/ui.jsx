@@ -20,6 +20,8 @@ export const CSS = `
 .ec-root button,.ec-root input,.ec-root select,.ec-root textarea{font-family:inherit;color:inherit;margin:0}
 .ec-root button:focus-visible,.ec-root input:focus-visible,.ec-root select:focus-visible,.ec-root textarea:focus-visible{outline:2px solid #2563eb;outline-offset:2px}
 .ec-root .ec-rail{scrollbar-width:none}.ec-root .ec-rail::-webkit-scrollbar{display:none}
+.ec-root .ec-rail>*{scroll-snap-align:start}
+@media (hover:none),(pointer:coarse){.ec-root .ec-rail-arrow{display:none!important}}
 @keyframes ec-up{from{transform:translateY(100%)}to{transform:translateY(0)}}
 @keyframes ec-marq{from{transform:translateX(0)}to{transform:translateX(-50%)}}
 @keyframes ec-spin{to{transform:rotate(360deg)}}
@@ -63,16 +65,70 @@ export const IC = {
 export const TONE = { ok: ["#067647", "#ecfdf3"], reward: ["#b54708", "#fffaeb"], field: ["#1d4ed8", "#eef3fe"], settle: ["#7c3aed", "#f4f0ff"] };
 const HL_ICON = { ai: "shield", bill: "clip", cleared: "check", streak: "flame", paid: "check", added: "wallet", bills: "file" };
 
-/* A sideways-scrolling row of highlight cards (model.highlights). `bleed`
-   lets the row run to the screen edge under a padded parent (a CSS length). */
-/* `wrap` (desktop): a grid that shows every tile -- a mouse cannot swipe the rail. */
-export function Highlights({ items, bleed = "0px", onTip, wrap = false }) {
-  if (!items?.length) return null;
-  const box = wrap
-    ? { display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(170px, 1fr))", gap: 8 }
-    : { display: "flex", gap: 8, overflowX: "auto", scrollSnapType: "x proximity", margin: `0 calc(-1 * ${bleed})`, padding: `0 ${bleed} 2px` };
+/* One line that scrolls sideways, smoothly, on every device: swipe (with snap)
+   on touch; on desktop the mouse wheel and a click-drag scroll it, and arrows
+   show while there is more to see. The edges fade where it runs on. `bleed`
+   lets it run to the screen edge under a padded parent (a CSS length). */
+export function Rail({ children, label, gap = 8, bleed = "0px", role = "list" }) {
+  const ref = useRef(null);
+  const [more, setMore] = useState({ l: false, r: false });
+  const drag = useRef(null);
+  useEffect(() => {
+    const el = ref.current;
+    if (!el) return undefined;
+    const sync = () => setMore({ l: el.scrollLeft > 2, r: el.scrollLeft + el.clientWidth < el.scrollWidth - 2 });
+    // A vertical wheel moves the rail while it can still move that way; at its
+    // end the page scrolls on as usual.
+    const wheel = (e) => {
+      if (Math.abs(e.deltaY) <= Math.abs(e.deltaX) || el.scrollWidth <= el.clientWidth) return;
+      const can = e.deltaY > 0 ? el.scrollLeft + el.clientWidth < el.scrollWidth - 1 : el.scrollLeft > 0;
+      if (!can) return;
+      e.preventDefault();
+      el.scrollLeft += e.deltaY;
+    };
+    sync();
+    el.addEventListener("scroll", sync, { passive: true });
+    el.addEventListener("wheel", wheel, { passive: false });
+    const ro = typeof ResizeObserver !== "undefined" ? new ResizeObserver(sync) : null;
+    ro?.observe(el);
+    return () => { el.removeEventListener("scroll", sync); el.removeEventListener("wheel", wheel); ro?.disconnect(); };
+  }, []);
+  const by = (dir) => ref.current?.scrollBy({ left: dir * ref.current.clientWidth * 0.8, behavior: "smooth" });
+  // Click-drag with a mouse (touch already swipes); a drag is not a click.
+  const down = (e) => { if (e.pointerType === "mouse" && e.button === 0) drag.current = { x: e.clientX, left: ref.current.scrollLeft, moved: false }; };
+  const move = (e) => {
+    const d = drag.current;
+    if (!d) return;
+    if (Math.abs(e.clientX - d.x) > 4) d.moved = true;
+    if (d.moved) ref.current.scrollLeft = d.left - (e.clientX - d.x);
+  };
+  const up = () => { setTimeout(() => { drag.current = null; }, 0); };
+  const fade = `linear-gradient(to right, ${more.l ? "transparent" : "#000"} 0, #000 ${more.l ? "28px" : "0"}, #000 calc(100% - ${more.r ? "28px" : "0px"}), ${more.r ? "transparent" : "#000"} 100%)`;
+  const arrowBtn = (dir) => (
+    <button type="button" className="ec-rail-arrow" aria-label={dir < 0 ? "Scroll back" : "Scroll on"} onClick={() => by(dir)}
+      style={{ position: "absolute", top: "50%", [dir < 0 ? "left" : "right"]: 2, transform: "translateY(-50%)", width: 28, height: 28, borderRadius: 99, border: 0, background: "#fff", color: "#344054", boxShadow: "0 0 0 1px #e4e7ec, 0 4px 10px -4px rgba(16,24,40,.25)", display: "grid", placeItems: "center", cursor: "pointer", zIndex: 1 }}>
+      <Icon d={dir < 0 ? IC.back : IC.next} size={14} />
+    </button>
+  );
   return (
-    <div className="ec-rail" role="list" aria-label="Highlights" style={box}>
+    <div style={{ position: "relative", minWidth: 0, margin: `0 calc(-1 * ${bleed})` }}>
+      <div ref={ref} className="ec-rail" role={role} aria-label={label}
+        onPointerDown={down} onPointerMove={move} onPointerUp={up} onPointerLeave={up}
+        onClickCapture={(e) => { if (drag.current?.moved) { e.preventDefault(); e.stopPropagation(); } }}
+        style={{ display: "flex", alignItems: "stretch", gap, overflowX: "auto", overscrollBehaviorX: "contain", scrollSnapType: "x proximity", WebkitOverflowScrolling: "touch", padding: `0 ${bleed} 2px`, WebkitMaskImage: fade, maskImage: fade }}>
+        {children}
+      </div>
+      {more.l && arrowBtn(-1)}
+      {more.r && arrowBtn(1)}
+    </div>
+  );
+}
+
+/* The month's highlight cards (model.highlights), one scrolling line. */
+export function Highlights({ items, bleed = "0px", onTip }) {
+  if (!items?.length) return null;
+  return (
+    <Rail label="Highlights" bleed={bleed}>
       {items.map((a) => {
         const [c, s] = TONE[a.tone] || TONE.field;
         return (
@@ -84,7 +140,7 @@ export function Highlights({ items, bleed = "0px", onTip, wrap = false }) {
           </button>
         );
       })}
-    </div>
+    </Rail>
   );
 }
 
