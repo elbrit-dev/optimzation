@@ -1007,6 +1007,47 @@ describe('nestStep — label headers across the full tree', () => {
   });
 });
 
+describe('nestStep — a leaf above the deepest open group', () => {
+  const row = (label, indent, is_group) => ({ label, indent, is_group });
+  const labels = nodes => nodes.map(n => n.label);
+
+  it('puts a childless HQ under its Department, not under the last Brand', () => {
+    // A full-depth export: HQ-Tirupati had a target and nothing billed, so it
+    // has no Customer below it and follows Rajamundry's deepest rows.
+    const { rows } = nestStep({
+      rows: [
+        row('Elbrit AP', 0, 1),
+        row('HQ-Rajamundry', 1, 1),
+        row('Apollo', 2, 1),
+        row('INV-1', 3, 1),
+        row('BRITORVA', 4, 1),
+        row('BRITORVA 10', 5, 0),
+        row('HQ-Tirupati', 1, 0),
+        row('HQ-Vizag', 1, 1),
+        row('Medplus', 2, 0),
+      ],
+    });
+    expect(labels(rows)).toEqual(['Elbrit AP']);
+    expect(labels(rows[0]._children)).toEqual(['HQ-Rajamundry', 'HQ-Tirupati', 'HQ-Vizag']);
+    expect(rows[0]._children[1]._children).toBeUndefined();
+    expect(labels(rows[0]._children[2]._children)).toEqual(['Medplus']);
+  });
+
+  it('a childless root after an open tree is a root', () => {
+    const { rows } = nestStep({
+      rows: [row('Elbrit AP', 0, 1), row('HQ-Vizag', 1, 0), row('Elbrit KA', 0, 0)],
+    });
+    expect(labels(rows)).toEqual(['Elbrit AP', 'Elbrit KA']);
+  });
+
+  it('rows without indent still go under the last open group', () => {
+    const { rows } = nestStep({
+      rows: [{ label: 'G', indent: 0, is_group: 1 }, { label: 'leaf' }],
+    });
+    expect(labels(rows[0]._children)).toEqual(['leaf']);
+  });
+});
+
 // ─── per-report translation (STOCK) ────────────────────────────────────────────
 //
 // customReportV2's dimension/metric enums are the union across every registered
