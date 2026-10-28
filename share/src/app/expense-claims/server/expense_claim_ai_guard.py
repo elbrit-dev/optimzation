@@ -22,8 +22,8 @@
 # type or bill and that row's check is wiped, along with the claim's score,
 # so it has to be checked again.
 #
-# AI_USERS: the login the AI check saves with. Administrator only until the
-# checker's service account exists -- add it here (and in the console).
+# AI_USERS: the logins the AI check saves with -- it@elbrit.org is the app's
+# ERP_AI_CHECKER_TOKEN (28 Oct 2026); keep it in step with the consoles.
 #
 # Installed by expense_claim_workflow_console.py. Added 21 Oct 2026.
 #
@@ -32,7 +32,7 @@
 # functions cannot see top-level names).
 # =====================================================================
 
-AI_USERS = ["Administrator"]
+AI_USERS = ["Administrator", "it@elbrit.org"]
 ROW_AI = ["custom_bill_amount", "custom_bill_date", "custom_bill_vendor", "custom_ai_score", "custom_ai_reason", "custom_bill_meta"]
 ROW_INPUT = ["amount", "expense_date", "expense_type", "custom_sub_type", "custom_bill"]
 
@@ -53,7 +53,10 @@ for r in doc.expenses or []:
     changed = o is None
     if o:
         for f in ROW_INPUT:
-            if str(r.get(f) or "") != str(o.get(f) or ""):
+            if f == "amount":
+                if frappe.utils.flt(r.get(f)) != frappe.utils.flt(o.get(f)):   # 85 vs 85.0
+                    changed = True
+            elif str(r.get(f) or "") != str(o.get(f) or ""):
                 changed = True
     if changed and not (checker and r.get("custom_ai_reason")):
         for f in ROW_AI:

@@ -18,7 +18,8 @@
 //     see the claim can have it checked;
 //   - verify-doc is called AS THE USER (their Firebase + ERP tokens) and
 //     fetches each bill from the ERP with the user's token;
-//   - the result is WRITTEN with the AI checker login (ERP_AI_CHECKER_TOKEN),
+//   - the result is WRITTEN with the AI checker login (ERP_AI_CHECKER_TOKEN,
+//     or ERP_AI_CHECKER_TOKEN_UAT when the page points at UAT ERP),
 //     the only login the AI Guard lets write scores -- so nobody can score
 //     their own claim by writing the fields directly.
 //
@@ -116,7 +117,9 @@ export default async function handler(req, res) {
   if (!idToken || !userErp) return res.status(401).json({ error: "Sign in again to check bills." });
   if (!/^[\w.\-]+$/.test(claimName)) return res.status(400).json({ error: "Which claim?" });
 
-  const checker = process.env.ERP_AI_CHECKER_TOKEN;
+  // The checker login's key differs per ERP: UAT has its own.
+  const uat = /(^|\.)(erp-)?uat\.elbrit\.org$/i.test(new URL(origin).host);
+  const checker = uat ? process.env.ERP_AI_CHECKER_TOKEN_UAT : process.env.ERP_AI_CHECKER_TOKEN;
   if (!checker) return res.status(200).json({ skipped: true, reason: "The AI bill check is not switched on yet." });
 
   const path = `/api/resource/Expense%20Claim/${encodeURIComponent(claimName)}`;

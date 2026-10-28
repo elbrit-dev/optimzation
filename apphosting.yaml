@@ -113,6 +113,16 @@ env:
   - variable: ERP_TARGET
     value: ERP
     availability: [RUNTIME]
+  # The AI bill check (/api/claims/check) writes each score with this login --
+  # it@elbrit.org, the one login besides Administrator in AI_USERS of "Expense
+  # Claim AI Guard" and "Expense Running Guard". "token <api_key>:<api_secret>",
+  # one per ERP (the secret differs): the page's ERP picks which is used.
+  - variable: ERP_AI_CHECKER_TOKEN
+    secret: erp-ai-checker-token
+    availability: [RUNTIME]
+  - variable: ERP_AI_CHECKER_TOKEN_UAT
+    secret: erp-ai-checker-token-uat
+    availability: [RUNTIME]
 
   # ── Misc client config ────────────────────────────────────────────────────
   - variable: NEXT_PUBLIC_MONACO_EDITOR_CDN_URL

@@ -104,7 +104,7 @@ if doc.employee and (sending or moved or not doc.expense_approver):
 '''
 
 GUARD_SCRIPT = r'''
-AI_USERS = ["Administrator"]
+AI_USERS = ["Administrator", "it@elbrit.org"]
 ROW_AI = ["custom_bill_amount", "custom_bill_date", "custom_bill_vendor", "custom_ai_score", "custom_ai_reason", "custom_bill_meta"]
 ROW_INPUT = ["amount", "expense_date", "expense_type", "custom_sub_type", "custom_bill"]
 
@@ -125,7 +125,10 @@ for r in doc.expenses or []:
     changed = o is None
     if o:
         for f in ROW_INPUT:
-            if str(r.get(f) or "") != str(o.get(f) or ""):
+            if f == "amount":
+                if frappe.utils.flt(r.get(f)) != frappe.utils.flt(o.get(f)):   # 85 vs 85.0
+                    changed = True
+            elif str(r.get(f) or "") != str(o.get(f) or ""):
                 changed = True
     if changed and not (checker and r.get("custom_ai_reason")):
         for f in ROW_AI:

@@ -66,7 +66,7 @@ FIELDS = [
 ]
 
 GUARD = r'''
-AI_USERS = ["Administrator"]                 # the AI bill checker
+AI_USERS = ["Administrator", "it@elbrit.org"]                 # the AI bill checker
 PROJECT = "PROJ-2026-2027-0012"              # "Accounts"
 SEE_ALL = ["System Manager", "Accounts Manager", "Accounts User"]
 AUTO_SCORE = 90
