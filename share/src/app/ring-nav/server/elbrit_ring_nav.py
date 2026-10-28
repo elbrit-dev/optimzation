@@ -1100,10 +1100,12 @@ def allocation_tiles():
 #   "Expense" approval  the REPORTING OFFICER: claims "Waiting for Approval"
 #                       whose expense_approver is the caller. Shown to anyone
 #                       with something waiting, and to every manager (someone
-#                       reports to them) even when clear; IT always.
+#                       reports to them) even when clear; the IT team always.
 #                       -> ?view=approve
-# For now only IT and the verifiers get them at all (EXPENSE_TILES_FOR_ALL).
-#   "Verify" claims     the VERIFIER (EXPENSE_VERIFIERS; IT sees it too):
+# For now ONLY the IT team gets them at all (28 Oct 2026: EXPENSE_DEPARTMENTS
+# -- the IT department, not the "IT" role profile, which also sits on people
+# in Marketing, HR, Accounts and MIS; the app's claims gate is the same).
+#   "Verify" claims     the IT team (EXPENSE_VERIFIERS once it opens up):
 #                       claims "In Review" -- below the AI score bar, or
 #                       advances to release. -> ?view=verify
 # Every day, no due date: a claim waits until someone acts. Counted AS THE
@@ -1112,14 +1114,17 @@ def allocation_tiles():
 HREFS["expense-approval"] = "/expense/approval?view=approve"
 HREFS["expense-verify"] = "/expense/approval?view=verify"
 EXPENSE_VERIFIERS = ["sathish.admin@elbrit.org"]
-# TRIAL (21 Oct 2026): the expense tiles go ONLY to the IT role profile (both
-# tiles, every day) and the verifiers. To open them to every reporting
-# officer, set EXPENSE_TILES_FOR_ALL = True.
+# TRIAL (28 Oct 2026): both expense tiles, every day, go ONLY to the IT team
+# -- active employees of these departments (and Administrator). To open them
+# to every reporting officer and the verifiers, set EXPENSE_TILES_FOR_ALL = True.
 EXPENSE_TILES_FOR_ALL = False
+EXPENSE_DEPARTMENTS = ["IT - ELPL"]
+expense_team = me == "Administrator" or bool(frappe.db.get_value(
+    "Employee", {"user_id": me, "status": "Active", "department": ["in", EXPENSE_DEPARTMENTS]}, "name"))
 
 
 def expense_tiles():
-    if not (EXPENSE_TILES_FOR_ALL or always or me in EXPENSE_VERIFIERS):
+    if not (EXPENSE_TILES_FOR_ALL or expense_team):
         return
     month_start = today[:8] + "01"
     open_states = ["Waiting for Approval"]
@@ -1128,7 +1133,7 @@ def expense_tiles():
     waiting = count("Expense Claim", [["docstatus", "=", 0], ["workflow_state", "in", open_states], ["expense_approver", "=", me]])
     my_emp = frappe.db.get_value("Employee", {"user_id": me, "status": "Active"}, "name")
     manager = bool(my_emp) and bool(frappe.db.exists("Employee", {"reports_to": my_emp, "status": "Active"}))
-    if waiting or manager or always:
+    if waiting or manager or expense_team:
         approved = count("Expense Claim", [["docstatus", "=", 0], ["workflow_state", "in", done_states],
                                            ["expense_approver", "=", me], ["modified", ">=", month_start]])
         items.append({
@@ -1147,7 +1152,7 @@ def expense_tiles():
             ]),
         })
 
-    if me in EXPENSE_VERIFIERS or always:
+    if expense_team or (EXPENSE_TILES_FOR_ALL and me in EXPENSE_VERIFIERS):
         review = count("Expense Claim", [["docstatus", "=", 0], ["workflow_state", "=", "In Review"]])
         verified = count("Expense Claim", [["docstatus", "=", 0], ["workflow_state", "=", "Verified"], ["modified", ">=", month_start]])
         items.append({
