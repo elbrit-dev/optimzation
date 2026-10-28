@@ -232,10 +232,14 @@ const ImpersonateSwitch = forwardRef(function ImpersonateSwitch(
     setReason('');
   };
 
-  const choose = (p) => {
+  // A tap or click that picks someone also leaves the search, which drops the
+  // phone keyboard: there is nothing more to type there. Enter keeps focus so
+  // a keyboard user stays where they were.
+  const choose = (p, { keepFocus = false } = {}) => {
     setPicked(p);
     setQuery(personLabel(p));
     setListOpen(false);
+    if (!keepFocus) inputRef.current?.blur();
   };
 
   const onType = (value) => {
@@ -255,7 +259,7 @@ const ImpersonateSwitch = forwardRef(function ImpersonateSwitch(
       setHighlight((h) => Math.max(h - 1, 0));
     } else if (event.key === 'Enter' && listOpen && options[highlight]) {
       event.preventDefault();
-      choose(options[highlight]);
+      choose(options[highlight], { keepFocus: true });
     } else if (event.key === 'Escape' && listOpen) {
       // Close the list, not the whole sheet.
       event.stopPropagation();
