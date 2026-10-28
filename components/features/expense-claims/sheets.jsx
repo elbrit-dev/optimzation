@@ -5,20 +5,19 @@ import {
   ATTACH_ACCEPT, checkClaim, checkFile, extractBill, fetchClaim, fetchOpenClaim, invalidateClaims, requestAdvance, retryOnConflict, saveClaim,
   uploadClaimFile, warmBillReader,
 } from "./data/claimsApi";
-import { BillRead, IC, Icon, Note, Sheet, Spinner, btn, ell, tabNum } from "./ui";
+import { IC, Icon, Note, Sheet, Spinner, btn, ell, tabNum } from "./ui";
 import { inr, isoDay, ledger, shortDate } from "./model";
 
 /* The settlement sheets (Miscellaneous), in the app's theme:
  *
  *   BillSheet  "Add a bill" -- the AI bill check form: what it was for, a
- *              photo of the bill (the AI reads it and fills the amount, date
- *              and title, and says whether it is a printed bill -- a
- *              handwritten bill or any other photo is refused as "not the
- *              correct attachment" and nothing is saved), the amount, the
- *              date. "Check my bill" adds it to
- *              the person's open claim and the AI compares the bill with it
- *              at once: 90+ is Verified and counts straight away, anything
- *              else goes to Accounts to check. No reporting officer.
+ *              photo of the bill (Docling reads it: an unreadable photo is
+ *              refused and nothing is saved; it fills only the general title),
+ *              the amount and the date the person types from the bill.
+ *              "Check my bill" adds it to the person's open claim; in the
+ *              background the AI compares the bill (Docling's read + the
+ *              photo) with what they typed: 90+ is Verified and counts,
+ *              anything else goes to Accounts to check. No reporting officer.
  *   CashSheet  "Request cash" -- an Employee Advance for Accounts to approve
  *              and pay. Someone owed money asks for exactly that ("Settle").
  *              Paying it closes the open claim: its bills come out of the
@@ -110,9 +109,9 @@ export function BillSheet({ conn, me, claims = [], advances = [], today = new Da
         // handwritten bill and sends it to Accounts.
         const wrong = x.kind === "handwritten" || x.kind === "not_a_bill" ? x.kind : !x.readable ? "unreadable" : null;
         if (wrong) return setRead((r) => (r?.busy ? { busy: false, wrong } : r));
-        setRead((r) => (r?.busy ? { ...x, busy: false, filled: !amount && x.amount ? x.amount : null } : r));
-        if (x.amount && !(Number(amount) > 0)) setAmount(String(x.amount));
-        if (x.date && x.date <= todayIso) setDate(x.date);
+        // The amount and date are the person's own: never filled from the read
+        // (Docling misreads handwriting). The check after submit compares them.
+        setRead((r) => (r?.busy ? { busy: false } : r));
         const what = String(x.what || x.vendor || "").trim();
         if (what) setTitle((t) => t || what.charAt(0).toUpperCase() + what.slice(1, 60));
       })
@@ -208,7 +207,7 @@ export function BillSheet({ conn, me, claims = [], advances = [], today = new Da
                   : <span style={{ width: 54, height: 54, borderRadius: 10, flex: "none", display: "grid", placeItems: "center", background: "#fff", boxShadow: "0 0 0 1px #e4e7ec", color: "#475467" }}><Icon d={IC.file} size={22} /></span>}
                 <span style={{ flex: 1, minWidth: 0, display: "flex", flexDirection: "column", gap: 2 }}>
                   <span style={{ fontSize: 14, fontWeight: 600, ...ell }}>{file.name}</span>
-                  <span style={{ fontSize: 12.5, color: read?.wrong ? "#b42318" : read?.busy ? "#475467" : "#067647", fontWeight: 600 }}>{read?.wrong ? (read.wrong === "failed" ? "Could not check it" : "Not the correct attachment") : read?.busy ? "AI is checking it is a printed bill…" : "Photo added"}</span>
+                  <span style={{ fontSize: 12.5, color: read?.wrong ? "#b42318" : read?.busy ? "#475467" : "#067647", fontWeight: 600 }}>{read?.wrong ? (read.wrong === "failed" ? "Could not check it" : "Not the correct attachment") : read?.busy ? "Reading the bill…" : "Photo added"}</span>
                 </span>
                 <span style={{ fontSize: 13, fontWeight: 600, color: "#1d4ed8" }}>{read?.wrong ? "Choose another" : "Change"}</span>
               </>
@@ -231,7 +230,7 @@ export function BillSheet({ conn, me, claims = [], advances = [], today = new Da
                 <span style={{ fontSize: 13, color: "#7a271a", lineHeight: 1.45 }}>{WRONG[read.wrong].text} Nothing has been saved.</span>
               </span>
             </div>
-          ) : read && <BillRead read={read} amount={amt} onUse={(a) => { setAmount(String(a)); setRead({ ...read, filled: a }); }} />}
+          ) : null}
 
           <div style={{ display: "grid", gridTemplateColumns: "minmax(0,1.4fr) minmax(0,1fr)", gap: 10 }}>
             <label style={{ display: "flex", flexDirection: "column", gap: 6, minWidth: 0 }}>
@@ -246,7 +245,7 @@ export function BillSheet({ conn, me, claims = [], advances = [], today = new Da
               <input type="date" className="ecs-in" max={todayIso} value={date} onChange={(e) => e.target.value && setDate(e.target.value)} style={{ height: 58, fontSize: 15 }} />
             </label>
           </div>
-          <span style={{ ...hint, marginTop: -8 }}>Check this matches the photo</span>
+          <span style={{ ...hint, marginTop: -8 }}>Type the total and the date exactly as on the bill</span>
 
           <div style={{ display: "flex", gap: 10, padding: "12px 14px", borderRadius: 14, background: "#f7f8fa" }}>
             <span style={{ color: "#1d4ed8", display: "flex", flex: "none", marginTop: 1 }}><Icon d={IC.shield} size={18} /></span>
