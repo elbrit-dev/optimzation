@@ -272,6 +272,18 @@ if name:
                     frappe.db.set_value("Task", r["custom_task"], "description", d + "<p>Moved to " + nc.name + " when " + c.name + " closed.</p>")
 
         owed = frappe.utils.flt(frappe.db.get_value("Expense Claim", c.name, "grand_total"))
+        # A bill Accounts reviewed: its Bill check Task says where it was booked.
+        base = frappe.utils.get_url()
+        for r in c.expenses:
+            if r.get("custom_task") and r.get("custom_bill_status") == "Verified":
+                d = frappe.db.get_value("Task", r.custom_task, "description") or ""
+                d = d + "<p>Verified and booked in <a href='" + base + "/app/expense-claim/" + c.name + "'>" + c.name + "</a> on " + frappe.utils.today()
+                if owed > 0:
+                    d = d + " -- " + frappe.utils.fmt_money(owed, currency="INR") + " of the claim to Accounts Payable (its Pay Task)"
+                else:
+                    d = d + " -- covered by the employee's advance"
+                d = d + ". <a href='" + base + "/app/payment-ledger-entry?voucher_no=" + c.name + "'>Ledger entries</a></p>"
+                frappe.db.set_value("Task", r.custom_task, "description", d)
         if owed > 0:
             # Booked at once: the claim's Payable line (Payment Ledger Entry) is in
             # Accounts Payable now. The Task links the claim, its ledger and the report.
