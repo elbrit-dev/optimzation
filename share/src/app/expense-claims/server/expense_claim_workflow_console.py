@@ -422,8 +422,11 @@ for a in ["Send for Approval", "Approve", "Reject", "Withdraw", "Verify"]:
 # decide each bill (Expense Running Guard), so no approval action shows on it
 # -- only Withdraw, to bring one sent by mistake back to Draft.
 NOT_RUNNING = "not doc.get(\"custom_running\")"
-APPROVER = "doc.expense_approver == frappe.session.user and " + NOT_RUNNING
-OWNER = "doc.owner == frappe.session.user or doc.get(\"custom_running\")"
+# Administrator may take every action on every claim (approve / reject any,
+# withdraw any); Verify already names them.
+ADMIN = "frappe.session.user == \"Administrator\""
+APPROVER = "(doc.expense_approver == frappe.session.user or " + ADMIN + ") and " + NOT_RUNNING
+OWNER = "doc.owner == frappe.session.user or " + ADMIN + " or doc.get(\"custom_running\")"
 VERIFY = "frappe.session.user in ['" + VERIFIER + "', 'Administrator'] and " + NOT_RUNNING
 states = [
     {"state": "Draft", "doc_status": "0", "allow_edit": "All", "update_field": "approval_status", "update_value": "Draft"},
