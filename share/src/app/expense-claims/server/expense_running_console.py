@@ -13,22 +13,19 @@
 #                            Review note; never on their own claim)
 #             sanctioned_amount = amount when Verified, else 0. No reporting
 #             officer step.
-#   Booking   as soon as a bill turns Verified (28 Oct 2026; was: at the next
-#             advance payment), the open claim closes ("SETTLE"):
-#               - bills still Checking / In Review move to a new open claim
-#               - the decided bills stay and the claim is submitted
-#                 (approval_status Approved): Verified bills are covered by the
-#                 employee's unused advances, OLDEST first (Advances table);
-#                 the rest is booked to Accounts Payable at once (Payment
-#                 Ledger Entry) + a "Pay" Task linking the claim, its ledger
-#                 and the report
-#             Bills verified together book together (one Payable line);
-#             verified one by one, one claim each. An advance payment still
-#             closes the claim too, should a Verified bill be left on it.
+#   Booking   none for now (28 Oct 2026): Verified -- by the AI check or by
+#             Accounts -- is the final step. The claim stays open (draft), so
+#             nothing reaches the ledger or Accounts Payable and no "Pay" Task
+#             is made; Accounts book it later. The booking logic ("SETTLE":
+#             submit the decided bills, cover them with unused advances
+#             oldest first, the rest to Accounts Payable + a "Pay" Task, move
+#             undecided bills to a new open claim) is kept below, switched
+#             off; BOOK = True turns it back on, on verify and on an advance
+#             payment.
 #   Tasks     Accounts project (PROJ-2026-2027-0012), no one assigned -- the
 #             Accounts team assigns them: "Advance" (on request, closed when
 #             paid), "Bill check" (In Review, closed when decided), "Pay"
-#             (closed when a Payment Entry pays the claim in full).
+#             (BOOK only; closed when a Payment Entry pays the claim in full).
 #   Access    Employee Advance: "All" read / write / create (the sales roles
 #             have no Employee role), Accounts submit; lists scoped to the
 #             person's own advances ("Employee Advance Scope").
@@ -48,6 +45,7 @@
 
 DRY = True
 W = "WOULD " if DRY else ""
+BOOK = False      # book verified bills (ledger + Accounts Payable); off for now
 
 FIELDS = [
     {"dt": "Expense Claim", "fieldname": "custom_running", "label": "Running claim (Miscellaneous)", "fieldtype": "Check",
@@ -194,8 +192,11 @@ purpose = str(doc.purpose or "").replace("&", "&amp;").replace("<", "&lt;").repl
 held = 0
 for a in frappe.get_all("Employee Advance", filters={"employee": doc.employee, "docstatus": 1}, fields=["paid_amount", "claimed_amount", "return_amount"]):
     held = held + frappe.utils.flt(a.paid_amount) - frappe.utils.flt(a.claimed_amount) - frappe.utils.flt(a.return_amount)
-# Verified bills are booked as they are verified: what they still owe the
-# employee is the unpaid part of their booked running claims (Accounts Payable).
+# Verified bills not booked yet (the open running claim) and, from when
+# bills were booked, the unpaid part of submitted running claims.
+verified = 0
+for c in frappe.get_all("Expense Claim", filters={"employee": doc.employee, "custom_running": 1, "docstatus": 0}, fields=["total_sanctioned_amount"]):
+    verified = verified + frappe.utils.flt(c.total_sanctioned_amount)
 owed = 0
 for c in frappe.get_all("Expense Claim", filters={"employee": doc.employee, "custom_running": 1, "docstatus": 1}, fields=["grand_total", "total_amount_reimbursed"]):
     left = frappe.utils.flt(c.grand_total) - frappe.utils.flt(c.total_amount_reimbursed)
@@ -203,8 +204,10 @@ for c in frappe.get_all("Expense Claim", filters={"employee": doc.employee, "cus
         owed = owed + left
 body = "<p><b>" + who + "</b> (" + str(doc.employee) + ") asks for <b>" + amount + "</b> in <a href='" + link + "'>" + doc.name + "</a>: " + purpose + "</p>"
 body = body + "<p>Right now " + who + " holds " + frappe.utils.fmt_money(held, currency="INR") + " of unused advances"
+if verified > 0:
+    body = body + ", has " + frappe.utils.fmt_money(verified, currency="INR") + " of verified bills not booked yet"
 if owed > 0:
-    body = body + " and is owed " + frappe.utils.fmt_money(owed, currency="INR") + " on verified bills (Accounts Payable -- see their Pay Tasks)"
+    body = body + " and is owed " + frappe.utils.fmt_money(owed, currency="INR") + " on booked bills (Accounts Payable -- see their Pay Tasks)"
 body = body + ".</p><p>Approve: submit the advance, then pay it with a Payment Entry. Reject: cancel this Task and the advance.</p>"
 t = frappe.get_doc({"doctype": "Task", "subject": "Advance - " + who + " - " + amount + " (" + doc.name + ")",
     "project": PROJECT, "status": "Open", "priority": "High", "exp_start_date": frappe.utils.today(), "description": body})
@@ -327,12 +330,11 @@ if advs:
     name = frappe.db.get_value("Expense Claim", {"employee": doc.party, "custom_running": 1, "docstatus": 0}, "name")
 '''
 
-CLOSE = CLOSE + SETTLE
-
-# A bill on the open claim turned Verified (the AI check or Accounts): book it
-# at once -- its ledger and Accounts Payable line exist from that moment, not
-# from the next payment. (carry: the claim this very script just closed.)
-ROUTE = ROUTE + r'''
+if BOOK:
+    CLOSE = CLOSE + SETTLE
+    # A bill on the open claim turned Verified (the AI check or Accounts): book
+    # it at once. (carry: the claim this very script just closed.)
+    ROUTE = ROUTE + r'''
 name = None
 if doc.get("custom_running") and doc.docstatus == 0 and not doc.flags.get("carry"):
     for r in doc.expenses or []:

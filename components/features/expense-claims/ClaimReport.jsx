@@ -15,8 +15,9 @@ import { BILL_STATE, MON, WD, billState, dateOf, inr, ledger, monthKey, monthLab
  *                 (Employee Advance) less the verified bills since -- or, below
  *                 zero, what is owed to the person, as Paid to you -> Verified
  *                 bills -> In hand / Owed, plus bills still being checked and
- *                 cash asked for. "Scan a bill", "Request cash" (what is
- *                 owed is booked with Accounts as each bill is verified).
+ *                 cash asked for. "Scan a bill", "Request cash". Verified is
+ *                 final for now: nothing is booked (no Accounts Payable) --
+ *                 Accounts settle what is owed later.
  *   Highlights    the month: verified, cash paid, bills, AI-verified share.
  *   Bills & cash  the month's bills and cash, newest first by week. Each bill
  *                 shows its own status (Checking / Verified / Accounts
@@ -251,7 +252,7 @@ export default function ClaimReport({
 
   const over = L.over, has = L.added > 0 || L.balance > 0;
   const say1 = over
-    ? <>{inr(over)} for your verified bills is booked with Accounts — they pay it to you. Nothing to ask for.</>
+    ? <>{inr(over)} of verified bills is owed to you — Accounts settle it with you later.</>
     : has
       ? <>Left of the cash Accounts paid you. Bills you add come out of it once they are verified.</>
       : <>No cash from Accounts yet. Add your bills as you spend — you are paid back once they are verified — or request cash up front.</>;

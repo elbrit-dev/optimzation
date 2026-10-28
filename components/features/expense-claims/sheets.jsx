@@ -301,9 +301,9 @@ export function CashSheet({ conn, me, claims = [], advances = [], today = new Da
       <style>{CSS}</style>
       {done ? <Done title="Cash requested" amount={amt} sub={`${what.trim()} · Accounts approve it and pay you. Your next verified bills come out of it first — the rest is yours to spend.`} /> : (
         <div style={{ display: "flex", flexDirection: "column", gap: 14, padding: desk ? "16px 24px 20px" : "12px 16px 18px" }}>
-          {/* What they are owed is booked as each bill is verified (Accounts Payable + a
-              Pay Task) -- asking for it again as cash would pay it twice. */}
-          {owed > 0 && <Note tone="info">{inr(owed)} for your verified bills is already with Accounts to pay you — no need to ask for it. Request cash only for spending ahead.</Note>}
+          {/* Verified is final for now (nothing booked); Accounts settle what is owed
+              later, so it is not something to ask for as cash. */}
+          {owed > 0 && <Note tone="info">{inr(owed)} of verified bills is owed to you — Accounts settle it with you later, no need to ask for it. Request cash only for spending ahead.</Note>}
           <label style={{ display: "flex", flexDirection: "column", gap: 6 }}>
             <span style={lbl}>Amount</span>
             <span className="ecs-in" style={{ display: "flex", alignItems: "center", gap: 8, height: 58 }}>
