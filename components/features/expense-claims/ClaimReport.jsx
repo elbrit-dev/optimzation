@@ -306,7 +306,7 @@ export default function ClaimReport({
           {hl.length > 0 && (
             <section style={{ display: "flex", flexDirection: "column", gap: 8 }}>
               <span style={{ fontSize: 15, fontWeight: 700, color: "#5b6576" }}>Highlights · {monthLabel(month).split(" ")[0]}</span>
-              <Highlights items={hl} bleed={wide ? "0px" : pad + "px"} />
+              <Highlights items={hl} bleed={wide ? "0px" : pad + "px"} wrap={isDesk} />
             </section>
           )}
           </div>

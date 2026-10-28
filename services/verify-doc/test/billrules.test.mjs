@@ -77,3 +77,10 @@ test("bill rules: GSTIN, bill number, payment mode", () => {
   assert.equal(t.payment_mode, "UPI");
   assert.equal(t.amount, 420);
 });
+
+test("bill rules: receipt split by columns -- the till line is not the amount", () => {
+  // Docling can put the left column ("CASH", "C 1 15:48:20") before the right one.
+  const md = "TABLE 0004 KOTS 01 CVR 01 WAITER 00\nNO.000038 DATE:-18-08-2026\nFISH CURRY RICE 2 200.00 400.00\nSPL.FISH C.RICE 1 400.00 400.00\nLIME SODA 3 50.00 150.00\nCASH\nC 1 15:48:20\n₹ 950.00\n+20\n= 970";
+  assert.equal(billFromText(md).amount, 950);
+  assert.equal(billFromText("CASH\nC 1\n").amount, null);
+});

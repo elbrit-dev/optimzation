@@ -47,15 +47,22 @@ const moneyIn = (l) =>
     .map((t) => ({ t, n: parseNumber(t) }))
     .filter(({ t, n }) => n != null && n > 0 && n < 1000000 && t.replace(/\D/g, "").length <= 8);
 
+// Written like money (₹ 950.00 / Rs 65 / 85.00), not a bare count or code.
+const MONEY = /₹|rs|inr|\.\d{2}\b/i;
+// A bare number under 10 is a counter or a till number ("C 1"), never a total.
+const plausible = (xs) => xs.filter(({ t, n }) => MONEY.test(t) || n >= 10);
+
 function amountOf(ls) {
   for (const word of TOTAL_WORDS) {
     for (let i = ls.length - 1; i >= 0; i--) {
       const l = ls[i];
       if (!word.test(l) || NOT_TOTAL.test(l) || NOT_AMOUNT.test(l)) continue;
-      const here = moneyIn(l.replace(word, " "));
-      const next = i + 1 < ls.length && !NOT_AMOUNT.test(ls[i + 1]) ? moneyIn(ls[i + 1]) : [];
-      const found = here.length ? here : next;
-      if (found.length) return found[found.length - 1].n;
+      const here = plausible(moneyIn(l.replace(word, " ")));
+      // Docling may put a receipt's "CASH" and "₹ 950.00" on different lines,
+      // with the till line ("C 1 15:48:20") between: look two lines on.
+      const next = ls.slice(i + 1, i + 3).filter((n) => !NOT_AMOUNT.test(n)).flatMap((n) => plausible(moneyIn(n)));
+      const found = [here.filter((x) => MONEY.test(x.t)), next.filter((x) => MONEY.test(x.t)), here, next].find((xs) => xs.length);
+      if (found) return found[found.length - 1].n;
     }
   }
   // No total line: the largest amount written like money (₹ / Rs / two decimals).

@@ -65,10 +65,14 @@ const HL_ICON = { ai: "shield", bill: "clip", cleared: "check", streak: "flame",
 
 /* A sideways-scrolling row of highlight cards (model.highlights). `bleed`
    lets the row run to the screen edge under a padded parent (a CSS length). */
-export function Highlights({ items, bleed = "0px", onTip }) {
+/* `wrap` (desktop): a grid that shows every tile -- a mouse cannot swipe the rail. */
+export function Highlights({ items, bleed = "0px", onTip, wrap = false }) {
   if (!items?.length) return null;
+  const box = wrap
+    ? { display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(170px, 1fr))", gap: 8 }
+    : { display: "flex", gap: 8, overflowX: "auto", scrollSnapType: "x proximity", margin: `0 calc(-1 * ${bleed})`, padding: `0 ${bleed} 2px` };
   return (
-    <div className="ec-rail" role="list" aria-label="Highlights" style={{ display: "flex", gap: 8, overflowX: "auto", scrollSnapType: "x proximity", margin: `0 calc(-1 * ${bleed})`, padding: `0 ${bleed} 2px` }}>
+    <div className="ec-rail" role="list" aria-label="Highlights" style={box}>
       {items.map((a) => {
         const [c, s] = TONE[a.tone] || TONE.field;
         return (
