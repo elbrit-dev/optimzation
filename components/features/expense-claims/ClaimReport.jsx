@@ -15,8 +15,8 @@ import { BILL_STATE, MON, WD, billState, dateOf, inr, ledger, monthKey, monthLab
  *                 (Employee Advance) less the verified bills since -- or, below
  *                 zero, what is owed to the person, as Paid to you -> Verified
  *                 bills -> In hand / Owed, plus bills still being checked and
- *                 cash asked for. "Scan a bill", "Request cash" (or, when
- *                 owed, "Ask for it").
+ *                 cash asked for. "Scan a bill", "Request cash" (what is
+ *                 owed is booked with Accounts as each bill is verified).
  *   Highlights    the month: verified, cash paid, bills, AI-verified share.
  *   Bills & cash  the month's bills and cash, newest first by week. Each bill
  *                 shows its own status (Checking / Verified / Accounts
@@ -251,7 +251,7 @@ export default function ClaimReport({
 
   const over = L.over, has = L.added > 0 || L.balance > 0;
   const say1 = over
-    ? <>You spent {inr(over)} of your own money. It comes back with your next cash from Accounts — or ask for it now.</>
+    ? <>{inr(over)} for your verified bills is booked with Accounts — they pay it to you. Nothing to ask for.</>
     : has
       ? <>Left of the cash Accounts paid you. Bills you add come out of it once they are verified.</>
       : <>No cash from Accounts yet. Add your bills as you spend — you are paid back once they are verified — or request cash up front.</>;
@@ -298,7 +298,7 @@ export default function ClaimReport({
             </div>
             <button type="button" className="ec-cta" onClick={() => setSheet("bill")} style={{ ...btn.primary, height: 52, borderRadius: 14, fontSize: 16, display: "flex", alignItems: "center", justifyContent: "center", gap: 8, marginTop: 2 }}><Icon d={IC.camera} size={20} />Scan a bill</button>
             <div style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: 10, color: "#c0c5cf" }}>
-              <button type="button" className="ec-link" onClick={() => setSheet("cash")} style={link}><Icon d={IC.wallet} size={14} />{over ? `Ask for ${inr(over)}` : "Request cash"}</button>
+              <button type="button" className="ec-link" onClick={() => setSheet("cash")} style={link}><Icon d={IC.wallet} size={14} />Request cash</button>
             </div>
           </section>
 

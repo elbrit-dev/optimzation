@@ -271,7 +271,6 @@ export function CashSheet({ conn, me, claims = [], advances = [], today = new Da
   const [error, setError] = useState("");
   const [done, setDone] = useState(null);
   const amt = Number(amount) || 0;
-  const settle = () => { setAmount(String(Math.round(owed))); setWhat("Settle my bills"); };
   const submit = async () => {
     if (!amt) return setError("Enter the amount");
     if (what.trim().length < 3) return setError("Say what it is for");
@@ -298,15 +297,13 @@ export function CashSheet({ conn, me, claims = [], advances = [], today = new Da
     </>
   );
   return (
-    <Sheet title={done ? "" : "Request cash"} sub={done ? null : owed > 0 ? `You are owed ${inr(owed)} now` : `In hand now: ${inr(L.balance)}`} onClose={close} desktop="dialog" maxWidth={520} footer={footer}>
+    <Sheet title={done ? "" : "Request cash"} sub={done ? null : `In hand now: ${inr(L.balance)}`} onClose={close} desktop="dialog" maxWidth={520} footer={footer}>
       <style>{CSS}</style>
-      {done ? <Done title="Cash requested" amount={amt} sub={`${what.trim()} · Accounts approve it and pay you. When it is paid, your open bills are settled from it first — the rest is yours to spend.`} /> : (
+      {done ? <Done title="Cash requested" amount={amt} sub={`${what.trim()} · Accounts approve it and pay you. Your next verified bills come out of it first — the rest is yours to spend.`} /> : (
         <div style={{ display: "flex", flexDirection: "column", gap: 14, padding: desk ? "16px 24px 20px" : "12px 16px 18px" }}>
-          {owed > 0 && (
-            <button type="button" onClick={settle} style={{ display: "flex", alignItems: "center", gap: 10, padding: "12px 14px", borderRadius: 14, border: "1.5px solid #fedf89", background: "#fffaeb", color: "#b54708", fontSize: 13.5, fontWeight: 600, textAlign: "left", cursor: "pointer" }}>
-              <Icon d={IC.wallet} size={18} /><span style={{ flex: 1 }}>You spent {inr(owed)} of your own money. Ask for it back</span><b style={{ ...tabNum }}>{inr(owed)}</b>
-            </button>
-          )}
+          {/* What they are owed is booked as each bill is verified (Accounts Payable + a
+              Pay Task) -- asking for it again as cash would pay it twice. */}
+          {owed > 0 && <Note tone="info">{inr(owed)} for your verified bills is already with Accounts to pay you — no need to ask for it. Request cash only for spending ahead.</Note>}
           <label style={{ display: "flex", flexDirection: "column", gap: 6 }}>
             <span style={lbl}>Amount</span>
             <span className="ecs-in" style={{ display: "flex", alignItems: "center", gap: 8, height: 58 }}>

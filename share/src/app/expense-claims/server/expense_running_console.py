@@ -13,18 +13,18 @@
 #                            Review note; never on their own claim)
 #             sanctioned_amount = amount when Verified, else 0. No reporting
 #             officer step.
-#   Cycle     from one payment to the next. When a Payment Entry for an
-#             Employee Advance is submitted, the employee's open claim closes:
+#   Booking   as soon as a bill turns Verified (28 Oct 2026; was: at the next
+#             advance payment), the open claim closes ("SETTLE"):
 #               - bills still Checking / In Review move to a new open claim
-#               - Verified bills are covered by the employee's advances,
-#                 OLDEST first (the claim's Advances table)
-#               - the claim is submitted (approval_status Approved); whatever
-#                 the advances could not cover is payable to the employee
-#                 (Accounts Payable) + a "Pay" Task
-#             A claim with no Verified bill yet stays open.
-#   Settle    an employee with no advance asks for their money with an
-#             ordinary advance request for what they are owed; paying it
-#             closes the claim like any other payment.
+#               - the decided bills stay and the claim is submitted
+#                 (approval_status Approved): Verified bills are covered by the
+#                 employee's unused advances, OLDEST first (Advances table);
+#                 the rest is booked to Accounts Payable at once (Payment
+#                 Ledger Entry) + a "Pay" Task linking the claim, its ledger
+#                 and the report
+#             Bills verified together book together (one Payable line);
+#             verified one by one, one claim each. An advance payment still
+#             closes the claim too, should a Verified bill be left on it.
 #   Tasks     Accounts project (PROJ-2026-2027-0012), no one assigned -- the
 #             Accounts team assigns them: "Advance" (on request, closed when
 #             paid), "Bill check" (In Review, closed when decided), "Pay"
@@ -194,17 +194,18 @@ purpose = str(doc.purpose or "").replace("&", "&amp;").replace("<", "&lt;").repl
 held = 0
 for a in frappe.get_all("Employee Advance", filters={"employee": doc.employee, "docstatus": 1}, fields=["paid_amount", "claimed_amount", "return_amount"]):
     held = held + frappe.utils.flt(a.paid_amount) - frappe.utils.flt(a.claimed_amount) - frappe.utils.flt(a.return_amount)
-verified = 0
-running = frappe.db.get_value("Expense Claim", {"employee": doc.employee, "custom_running": 1, "docstatus": 0}, "name")
-if running:
-    verified = frappe.utils.flt(frappe.db.get_value("Expense Claim", running, "total_sanctioned_amount"))
-now = held - verified
-state = ("holds " + frappe.utils.fmt_money(now, currency="INR")) if now >= 0 else ("is owed " + frappe.utils.fmt_money(-now, currency="INR"))
+# Verified bills are booked as they are verified: what they still owe the
+# employee is the unpaid part of their booked running claims (Accounts Payable).
+owed = 0
+for c in frappe.get_all("Expense Claim", filters={"employee": doc.employee, "custom_running": 1, "docstatus": 1}, fields=["grand_total", "total_amount_reimbursed"]):
+    left = frappe.utils.flt(c.grand_total) - frappe.utils.flt(c.total_amount_reimbursed)
+    if left > 0:
+        owed = owed + left
 body = "<p><b>" + who + "</b> (" + str(doc.employee) + ") asks for <b>" + amount + "</b> in <a href='" + link + "'>" + doc.name + "</a>: " + purpose + "</p>"
-body = body + "<p>Right now " + who + " " + state + " (unused advances less verified bills"
-if running:
-    body = body + " on " + running
-body = body + ").</p><p>Approve: submit the advance, then pay it with a Payment Entry -- that closes the open claim. Reject: cancel this Task and the advance.</p>"
+body = body + "<p>Right now " + who + " holds " + frappe.utils.fmt_money(held, currency="INR") + " of unused advances"
+if owed > 0:
+    body = body + " and is owed " + frappe.utils.fmt_money(owed, currency="INR") + " on verified bills (Accounts Payable -- see their Pay Tasks)"
+body = body + ".</p><p>Approve: submit the advance, then pay it with a Payment Entry. Reject: cancel this Task and the advance.</p>"
 t = frappe.get_doc({"doctype": "Task", "subject": "Advance - " + who + " - " + amount + " (" + doc.name + ")",
     "project": PROJECT, "status": "Open", "priority": "High", "exp_start_date": frappe.utils.today(), "description": body})
 t.flags.ignore_permissions = True
@@ -212,32 +213,15 @@ t.insert()
 frappe.db.set_value("Employee Advance", doc.name, "custom_task", t.name)
 '''
 
-CLOSE = r'''
-PROJECT = "PROJ-2026-2027-0012"              # "Accounts"
-OPEN = ["Open", "Working", "Pending Review", "Overdue"]
+SETTLE = r'''
+# Closes the running claim `name` (shared by "Expense Cycle Close" and
+# "Expense Running Route"): decided bills stay and the claim is submitted --
+# Verified covered by the employee's unused advances OLDEST first, the rest
+# booked to Accounts Payable + a "Pay" Task; undecided bills move to a new
+# open claim.
 ROW = ["expense_date", "expense_type", "description", "amount", "default_account", "cost_center", "custom_bill",
        "custom_bill_amount", "custom_bill_date", "custom_bill_vendor", "custom_ai_score", "custom_ai_risk", "custom_ai_reason",
        "custom_bill_meta", "custom_bill_status", "custom_review_note", "custom_task"]
-
-advs = []
-if doc.party_type == "Employee" and doc.payment_type == "Pay":
-    for ref in doc.references or []:
-        if ref.reference_doctype == "Employee Advance" and ref.reference_name not in advs:
-            advs.append(ref.reference_name)
-for a in advs:
-    t = frappe.db.get_value("Employee Advance", a, "custom_task")
-    if t and frappe.db.get_value("Task", t, "status") in OPEN:
-        frappe.db.set_value("Task", t, "status", "Completed")
-# What was owed on a closed claim is paid in full: its "Pay" Task is done
-if doc.party_type == "Employee" and doc.payment_type == "Pay":
-    for ref in doc.references or []:
-        if ref.reference_doctype == "Expense Claim" and frappe.utils.flt(ref.allocated_amount) >= frappe.utils.flt(ref.outstanding_amount):
-            for t in frappe.get_all("Task", filters={"project": PROJECT, "subject": ["like", "Pay - % (" + ref.reference_name + ")"], "status": ["in", OPEN]}, pluck="name"):
-                frappe.db.set_value("Task", t, "status", "Completed")
-
-name = None
-if advs:
-    name = frappe.db.get_value("Expense Claim", {"employee": doc.party, "custom_running": 1, "docstatus": 0}, "name")
 if name:
     c = frappe.get_doc("Expense Claim", name)
     done = [r for r in c.expenses or [] if r.get("custom_bill_status") in ["Verified", "Rejected"]]
@@ -289,17 +273,60 @@ if name:
 
         owed = frappe.utils.flt(frappe.db.get_value("Expense Claim", c.name, "grand_total"))
         if owed > 0:
+            # Booked at once: the claim's Payable line (Payment Ledger Entry) is in
+            # Accounts Payable now. The Task links the claim, its ledger and the report.
             who = str(c.employee_name or c.employee)
             amount = frappe.utils.fmt_money(owed, currency="INR")
-            link = frappe.utils.get_url() + "/app/expense-claim/" + c.name
-            body = "<p><b>" + who + "</b> (" + str(c.employee) + ") spent more than the advances cover. <a href='" + link + "'>" + c.name
-            body = body + "</a> closed on " + frappe.utils.today() + " with <b>" + amount + "</b> owed (Accounts Payable).</p>"
-            body = body + "<p>Pay it with a Payment Entry against this claim (Party Type Employee, reference " + c.name + ").</p>"
+            base = frappe.utils.get_url()
+            link = base + "/app/expense-claim/" + c.name
+            ledger = base + "/app/payment-ledger-entry?against_voucher_no=" + c.name
+            report = base + "/app/query-report/Accounts Payable?party_type=Employee&party=" + str(c.employee)
+            body = "<p><b>" + who + "</b> (" + str(c.employee) + "): verified bills not covered by advances. <a href='" + link + "'>" + c.name
+            body = body + "</a> was booked on " + frappe.utils.today() + " with <b>" + amount + "</b> owed to them (Accounts Payable).</p>"
+            body = body + "<p><a href='" + ledger + "'>Ledger entries</a> &middot; <a href='" + report + "'>Accounts Payable for " + who + "</a></p>"
+            body = body + "<p>Pay it with a Payment Entry against this claim (Party Type Employee, reference " + c.name + "); this Task then closes by itself.</p>"
             t = frappe.get_doc({"doctype": "Task", "subject": "Pay - " + who + " - " + amount + " (" + c.name + ")",
                 "project": PROJECT, "status": "Open", "priority": "High", "exp_start_date": frappe.utils.today(), "description": body})
             t.flags.ignore_permissions = True
             t.insert()
 '''
+
+CLOSE = r'''
+PROJECT = "PROJ-2026-2027-0012"              # "Accounts"
+OPEN = ["Open", "Working", "Pending Review", "Overdue"]
+advs = []
+if doc.party_type == "Employee" and doc.payment_type == "Pay":
+    for ref in doc.references or []:
+        if ref.reference_doctype == "Employee Advance" and ref.reference_name not in advs:
+            advs.append(ref.reference_name)
+for a in advs:
+    t = frappe.db.get_value("Employee Advance", a, "custom_task")
+    if t and frappe.db.get_value("Task", t, "status") in OPEN:
+        frappe.db.set_value("Task", t, "status", "Completed")
+# What was owed on a closed claim is paid in full: its "Pay" Task is done
+if doc.party_type == "Employee" and doc.payment_type == "Pay":
+    for ref in doc.references or []:
+        if ref.reference_doctype == "Expense Claim" and frappe.utils.flt(ref.allocated_amount) >= frappe.utils.flt(ref.outstanding_amount):
+            for t in frappe.get_all("Task", filters={"project": PROJECT, "subject": ["like", "Pay - % (" + ref.reference_name + ")"], "status": ["in", OPEN]}, pluck="name"):
+                frappe.db.set_value("Task", t, "status", "Completed")
+
+name = None
+if advs:
+    name = frappe.db.get_value("Expense Claim", {"employee": doc.party, "custom_running": 1, "docstatus": 0}, "name")
+'''
+
+CLOSE = CLOSE + SETTLE
+
+# A bill on the open claim turned Verified (the AI check or Accounts): book it
+# at once -- its ledger and Accounts Payable line exist from that moment, not
+# from the next payment. (carry: the claim this very script just closed.)
+ROUTE = ROUTE + r'''
+name = None
+if doc.get("custom_running") and doc.docstatus == 0 and not doc.flags.get("carry"):
+    for r in doc.expenses or []:
+        if r.get("custom_bill_status") == "Verified":
+            name = doc.name
+''' + SETTLE
 
 for f in FIELDS:
     key = f["dt"] + "-" + f["fieldname"]

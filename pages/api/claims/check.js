@@ -229,13 +229,28 @@ export default async function handler(req, res) {
   // other checks (other bills) may be writing too, so re-read, merge, save, and
   // on "modified after you opened it" wait a moment and do it again.
   const byName = new Map(counted.map((x) => [x.row.name, x]));
+  // A bill verified meanwhile books (submits) the claim and moves bills still
+  // being checked to a new open claim, as new rows: find ours there by photo.
+  const byBill = new Map(counted.filter((x) => x.row.custom_bill).map((x) => [x.row.custom_bill, x]));
   let saved;
+  let target = path;
   try {
     for (let attempt = 0; ; attempt++) {
       try {
-        const doc = (await erp(origin, checker, path)).data;
+        let doc = (await erp(origin, checker, target)).data;
+        if (running && Number(doc.docstatus) !== 0) {
+          const q = new URLSearchParams({
+            filters: JSON.stringify([["employee", "=", claim.employee], ["custom_running", "=", 1], ["docstatus", "=", 0]]),
+            fields: JSON.stringify(["name"]),
+            limit_page_length: "1",
+          });
+          const open = ((await erp(origin, checker, `/api/resource/Expense%20Claim?${q}`)).data || [])[0]?.name;
+          if (!open) break; // nothing left to write: every bill was decided meanwhile
+          target = `/api/resource/Expense%20Claim/${encodeURIComponent(open)}`;
+          doc = (await erp(origin, checker, target)).data;
+        }
         doc.expenses = (doc.expenses || []).map((r) => {
-          const x = byName.get(r.name);
+          const x = byName.get(r.name) || byBill.get(r.custom_bill);
           // Decided (or edited) meanwhile: leave it to whoever did that.
           if (!x || (running && (r.custom_bill_status || "Checking") !== "Checking") || flt(r.amount) !== flt(x.row.amount) || r.custom_bill !== x.row.custom_bill) return r;
           return {
@@ -254,7 +269,7 @@ export default async function handler(req, res) {
         const issues = done.filter((r) => flt(r.custom_ai_score) < 90).map((r) => `Row ${r.idx} (${r.expense_type}, ${inr(flt(r.amount))}): ${r.custom_ai_reason}`);
         doc.custom_ai_score = Math.round(done.reduce((s, r) => s + flt(r.custom_ai_score) * flt(r.amount), 0) / money);
         doc.custom_ai_summary = (issues.length ? `${done.length - issues.length} of ${done.length} bills match. ${issues.join(" | ")}` : `All ${done.length} bills match the claim.`).slice(0, 1000);
-        saved = (await erp(origin, checker, path, { method: "PUT", body: JSON.stringify(doc) })).data;
+        saved = (await erp(origin, checker, target, { method: "PUT", body: JSON.stringify(doc) })).data;
         break;
       } catch (e) {
         if (attempt < 5 && /modified after|TimestampMismatch/i.test(e.message)) {
@@ -264,13 +279,14 @@ export default async function handler(req, res) {
         throw e;
       }
     }
+    if (!saved) return res.status(200).json({ skipped: true, reason: "Every bill was decided while this check ran." });
     return res.status(200).json({
       score: saved.custom_ai_score,
       risk: saved.custom_ai_risk || null,
       summary: saved.custom_ai_summary,
       rows: counted.map((x) => ({
         name: x.row.name, idx: x.row.idx, score: x.score, reason: x.reason, amount: x.amount, date: x.date, vendor: x.vendor,
-        status: (saved.expenses || []).find((r) => r.name === x.row.name)?.custom_bill_status || null,
+        status: (saved.expenses || []).find((r) => r.name === x.row.name || (x.row.custom_bill && r.custom_bill === x.row.custom_bill))?.custom_bill_status || null,
       })),
       modified: saved.modified,
     });
