@@ -49,44 +49,67 @@ const moneyIn = (l) =>
 
 // Written like money (₹ 950.00 / Rs 65 / 85.00), not a bare count or code.
 const MONEY = /₹|rs|inr|\.\d{2}\b/i;
-// A bare number under 10 is a counter or a till number ("C 1"), never a total.
-const plausible = (xs) => xs.filter(({ t, n }) => MONEY.test(t) || n >= 10);
+// The words that name the bill's total outright; a bare number beside one of
+// these (on the same line) is trusted. "Total" / "Cash" alone are not enough.
+const STRONG = /grand\s*total|net\s*(amount|payable|total)|amount\s*(payable|paid|due)|total\s*(fare|amount|payable)|bill\s*amount|to\s*pay/i;
 
+// An item line: words, then at least two money amounts (rate, amount); its
+// last one is what the line costs. A total can never be below one of these.
+function itemsOf(ls) {
+  return ls
+    .filter((l) => /[a-z]{3}/i.test(l) && !TOTAL_WORDS.some((w) => w.test(l)) && !NOT_TOTAL.test(l) && !NOT_AMOUNT.test(l))
+    .map((l) => moneyIn(l).filter((x) => /\.\d{2}\b/.test(x.t)))
+    .filter((xs) => xs.length >= 2)
+    .map((xs) => xs[xs.length - 1].n);
+}
+
+/* The amount, or null when it is not certain -- a blank field the person fills
+ * beats a wrong one. Taken only from a line that names the total: written like
+ * money there or within the next two lines (Docling may split a receipt's
+ * "CASH" and "₹ 950.00", with the till line "C 1 15:48:20" between), or a bare
+ * number on the same line as a word like "Grand Total". Never below the
+ * dearest item line. No total line -> null (no "largest number" guessing). */
 function amountOf(ls) {
+  const items = itemsOf(ls);
+  const floor = items.length ? Math.max(...items) : 0;
   for (const word of TOTAL_WORDS) {
     for (let i = ls.length - 1; i >= 0; i--) {
       const l = ls[i];
       if (!word.test(l) || NOT_TOTAL.test(l) || NOT_AMOUNT.test(l)) continue;
-      const here = plausible(moneyIn(l.replace(word, " ")));
-      // Docling may put a receipt's "CASH" and "₹ 950.00" on different lines,
-      // with the till line ("C 1 15:48:20") between: look two lines on.
-      const next = ls.slice(i + 1, i + 3).filter((n) => !NOT_AMOUNT.test(n)).flatMap((n) => plausible(moneyIn(n)));
-      const found = [here.filter((x) => MONEY.test(x.t)), next.filter((x) => MONEY.test(x.t)), here, next].find((xs) => xs.length);
-      if (found) return found[found.length - 1].n;
+      const here = moneyIn(l.replace(word, " "));
+      const next = ls.slice(i + 1, i + 3).filter((n) => !NOT_AMOUNT.test(n) && !TOTAL_WORDS.some((w) => w.test(n))).flatMap(moneyIn);
+      const sure = [here.filter((x) => MONEY.test(x.t)), next.filter((x) => MONEY.test(x.t)), STRONG.test(l) ? here.filter((x) => x.n >= 10) : []]
+        .find((xs) => xs.length);
+      if (!sure) continue;
+      const n = sure[sure.length - 1].n;
+      if (n >= floor) return n;
     }
-  }
-  // No total line: the largest amount written like money (₹ / Rs / two decimals).
-  const money = ls.filter((l) => !NOT_AMOUNT.test(l)).flatMap(moneyIn).filter(({ t }) => /₹|rs|inr|\.\d{2}\b/i.test(t));
-  return money.length ? Math.max(...money.map((m) => m.n)) : null;
-}
-
-function dateOf(ls) {
-  const pat = /(\d{4}-\d{1,2}-\d{1,2}|\d{1,2}[/.\-]\d{1,2}[/.\-]\d{2,4}|\d{1,2}[\s\-/.]*[a-z]{3,9}[\s\-/.,]*\d{2,4}|[a-z]{3,9}[\s\-/.]*\d{1,2}(?:st|nd|rd|th)?[\s,\-/.]*\d{2,4})/gi;
-  const today = new Date().toISOString().slice(0, 10);
-  // A line that says "date" first, then any line.
-  const order = [...ls.filter((l) => /date|dt[.:]/i.test(l)), ...ls];
-  for (const l of order) for (const m of l.match(pat) || []) {
-    const d = parseDate(m.trim());
-    if (d && d <= today && d >= "2020-01-01") return d;
   }
   return null;
 }
 
+// The date, or null when it is not certain: from a line that says "date"
+// (or "dt"), else only when the whole bill holds exactly one date.
+function dateOf(ls) {
+  const pat = /(\d{4}-\d{1,2}-\d{1,2}|\d{1,2}[/.\-]\d{1,2}[/.\-]\d{2,4}|\d{1,2}[\s\-/.]*[a-z]{3,9}[\s\-/.,]*\d{2,4}|[a-z]{3,9}[\s\-/.]*\d{1,2}(?:st|nd|rd|th)?[\s,\-/.]*\d{2,4})/gi;
+  const today = new Date().toISOString().slice(0, 10);
+  const datesIn = (l) => (l.match(pat) || []).map((m) => parseDate(m.trim())).filter((d) => d && d <= today && d >= "2020-01-01");
+  for (const l of ls.filter((x) => /date|dt[.:]/i.test(x))) {
+    const d = datesIn(l);
+    if (d.length) return d[0];
+  }
+  const all = [...new Set(ls.flatMap(datesIn))];
+  return all.length === 1 ? all[0] : null;
+}
+
+// The shop's name: an early line of words only -- no digits, no address or
+// header words. Null rather than an address or a garbled line.
+const NOT_VENDOR = /gstin|mob|phone|ph\b|tel|invoice|bill\s*no|date|table|road|\brd\b|street|\bst\b|nagar|layout|cross|bldg|building|floor|near|behind|opp|tax|receipt|cash\s*memo|thank|welcome|dealers?\s*in|\bII\b|prasanna|namah|\bom\b|description|particulars|\bqty\b|quantity|\brate\b|amount|\bitems?\b|price/i;
 function vendorOf(ls) {
   for (const l of ls.slice(0, 6)) {
-    if (/gstin|mob|phone|ph\b|tel|invoice|bill\s*no|date|table|road|street|nagar|\d{6}|tax|receipt|cash\s*memo/i.test(l)) continue;
-    const letters = l.replace(/[^a-z]/gi, "");
-    if (letters.length >= 3) return l.slice(0, 60);
+    if (/\d/.test(l) || NOT_VENDOR.test(l)) continue;
+    const words = l.split(/\s+/).filter((w) => /^[a-z&'.-]+$/i.test(w));
+    if (words.length && words.join("").replace(/[^a-z]/gi, "").length >= 3 && words.length === l.split(/\s+/).length) return l.slice(0, 60);
   }
   return null;
 }

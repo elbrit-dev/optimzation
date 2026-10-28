@@ -84,3 +84,21 @@ test("bill rules: receipt split by columns -- the till line is not the amount", 
   assert.equal(billFromText(md).amount, 950);
   assert.equal(billFromText("CASH\nC 1\n").amount, null);
 });
+
+test("bill rules: unsure -> blank, never a guess", () => {
+  // An address line is not the shop; the blessing line is not the shop either.
+  assert.equal(billFromText(GOA).vendor, null);
+  const sw = billFromText("II Sri Veerabhadreshwara Swamy Prasanna II\nSWARNAGOWRI BOOK STORE\nDealers in : Stationery & School Supplies\nDate 3/8/26\nPrint Oat 25 75.c0\nEmvelope 1 10.40\nTOTAL 85.c0");
+  assert.equal(sw.vendor, "SWARNAGOWRI BOOK STORE");
+  // A handwritten total Docling half-reads ("85.c0") is no amount.
+  assert.equal(sw.amount, null);
+  // A total below an item line is a misread -> blank.
+  assert.equal(billFromText("Laxmi Restaurant\nKing fry 1 320.00 320.00\nBangda masala fry 2 230.00 460.00\nTOTAL ₹ 300.00").amount, null);
+  // No line naming the total: no "largest number" guess.
+  assert.equal(billFromText("Hotel Saravana\nMeals 120.00\nTea 20.00").amount, null);
+  // Two different dates and none labelled: blank.
+  assert.equal(billFromText("Hotel Saravana\n12/08/2026\n14/08/2026\nTotal ₹ 420.00").date, null);
+  // A bare number beside "Grand Total" is trusted; beside "Total" alone it is not.
+  assert.equal(billFromText("Hotel Saravana\nGrand Total 420").amount, 420);
+  assert.equal(billFromText("Hotel Saravana\nTotal Qty 3").amount, null);
+});
