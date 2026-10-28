@@ -1,7 +1,11 @@
 /* POST /v1/extract -- read a document and say what is on it. No expected
  * values, no score: the way to see that the model really reads the page.
  *
- *   { documents, context?, fields? }    (or form-data: file + optional "request")
+ *   { documents, context?, fields?, ocr? }    (or form-data: file + optional "request")
+ *   ocr: "vision" skips Docling for this read (the model reads the image).
+ *   reader: "docling" -- NO model at all: Docling's text, read by rules
+ *   (billrules.mjs) into amount / date / vendor / title; any other field is
+ *   null. Cannot judge printed vs handwritten.
  *
  * Without `fields`, a general set for bills and invoices is read (EXTRACT_FIELDS),
  * plus the line items and a line-by-line transcription of every word. With
@@ -14,7 +18,8 @@
 import { config } from "./config.mjs";
 import { DocError, loadDocuments } from "./documents.mjs";
 import { modelName, readDocuments } from "./reader.mjs";
-import { applyOcr } from "./ocr.mjs";
+import { applyOcr, doclingMarkdown } from "./ocr.mjs";
+import { billFromText } from "./billrules.mjs";
 import { normalizeValue } from "./score.mjs";
 
 export const EXTRACT_FIELDS = {
@@ -53,7 +58,8 @@ export async function extract(body, deps = {}) {
   }
   const started = Date.now();
   const loaded = await loadDocuments(body.documents);
-  const { documents, ocr } = await applyOcr(loaded, deps);
+  if (body.reader === "docling") return byDocling(loaded, fields, started, deps);
+  const { documents, ocr } = await applyOcr(loaded, deps, body.ocr);
   const { reading, usage } = await readDocuments({ fields, rules: [], context: body.context, documents }, deps);
 
   const read = new Map((reading.fields || []).map((f) => [f.key, f]));
@@ -84,5 +90,27 @@ export async function extract(body, deps = {}) {
     ...(ocr ? { ocr: { mode: ocr.mode, text: ocr.text, docling: ocr.docling } } : {}),
     summary: reading.summary || "",
     meta: { provider: config.provider, model: modelName(), ocr: ocr ? ocr.mode : "vision", ms: Date.now() - started, documents: loaded.length, tokens: usage?.totalTokenCount ?? null },
+  };
+}
+
+/* Docling + rules only: no model, no model key. */
+async function byDocling(loaded, fields, started, deps) {
+  if (!config.doclingKey) throw new DocError("Docling is not set up on this service.", 503);
+  const media = loaded.filter((d) => d.kind === "media");
+  if (!media.length) throw new DocError("Send a photo or PDF of the bill.");
+  const md = (await Promise.all(media.map((d) => doclingMarkdown(d, deps)))).join("\n\n");
+  const bill = billFromText(md);
+  const out = {};
+  for (const k of Object.keys(fields)) {
+    const v = bill[k] ?? null;
+    out[k] = { value: v, raw: v, confidence: v == null ? null : 0.6 };
+  }
+  return {
+    fields: out,
+    tables: {},
+    document: { readable: bill.readable, kind: bill.title || null },
+    ocr: { mode: "docling", text: md.slice(0, 20000) || null },
+    summary: "",
+    meta: { provider: "docling", model: null, ocr: "docling", ms: Date.now() - started, documents: loaded.length, tokens: null },
   };
 }

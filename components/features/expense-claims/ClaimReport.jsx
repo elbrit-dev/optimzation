@@ -332,7 +332,7 @@ export default function ClaimReport({
       </main>
 
       {bill && <BillDetail conn={conn} e={bill} onClose={() => setBill(null)} />}
-      {sheet === "bill" && conn && me && <BillSheet conn={conn} me={me} claims={claims} advances={advances} today={today} desk={isDesk} onClose={() => setSheet(null)} onSaved={saved} />}
+      {sheet === "bill" && conn && me && <BillSheet conn={conn} me={me} claims={claims} advances={advances} today={today} desk={isDesk} onClose={() => setSheet(null)} onSaved={saved} onChecked={data.reload} />}
       {sheet === "cash" && conn && me && <CashSheet conn={conn} me={me} claims={claims} advances={advances} today={today} desk={isDesk} onClose={() => setSheet(null)} onSaved={saved} />}
       {toast && (
         <div role="status" aria-live="polite" style={{ position: "fixed", left: "50%", bottom: isDesk ? 32 : 96, transform: "translateX(-50%)", zIndex: 95, maxWidth: "calc(100vw - 32px)", padding: "11px 18px", borderRadius: 10, background: toast.tone === "error" ? "#b42318" : "#101828", color: "#fff", fontSize: 13, fontWeight: 500, boxShadow: "0 12px 30px -10px rgba(16,24,40,.5)" }}>{toast.m}</div>

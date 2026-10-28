@@ -50,3 +50,17 @@ test("extract: a judge field is asked for as the model's own reading, never null
   assert.doesNotMatch(p, /"amount" \(number\)\. JUDGEMENT/);
   assert.match(p, /A field marked JUDGEMENT is the one exception/);
 });
+
+test("extract: ocr \"vision\" skips Docling for that request", async () => {
+  const { applyOcr } = await import("../lib/ocr.mjs");
+  const before = { mode: config.ocrMode, key: config.doclingKey };
+  config.ocrMode = "both";
+  config.doclingKey = "k";
+  let called = false;
+  const docs = [{ kind: "media", name: "bill.jpg", mimeType: "image/jpeg", data: "AA==" }];
+  const r = await applyOcr(docs, { fetchImpl: async () => { called = true; throw new Error("no"); } }, "vision");
+  Object.assign(config, { ocrMode: before.mode, doclingKey: before.key });
+  assert.equal(called, false);
+  assert.equal(r.ocr, null);
+  assert.deepEqual(r.documents, docs);
+});

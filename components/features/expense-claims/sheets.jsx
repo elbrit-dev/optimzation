@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import {
   ATTACH_ACCEPT, checkClaim, checkFile, extractBill, fetchClaim, invalidateClaims, requestAdvance, saveClaim, uploadClaimFile,
+  warmBillReader,
 } from "./data/claimsApi";
 import { BillRead, IC, Icon, Note, Sheet, Spinner, btn, ell, tabNum } from "./ui";
 import { inr, isoDay, ledger, shortDate } from "./model";
@@ -59,13 +60,9 @@ function Done({ title, amount, sub, lines, ai }) {
 }
 
 /* What the AI check made of the new bill. */
-function verdict(check, row, warning) {
-  if (warning) return { ok: false, title: "Bill saved", text: warning };
-  if (!check || check.skipped) return { ok: false, title: "Bill saved", text: `${check?.reason || "The bill check is not on yet."} It stays “Checking” until it runs.` };
-  const r = (check.rows || []).find((x) => x.name === row) || (check.rows || [])[0];
-  if (r?.status === "Verified" || (!r?.status && r?.score >= 90)) return { ok: true, title: "Bill verified", text: `The bill matches (AI score ${Math.round(r.score)}) — it counts now.` };
-  return { ok: false, title: "Sent to Accounts", text: `${r?.reason || "The bill and what you entered differ"} — Accounts will check it; it counts once they verify it.` };
-}
+/* Saved; the check runs in the background (nobody waits for the AI). */
+const CHECKING = { ok: false, title: "Bill saved", text: "The AI is checking it in the background — it shows Verified, or goes to Accounts, in a minute. You can add the next bill now." };
+
 
 /* Why a photo is refused on attach (extractBill's kind). */
 const WRONG = {
@@ -78,7 +75,7 @@ const WRONG = {
 /* Money in short, for the footer: +in hand / −owed on the open claim. */
 const signed = (L) => L.balance - (L.over - L.owedClosed);
 
-export function BillSheet({ conn, me, claims = [], advances = [], today = new Date(), onClose, onSaved, desk }) {
+export function BillSheet({ conn, me, claims = [], advances = [], today = new Date(), onClose, onSaved, onChecked, desk }) {
   const todayIso = isoDay(today);
   const [title, setTitle] = useState("");
   const [amount, setAmount] = useState("");
@@ -91,6 +88,7 @@ export function BillSheet({ conn, me, claims = [], advances = [], today = new Da
   const [tried, setTried] = useState(false);
   const [done, setDone] = useState(null);
   const pick = useRef(null);
+  useEffect(() => { warmBillReader(); }, []); // Docling starts while the photo is taken
   useEffect(() => () => { if (thumb) URL.revokeObjectURL(thumb); }, [thumb]);
 
   const L = useMemo(() => ledger(claims, advances), [claims, advances]);
@@ -123,7 +121,6 @@ export function BillSheet({ conn, me, claims = [], advances = [], today = new Da
 
   const missing = !title.trim() ? "Say what it was for"
     : !file ? "Add a photo of the printed bill"
-    : read?.busy ? "Wait a moment — the AI is still reading the bill"
     : read?.wrong ? WRONG[read.wrong].title
     : !amt ? "Enter the bill amount" : "";
   const submit = async () => {
@@ -148,12 +145,15 @@ export function BillSheet({ conn, me, claims = [], advances = [], today = new Da
       if (name) invalidateClaims(conn, me.id);
       return setError(e.message);
     }
-    let check = null, warning = "";
-    setBusy("AI is checking the bill…");
-    try { check = await checkClaim(conn, name); } catch (e) { warning = `The bill could not be checked (${e.message}). It stays “Checking” and is checked again.`; }
+    // The check runs on its own: the person is not held up. Whatever it decides
+    // reaches the page through onChecked (a bill it misses stays "Checking" and
+    // is checked again with the next bill).
+    checkClaim(conn, name)
+      .catch((e) => console.warn("[expense-claims] background check:", e.message))
+      .finally(() => { invalidateClaims(conn, me.id); onChecked?.(); });
     invalidateClaims(conn, me.id);
     setBusy("");
-    const v = verdict(check, row, warning);
+    const v = CHECKING;
     setDone({
       name, v,
       lines: [

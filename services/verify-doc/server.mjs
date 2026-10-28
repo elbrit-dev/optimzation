@@ -3,6 +3,7 @@
  *   GET  /health     liveness, and whether a model key is configured
  *   POST /v1/extract  { documents, context?, fields? } -> what is ON the document
  *                     (no expected values, no score): fields, line items, full text
+ *   POST /v1/warm     wake Docling ahead of a read (a bill form opened); 202 at once
  *   POST /v1/verify   { documents, fields, rules?, context?, bands? } as JSON, or
  *                     multipart/form-data: file part(s) + a "request" JSON part
  *                     -> { score, risk, fields, rules, summary, document, meta }
@@ -18,6 +19,7 @@ import { config } from "./lib/config.mjs";
 import { verify } from "./lib/verify.mjs";
 import { extract } from "./lib/extract.mjs";
 import { modelName } from "./lib/reader.mjs";
+import { wakeDocling } from "./lib/ocr.mjs";
 import { bodyFromMultipart, isMultipart } from "./lib/multipart.mjs";
 
 function corsHeaders(req) {
@@ -67,7 +69,7 @@ export function makeServer(deps = {}) {
       return res.end();
     }
     if (req.method === "GET" && path === "/health") return send(req, res, 200, { ok: true, provider: config.provider, model: modelName(), modelKey: !!(config.provider === "openrouter" ? config.openrouterKey : config.geminiKey) });
-    if (path !== "/v1/verify" && path !== "/v1/extract") return send(req, res, 404, { error: "Not found." });
+    if (path !== "/v1/verify" && path !== "/v1/extract" && path !== "/v1/warm") return send(req, res, 404, { error: "Not found." });
     if (req.method !== "POST") return send(req, res, 405, { error: "Use POST." });
     if (req.headers.origin && !Object.keys(corsHeaders(req)).length) return send(req, res, 403, { error: "This site may not call the service." });
 
@@ -76,6 +78,7 @@ export function makeServer(deps = {}) {
     try {
       const id = await identify(req.headers, deps);
       who = id.kind === "client" ? `client:${id.name}` : `user:${id.uid}:${id.erpUser}`;
+      if (path === "/v1/warm") return send(req, res, 202, { warming: wakeDocling(deps) }); // not counted as a check
       if (!allow(who)) return send(req, res, 429, { error: "Too many checks in a minute -- try again shortly." });
       const raw = await readBody(req);
       let body;

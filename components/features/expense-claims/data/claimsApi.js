@@ -243,8 +243,31 @@ export const canUseClaims = (me) =>
 export function fetchClaims(conn, employee) {
   return cached(conn, `ec-claims|${employee}`, async () => {
     const d = await queryClaims(conn, [eq("employee", employee)], 1000);
-    return (d.ExpenseClaims?.edges || []).map((e) => shapeClaim(e.node));
+    const nodes = (d.ExpenseClaims?.edges || []).map((e) => e.node);
+    if (fieldTier < 2) await addRunningFields(conn, employee, nodes);
+    return nodes.map(shapeClaim);
   });
+}
+
+/* GraphQL without the running-claim fields (its schema lags new ERP fields
+   until the site restarts): read them over REST, which sees them at once --
+   else the open claim is invisible and every bill tries to start a new one. */
+async function addRunningFields(conn, employee, nodes) {
+  const q = new URLSearchParams({
+    filters: JSON.stringify([["employee", "=", employee], ["custom_running", "=", 1]]),
+    fields: JSON.stringify(["name"]),
+    limit_page_length: "500",
+  });
+  const running = new Set(((await rest(conn, `/api/resource/Expense%20Claim?${q}`)).data || []).map((r) => r.name));
+  await Promise.all(nodes.filter((n) => running.has(n.name)).map(async (n) => {
+    const doc = (await rest(conn, `/api/resource/Expense%20Claim/${encodeURIComponent(n.name)}`)).data || {};
+    const rows = new Map((doc.expenses || []).map((r) => [r.name, r]));
+    n.custom_running = 1;
+    for (const r of n.expenses || []) {
+      r.custom_bill_status = rows.get(r.name)?.custom_bill_status || null;
+      r.custom_review_note = rows.get(r.name)?.custom_review_note || null;
+    }
+  }));
 }
 
 /* Claims waiting on the signed-in person: as reporting officer
@@ -519,7 +542,12 @@ const BILL_FIELDS = {
   amount: { type: "number", description: "the FINAL amount actually paid: the grand / total amount, INCLUDING any handwritten additions or corrections and any handling or delivery fee -- never a sub-total, a tax line or a single item" },
   date: { type: "date", description: "the bill or transaction date" },
   vendor: { type: "text", description: "the shop, company or person who issued the bill" },
-  what_for: { type: "text", description: "what was bought or paid for, in a few words" },
+  // The bill's title on the claim: a general kind, never the items (27 Oct 2026).
+  title: {
+    type: "text",
+    judge: true,
+    description: "a short general title for this expense, 2-3 words, never the item names: e.g. Food bill, Cab bill, Auto bill, Fuel bill, Hotel bill, Train ticket, Bus ticket, Flight ticket, Toll, Parking, Courier, Stationery, Medicine, Mobile recharge",
+  },
   // Only printed bills are accepted (27 Oct 2026): the form refuses anything else.
   kind: {
     type: "text",
@@ -533,16 +561,27 @@ const kindOf = (v) => {
   const s = String(v || "").toUpperCase().replace(/[^A-Z]/g, "");
   return s.startsWith("PRINT") ? "printed" : s.startsWith("HAND") ? "handwritten" : s.startsWith("NOT") ? "not_a_bill" : null;
 };
+/* Opening the bill form wakes Docling (its GPU sleeps when idle and takes
+   30-75 s to start) while the person takes the photo. Fire and forget. */
+export function warmBillReader() {
+  firebaseIdToken()
+    .then((t) => fetch(`${VERIFY_URL}/v1/warm`, { method: "POST", headers: { Authorization: `Bearer ${t}` } }))
+    .catch(() => {});
+}
+
 export async function extractBill(conn, file, type) {
   const idToken = await firebaseIdToken();
   const form = new FormData();
   form.append("file", file, file.name || "bill");
-  form.append("request", JSON.stringify({ context: `Employee expense claim in India, amounts in INR.${type ? ` Expense: ${type}.` : ""}`, fields: BILL_FIELDS }));
+  form.append("request", JSON.stringify({ context: `Employee expense claim in India, amounts in INR.${type ? ` Expense: ${type}.` : ""}`, fields: BILL_FIELDS, reader: "docling" }));
   const res = await fetch(`${VERIFY_URL}/v1/extract`, {
     method: "POST",
     headers: { Authorization: `Bearer ${idToken}`, "X-ERP-Token": conn.authToken },
     body: form,
-    signal: AbortSignal.timeout(150000), // Docling's first read after a quiet spell can take a minute or two
+    // reader "docling": Docling's text read by rules, no AI model or model key (4-6 s;
+    // 30-75 s when Docling's GPU has slept). It cannot judge printed vs handwritten, so
+    // `kind` comes back empty here -- the check on send (Docling + model) judges that.
+    signal: AbortSignal.timeout(150000),
   });
   const json = await res.json().catch(() => ({}));
   if (!res.ok) throw new Error(json.error || `The bill could not be read (HTTP ${res.status}).`);
@@ -552,7 +591,7 @@ export async function extractBill(conn, file, type) {
     amount: typeof v("amount") === "number" && v("amount") > 0 ? v("amount") : null,
     date: /^\d{4}-\d{2}-\d{2}$/.test(String(v("date") || "")) ? v("date") : null,
     vendor: v("vendor"),
-    what: v("what_for"),
+    what: v("title"),
     kind: kindOf(v("kind")),
     readable: json.document?.readable !== false,
   };

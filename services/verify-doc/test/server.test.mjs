@@ -147,3 +147,32 @@ test("form-data: a file part plus a request part (as Postman sends it)", () =>
     assert.equal(out.meta.documents, 1);
     assert.equal(out.score, 100);
   }));
+
+test("warm: a signed-in user wakes Docling at once, once per few minutes; strangers cannot", async () => {
+  const before = config.doclingKey;
+  config.doclingKey = "dk";
+  const woke = [];
+  const fetchImpl = async (url, opts) => {
+    if (String(url).endsWith("/health")) {
+      woke.push(opts.headers["X-Api-Key"]);
+      return new Response("{}");
+    }
+    return fakeFetch(url, opts);
+  };
+  const server = makeServer({ fetchImpl }).listen(0);
+  await new Promise((r) => server.once("listening", r));
+  const base = `http://127.0.0.1:${server.address().port}`;
+  const warm = (headers) => fetch(`${base}/v1/warm`, { method: "POST", headers });
+  try {
+    assert.equal((await warm({})).status, 401);
+    const first = await warm({ Authorization: `Bearer ${idToken()}` });
+    assert.equal(first.status, 202);
+    assert.equal((await first.json()).warming, true);
+    assert.equal((await (await warm({ Authorization: `Bearer ${idToken()}` })).json()).warming, false);
+    await new Promise((r) => setTimeout(r, 20));
+    assert.deepEqual(woke, ["dk"]);
+  } finally {
+    server.close();
+    config.doclingKey = before;
+  }
+});

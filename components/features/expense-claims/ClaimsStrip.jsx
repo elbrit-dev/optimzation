@@ -84,7 +84,7 @@ export default function ClaimsStrip({ url, token, employee, today = new Date(), 
           style={{ flex: "none", width: 44, height: 44, borderRadius: 14, border: 0, background: "#2563eb", color: "#fff", display: "grid", placeItems: "center", cursor: "pointer", transition: "background .18s" }}><Icon d={CAMERA} size={20} /></button>
       </div>
 
-      {form && <BillSheet conn={data.conn} me={data.me} claims={data.claims} advances={data.advances} today={today} desk={desk} onClose={() => setForm(false)} onSaved={saved} />}
+      {form && <BillSheet conn={data.conn} me={data.me} claims={data.claims} advances={data.advances} today={today} desk={desk} onClose={() => setForm(false)} onSaved={saved} onChecked={data.reload} />}
       {toast && (
         <div role="status" aria-live="polite" style={{ position: "fixed", left: "50%", bottom: desk ? 32 : 96, transform: "translateX(-50%)", zIndex: 95, maxWidth: "calc(100vw - 32px)", padding: "11px 18px", borderRadius: 10, background: "#101828", color: "#fff", fontSize: 13, fontWeight: 500, boxShadow: "0 12px 30px -10px rgba(16,24,40,.5)" }}>{toast}</div>
       )}

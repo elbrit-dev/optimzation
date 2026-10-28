@@ -30,8 +30,10 @@ export async function doclingMarkdown(doc, { fetchImpl = fetch } = {}) {
 }
 
 /* documents as loadDocuments made them -> what the model will be given. */
-export async function applyOcr(documents, deps = {}) {
-  const mode = config.ocrMode;
+/* `vision` from the caller skips Docling for that request only (a quick read
+ * while someone waits: Docling's sleeping GPU can add 30-75 s). */
+export async function applyOcr(documents, deps = {}, only) {
+  const mode = only === "vision" ? "vision" : config.ocrMode;
   if (mode === "vision" || !config.doclingKey) return { documents, ocr: null };
   const out = [];
   const used = [];
@@ -58,4 +60,21 @@ export async function applyOcr(documents, deps = {}) {
   // text: what Docling extracted, returned to the caller (capped) so it can be
   // seen and kept -- the claims check stores it in the row's bill details.
   return { documents: out, ocr: { mode, docling: used, text: texts.join("\n\n").slice(0, 20000) || null } };
+}
+
+/* Wake Docling ahead of a read (POST /v1/warm, sent when a bill form opens):
+ * its GPU sleeps when idle and takes 30-75 s to start, so starting it while
+ * the person takes the photo hides most of that. Any request starts it; one
+ * wake-up per few minutes is enough, and nothing waits on it. */
+let warmAt = 0;
+export function wakeDocling({ fetchImpl = fetch } = {}) {
+  if (!config.doclingKey || Date.now() - warmAt < 5 * 60 * 1000) return false;
+  warmAt = Date.now();
+  fetchImpl(`${config.doclingUrl}/health`, { headers: { "X-Api-Key": config.doclingKey }, signal: AbortSignal.timeout(config.doclingTimeoutMs) })
+    .then((r) => console.log(JSON.stringify({ at: "warm", status: r.status, ms: Date.now() - warmAt })))
+    .catch((e) => {
+      warmAt = 0;
+      console.warn(JSON.stringify({ at: "warm", error: e.message }));
+    });
+  return true;
 }
