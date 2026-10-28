@@ -4,7 +4,8 @@
  * printed vs handwritten, and a handwritten "+20" is not in Docling's text;
  * the full check on send (Docling + model) does that.
  *
- *   billFromText(markdown) -> { amount, date, vendor, title, readable } */
+ *   billFromText(markdown) -> { amount, date, vendor, title, vendor_gstin,
+ *     invoice_no, customer, payment_mode, readable } */
 
 import { parseDate, parseNumber } from "./parse.mjs";
 
@@ -83,11 +84,46 @@ function vendorOf(ls) {
   return null;
 }
 
+// A GSTIN: 2 digits, PAN (5 letters, 4 digits, a letter), entity, Z, check.
+const GSTIN = /\b(\d{2}[A-Z]{5}\d{4}[A-Z][0-9A-Z]Z[0-9A-Z])\b/;
+function gstinOf(ls) {
+  for (const l of ls) {
+    const m = GSTIN.exec(l.toUpperCase().replace(/[\s.]/g, "")) || (/gst/i.test(l) && /([0-9A-Z]{15})/.exec(l.toUpperCase().replace(/[\s.:-]/g, "").replace(/^.*?GSTI?N?/, "")));
+    if (m) return m[1];
+  }
+  return null;
+}
+
+function invoiceOf(ls) {
+  for (const l of ls) {
+    if (/gstin|mob|phone|table/i.test(l)) continue;
+    const m = /\b(?:bill|invoice|inv|receipt|ride|order|ticket|txn|transaction)\s*(?:no|number|id|#)?\s*[.:#-]*\s*([A-Z0-9][A-Z0-9/-]{1,24})/i.exec(l) || /^\s*no[.:]\s*([A-Z0-9][A-Z0-9/-]{1,24})/i.exec(l);
+    if (m && /\d/.test(m[1])) return m[1];
+  }
+  return null;
+}
+
+function customerOf(ls) {
+  for (const l of ls) {
+    const m = /\b(?:customer|bill\s*to|billed\s*to|guest|passenger|name)\s*(?:name)?\s*[:-]\s*([A-Za-z][A-Za-z .]{1,50})/i.exec(l);
+    if (m) return m[1].trim();
+  }
+  return null;
+}
+
+const PAY = [["UPI", /\b(upi|gpay|google\s*pay|phonepe|paytm|bhim)\b/i], ["Card", /\b(card|visa|master\s*card|rupay|credit|debit)\b/i], ["FASTag", /\bfastag\b/i], ["Wallet", /\bwallet\b/i], ["Cash", /\bcash\b/i]];
+
 export function billFromText(md) {
   const ls = lines(md);
   const all = ls.join("\n");
   const readable = all.replace(/[^a-z0-9]/gi, "").length >= 15;
-  if (!readable) return { amount: null, date: null, vendor: null, title: null, readable };
+  const none = { amount: null, date: null, vendor: null, title: null, vendor_gstin: null, invoice_no: null, customer: null, payment_mode: null };
+  if (!readable) return { ...none, readable };
   const title = (TITLES.find(([, re]) => re.test(all)) || [null])[0];
-  return { amount: amountOf(ls), date: dateOf(ls), vendor: vendorOf(ls), title, readable };
+  return {
+    amount: amountOf(ls), date: dateOf(ls), vendor: vendorOf(ls), title,
+    vendor_gstin: gstinOf(ls), invoice_no: invoiceOf(ls), customer: customerOf(ls),
+    payment_mode: (PAY.find(([, re]) => re.test(all)) || [null])[0],
+    readable,
+  };
 }

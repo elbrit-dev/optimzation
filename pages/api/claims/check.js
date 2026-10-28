@@ -59,20 +59,13 @@ async function erp(origin, token, path, init = {}) {
   return json;
 }
 
-/* The check is a VALUE check: the employee enters only type, date and amount,
-   so the score is the amount alone (bill vs claim, within 2%). Everything
-   else is READ off the bill, not scored, and kept on the row as JSON
-   (custom_bill_meta) -- vendor, GSTIN, bill no., bill date, what it is for. */
-const META_FIELDS = {
-  document_type: { type: "text", description: "what kind of document this is (tax invoice, fuel receipt, cab receipt, toll ticket, restaurant bill, hand-written bill...)" },
-  vendor: { type: "text", description: "the shop, company or person who issued the bill" },
-  vendor_gstin: { type: "text", description: "the seller's GSTIN, if printed" },
-  invoice_no: { type: "text", description: "the bill / invoice / receipt / ride number" },
-  bill_date: { type: "date", description: "the bill or transaction date" },
-  customer: { type: "text", description: "the customer / passenger / bill-to name, if printed" },
-  payment_mode: { type: "text", description: "how it was paid (cash, UPI, card, FASTag...), if shown" },
-  what_for: { type: "text", description: "what was bought or paid for, in a few words" },
-};
+/* The check is a VALUE check: what the employee entered -- amount (within 2%,
+   weight 80) and date (same day, 20); the title is theirs and not checked --
+   against the bill, plus the rules (a bill, printed). That comparison is all
+   the AI does: it gets Docling's text and the photo. The bill's details --
+   vendor, GSTIN, bill no., date, payment mode, full text -- come from
+   Docling's extraction (verify-doc's ocr.bill, read by rules, no model) and
+   are kept on the row as JSON (custom_bill_meta). */
 
 function rowRequest(row, origin, userErpToken, employeeName) {
   // The running Miscellaneous claim has no sub types: its row title says what it was for.
@@ -81,11 +74,13 @@ function rowRequest(row, origin, userErpToken, employeeName) {
     documents: [{ url: origin + row.custom_bill, headers: { Authorization: tokenHeader(userErpToken) } }],
     context: `Employee expense claim in India, amounts in INR. Expense: ${kind}.`,
     fields: {
+      // What the employee entered, against the bill: amount and date (the
+      // title is theirs, not checked). Either one off drops it below 90 (to Accounts).
       amount: {
-        type: "number", expected: flt(row.amount), weight: 100, tolerance: "2%",
+        type: "number", expected: flt(row.amount), weight: 80, tolerance: "2%",
         description: "the FINAL amount actually paid: the grand / total amount, INCLUDING any handwritten additions or corrections (e.g. '950 +20 = 970' means 970) and any handling or delivery fee -- never a sub-total, a tax line or a single item",
       },
-      ...META_FIELDS,
+      ...(row.expense_date ? { date: { type: "date", expected: row.expense_date, weight: 20, toleranceDays: 0, description: "the bill or transaction date" } } : {}),
     },
     rules: [
       "It must be a bill, receipt, ticket or invoice -- not a selfie, a blank page or an unrelated photo",
@@ -106,6 +101,9 @@ export default async function handler(req, res) {
   const idToken = /^Bearer\s+(.+)$/i.exec(req.headers.authorization || "")?.[1];
   const userErp = String(req.headers["x-erp-token"] || "").trim();
   const claimName = String(req.body?.claim || "").trim();
+  // Only these rows (the bill just added), so checks of different bills run
+  // side by side without doing each other's work. None = every bill due.
+  const only = Array.isArray(req.body?.rows) ? new Set(req.body.rows.map(String)) : null;
   let origin;
   try {
     const url = new URL(String(req.body?.endpoint || ""));
@@ -138,6 +136,7 @@ export default async function handler(req, res) {
   const scored = await Promise.all(
     rows.map(async (row) => {
       if (NO_SCORE_TYPES.includes(row.expense_type)) return { row, skip: true };
+      if (only && !only.has(row.name)) return { row, skip: true };
       if (running && (row.custom_bill_status || "Checking") !== "Checking") return { row, skip: true };
       if (!row.custom_bill) return { row, score: 0, reason: "No bill attached to this row." };
       try {
@@ -153,11 +152,11 @@ export default async function handler(req, res) {
         const f = out.fields || {};
         const reasons = [];
         if (f.amount && f.amount.ok === false) reasons.push(f.amount.reason);
+        if (f.date && f.date.ok === false) reasons.push(`Date: ${f.date.reason}`);
         const [notABill, notPrinted] = out.rules || [];
         if (notABill && notABill.pass === false) reasons.push(notABill.reason);
         if (notPrinted && notPrinted.pass === false) reasons.push(`Not a printed bill: ${notPrinted.reason}`);
         if (out.document && out.document.readable === false) reasons.push("The bill could not be read.");
-        const iso = (v) => (typeof v === "string" && /^\d{4}-\d{2}-\d{2}$/.test(v) ? v : null);
         const val = (k) => (f[k] && f[k].found != null && f[k].found !== "" ? f[k].found : null);
         // The row's custom_bill_meta (JSON): what is on the attachment, and how
         // it compared with the claim -- nothing about the model that read it.
@@ -168,19 +167,18 @@ export default async function handler(req, res) {
         const score = wrong ? Math.min(out.score ?? 0, 40) : out.score ?? 0;
         const claimed = flt(row.amount);
         const onBill = typeof val("amount") === "number" ? val("amount") : null;
+        const dl = out.ocr?.bill || {}; // Docling's extraction, read by rules
         const meta = {
           bill: {
-            document_type: val("document_type") || out.document?.kind || null,
-            vendor: val("vendor"),
-            vendor_gstin: val("vendor_gstin"),
-            invoice_no: val("invoice_no"),
-            bill_date: iso(val("bill_date")) || val("bill_date"),
-            bill_date_printed: f.bill_date?.raw || null,
-            customer: val("customer"),
-            payment_mode: val("payment_mode"),
-            what_for: val("what_for"),
-            total_on_bill: onBill,
-            language: out.document?.language || null,
+            source: out.ocr?.text ? "docling" : "none",
+            title: dl.title || null,
+            vendor: dl.vendor || null,
+            vendor_gstin: dl.vendor_gstin || null,
+            invoice_no: dl.invoice_no || null,
+            bill_date: dl.date || null,
+            customer: dl.customer || null,
+            payment_mode: dl.payment_mode || null,
+            total_on_bill: dl.amount ?? null,
             // The bill's full text as Docling (IT's OCR) extracted it.
             text: out.ocr?.text ? String(out.ocr.text).slice(0, 4000) : null,
           },
@@ -197,6 +195,7 @@ export default async function handler(req, res) {
               match: f.amount ? f.amount.ok === true : false,
               reason: f.amount?.reason || null,
             },
+            date: f.date ? { claimed: row.expense_date, on_bill: f.date.found ?? null, match: f.date.ok === true, reason: f.date.reason || null } : null,
             checks: (out.rules || []).map((r) => ({ rule: r.rule, pass: r.pass, reason: r.reason })),
             issues: reasons,
             summary: out.summary || null,
@@ -205,10 +204,12 @@ export default async function handler(req, res) {
         return {
           row,
           score,
-          reason: reasons.length ? reasons.join("; ") : "Bill amount matches the claim.",
+          reason: reasons.length ? reasons.join("; ") : "Amount and date match the bill.",
+          // Amount on the bill: the AI's comparison reading (it sees handwritten
+          // additions Docling's text misses); date and vendor: Docling.
           amount: val("amount"),
-          date: iso(val("bill_date")),
-          vendor: val("vendor") ? String(val("vendor")).slice(0, 140) : null,
+          date: dl.date || null,
+          vendor: dl.vendor ? String(dl.vendor).slice(0, 140) : null,
           meta,
         };
       } catch (e) {
@@ -224,34 +225,45 @@ export default async function handler(req, res) {
 
   const counted = scored.filter((s) => !s.skip);
   if (!counted.length) return res.status(200).json({ skipped: true, reason: running ? "Every bill on this claim is checked already." : "Advance requests have no bills to check." });
-  const money = counted.reduce((s, x) => s + flt(x.row.amount), 0) || 1;
-  const claimScore = Math.round(counted.reduce((s, x) => s + x.score * flt(x.row.amount), 0) / money);
-  const issues = counted.filter((x) => x.score < 90).map((x) => `Row ${x.row.idx} (${x.row.expense_type}, ${inr(flt(x.row.amount))}): ${x.reason}`);
-  const summary = (issues.length ? `${counted.length - issues.length} of ${counted.length} bills match. ${issues.join(" | ")}` : `All ${counted.length} bills match the claim.`).slice(0, 1000);
-
-  // Write with the checker login: re-read the claim as the checker and merge,
-  // so the save carries every row in full (a partial child list would drop
-  // the rows' other fields).
+  // Write with the checker login onto the LATEST claim, only this check's rows:
+  // other checks (other bills) may be writing too, so re-read, merge, save, and
+  // on "modified after you opened it" wait a moment and do it again.
+  const byName = new Map(counted.map((x) => [x.row.name, x]));
+  let saved;
   try {
-    const doc = (await erp(origin, checker, path)).data;
-    if (doc.modified !== claim.modified) return res.status(409).json({ error: "The claim changed while its bills were being checked. Try again." });
-    const byName = new Map(counted.map((x) => [x.row.name, x]));
-    doc.expenses = (doc.expenses || []).map((r) => {
-      const x = byName.get(r.name);
-      if (!x) return r;
-      return {
-        ...r,
-        custom_bill_amount: x.amount,
-        custom_bill_date: x.date,
-        custom_bill_vendor: x.vendor,
-        custom_ai_score: x.score,
-        custom_ai_reason: x.reason.slice(0, 500),
-        custom_bill_meta: JSON.stringify(x.meta || {}),
-      };
-    });
-    doc.custom_ai_score = claimScore;
-    doc.custom_ai_summary = summary;
-    const saved = (await erp(origin, checker, path, { method: "PUT", body: JSON.stringify(doc) })).data;
+    for (let attempt = 0; ; attempt++) {
+      try {
+        const doc = (await erp(origin, checker, path)).data;
+        doc.expenses = (doc.expenses || []).map((r) => {
+          const x = byName.get(r.name);
+          // Decided (or edited) meanwhile: leave it to whoever did that.
+          if (!x || (running && (r.custom_bill_status || "Checking") !== "Checking") || flt(r.amount) !== flt(x.row.amount) || r.custom_bill !== x.row.custom_bill) return r;
+          return {
+            ...r,
+            custom_bill_amount: x.amount,
+            custom_bill_date: x.date,
+            custom_bill_vendor: x.vendor,
+            custom_ai_score: x.score,
+            custom_ai_reason: x.reason.slice(0, 500),
+            custom_bill_meta: JSON.stringify(x.meta || {}),
+          };
+        });
+        // The claim's score: every checked bill on it, weighted by amount.
+        const done = doc.expenses.filter((r) => r.custom_ai_reason && !NO_SCORE_TYPES.includes(r.expense_type));
+        const money = done.reduce((s, r) => s + flt(r.amount), 0) || 1;
+        const issues = done.filter((r) => flt(r.custom_ai_score) < 90).map((r) => `Row ${r.idx} (${r.expense_type}, ${inr(flt(r.amount))}): ${r.custom_ai_reason}`);
+        doc.custom_ai_score = Math.round(done.reduce((s, r) => s + flt(r.custom_ai_score) * flt(r.amount), 0) / money);
+        doc.custom_ai_summary = (issues.length ? `${done.length - issues.length} of ${done.length} bills match. ${issues.join(" | ")}` : `All ${done.length} bills match the claim.`).slice(0, 1000);
+        saved = (await erp(origin, checker, path, { method: "PUT", body: JSON.stringify(doc) })).data;
+        break;
+      } catch (e) {
+        if (attempt < 5 && /modified after|TimestampMismatch/i.test(e.message)) {
+          await new Promise((r) => setTimeout(r, 300 + Math.random() * 700 * (attempt + 1)));
+          continue;
+        }
+        throw e;
+      }
+    }
     return res.status(200).json({
       score: saved.custom_ai_score,
       risk: saved.custom_ai_risk || null,

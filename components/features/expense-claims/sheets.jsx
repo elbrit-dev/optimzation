@@ -2,8 +2,8 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import {
-  ATTACH_ACCEPT, checkClaim, checkFile, extractBill, fetchClaim, invalidateClaims, requestAdvance, saveClaim, uploadClaimFile,
-  warmBillReader,
+  ATTACH_ACCEPT, checkClaim, checkFile, extractBill, fetchClaim, fetchOpenClaim, invalidateClaims, requestAdvance, retryOnConflict, saveClaim,
+  uploadClaimFile, warmBillReader,
 } from "./data/claimsApi";
 import { BillRead, IC, Icon, Note, Sheet, Spinner, btn, ell, tabNum } from "./ui";
 import { inr, isoDay, ledger, shortDate } from "./model";
@@ -127,19 +127,29 @@ export function BillSheet({ conn, me, claims = [], advances = [], today = new Da
     setTried(true);
     if (missing) return setError(missing);
     setError("");
-    const open = L.open;
     const toLine = (l) => ({ id: l.id, type: l.type, sub: "", date: l.date, note: l.note, amount: l.amount, bill: l.bill });
     const mine = (bill, id) => ({ id, type: "Miscellaneous", sub: "", date, note: title.trim(), amount: amt, bill });
-    let name, row;
+    let name, row, before, waiting = [];
     try {
       setBusy("Saving…");
-      name = await saveClaim(conn, { claim: open || undefined, employee: me.id, postingDate: open?.posting || todayIso, remark: open?.remark || "", running: true, lines: [...(open ? open.lines.map(toLine) : []), mine("")] });
+      // Onto the LATEST open claim: another bill (or its background check) may
+      // have saved it a moment ago -- then read it again and retry. Two first
+      // bills at once: the second finds the claim the first just opened.
+      name = await retryOnConflict(async () => {
+        const open = await fetchOpenClaim(conn, me.id);
+        before = new Set((open?.lines || []).map((l) => l.id));
+        return saveClaim(conn, { claim: open || undefined, employee: me.id, postingDate: open?.posting || todayIso, remark: open?.remark || "", running: true, lines: [...(open ? open.lines.map(toLine) : []), mine("")] });
+      }, /already has an open claim/i);
       setBusy("Uploading the bill…");
       const url = (await uploadClaimFile(conn, name, file)).file_url;
-      const fresh = await fetchClaim(conn, name);
-      const before = new Set((open?.lines || []).map((l) => l.id));
-      row = fresh.lines.filter((l) => !before.has(l.id) && !l.bill).pop()?.id;
-      await saveClaim(conn, { claim: fresh, employee: me.id, postingDate: fresh.posting, remark: fresh.remark, running: true, lines: fresh.lines.map((l) => (l.id === row ? mine(url, row) : toLine(l))) });
+      await retryOnConflict(async () => {
+        const fresh = await fetchClaim(conn, name);
+        row = row || fresh.lines.filter((l) => !before.has(l.id) && !l.bill && l.note === title.trim() && l.amount === amt && l.date === date).pop()?.id;
+        if (!row) throw new Error("The bill was saved but could not be found again to attach its photo.");
+        // Older bills still "Checking" (a check that never ran) go along with this one.
+        waiting = fresh.lines.filter((l) => l.id !== row && l.bill && (l.state || "Checking") === "Checking").map((l) => l.id);
+        await saveClaim(conn, { claim: fresh, employee: me.id, postingDate: fresh.posting, remark: fresh.remark, running: true, lines: fresh.lines.map((l) => (l.id === row ? mine(url, row) : toLine(l))) });
+      });
     } catch (e) {
       setBusy("");
       if (name) invalidateClaims(conn, me.id);
@@ -147,8 +157,8 @@ export function BillSheet({ conn, me, claims = [], advances = [], today = new Da
     }
     // The check runs on its own: the person is not held up. Whatever it decides
     // reaches the page through onChecked (a bill it misses stays "Checking" and
-    // is checked again with the next bill).
-    checkClaim(conn, name)
+    // goes along with the next bill's check).
+    checkClaim(conn, name, [row, ...waiting])
       .catch((e) => console.warn("[expense-claims] background check:", e.message))
       .finally(() => { invalidateClaims(conn, me.id); onChecked?.(); });
     invalidateClaims(conn, me.id);

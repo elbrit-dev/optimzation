@@ -423,6 +423,32 @@ export async function requestAdvance(conn, { employee, amount, purpose, date }) 
   return d.data.name;
 }
 
+/* The employee's open running claim, read fresh (null = none yet): a bill is
+   always added onto the latest version -- a background check may have saved
+   it a moment ago. */
+export async function fetchOpenClaim(conn, employee) {
+  const q = new URLSearchParams({
+    filters: JSON.stringify([["employee", "=", employee], ["custom_running", "=", 1], ["docstatus", "=", 0]]),
+    fields: JSON.stringify(["name"]),
+    limit_page_length: "1",
+  });
+  const name = ((await rest(conn, `/api/resource/Expense%20Claim?${q}`)).data || [])[0]?.name;
+  return name ? fetchClaim(conn, name) : null;
+}
+
+/* Runs a save again on a fresh read when someone else saved first ("modified
+   after you opened it") -- e.g. a background bill check landing meanwhile. */
+export async function retryOnConflict(save, also = null, tries = 4) {
+  for (let i = 0; ; i++) {
+    try {
+      return await save();
+    } catch (e) {
+      if (i + 1 >= tries || !(/modified after|TimestampMismatch/i.test(e.message) || (also && also.test(e.message)))) throw e;
+      await new Promise((r) => setTimeout(r, 300 + Math.random() * 500 * (i + 1)));
+    }
+  }
+}
+
 /* One claim, fresh (e.g. to get its new `modified` and row names after a save). */
 export async function fetchClaim(conn, name) {
   const d = await queryClaims(conn, [eq("name", name)], 1);
@@ -599,12 +625,14 @@ export async function extractBill(conn, file, type) {
 
 /* Has the app server check every bill on the claim with verify-doc and save
    the score on it. -> { score, risk, summary, rows } | { skipped, reason } */
-export async function checkClaim(conn, name) {
+/* rows: only these bills (the one just added) -- checks of different bills
+   then run side by side; none = every bill still due on the claim. */
+export async function checkClaim(conn, name, rows) {
   const idToken = await firebaseIdToken();
   const res = await fetch("/api/claims/check", {
     method: "POST",
     headers: { "Content-Type": "application/json", Authorization: `Bearer ${idToken}`, "x-erp-token": conn.authToken },
-    body: JSON.stringify({ endpoint: conn.endpointUrl, claim: name }),
+    body: JSON.stringify({ endpoint: conn.endpointUrl, claim: name, ...(rows ? { rows } : {}) }),
   });
   const json = await res.json().catch(() => ({}));
   if (!res.ok) throw new Error(json.error || `The bill check failed (HTTP ${res.status}).`);

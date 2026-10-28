@@ -65,3 +65,15 @@ test("extract: reader docling never calls the model", async () => {
   assert.equal(r.fields.kind.value, null);
   assert.equal(r.meta.model, null);
 });
+
+test("bill rules: GSTIN, bill number, payment mode", () => {
+  const b = billFromText(GOA);
+  assert.match(b.vendor_gstin || "", /^30AGTPB9519J/);
+  assert.equal(b.invoice_no, "000038");
+  assert.equal(b.payment_mode, "Cash");
+  const t = billFromText("Hotel Saravana\nInvoice No: INV-2026/114\nCustomer Name: Sanjay S P\nPaid via GPay\nTotal ₹ 420.00");
+  assert.equal(t.invoice_no, "INV-2026/114");
+  assert.equal(t.customer, "Sanjay S P");
+  assert.equal(t.payment_mode, "UPI");
+  assert.equal(t.amount, 420);
+});

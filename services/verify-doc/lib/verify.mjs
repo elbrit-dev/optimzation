@@ -5,6 +5,7 @@ import { config } from "./config.mjs";
 import { DocError, loadDocuments } from "./documents.mjs";
 import { modelName, readDocuments } from "./reader.mjs";
 import { applyOcr } from "./ocr.mjs";
+import { billFromText } from "./billrules.mjs";
 import { DEFAULT_BANDS, scoreReading } from "./score.mjs";
 
 const TYPES = new Set(["text", "number", "date", "month", "table"]);
@@ -65,7 +66,9 @@ export async function verify(body, deps = {}) {
     rules,
     summary: summarize(reading, scored).trim(),
     document: reading.document || null,
-    ...(ocr ? { ocr: { mode: ocr.mode, text: ocr.text, docling: ocr.docling } } : {}),
+    // bill: the bill's details read from Docling's text by rules (no model) --
+    // what the claim keeps as the bill's details.
+    ...(ocr ? { ocr: { mode: ocr.mode, text: ocr.text, docling: ocr.docling, bill: ocr.text ? billFromText(ocr.text) : null } } : {}),
     meta: { provider: config.provider, model: modelName(), ocr: ocr ? ocr.mode : "vision", ms: Date.now() - started, documents: loaded.length, tokens: usage?.totalTokenCount ?? null },
   };
 }
