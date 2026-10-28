@@ -231,14 +231,18 @@ export function fetchMe(conn, employee) {
   });
 }
 
-/* Who gets claims (the strip, the profile tab, the Claims page), by the
-   signed-in person's own Employee role profile. null = every employee --
-   open since 2026-10-20, once the ERP let every employee create their own
-   claims and scoped each person to their own. To trial with a few again,
-   list their role profiles, e.g. ["IT", "MIS"]. */
+/* Who gets claims (the home Settle strip and its camera, the profile tab, the
+   Claims page), by the signed-in person's own Employee: their department
+   (without " - ELPL") or their role profile. null = no limit on that side.
+   28 Oct 2026: the IT department only (the IT team tries it first) -- not the
+   "IT" role profile, which also sits on people in Marketing, HR, Accounts and
+   MIS. Both null = every employee. */
+export const CLAIMS_DEPARTMENTS = ["IT"];
 export const CLAIMS_ROLE_PROFILES = null;
 export const canUseClaims = (me) =>
-  !!me && (!CLAIMS_ROLE_PROFILES || CLAIMS_ROLE_PROFILES.includes(String(me.roleProfile || "").trim()));
+  !!me
+  && (!CLAIMS_DEPARTMENTS || CLAIMS_DEPARTMENTS.includes(String(me.department || "").trim()))
+  && (!CLAIMS_ROLE_PROFILES || CLAIMS_ROLE_PROFILES.includes(String(me.roleProfile || "").trim()));
 
 export function fetchClaims(conn, employee) {
   return cached(conn, `ec-claims|${employee}`, async () => {
