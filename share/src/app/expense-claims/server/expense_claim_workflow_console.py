@@ -418,9 +418,13 @@ for a in ["Send for Approval", "Approve", "Reject", "Withdraw", "Verify"]:
 
 # 3. Workflow. Every state is doc_status 0: the claim is never submitted to
 #    the ledger -- payroll books the cost.
-APPROVER = "doc.expense_approver == frappe.session.user"
-OWNER = "doc.owner == frappe.session.user"
-VERIFY = "frappe.session.user in ['" + VERIFIER + "', 'Administrator']"
+# A running (Miscellaneous) claim has no approval: the AI check or Accounts
+# decide each bill (Expense Running Guard), so no approval action shows on it
+# -- only Withdraw, to bring one sent by mistake back to Draft.
+NOT_RUNNING = "not doc.get(\"custom_running\")"
+APPROVER = "doc.expense_approver == frappe.session.user and " + NOT_RUNNING
+OWNER = "doc.owner == frappe.session.user or doc.get(\"custom_running\")"
+VERIFY = "frappe.session.user in ['" + VERIFIER + "', 'Administrator'] and " + NOT_RUNNING
 states = [
     {"state": "Draft", "doc_status": "0", "allow_edit": "All", "update_field": "approval_status", "update_value": "Draft"},
     {"state": "Waiting for Approval", "doc_status": "0", "allow_edit": "All", "update_field": "approval_status", "update_value": "Draft"},
@@ -430,8 +434,8 @@ states = [
     {"state": "Verified", "doc_status": "0", "allow_edit": "All", "update_field": "approval_status", "update_value": "Approved"},
 ]
 transitions = [
-    {"state": "Draft", "action": "Send for Approval", "next_state": "Waiting for Approval", "allowed": "All", "allow_self_approval": 1},
-    {"state": "Rejected", "action": "Send for Approval", "next_state": "Waiting for Approval", "allowed": "All", "allow_self_approval": 1},
+    {"state": "Draft", "action": "Send for Approval", "next_state": "Waiting for Approval", "allowed": "All", "allow_self_approval": 1, "condition": NOT_RUNNING},
+    {"state": "Rejected", "action": "Send for Approval", "next_state": "Waiting for Approval", "allowed": "All", "allow_self_approval": 1, "condition": NOT_RUNNING},
     {"state": "Waiting for Approval", "action": "Withdraw", "next_state": "Draft", "allowed": "All", "allow_self_approval": 1, "condition": OWNER},
     {"state": "Waiting for Approval", "action": "Approve", "next_state": "Approved", "allowed": "All", "allow_self_approval": 1, "condition": APPROVER},
     {"state": "Waiting for Approval", "action": "Reject", "next_state": "Rejected", "allowed": "All", "allow_self_approval": 1, "condition": APPROVER},
