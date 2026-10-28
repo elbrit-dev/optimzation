@@ -127,7 +127,7 @@ function gstinOf(ls) {
 function invoiceOf(ls) {
   for (const l of ls) {
     if (/gstin|mob|phone|table/i.test(l)) continue;
-    const m = /\b(?:bill|invoice|inv|receipt|ride|order|ticket|txn|transaction)\s*(?:no|number|id|#)?\s*[.:#-]*\s*([A-Z0-9][A-Z0-9/-]{1,24})/i.exec(l) || /^\s*no[.:]\s*([A-Z0-9][A-Z0-9/-]{1,24})/i.exec(l);
+    const m = /\b(?:bill|invoice|inv|receipt|ride|order|ticket|txn|transaction)\s*(?:no|number|id|#)?\s*[.:#-]*\s*([A-Z0-9][A-Z0-9/-]{1,24})/i.exec(l) || /^\s*no\s*[.:-]+(\d[\dA-Z/-]{1,24})\b/i.exec(l);
     if (m && /\d/.test(m[1])) return m[1];
   }
   return null;

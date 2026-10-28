@@ -13,10 +13,42 @@
 
 import { config } from "./config.mjs";
 
+/* Docling's own layout, as lines: every text piece it read (json_content.texts,
+ * also those it filed under a picture -- md_content drops them), grouped into
+ * rows by where they sit on the page, left to right. A receipt's "CASH" and
+ * "950.00" share a row; md_content lists them apart, with the till line between. */
+export function rowsFromDocling(js) {
+  const items = [];
+  for (const t of js?.texts || []) {
+    const p = t.prov?.[0];
+    const b = p?.bbox;
+    const text = String(t.text || "").trim();
+    if (!text || !b) continue;
+    const up = b.coord_origin === "TOPLEFT" ? -1 : 1;     // make bigger = higher on the page
+    const y1 = up * b.t, y2 = up * b.b;
+    items.push({ text, l: b.l, top: Math.max(y1, y2), bot: Math.min(y1, y2), page: p.page_no || 1 });
+  }
+  items.sort((a, b) => a.page - b.page || b.top - a.top);
+  const rows = [];
+  for (const it of items) {
+    const h = it.top - it.bot;
+    // Same row as the row's first piece (not any piece: slanted photos would chain rows).
+    const row = rows.find((r) => r.page === it.page && ((o) => Math.min(o.top, it.top) - Math.max(o.bot, it.bot) >= 0.5 * Math.min(h, o.top - o.bot))(r.items[0]));
+    if (row) row.items.push(it);
+    else rows.push({ page: it.page, items: [it] });
+  }
+  const topOf = (r) => Math.max(...r.items.map((i) => i.top));
+  rows.sort((a, b) => a.page - b.page || topOf(b) - topOf(a));
+  return rows.map((r) => r.items.sort((a, b) => a.l - b.l).map((i) => i.text).join("  ")).join("\n");
+}
+
+/* One document -> Docling's text: its rows (above) when it sends its JSON,
+ * else its markdown. */
 export async function doclingMarkdown(doc, { fetchImpl = fetch } = {}) {
   const form = new FormData();
   form.append("files", new Blob([Buffer.from(doc.data, "base64")], { type: doc.mimeType }), doc.name || "document");
   form.append("to_formats", "md");
+  form.append("to_formats", "json");
   form.append("do_ocr", "true");
   const res = await fetchImpl(`${config.doclingUrl}/v1/convert/file`, {
     method: "POST",
@@ -26,7 +58,7 @@ export async function doclingMarkdown(doc, { fetchImpl = fetch } = {}) {
   });
   const json = await res.json().catch(() => ({}));
   if (!res.ok || json.status !== "success") throw new Error(`Docling answered ${res.status} ${json.status || ""} ${json.detail || ""}`.trim());
-  return String(json.document?.md_content || "").trim();
+  return (rowsFromDocling(json.document?.json_content) || String(json.document?.md_content || "")).trim();
 }
 
 /* documents as loadDocuments made them -> what the model will be given. */

@@ -102,3 +102,18 @@ test("bill rules: unsure -> blank, never a guess", () => {
   assert.equal(billFromText("Hotel Saravana\nGrand Total 420").amount, 420);
   assert.equal(billFromText("Hotel Saravana\nTotal Qty 3").amount, null);
 });
+
+test("Docling rows: positions put CASH and 950.00 on one row (real Docling JSON, Goa slip)", async () => {
+  const { rowsFromDocling } = await import("../lib/ocr.mjs");
+  const at = (text, l, t, b) => ({ text, prov: [{ page_no: 1, bbox: { l, t, b, r: l + 100, coord_origin: "BOTTOMLEFT" } }] });
+  const js = { texts: [
+    at("DATE:-18-08-2026", 495, 914, 865), at("LIME SODA", 23, 591, 532), at("3 50.00", 480, 601, 536), at("150.00", 708, 601, 540),
+    at("CASH", 15, 473, 414), at("C1", 0, 359, 296), at("950.00", 503, 485, 415), at("15:48:20", 341, 357, 298), at("+20", 566, 426, 367),
+  ] };
+  const rows = rowsFromDocling(js);
+  assert.match(rows, /^CASH {2}950\.00$/m);
+  assert.match(rows, /^C1 {2}15:48:20$/m);
+  assert.equal(billFromText(rows).amount, 950);
+  // A total Docling filed under a picture is still read (md_content drops it).
+  assert.equal(rowsFromDocling({ texts: [{ ...at("TOTAL", 547, 553, 515), parent: { $ref: "#/pictures/0" } }] }), "TOTAL");
+});
