@@ -41,4 +41,4 @@ env:
   - variable: ERP_URL
     value: https://erp.elbrit.org
   - variable: ALLOWED_DOC_HOSTS
-    value: erp.elbrit.org,uat.elbrit.org,firebasestorage.googleapis.com
+    value: erp.elbrit.org,uat.elbrit.org,erp-uat.elbrit.org,firebasestorage.googleapis.com

@@ -37,7 +37,7 @@ export const config = {
   doclingTimeoutMs: Number(process.env.DOCLING_TIMEOUT_MS) || 150000,
   clients: clients(process.env.VERIFY_DOC_CLIENTS),
   // Exact hosts, or ".example.com" for any subdomain.
-  allowedHosts: list(process.env.ALLOWED_DOC_HOSTS, "erp.elbrit.org,uat.elbrit.org,firebasestorage.googleapis.com"),
+  allowedHosts: list(process.env.ALLOWED_DOC_HOSTS, "erp.elbrit.org,uat.elbrit.org,erp-uat.elbrit.org,firebasestorage.googleapis.com"),
   // Signed-in users: their Firebase login must be for this project, and
   // their ERP token must be live on this ERP.
   firebaseProject: process.env.FIREBASE_PROJECT_ID || "elbrit-sso-d01d9",

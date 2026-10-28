@@ -174,6 +174,8 @@ export default function ClaimReport({
   const rootRef = useRef(null);
   const w = useWidth(rootRef);
   const isDesk = viewport === "desktop" || (viewport === "auto" && w >= 768);
+  // Wide desktop: cash on the left (stays in view), bills & cash on the right.
+  const wide = isDesk && (viewport === "desktop" || w >= 1024);
   const today = useMemo(() => { const d = asOf ? new Date(asOf) : new Date(); return isNaN(d) ? new Date() : d; }, [asOf]);
   const cur = monthKey(today);
 
@@ -258,7 +260,7 @@ export default function ClaimReport({
     <div ref={rootRef} className={"ec-root" + (className ? " " + className : "")} style={{ background: "#f4f5f7", width: "100%", minHeight: "100%" }}>
       <link rel="stylesheet" href={FONT_HREF} />
       <style>{CSS}</style>
-      <main style={{ display: "flex", flexDirection: "column", gap: 16, padding: `${isDesk ? 20 : 12}px ${pad}px ${isDesk ? 64 : 28}px`, maxWidth: 760, margin: "0 auto" }}>
+      <main style={{ display: "flex", flexDirection: "column", gap: 16, padding: `${isDesk ? 20 : 12}px ${pad}px ${isDesk ? 64 : 28}px`, maxWidth: wide ? 1200 : 760, margin: "0 auto", boxSizing: "border-box", width: "100%" }}>
         <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
           <button type="button" aria-label="Back" className="ec-ghost" onClick={back} style={{ ...btn.icon, width: 40, height: 40, borderRadius: 12, background: "#fff", boxShadow: "0 0 0 1px #e4e7ec", color: "#344054" }}><Icon d={IC.back} size={18} /></button>
           <span style={{ flex: 1, minWidth: 0, fontSize: isDesk ? 24 : 21, fontWeight: 700, letterSpacing: "-0.02em", ...ell }}>Settlements</span>
@@ -274,7 +276,8 @@ export default function ClaimReport({
         {data.status === "hidden" && <Note tone="info">Expense claims are not open for your role yet.</Note>}
         {data.status === "loading" && <div aria-busy="true" style={{ ...card, height: 260, display: "grid", placeItems: "center" }}><Spinner size={24} /></div>}
 
-        {data.status === "ready" && <>
+        {data.status === "ready" && <div style={wide ? { display: "grid", gridTemplateColumns: "minmax(0,420px) minmax(0,1fr)", gap: 20, alignItems: "start" } : { display: "contents" }}>
+          <div style={{ display: "flex", flexDirection: "column", gap: 16, minWidth: 0, ...(wide ? { position: "sticky", top: 16 } : null) }}>
           <section style={{ ...card, padding: isDesk ? "20px 22px" : "16px", display: "flex", flexDirection: "column", gap: 12 }}>
             <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10 }}>
               <span style={kicker}><span style={{ width: 6, height: 6, borderRadius: "50%", background: ADV }} />{over ? "Owed to you" : "Cash in hand"}</span>
@@ -302,11 +305,12 @@ export default function ClaimReport({
           {hl.length > 0 && (
             <section style={{ display: "flex", flexDirection: "column", gap: 8 }}>
               <span style={{ fontSize: 15, fontWeight: 700, color: "#5b6576" }}>Highlights · {monthLabel(month).split(" ")[0]}</span>
-              <Highlights items={hl} bleed={pad + "px"} />
+              <Highlights items={hl} bleed={wide ? "0px" : pad + "px"} />
             </section>
           )}
+          </div>
 
-          <section style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+          <section style={{ display: "flex", flexDirection: "column", gap: 8, minWidth: 0 }}>
             <span style={{ fontSize: 15, fontWeight: 700, color: "#5b6576" }}>Bills &amp; cash</span>
             <div style={{ ...card, padding: "4px 14px 10px" }}>
               {weeks.map((wk) => (
@@ -324,7 +328,7 @@ export default function ClaimReport({
             </div>
             <button type="button" className="ec-link" onClick={openHistory} style={{ alignSelf: "flex-start", height: 32, padding: "0 8px", borderRadius: 8, border: 0, background: "transparent", color: "#1d4ed8", fontSize: 13, fontWeight: 600, cursor: "pointer" }}>All past claims →</button>
           </section>
-        </>}
+        </div>}
       </main>
 
       {bill && <BillDetail conn={conn} e={bill} onClose={() => setBill(null)} />}

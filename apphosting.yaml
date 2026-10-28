@@ -101,7 +101,7 @@ env:
     secret: GRAPHQL_AUTH_TOKEN_NEW
     availability: [RUNTIME]
   - variable: NEXT_PUBLIC_GRAPHQL_ENDPOINT_UAT
-    value: https://uat.elbrit.org/api/method/graphql
+    value: https://erp-uat.elbrit.org/api/method/graphql
     availability: [RUNTIME]
   - variable: NEXT_PUBLIC_GRAPHQL_AUTH_TOKEN_UAT
     secret: GRAPHQL_AUTH_TOKEN_UAT
