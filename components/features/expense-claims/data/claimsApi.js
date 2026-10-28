@@ -238,6 +238,11 @@ export function fetchMe(conn, employee) {
    "IT" role profile, which also sits on people in Marketing, HR, Accounts and
    MIS. Both null = every employee. */
 export const CLAIMS_DEPARTMENTS = ["IT"];
+/* "Request cash" (an Employee Advance). Off since 28 Oct 2026: prod ERP has
+   bills up to verification only -- no advance set-up (its Task, the sales
+   roles' permissions) and no settlement -- so a request would go nowhere.
+   true brings the link and its form back. */
+export const CASH_REQUESTS = false;
 export const CLAIMS_ROLE_PROFILES = null;
 export const canUseClaims = (me) =>
   !!me

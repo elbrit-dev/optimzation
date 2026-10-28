@@ -4,7 +4,7 @@ import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import Router from "next/router";
 import { Dialog } from "@/design-system";
 import { useClaims } from "./data/useClaims";
-import { fetchFileBlob } from "./data/claimsApi";
+import { CASH_REQUESTS, fetchFileBlob } from "./data/claimsApi";
 import { CSS, FONT_HREF, Highlights, IC, Icon, Note, Rail, Sheet, Spinner, btn, card, ell, tabNum } from "./ui";
 import { BillSheet, CashSheet } from "./sheets";
 import { BILL_STATE, MON, WD, billState, dateOf, inr, ledger, monthKey, monthLabel, shortDate, weeksOf } from "./model";
@@ -16,7 +16,8 @@ import { BILL_STATE, MON, WD, billState, dateOf, inr, ledger, monthKey, monthLab
  *                 (Employee Advance) less the verified bills since -- or, below
  *                 zero, what is owed to the person, as Paid to you -> Verified
  *                 bills -> In hand / Owed, plus bills still being checked and
- *                 cash asked for. "Scan a bill", "Request cash". Verified is
+ *                 cash asked for. "Scan a bill" ("Request cash" only while
+ *                 CASH_REQUESTS is on -- off for now). Verified is
  *                 final for now: nothing is booked (no Accounts Payable) --
  *                 Accounts settle what is owed later.
  *   Highlights    the month: verified, cash paid, bills, AI-verified share.
@@ -315,7 +316,9 @@ export default function ClaimReport({
     ? <>{inr(over)} of verified bills is owed to you — Accounts settle it with you later.</>
     : has
       ? <>Left of the cash Accounts paid you. Bills you add come out of it once they are verified.</>
-      : <>No cash from Accounts yet. Add your bills as you spend — you are paid back once they are verified — or request cash up front.</>;
+      : CASH_REQUESTS
+        ? <>No cash from Accounts yet. Add your bills as you spend — you are paid back once they are verified — or request cash up front.</>
+        : <>Add your bills as you spend — once they are verified, Accounts settle them with you.</>;
 
   return (
     <div ref={rootRef} className={"ec-root" + (className ? " " + className : "")} style={{ background: "#f4f5f7", width: "100%", minHeight: "100%" }}>
@@ -358,9 +361,11 @@ export default function ClaimReport({
               {L.requested > 0 && <Step k="Requested" v={`+ ${inr(L.requested)}`} color="#b54708" soft="#fffaeb" dashed small="waiting for Accounts" />}
             </Rail>
             <button type="button" className="ec-cta" onClick={() => setSheet("bill")} style={{ ...btn.primary, height: 52, borderRadius: 14, fontSize: 16, display: "flex", alignItems: "center", justifyContent: "center", gap: 8, marginTop: 2 }}><Icon d={IC.camera} size={20} />Scan a bill</button>
-            <div style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: 10, color: "#c0c5cf" }}>
-              <button type="button" className="ec-link" onClick={() => setSheet("cash")} style={link}><Icon d={IC.wallet} size={14} />Request cash</button>
-            </div>
+            {CASH_REQUESTS && (
+              <div style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: 10, color: "#c0c5cf" }}>
+                <button type="button" className="ec-link" onClick={() => setSheet("cash")} style={link}><Icon d={IC.wallet} size={14} />Request cash</button>
+              </div>
+            )}
           </section>
 
           {hl.length > 0 && (
@@ -394,7 +399,7 @@ export default function ClaimReport({
 
       {bill && <BillDetail conn={conn} e={bill} onClose={() => setBill(null)} />}
       {sheet === "bill" && conn && me && <BillSheet conn={conn} me={me} claims={claims} advances={advances} today={today} desk={isDesk} onClose={() => setSheet(null)} onSaved={saved} onChecked={data.reload} />}
-      {sheet === "cash" && conn && me && <CashSheet conn={conn} me={me} claims={claims} advances={advances} today={today} desk={isDesk} onClose={() => setSheet(null)} onSaved={saved} />}
+      {CASH_REQUESTS && sheet === "cash" && conn && me && <CashSheet conn={conn} me={me} claims={claims} advances={advances} today={today} desk={isDesk} onClose={() => setSheet(null)} onSaved={saved} />}
       {toast && (
         <div role="status" aria-live="polite" style={{ position: "fixed", left: "50%", bottom: isDesk ? 32 : 96, transform: "translateX(-50%)", zIndex: 95, maxWidth: "calc(100vw - 32px)", padding: "11px 18px", borderRadius: 10, background: toast.tone === "error" ? "#b42318" : "#101828", color: "#fff", fontSize: 13, fontWeight: 500, boxShadow: "0 12px 30px -10px rgba(16,24,40,.5)" }}>{toast.m}</div>
       )}
