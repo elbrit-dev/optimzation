@@ -315,7 +315,7 @@ PLASMIC.registerComponent(ImpersonateSwitch, {
   name: "ImpersonateSwitch",
   displayName: "Impersonate Switch",
   description:
-    "The header's Impersonate button and its form (Employee, UID, your email + Reason, Cancel / Switch): a bottom sheet on a phone, a small centred dialog on desktop. The Employee picker searches email, phone, employee code and name. While impersonating the button reads \"Viewing as …\", the form offers Back to me, and Switch stays available to jump to the next person. Hides itself for anyone not allowed (see `me`).",
+    "The header's Impersonate button and its form (Employee, UID, your email + Reason, Cancel / Switch): a bottom sheet on a phone, a small centred dialog on desktop. The Employee picker searches email, phone, employee code and name. The button is a mask icon on a phone and icon + label from 768px; while impersonating it turns amber (the name is in its tooltip), the form offers Back to me, and Switch stays available to jump to the next person. Hides itself for anyone not allowed (see `me`).",
   isDefaultExport: true,
   importPath: "./components/ImpersonateSwitch",
   props: {
@@ -351,7 +351,7 @@ PLASMIC.registerComponent(ImpersonateSwitch, {
       type: "string",
       displayName: "Button label",
       defaultValue: "Impersonate",
-      description: "Shown when not impersonating. While impersonating it reads \"Viewing as <person>\".",
+      description: "Next to the mask icon from 768px wide (phones show the icon only). Also the button's tooltip and accessible name when not impersonating.",
     },
     title: {
       type: "string",

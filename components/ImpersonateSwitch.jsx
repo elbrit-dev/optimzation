@@ -1,5 +1,6 @@
 import { forwardRef, useId, useImperativeHandle, useMemo, useRef, useState } from 'react';
-import { Button, Field, Sheet } from '@/design-system';
+import { VenetianMask } from 'lucide-react';
+import { Button, Field, Sheet, cx } from '@/design-system';
 import {
   DEFAULT_DEPARTMENTS,
   DEFAULT_DESIGNATIONS,
@@ -25,14 +26,35 @@ import {
  * Matches open inline under the field rather than in a floating dropdown, so
  * on a phone with the keyboard up they are never clipped or hidden.
  *
- * While impersonating, the button reads "Viewing as <person>", the form leads
- * with Back to me, and Switch stays available, so jumping from one person to
+ * While impersonating, the button turns amber (see TRIGGER_CSS), the form
+ * leads with Back to me, and Switch stays available, so jumping from one person to
  * the next never needs a logout. The switching itself is
  * components/Impersonation.jsx.
  *
  * It hides itself for anyone who may not switch: `me` outside the allowed
  * departments/designations, unless they are being impersonated right now.
  */
+
+/* The trigger sits in a crowded header: a mask icon alone on a phone, icon +
+   label from 768px (where the form becomes a dialog too). While impersonating
+   it turns the warning amber instead of spelling out who; the name is in the
+   tooltip, the accessible label and the form. Amber text is the palette's
+   deep amber, the one that passes as text on the wash. */
+const TRIGGER_CSS = `
+.imp-switch--active.ds-btn {
+  background-color: var(--intent-warning-wash);
+  border-color: var(--intent-warning-border);
+  color: var(--status-pending-text);
+}
+.imp-switch--active.ds-btn:hover {
+  border-color: var(--intent-warning);
+  color: var(--status-pending-text);
+}
+@media (max-width: 767.98px) {
+  .imp-switch .imp-switch__label { display: none; }
+  .imp-switch.ds-btn { aspect-ratio: 1; padding-inline: 0; justify-content: center; }
+}
+`;
 
 // A picker, not a directory: past this many matches, typing narrows it.
 const MAX_OPTIONS = 8;
@@ -252,15 +274,21 @@ const ImpersonateSwitch = forwardRef(function ImpersonateSwitch(
 
   return (
     <>
+      {/* React hoists and de-duplicates this by href. */}
+      <style href="imp-switch" precedence="default">
+        {TRIGGER_CSS}
+      </style>
       <Button
-        type={state.active ? 'primary' : 'default'}
+        type="default"
         size="sm"
-        className={className}
+        icon={<VenetianMask size="1em" strokeWidth={2} />}
+        className={cx('imp-switch', state.active && 'imp-switch--active', className)}
         style={style}
         onClick={() => setOpen(true)}
-        title={state.active ? `Viewing as ${currentName}. Tap to switch or go back.` : undefined}
+        aria-label={state.active ? `Impersonating ${currentName}. Switch or go back` : triggerLabel}
+        title={state.active ? `Impersonating ${currentName}. Tap to switch or go back.` : triggerLabel}
       >
-        {state.active ? `Viewing as ${currentName}` : triggerLabel}
+        <span className="imp-switch__label">{triggerLabel}</span>
       </Button>
 
       <Sheet.Root open={open || Boolean(previewOpen)} onOpenChange={(next) => !next && close()} desktop="dialog">
