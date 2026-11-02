@@ -101,11 +101,13 @@ export function PersonChips({ people = [] }) {
   );
 }
 
-/** Action footer: stacks full-width on mobile, right-aligned row on desktop. */
+/** Action footer: stacks full-width on mobile, right-aligned row on desktop.
+ *  Pinned to the bottom of the details sheet's scrolling body, so the actions
+ *  (Approve / Reject, Edit / Delete) show on any screen height. */
 export function DetailFooter({ children, className = "" }) {
   return (
     <div
-      className={`mt-1 flex flex-col-reverse gap-2 border-t pt-3 sm:flex-row sm:justify-end ${className}`}
+      className={`sticky bottom-0 z-10 mt-auto flex flex-col-reverse gap-2 border-t bg-white pt-3 pb-[max(1.5rem,env(safe-area-inset-bottom))] sm:flex-row sm:justify-end ${className}`}
     >
       {children}
     </div>

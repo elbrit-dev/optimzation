@@ -4,7 +4,6 @@ import { format, parseISO, isValid } from "date-fns";
 import { Crown, Eye, MapPin, Text, UserCog, Users, Video } from "lucide-react";
 import { Button } from "@calendar/components/ui/button";
 import { TAG_FORM_CONFIG } from "@calendar/lib/calendar/form-config";
-import { ScrollArea } from "@calendar/components/ui/scroll-area";
 import { useCalendar } from "@calendar/components/calendar/contexts/calendar-context";
 import { AddEditEventDialog } from "@calendar/components/calendar/dialogs/add-edit-event-dialog";
 import { buildParticipantsWithDetails } from "@calendar/lib/helper";
@@ -338,7 +337,7 @@ export function EventMeetingDialog({ event, setOpen }) {
 
   return (
     <>
-      <ScrollArea className="max-h-[68vh]">
+      <div>
         <div className="space-y-4 p-1">
           <span
             className={`inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-[11px] font-semibold ${meta.chip}`}
@@ -425,7 +424,7 @@ export function EventMeetingDialog({ event, setOpen }) {
             </DetailItem>
           </DetailGrid>
         </div>
-      </ScrollArea>
+      </div>
 
       <div className="mt-1 border-t pt-3 sm:grid sm:grid-cols-2 sm:items-start sm:gap-3">
         <div className="min-w-0">

@@ -2,7 +2,6 @@
 
 import { useMemo } from "react";
 import { format, parseISO, differenceInCalendarDays } from "date-fns";
-import { ScrollArea } from "@calendar/components/ui/scroll-area";
 import { Button } from "@calendar/components/ui/button";
 import { useCalendar } from "@calendar/components/calendar/contexts/calendar-context";
 import { useEmployeeResolvers } from "@calendar/lib/employeeResolver";
@@ -169,7 +168,7 @@ export function EventTodoDialog({
   ===================================================== */
   return (
     <>
-      <ScrollArea className="max-h-[68vh]">
+      <div>
         <div className="space-y-5 p-1">
           <DetailSummary
             title={event.title || "Todo"}
@@ -232,7 +231,7 @@ export function EventTodoDialog({
             <TodoComments todoName={event.erpName} />
           </div>
         )}
-      </ScrollArea>
+      </div>
 
       {/* ================= FOOTER ================= */}
       <div className="mt-1 border-t pt-3 sm:grid sm:grid-cols-2 sm:items-start sm:gap-3">

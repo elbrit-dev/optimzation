@@ -3,7 +3,6 @@ import { useMemo } from "react";
 import { format, parseISO, isValid } from "date-fns";
 import { Button } from "@calendar/components/ui/button";
 import { TAG_FORM_CONFIG } from "@calendar/lib/calendar/form-config";
-import { ScrollArea } from "@calendar/components/ui/scroll-area";
 import { useCalendar } from "@calendar/components/calendar/contexts/calendar-context";
 import { AddEditEventDialog } from "@calendar/components/calendar/dialogs/add-edit-event-dialog";
 import { buildParticipantsWithDetails } from "@calendar/lib/helper";
@@ -86,7 +85,7 @@ export function EventDefaultDialog({ event, setOpen }) {
 
   return (
     <>
-      <ScrollArea className="max-h-[68vh]">
+      <div>
         <div className="space-y-5 p-1">
           <DetailSummary
             title={event.title || event.tags}
@@ -111,7 +110,7 @@ export function EventDefaultDialog({ event, setOpen }) {
             skipKeys={["startDate", "endDate"]}
           />
         </div>
-      </ScrollArea>
+      </div>
 
       <div className="mt-1 border-t pt-3 sm:grid sm:grid-cols-2 sm:items-start sm:gap-3">
         <div className="min-w-0">

@@ -3,7 +3,6 @@ import { useEffect, useMemo, useState } from "react";
 import { format, parseISO, differenceInCalendarDays } from "date-fns";
 import { Button } from "@calendar/components/ui/button";
 import { TAG_FORM_CONFIG } from "@calendar/lib/calendar/form-config";
-import { ScrollArea } from "@calendar/components/ui/scroll-area";
 import { useCalendar } from "@calendar/components/calendar/contexts/calendar-context";
 import { AddEditEventDialog } from "@calendar/components/calendar/dialogs/add-edit-event-dialog";
 import { buildParticipantsWithDetails } from "@calendar/lib/helper";
@@ -130,7 +129,7 @@ export function EventLeaveDialog({
 	};
 	return (
 		<>
-			<ScrollArea className="max-h-[68vh]">
+			<div>
 				<div className="space-y-5 p-1">
 					<DetailSummary
 						title={
@@ -168,7 +167,7 @@ export function EventLeaveDialog({
 						use24HourFormat={use24HourFormat}
 					/>
 				</div>
-			</ScrollArea>
+			</div>
 
 			<DetailFooter>
 				{/* OWNER */}

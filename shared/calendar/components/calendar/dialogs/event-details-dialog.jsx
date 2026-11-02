@@ -16,6 +16,7 @@ import { EventDefaultDialog } from "@calendar/components/calendar/module/event/c
 import { EventDoctorVisitDialog } from "@calendar/components/calendar/module/event/components/event-details/doctor-visit-dialog";
 import { EventMeetingDialog } from "@calendar/components/calendar/module/event/components/event-details/meeting-dialog";
 import { EventTodoDialog } from "@calendar/components/calendar/module/todo/components/todo-dialog";
+import { Drawer } from "@/design-system";
 import { ErrorBoundary } from "@calendar/components/ui/error-boundary";
 import { Button } from "@calendar/components/ui/button";
 import { EventShareDialog } from "@calendar/components/calendar/dialogs/share-event-dialog";
@@ -70,9 +71,13 @@ export function EventDetailsDialog({ event, children }) {
           : children}
       </DialogTrigger>
 
-      <DialogContent className="max-h-[88dvh] overflow-y-auto">
-        <DialogHeader className="pr-4">
-          <div className="flex min-w-0 items-center gap-1.5">
+      {/* Shaped like the design system's Sheet: the panel itself never scrolls,
+          the body is the drawer's Content. On a phone a drag on a scrolling
+          PANEL moves the sheet instead of the content, so the footer
+          (Approve / Reject) was left below the edge with no way to reach it. */}
+      <DialogContent className="flex max-h-[85dvh] flex-col gap-0 overflow-hidden p-0 py-0 md:p-0">
+        <DialogHeader className="shrink-0 px-3 pb-4 pt-6 md:px-6">
+          <div className="flex min-w-0 items-center gap-1.5 pr-4">
             <DialogTitle className="min-w-0 flex-1 break-words text-left">
               {event.tags == TAG_IDS.TODO_LIST ? event.title : event.tags}
             </DialogTitle>
@@ -90,18 +95,20 @@ export function EventDetailsDialog({ event, children }) {
           </div>
         </DialogHeader>
 
-        <div className="space-y-2">
-          <SyncStatusBadge event={eventWithOptions} />
-          <SyncErrorMessage event={eventWithOptions} />
-        </div>
+        <Drawer.Content className="min-h-0 flex-1 space-y-4 overflow-y-auto overscroll-contain px-3 md:px-6">
+          <div className="space-y-2">
+            <SyncStatusBadge event={eventWithOptions} />
+            <SyncErrorMessage event={eventWithOptions} />
+          </div>
 
-        <ErrorBoundary>
-          <LayoutComponent
-            event={eventWithOptions}
-            open={open}
-            setOpen={setOpen}
-          />
-        </ErrorBoundary>
+          <ErrorBoundary>
+            <LayoutComponent
+              event={eventWithOptions}
+              open={open}
+              setOpen={setOpen}
+            />
+          </ErrorBoundary>
+        </Drawer.Content>
       </DialogContent>
     </Dialog>
   );
