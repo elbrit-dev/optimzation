@@ -1,3 +1,8 @@
+// Links are read as plain names (`employee__name`), never as nested objects.
+// A nested `employee { … }` reads the Employee record itself, and an approver
+// is shared leaves of people outside their own Employee permission (e.g. RBM
+// Bishnu approves an Aura & Proxima BE). That one refused read errors the whole
+// query, and the approver saw no leaves at all.
 export const LEAVE_QUERY = `
 query LeaveApplications($first: Int) {
   LeaveApplications(first: $first) {
@@ -13,20 +18,12 @@ query LeaveApplications($first: Int) {
         posting_date
         status
         custom_attachement
-        leave_approver {
-          name
-        }
+        leave_approver__name
         leave_approver_name
         custom_escalation_approver__name
         leave_balance
         employee_name
-        employee {
-          name
-          company_email
-          first_name
-          middle_name
-          last_name
-        }
+        employee__name
         leave_type__name
       }
     }

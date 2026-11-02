@@ -116,11 +116,11 @@ export function mapErpLeaveToCalendar(leave) {
   const employeeId =
     typeof leave.employee === "object"
       ? leave.employee?.name
-      : leave.employee ?? null;
+      : leave.employee__name ?? leave.employee ?? null;
   const leaveApprover =
     typeof leave.leave_approver === "object"
       ? leave.leave_approver?.name
-      : leave.leave_approver ?? null;
+      : leave.leave_approver__name ?? leave.leave_approver ?? null;
   // Second-level (escalation) approver — one level above the normal approver
   // (e.g. RBM above the ABM). This user can also approve/reject the leave.
   const escalationApprover =
