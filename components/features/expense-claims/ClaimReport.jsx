@@ -169,9 +169,10 @@ function BillViewer({ src, pdf, onClose }) {
   return (
     <Dialog.Root open onOpenChange={(next) => { if (!next) onClose(); }} backName="expense-claims-bill">
       <Dialog.Portal>
-        <Dialog.Backdrop style={{ background: "rgba(8,11,18,.94)", backdropFilter: "blur(4px)", opacity: 1 }} />
+        {/* forceRender: Base UI leaves a nested dialog's backdrop out by default. */}
+        <Dialog.Backdrop forceRender style={{ background: "rgba(8,11,18,.94)", backdropFilter: "blur(4px)", opacity: 1 }} />
         <Dialog.Viewport>
-          <Dialog.Popup aria-label="The bill" style={{ inlineSize: "100vw", blockSize: "100dvh", maxInlineSize: "none", maxBlockSize: "none", margin: 0, padding: "56px 16px 16px", borderRadius: 0, background: "transparent", boxShadow: "none", display: "flex", alignItems: "center", justifyContent: "center" }}>
+          <Dialog.Popup aria-label="The bill" style={{ inlineSize: "100vw", blockSize: "100dvh", maxInlineSize: "none", maxBlockSize: "none", margin: 0, padding: "56px 16px 16px", borderRadius: 0, background: "rgba(8,11,18,.94)", boxShadow: "none", display: "flex", alignItems: "center", justifyContent: "center" }}>
             <Dialog.Close aria-label="Close" style={{ ...btn.icon, position: "absolute", top: 12, right: 12, background: "rgba(255,255,255,.16)", color: "#fff", borderRadius: 99 }}><Icon d={IC.x} size={20} /></Dialog.Close>
             {pdf
               ? <iframe title="The bill" src={src} style={{ width: "min(900px,100%)", height: "100%", border: 0, borderRadius: 12, background: "#fff" }} />
