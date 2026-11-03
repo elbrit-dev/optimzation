@@ -4,6 +4,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { useClaims } from "./data/useClaims";
 import { Icon, ell, tabNum } from "./ui";
 import { BillSheet } from "./sheets";
+import { FOOD_SAMPLE, FoodBar, useFood } from "./FoodPanel";
 import { MON, cashOf, inr, isoDay, ledger, typeColor } from "./model";
 
 /* The Home page's Expense section, between the greeting and Visits: one
@@ -15,8 +16,8 @@ import { MON, cashOf, inr, isoDay, ledger, typeColor } from "./model";
  *           cash. The camera opens "Add a bill" (BillSheet) -- photo, AI
  *           reads it, the AI check decides it.
  *
- * (Food -- a monthly limit for RBM and above -- will show inside this bar as
- * a small progress line later; Food and Stay rows are gone.)
+ * Food -- a monthly limit for RBM and above -- is a small line along the
+ * bar's bottom (FoodPanel; sample data until its ERP side exists).
  *
  * Tapping the bar fires onOpen -- one event, for the page to redirect to the
  * Settlements page. Reads the same cached claims the Settlements page does. */
@@ -34,6 +35,7 @@ const SAMPLE = { cash: { balance: 1940, added: 10000, over: 0 }, bills: 2 };
 
 export default function ClaimsStrip({ url, token, employee, today = new Date(), pad = "16px", sample = false, desk = false, onOpen }) {
   const data = useClaims({ url, token, employee });
+  const food = useFood(today);
   const [form, setForm] = useState(false); // "Add a bill" open
   const [toast, setToast] = useState(null);
   const tt = useRef(null);
@@ -71,7 +73,9 @@ export default function ClaimsStrip({ url, token, employee, today = new Date(), 
       <span style={{ display: "flex", alignItems: "center", gap: 7, fontSize: 12, fontWeight: 600, letterSpacing: ".08em", textTransform: "uppercase", color: "#5b6576" }}>
         <span style={{ width: 6, height: 6, borderRadius: "50%", background: cashC.c }} />Expense · {MON[today.getMonth()]}
       </span>
-      <div className="ec-row" style={{ ...row, minHeight: 60, padding: "0 8px 0 14px", maxWidth: desk ? 520 : undefined, background: `linear-gradient(90deg,${tint(cashC.c)} ${cashPct}%,#fff ${cashPct}%)` }}>
+      {/* One box: the Settle row, and Food's small line along its bottom. */}
+      <div className="ec-row" style={{ borderRadius: 14, boxShadow: "0 0 0 1px #e4e7ec", overflow: "hidden", background: "#fff", maxWidth: desk ? 520 : undefined, transition: "box-shadow .2s" }}>
+      <div style={{ ...row, boxShadow: "none", borderRadius: 0, minHeight: 60, padding: "0 8px 0 14px", background: `linear-gradient(90deg,${tint(cashC.c)} ${cashPct}%,#fff ${cashPct}%)` }}>
         <button type="button" onClick={onOpen} style={{ flex: 1, minWidth: 0, display: "flex", flexDirection: "column", justifyContent: "center", gap: 2, minHeight: 60, border: 0, padding: 0, background: "transparent", cursor: "pointer", textAlign: "left" }}
           aria-label={`Settle: ${cash.over ? `${inr(cash.over)} owed to you` : `${inr(cash.balance)} in hand`}, ${view.bills} bills this week. Open settlements`}>
           <span style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 12.5, fontWeight: 600, color: "#5b6576" }}><span style={{ color: cashC.c, display: "flex" }}><Icon d={RECEIPT} size={15} /></span>Settle</span>
@@ -82,6 +86,8 @@ export default function ClaimsStrip({ url, token, employee, today = new Date(), 
         </button>
         <button type="button" className="ec-act" onClick={() => canAdd && !sample && setForm(true)} aria-label="Add a bill" title="Add a bill"
           style={{ flex: "none", width: 44, height: 44, borderRadius: 14, border: 0, background: "#2563eb", color: "#fff", display: "grid", placeItems: "center", cursor: "pointer", transition: "background .18s" }}><Icon d={CAMERA} size={20} /></button>
+      </div>
+      {FOOD_SAMPLE && <FoodBar food={food} onOpen={onOpen} />}
       </div>
 
       {form && <BillSheet conn={data.conn} me={data.me} claims={data.claims} advances={data.advances} today={today} desk={desk} onClose={() => setForm(false)} onSaved={saved} onChecked={data.reload} />}

@@ -115,7 +115,7 @@ export function Rail({ children, label, gap = 8, bleed = "0px", role = "list" })
       <div ref={ref} className="ec-rail" role={role} aria-label={label}
         onPointerDown={down} onPointerMove={move} onPointerUp={up} onPointerLeave={up}
         onClickCapture={(e) => { if (drag.current?.moved) { e.preventDefault(); e.stopPropagation(); } }}
-        style={{ display: "flex", alignItems: "stretch", gap, overflowX: "auto", overscrollBehaviorX: "contain", scrollSnapType: "x proximity", WebkitOverflowScrolling: "touch", padding: `0 ${bleed} 2px`, WebkitMaskImage: fade, maskImage: fade }}>
+        style={{ display: "flex", alignItems: "stretch", gap, overflowX: "auto", overscrollBehaviorX: "contain", scrollSnapType: "x proximity", WebkitOverflowScrolling: "touch", padding: `1px calc(${bleed} + 1px) 2px`, WebkitMaskImage: fade, maskImage: fade }}>
         {children}
       </div>
       {more.l && arrowBtn(-1)}
