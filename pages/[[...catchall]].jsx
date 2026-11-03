@@ -97,7 +97,7 @@ export default function PlasmicLoaderPage(props) {
 export const getStaticProps = async (context) => {
   const { catchall } = context.params ?? {};
   const plasmicPath = typeof catchall === 'string' ? catchall : Array.isArray(catchall) ? `/${catchall.join('/')}` : '/';
-  const plasmicData = await PLASMIC.maybeFetchComponentData(plasmicPath);
+  const plasmicData = await retryPlasmicHiccup(() => PLASMIC.maybeFetchComponentData(plasmicPath));
   if (!plasmicData) {
     // non-Plasmic catch-all. Re-checked every minute: without a revalidate
     // this "not found" was cached FOREVER, so a page opened before it was
@@ -121,6 +121,27 @@ export const getStaticProps = async (context) => {
   // and at 60s every page regenerated almost every minute of the working day.
   // User data is fetched client-side, so this only delays Plasmic publishes.
   return { props: { plasmicData, queryCache }, revalidate: 600 };
+}
+
+/* Plasmic's CDN keeps answering "status: 499; response: Upstream responded
+   with 412" for a few seconds at a time (hundreds a day on app-prod, Nov 2026).
+   A page already built just keeps its old copy, but a URL seen for the first
+   time is built on the request — every /login/<who>/… impersonation and
+   /doctor-detail/<id> — so the person got a 500 and had to reload 4-5 times.
+   Wait it out here instead; anything else still throws at once. Total wait
+   stays well inside the 60s request limit. */
+async function retryPlasmicHiccup(fetchOnce) {
+  const waits = [1500, 3000, 5000, 8000];
+  for (let attempt = 0; ; attempt += 1) {
+    try {
+      return await fetchOnce();
+    } catch (err) {
+      const hiccup = /Upstream responded with 4\d\d|status: (412|499|5\d\d)/.test(String(err?.message || err));
+      if (!hiccup || attempt >= waits.length) throw err;
+      console.warn(`Plasmic hiccup, retry ${attempt + 1}/${waits.length}:`, err?.message || err);
+      await new Promise((resolve) => setTimeout(resolve, waits[attempt]));
+    }
+  }
 }
 
 /* A Plasmic hiccup must not fail the whole build. Three builds in a row (16 Oct
