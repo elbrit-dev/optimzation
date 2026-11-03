@@ -4,7 +4,8 @@
 import { config } from "./config.mjs";
 import { DocError, loadDocuments } from "./documents.mjs";
 import { modelName, readDocuments } from "./reader.mjs";
-import { applyOcr } from "./ocr.mjs";
+import { applyOcr, doclingMarkdown } from "./ocr.mjs";
+import { decideWithLaya } from "./laya.mjs";
 import { billFromText } from "./billrules.mjs";
 import { DEFAULT_BANDS, scoreReading } from "./score.mjs";
 
@@ -47,10 +48,42 @@ function summarize(reading, scored) {
   return tail.length ? `${head} Differences: ${tail.slice(0, 8).map(clean).join("; ")}${tail.length > 8 ? "; …" : ""}.` : `${head} Everything checked matches.`;
 }
 
+/* "decider": "laya" -- Docling reads, Laya decides (lib/laya.mjs); no model
+   ever sees the image. The bill's values on the response ("found") are
+   Docling's, read by rules. */
+async function verifyWithLaya(body, loaded, started, deps) {
+  if (!config.doclingKey) throw new DocError("Docling is not set up on this service.", 503);
+  const media = loaded.filter((d) => d.kind === "media");
+  const texts = await Promise.all(media.map((d) => doclingMarkdown(d, deps)));
+  const extra = loaded.filter((d) => d.kind === "text").map((d) => d.text);
+  const text = [...texts, ...extra].join("\n\n").trim();
+  const bill = text ? billFromText(text) : null;
+  const ocr = { mode: "docling", text: text.slice(0, 20000) || null, bill };
+  if (!bill || !bill.readable) {
+    return {
+      score: 0, risk: "High", fields: {}, rules: (body.rules || []).map((r) => ({ rule: typeof r === "string" ? r : r.text, pass: null, reason: "Not evaluated" })),
+      summary: "The document could not be read.", document: { readable: false }, ocr,
+      meta: { provider: "laya", model: null, ocr: "docling", ms: Date.now() - started, documents: loaded.length, tokens: null },
+    };
+  }
+  const found = {};
+  for (const [key, spec] of Object.entries(body.fields)) {
+    if ((spec.type || "text") === "number" && bill.amount != null) found[key] = bill.amount;
+    if (spec.type === "date" && bill.date) found[key] = bill.date;
+  }
+  const d = await decideWithLaya({ fields: body.fields, rules: body.rules || [], context: body.context, text, found }, deps);
+  return {
+    score: d.score, risk: d.risk, fields: d.fields, rules: d.rules, summary: d.summary,
+    document: { readable: true, kind: bill.title || null }, ocr,
+    meta: { provider: "laya", model: d.model, ocr: "docling", ms: Date.now() - started, documents: loaded.length, tokens: null },
+  };
+}
+
 export async function verify(body, deps = {}) {
   validateRequest(body);
   const started = Date.now();
   const loaded = await loadDocuments(body.documents);
+  if (body.decider === "laya") return verifyWithLaya(body, loaded, started, deps);
   const { documents, ocr } = await applyOcr(loaded, deps);
   const { reading, usage } = await readDocuments({ fields: body.fields, rules: body.rules || [], context: body.context, documents }, deps);
   const bands = body.bands ? { low: Number(body.bands.low), medium: Number(body.bands.medium) } : DEFAULT_BANDS;

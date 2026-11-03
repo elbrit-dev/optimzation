@@ -90,6 +90,7 @@ AI_USERS = ["Administrator", "it@elbrit.org"]                 # the AI bill chec
 PROJECT = "PROJ-2026-2027-0012"              # "Accounts"
 SEE_ALL = ["System Manager", "Accounts Manager", "Accounts User"]
 AUTO_SCORE = 90
+REVIEW_ABOVE = 50000                         # a bill above this always goes to Accounts, whatever its score
 ROW_INPUT = ["amount", "expense_date", "expense_type", "description", "custom_bill"]
 
 old = doc.get_doc_before_save()
@@ -159,9 +160,11 @@ if doc.get("custom_running"):
                     frappe.throw("Bill " + str(r.idx) + ": say why it is rejected (Review note).")
             elif not checker:
                 frappe.throw("Bill " + str(r.idx) + " is " + was + ": only a bill In Review can be decided.")
-        # The AI checker's result decides a bill still being checked
+        # The AI checker's result decides a bill still being checked -- except
+        # a bill above REVIEW_ABOVE, which a person always checks.
         if st == "Checking" and me in AI_USERS and r.get("custom_ai_reason"):
-            st = "Verified" if frappe.utils.flt(r.get("custom_ai_score")) >= AUTO_SCORE else "In Review"
+            ok = frappe.utils.flt(r.get("custom_ai_score")) >= AUTO_SCORE and frappe.utils.flt(r.amount) <= REVIEW_ABOVE
+            st = "Verified" if ok else "In Review"
         r.custom_bill_status = st
         # Accounts' note is written only while the bill is In Review (when they decide);
         # any other save keeps it -- a save that leaves the field out must not wipe it.

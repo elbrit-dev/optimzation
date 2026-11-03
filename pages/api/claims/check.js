@@ -61,16 +61,23 @@ async function erp(origin, token, path, init = {}) {
 
 /* The check is a VALUE check: what the employee entered -- amount (within 2%,
    weight 80) and date (same day, 20); the title is theirs and not checked --
-   against the bill, plus the rules (a bill, printed). That comparison is all
-   the AI does: it gets Docling's text and the photo. The bill's details --
-   vendor, GSTIN, bill no., date, payment mode, full text -- come from
+   against the bill, plus the rules (it is a bill; whose name). Docling reads
+   the bill; Laya (IT's yes/no answerer, "decider": "laya", since 3 Nov 2026 --
+   was gpt-6-luna) answers from Docling's text alone: it never sees the photo,
+   so there is no printed-vs-handwritten check. An answer Laya is unsure of
+   counts as not confirmed, so the bill goes to Accounts. The bill's details
+   -- vendor, GSTIN, bill no., date, payment mode, full text -- come from
    Docling's extraction (verify-doc's ocr.bill, read by rules, no model) and
    are kept on the row as JSON (custom_bill_meta). */
 
-function rowRequest(row, origin, userErpToken, employeeName) {
+// Keep in step with REVIEW_ABOVE in the Expense Running Guard.
+const REVIEW_ABOVE = 50000;
+
+function rowRequest(row, origin, userErpToken) {
   // The running Miscellaneous claim has no sub types: its row title says what it was for.
   const kind = [row.expense_type, row.custom_sub_type || row.description].filter(Boolean).join(" / ");
   return {
+    decider: "laya",
     documents: [{ url: origin + row.custom_bill, headers: { Authorization: tokenHeader(userErpToken) } }],
     context: `Employee expense claim in India, amounts in INR. Expense: ${kind}.`,
     fields: {
@@ -83,11 +90,10 @@ function rowRequest(row, origin, userErpToken, employeeName) {
       ...(row.expense_date ? { date: { type: "date", expected: row.expense_date, weight: 20, toleranceDays: 0, description: "the bill or transaction date" } } : {}),
     },
     rules: [
-      "It must be a bill, receipt, ticket or invoice -- not a selfie, a blank page or an unrelated photo",
-      // Only printed bills are accepted (27 Oct 2026); the form refuses others on attach, this catches the rest.
-      "It must be PRINTED -- a machine-printed bill, receipt, invoice or ticket (thermal till slip, computer print-out, e-ticket, ride receipt); a printed slip with a small handwritten note or addition still passes. A handwritten bill -- including a bill-book page with only the shop's name printed and the items and amounts written by hand -- fails",
-      // Recorded in the bill details (Sathishkumar sees it), not scored: many bills carry no name.
-      `If the bill names a customer, it should be the employee "${employeeName || "the employee"}" or the company Elbrit (a bill with no customer name passes)`,
+      // Asked as written -- Laya answers short questions best (see verify-doc's laya.mjs).
+      // (The old "customer is the employee" rule is gone: Laya said no on a bill
+      // naming no customer, and it was never scored.)
+      "Is this a bill or receipt?",
     ],
     bands: { low: 90, medium: 70 },
   };
@@ -143,7 +149,7 @@ export default async function handler(req, res) {
         const r = await fetch(`${VERIFY_URL}/v1/verify`, {
           method: "POST",
           headers: { "Content-Type": "application/json", Authorization: `Bearer ${idToken}`, "X-ERP-Token": tokenHeader(userErp) },
-          body: JSON.stringify(rowRequest(row, origin, userErp, claim.employee_name)),
+          body: JSON.stringify(rowRequest(row, origin, userErp)),
           signal: AbortSignal.timeout(100000),
         });
         const out = await r.json().catch(() => ({}));
@@ -153,17 +159,17 @@ export default async function handler(req, res) {
         const reasons = [];
         if (f.amount && f.amount.ok === false) reasons.push(f.amount.reason);
         if (f.date && f.date.ok === false) reasons.push(`Date: ${f.date.reason}`);
-        const [notABill, notPrinted] = out.rules || [];
-        if (notABill && notABill.pass === false) reasons.push(notABill.reason);
-        if (notPrinted && notPrinted.pass === false) reasons.push(`Not a printed bill: ${notPrinted.reason}`);
+        const [notABill] = out.rules || [];
+        if (notABill && notABill.pass === false) reasons.push("Not a bill, receipt, ticket or invoice.");
+        if (notABill && notABill.pass == null && notABill.reason) reasons.push(`Bill or not: ${notABill.reason}`);
         if (out.document && out.document.readable === false) reasons.push("The bill could not be read.");
         const val = (k) => (f[k] && f[k].found != null && f[k].found !== "" ? f[k].found : null);
         // The row's custom_bill_meta (JSON): what is on the attachment, and how
         // it compared with the claim -- nothing about the model that read it.
-        // The score is the amount check; a photo that is not a printed bill
-        // (or unreadable) is capped below the bar however well the amount
-        // matches, so a person always looks at it.
-        const wrong = notABill?.pass === false || notPrinted?.pass === false || out.document?.readable === false;
+        // The score is the amount + date check; something that is not a bill
+        // (or that Laya is unsure is one, or is unreadable) is capped below
+        // the bar however well the amount matches, so a person looks at it.
+        const wrong = notABill?.pass !== true || out.document?.readable === false;
         const score = wrong ? Math.min(out.score ?? 0, 40) : out.score ?? 0;
         const claimed = flt(row.amount);
         const onBill = typeof val("amount") === "number" ? val("amount") : null;
@@ -204,9 +210,11 @@ export default async function handler(req, res) {
         return {
           row,
           score,
-          reason: reasons.length ? reasons.join("; ") : "Amount and date match the bill.",
-          // Amount on the bill: the AI's comparison reading (it sees handwritten
-          // additions Docling's text misses); date and vendor: Docling.
+          // Above ₹50,000 the ERP sends the bill to Accounts whatever its score
+          // (Expense Running Guard, REVIEW_ABOVE): say so on their Task.
+          reason: (reasons.length ? reasons.join("; ") : "Amount and date match the bill.") + (claimed > REVIEW_ABOVE ? " Above ₹50,000 -- always checked by Accounts." : ""),
+          // Amount, date and vendor on the bill: Docling's extraction (Laya
+          // answers yes/no and reads no values).
           amount: val("amount"),
           date: dl.date || null,
           vendor: dl.vendor ? String(dl.vendor).slice(0, 140) : null,

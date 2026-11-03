@@ -251,7 +251,7 @@ export function BillSheet({ conn, me, claims = [], advances = [], today = new Da
             <span style={{ color: "#1d4ed8", display: "flex", flex: "none", marginTop: 1 }}><Icon d={IC.shield} size={18} /></span>
             <span style={{ display: "flex", flexDirection: "column", gap: 3 }}>
               <b style={{ fontSize: 13.5 }}>What happens next?</b>
-              <span style={{ fontSize: 13, color: "#5b6576", lineHeight: 1.45 }}>Only printed bills are accepted — a handwritten bill or any other photo is refused. The AI compares the bill with what you entered: a match is verified at once and counts straight away; anything unusual goes to Accounts to check — never rejected silently.</span>
+              <span style={{ fontSize: 13, color: "#5b6576", lineHeight: 1.45 }}>Send printed bills. The bill is read and compared with what you entered: a match is verified at once and counts straight away; anything unusual or unclear goes to Accounts to check — never rejected silently.</span>
             </span>
           </div>
           {error && <Note>{error}</Note>}

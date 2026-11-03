@@ -35,6 +35,13 @@ export const config = {
   // Keys trimmed: a secret copied through a PowerShell pipe ends in a line break.
   doclingKey: String(process.env.DOCLING_API_KEY || "").trim(),
   doclingTimeoutMs: Number(process.env.DOCLING_TIMEOUT_MS) || 150000,
+  // Laya (IT's yes/no answerer, elbrit-services): decides "decider": "laya"
+  // requests from Docling's text. Key copied from elbrit-services/laya-api-key.
+  layaUrl: String(process.env.LAYA_URL || "https://laya-42ppaqlnqq-el.a.run.app").replace(/\/+$/, ""),
+  layaKey: String(process.env.LAYA_API_KEY || "").trim(),
+  layaMinConfidence: Number(process.env.LAYA_MIN_CONFIDENCE) || 0.85,
+  // Laya's first call after it idles takes ~62 s (it loads both models).
+  layaTimeoutMs: Number(process.env.LAYA_TIMEOUT_MS) || 75000,
   clients: clients(process.env.VERIFY_DOC_CLIENTS),
   // Exact hosts, or ".example.com" for any subdomain.
   allowedHosts: list(process.env.ALLOWED_DOC_HOSTS, "erp.elbrit.org,uat.elbrit.org,erp-uat.elbrit.org,firebasestorage.googleapis.com"),

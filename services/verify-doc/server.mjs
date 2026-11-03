@@ -20,6 +20,7 @@ import { verify } from "./lib/verify.mjs";
 import { extract } from "./lib/extract.mjs";
 import { modelName } from "./lib/reader.mjs";
 import { wakeDocling } from "./lib/ocr.mjs";
+import { wakeLaya } from "./lib/laya.mjs";
 import { bodyFromMultipart, isMultipart } from "./lib/multipart.mjs";
 
 function corsHeaders(req) {
@@ -78,7 +79,8 @@ export function makeServer(deps = {}) {
     try {
       const id = await identify(req.headers, deps);
       who = id.kind === "client" ? `client:${id.name}` : `user:${id.uid}:${id.erpUser}`;
-      if (path === "/v1/warm") return send(req, res, 202, { warming: wakeDocling(deps) }); // not counted as a check
+      // Docling reads, Laya decides: wake both. Not counted as a check.
+      if (path === "/v1/warm") return send(req, res, 202, { warming: wakeDocling(deps), laya: wakeLaya(deps) });
       if (!allow(who)) return send(req, res, 429, { error: "Too many checks in a minute -- try again shortly." });
       const raw = await readBody(req);
       let body;

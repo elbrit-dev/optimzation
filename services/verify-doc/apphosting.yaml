@@ -36,6 +36,11 @@ env:
     value: both
   - variable: DOCLING_API_KEY
     secret: verify-doc-docling-key
+  # Laya (IT's yes/no answerer, elbrit-services) decides "decider": "laya"
+  # checks -- the app's bill check -- from Docling's text. Key copied from
+  # elbrit-services/laya-api-key; re-copy as a new version if IT rotates it.
+  - variable: LAYA_API_KEY
+    secret: verify-doc-laya-key@2   # pinned: version 1 was garbled (UTF-16) and is disabled
   - variable: FIREBASE_PROJECT_ID
     value: elbrit-sso-d01d9
   - variable: ERP_URL
