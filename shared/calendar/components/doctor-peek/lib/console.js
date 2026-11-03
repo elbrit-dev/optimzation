@@ -457,9 +457,9 @@ export function buildConsole(data, ui, on) {
       meta: "Qty " + r.qty + " · " + r.chemist + (r.by ? " · " + r.by : ""),
     }));
     visits.forEach((r) => out.push({
-      k: "visit", id: "vis-" + r.id, t: r.t, d: r.d, div: r.div,
+      k: "visit", id: "vis-" + (r.key ?? r.id), t: r.t, d: r.d, div: r.div,
       title: r.subject, amt: null,
-      meta: [r.who, r.role, r.hq].filter(Boolean).join(" · "),
+      meta: [r.who, r.role, r.joint ? "joint visit" : null, r.hq].filter(Boolean).join(" · "),
       flag: r.made ? (r.forced ? "Force visit" : null)
         : r.attendanceKnown ? "Planned — not marked as made" : null,
     }));

@@ -162,11 +162,18 @@ export function PeekHistory({ doctor, erpUrl, authToken, employee, visibleDepart
    * "Self" is the reader's own calls; everyone else groups under their seat, so
    * a manager sees their own line and their team's separately rather than three
    * rows that happen to be whoever went most recently.
+   *
+   * A joint visit arrives as one row per person, so an RBM who joined a BE's
+   * call is listed under RBM as well as the BE under BE. Two people of the
+   * same role on one call still count as ONE date for that role.
    */
   const visitGroups = (() => {
     const g = new Map();
+    const seen = new Set();
     visitsIn.forEach((v) => {
       const k = v.employee && v.employee === mine ? "Self" : (v.role || "Unassigned");
+      if (seen.has(k + "|" + v.id)) return;
+      seen.add(k + "|" + v.id);
       if (!g.has(k)) g.set(k, []);
       g.get(k).push(v);
     });

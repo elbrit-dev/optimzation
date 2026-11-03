@@ -362,7 +362,8 @@ export function derivePobs(rows, eventIndex) {
 export function eventOwnerIndex(visits) {
   const map = new Map();
   (visits ?? []).forEach((v) => {
-    if (!v.id) return;
+    // A joint visit has one row per person; the POB belongs to the host.
+    if (!v.id || v.joint) return;
     map.set(v.id, { name: v.who, role: v.role, division: v.div, employee: v.employee });
   });
   return map;
@@ -434,10 +435,19 @@ function readAttendance(visit) {
  * `made` rides along so the timeline can say a call was only planned — the
  * count and the truth are both on the page rather than one standing in for the
  * other.
+ *
+ * ONE ROW PER PERSON, not per event. The Event names only the employee who
+ * planned it; an RBM or ABM who joined a BE's call is just a participant row.
+ * Reading the Event alone filed that joint call under the BE and nowhere else,
+ * so the RBM's own visit never showed under RBM. Each other Employee
+ * participant now gets a `joint` row of their own: their name and seat, their
+ * own attendance stamp, and the HOST's department -- the visit happened in
+ * that department, whatever HR bucket the manager sits in. `key` is unique per
+ * row; `id` stays the event's name.
  */
 export function deriveVisits(rows, employeeIndex) {
   return (rows ?? [])
-    .map((v) => {
+    .flatMap((v) => {
       const t = T(v.starts_on);
       if (t == null) return null;
       // GraphQL nests it, REST returns the bare employee id.
@@ -446,9 +456,11 @@ export function deriveVisits(rows, employeeIndex) {
         : v.custom_employee_id?.employee ?? v.custom_employee_id__name ?? null;
       const who = empId ? employeeIndex?.byId?.get(empId) ?? null : null;
       const attendance = readAttendance(v);
-      return {
+      const host = {
         k: "visit",
         id: v.name,
+        key: v.name + "|" + (empId ?? ""),
+        joint: false,
         d: String(v.starts_on).slice(0, 10),
         t,
         who: who?.name ?? v.custom_employee_id?.employee_name ?? empId ?? "Unknown",
@@ -465,9 +477,39 @@ export function deriveVisits(rows, employeeIndex) {
         forced: attendance.forced || !!v.custom_force_visit_reason,
         forceReason: v.custom_force_visit_reason ?? null,
       };
+      return [host, ...jointRows(v, host, employeeIndex)];
     })
     .filter(Boolean)
     .sort((a, b) => b.t - a.t);
+}
+
+/** The other employees on a visit, one row each, in the host's department. */
+function jointRows(v, host, employeeIndex) {
+  const seen = new Set([host.employee]);
+  const out = [];
+  (Array.isArray(v.event_participants) ? v.event_participants : []).forEach((p) => {
+    if (String(p?.reference_doctype__name ?? p?.reference_doctype ?? "") !== "Employee") return;
+    const id = p.reference_docname__name ?? p.reference_docname ?? null;
+    if (!id || seen.has(id)) return;
+    seen.add(id);
+    const person = employeeIndex?.byId?.get(id) ?? null;
+    const attending = String(p.attending ?? "").toLowerCase();
+    const stamped = attending === "yes" || attending === "1" || !!p.custom_visit_time;
+    out.push({
+      ...host,
+      key: v.name + "|" + id,
+      joint: true,
+      who: person?.name ?? id,
+      employee: id,
+      role: person?.role ?? ladderRole(p.custom_role_profile__name ?? p.custom_role_profile ?? null),
+      made: stamped || String(v.status ?? "").trim().toLowerCase() === "completed",
+      attendanceKnown: true,
+      at: T(p.custom_visit_time),
+      forced: String(p.custom_is_force_visit) === "1" || p.custom_is_force_visit === true,
+      forceReason: null,
+    });
+  });
+  return out;
 }
 
 /**
