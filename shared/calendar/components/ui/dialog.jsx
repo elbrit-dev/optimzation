@@ -33,9 +33,10 @@ const DialogContent = ({ className, children, ...props }) => (
     <Drawer.Viewport>
       <Drawer.Popup
         {...props}
-        /* md:max-h-none: the phone sheet's height cap (max-h-[88vh] from the
-           caller) does not apply to the full-height side drawer from 768px. */
-        className={cn("grid w-full content-start gap-4 bg-white p-3 py-6 md:p-6 overflow-y-auto md:max-h-none", className)}
+        /* From 768px this is the centred popup: capped at the window less its
+           24px margins, not `max-h-none` (left from the full-height side
+           drawer), which let a long event outgrow the window. */
+        className={cn("grid w-full content-start gap-4 bg-white p-3 py-6 md:p-6 overflow-y-auto md:max-h-[calc(100dvh_-_48px)]", className)}
       >
         <Drawer.Handle />
         {children}

@@ -36,10 +36,13 @@ const ModalContent = ({ side: _side, className, children, ...props }) => (
     <Drawer.Portal>
       <Drawer.Backdrop />
       <Drawer.Viewport>
-        {/* md:max-h-none: callers cap the height for the phone sheet
-            (max-h-[90dvh]); from 768px it is a side drawer, full height. A
-            caller's own md: height still wins. */}
-        <Drawer.Popup {...props} className={cn("bg-white p-4 overflow-y-auto md:max-h-none", className)}>
+        {/* Callers cap the height for the phone sheet (max-h-[90dvh]). From
+            768px it is the centred popup, capped at the window less its 24px
+            margins — the drawer CSS's own cap, restated because a caller's
+            max-h utility would otherwise override it. It was `max-h-none`
+            (left from the full-height side drawer): the popup then grew past
+            the window and the add-event doctor list could not be scrolled. */}
+        <Drawer.Popup {...props} className={cn("bg-white p-4 overflow-y-auto md:max-h-[calc(100dvh_-_48px)]", className)}>
           <Drawer.Handle />
           {children}
           <Drawer.Close className="absolute right-2 top-2 flex size-11 items-center justify-center rounded-md opacity-70 transition-opacity hover:opacity-100 focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2 disabled:pointer-events-none">
