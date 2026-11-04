@@ -188,9 +188,11 @@ export function normalizeSlice(row) {
     salesQty,
     closingQty,
     closingValue,
-    /* The tracker's own figure is what the server summed when it opened the
-       approval; the lines are the fallback when it is missing. */
-    value: num(row?.data) || linesValue,
+    /* The lines' saved sales_value is the real figure (what Closing sums too).
+       The tracker's `data` is qty × rate from when the approval opened, so it
+       drifts from ERP (CALBRIT 300 × 57.86 = 17,358 vs 18,925.80 saved); it is
+       only the fallback when the lines carry no sales_value. */
+    value: lines.some((l) => l.salesValue) ? linesValue : num(row?.data) || linesValue,
   };
 }
 
