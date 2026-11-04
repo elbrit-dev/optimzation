@@ -186,7 +186,10 @@ function groupTrackers(nodes) {
     });
     emp.customers.push({
       status: node.status__name || node.status || node.workflow_state__name || node.workflow_state || "",
-      sales_value: node.data,
+      // The tracker's `data` is qty × rate at tracker time; the entry's stored line
+      // sales_value is the real figure (and what Closing already sums), so only fall
+      // back to `data` when the lines carry no sales_value.
+      sales_value: items.some((it) => has(it && it.sales_value)) ? undefined : node.data,
       distributor: (entry.distributor__name) || (entry.distributor && entry.distributor.customer_name) || node.reference || "—",
       items,
     });
