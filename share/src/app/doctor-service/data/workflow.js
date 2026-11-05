@@ -172,6 +172,8 @@ export function normalize(row) {
     deptKey: row.dept_key || row.department || '',
     hq: row.hq || '',
     enteredBy: row.entered_by_name || row.owner || '',
+    // An ABM / RBM / SM's own entry (sales entry): entered by the person it is for.
+    selfEntered: !!row.custom_entered_by && row.custom_entered_by === row.by,
     created: row.creation,
     modified: row.modified,
     reason: String(row.reason || '').replace(/^Revisit \(from [^)]*\):\s*/, ''),
@@ -309,7 +311,9 @@ export function stepper(e) {
 
 /* The activity list, newest first. */
 export function activity(e) {
-  const out = [{ title: `Created · ${e.enteredBy} (MIS) for ${e.byName}${e.byRole ? ' (' + e.byRole + ')' : ''}`, when: e.created, dot: '#9CA3AF', note: '' }];
+  const out = [{ title: e.selfEntered
+    ? `Created · ${e.byName}${e.byRole ? ' (' + e.byRole + ')' : ''}, for themselves`
+    : `Created · ${e.enteredBy} (MIS) for ${e.byName}${e.byRole ? ' (' + e.byRole + ')' : ''}`, when: e.created, dot: '#9CA3AF', note: '' }];
   e.steps.forEach((t, i) => {
     const role = ROLE_AT[t.from] || '';
     let title;
