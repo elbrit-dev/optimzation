@@ -17,6 +17,9 @@ const CSS = `
 @keyframes dsvDrawer{from{transform:translateX(48px);opacity:0}to{transform:none;opacity:1}}
 @keyframes dsvSheet{from{transform:translateY(80px);opacity:0}to{transform:none;opacity:1}}
 @keyframes dsvFade{from{opacity:0}to{opacity:1}}
+@keyframes dsvGrow{from{width:0}}
+.dsv-rise{animation:dsvIn .24s ease-out both}
+.dsv-grow{animation:dsvGrow .7s cubic-bezier(.2,.8,.2,1) both}
 @media (prefers-reduced-motion:reduce){.dsv *{animation:none!important;transition:none!important}}
 
 /* ---- page */
@@ -277,6 +280,9 @@ const CSS = `
 .dsv-dh .t b{font-size:19px;font-weight:700}
 .dsv-dh .xbtn{width:40px;height:40px;border-radius:11px;border:1px solid #E1E5EB;background:#fff;display:grid;place-items:center;cursor:pointer}
 .dsv-db{position:relative;flex:1 1 auto;min-height:0;overflow-y:auto;padding:18px 20px;display:flex;flex-direction:column;gap:18px}
+/* The body scrolls; its blocks never shrink to fit (a box with overflow:hidden
+   -- the doctor's figures -- was squashed to 2px on a long form). */
+.dsv-db>*{flex-shrink:0}
 .dsv-df{flex:none;padding:12px 16px;border-top:1px solid var(--line2);display:flex;gap:8px;align-items:center}
 .dsv-df .p{flex:1;font-size:12px;color:var(--mute)}
 .dsv-field{display:flex;flex-direction:column;gap:6px;position:relative}

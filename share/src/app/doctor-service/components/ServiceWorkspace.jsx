@@ -27,7 +27,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { each } from '../data/api';
 import { useServiceClient } from '../data/useClient';
 import {
-  APPROVED, CEO, GM, NOT_SUBMITTED, QUICK_REJECT, QUICK_REVISIT, REJECTED, REWORK,
+  APPROVED, CEO, GM, NOT_SUBMITTED, WAITING, isLowerStep, QUICK_REJECT, QUICK_REVISIT, REJECTED, REWORK,
   approverRoles, bars, canDecide, canEdit, cmp, executed, fDY, money, normalize, short, stageText, statusOf, tierOf, wait,
 } from '../data/workflow';
 import { Detail } from './Detail';
@@ -37,7 +37,7 @@ import { ServiceForm } from './ServiceForm';
 import { ensureStyles } from './styles';
 
 const sum = (a) => a.reduce((s, e) => s + e.amount, 0);
-const inFlow = (e) => e.state === GM || e.state === CEO;
+const inFlow = (e) => WAITING.includes(e.state);
 
 function useWidth() {
   const ref = useRef(null);
@@ -217,7 +217,7 @@ export function ServiceWorkspace({
     setBusy(null);
     setFocusId(nextFocus(ids));
     if (sheet && ids.includes(sheet.id)) setSheetId(null);
-    after(res, ids.length === 1 ? `${E.find((e) => e.id === ids[0])?.doctorName} resubmitted · now with GM` : `${ids.length} resubmitted · now with GM`, 'not resubmitted');
+    after(res, ids.length === 1 ? `${E.find((e) => e.id === ids[0])?.doctorName} resubmitted · back in approval` : `${ids.length} resubmitted · back in approval`, 'not resubmitted');
   }
   /* kind: approve (GM, on to CEO) | final (GM as final; CEO approves) |
      reject | revisit (send back). The note is the
@@ -254,7 +254,7 @@ export function ServiceWorkspace({
     const label = one ? one.doctorName : `${ids.length} services`;
     const msg = {
       reject: `Rejected ${label}`,
-      revisit: `Sent ${label} back to the MIS team`,
+      revisit: `Sent ${label} back to fix`,
       approve: allGm ? `Sent ${label} to CEO` : `Approved ${label}`,
       final: allGm ? `Approved ${label} as final · CEO not needed` : `Approved ${label}`,
       ceo: `Approved ${label}`,
@@ -613,22 +613,25 @@ export function ServiceWorkspace({
         const rows = modal.ids.map((id) => E.find((e) => e.id === id)).filter(Boolean);
         const one = rows.length === 1 ? rows[0] : null;
         const atGm = rows.every((e) => e.state === GM);
+        const atLower = rows.every(isLowerStep);
         // The final approval — GM "Approve as final", or the CEO's approve —
         // ends it and hands it to MIS to carry out: "Ready to execute?".
         // Send to CEO is only a step on.
-        const isFinal = !(atGm && modal.action === 'approve');
+        const isFinal = !(atGm && modal.action === 'approve') && !atLower;
         const asCeo = modal.action === 'ceo';
         const what = one ? `${one.doctorName} · ${one.service} · ${money(one.amount)}` : `${rows.length} services · ${money(sum(rows))}`;
         const by = asCeo ? 'CEO' : atGm ? 'GM' : 'CEO';
-        const title = isFinal ? 'Ready to execute?' : 'Send to CEO?';
-        const desc = isFinal
-          ? `${what}. This is the final approval (${by} Approved and Verified)${atGm && !asCeo ? ' — CEO approval is not needed' : ''}. The MIS team then carries it out.`
-          : `${what}. It goes on to the CEO for the final approval.`;
+        const title = atLower ? 'Approve and send up?' : isFinal ? 'Ready to execute?' : 'Send to CEO?';
+        const desc = atLower
+          ? `${what}. It goes on to the next approver.`
+          : isFinal
+            ? `${what}. This is the final approval (${by} Approved and Verified)${atGm && !asCeo ? ' — CEO approval is not needed' : ''}. The MIS team then carries it out.`
+            : `${what}. It goes on to the CEO for the final approval.`;
         return (
           <Modal
             title={title}
             desc={desc}
-            confirm={isFinal ? 'Execute' : 'Send to CEO'}
+            confirm={atLower ? 'Approve' : isFinal ? 'Execute' : 'Send to CEO'}
             busy={busy === 'approve' || busy === 'final'}
             onClose={() => setModal(null)}
             onConfirm={() => decide(modal.ids, modal.action, modal.note)}

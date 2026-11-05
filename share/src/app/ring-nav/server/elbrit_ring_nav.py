@@ -870,6 +870,23 @@ elif "GM" in service_roles:
     service_steps = [SERVICE_STEP_OF["GM"]]
 else:
     service_steps = []
+# RBM / SM in the Doctor Service chain (RBM -> SM -> GM, 11 Nov 2026): their
+# own step, counting only what waits on THEM (there are many RBMs). Only for
+# the new app, which sends v=2 (the live app has no RBM / SM approval page).
+service_mine_only = False
+if not service_steps and str(frappe.form_dict.get("v") or "") == "2":
+    head = (seat or "").split("-")[0]
+    g = ""
+    for ch in head:
+        if not ch.isdigit():
+            g = g + ch
+    g = g.strip().upper()
+    if g in ["RBM", "SRBM", "DEPUTY RBM"]:
+        service_steps = ["RBM Approval Waiting"]
+        service_mine_only = True
+    elif g == "SM":
+        service_steps = ["SM Approval Waiting"]
+        service_mine_only = True
 
 
 def service_rows():
@@ -887,12 +904,13 @@ def service_rows():
         part = names[i:i + 500]
         i = i + 500
         for t in frappe.get_all("Operational Tracker", filters=[["name", "in", part]],
-                                fields=["name", "workflow_state", "modified"], limit_page_length=0):
+                                fields=["name", "workflow_state", "modified", "next_approver"], limit_page_length=0):
             of[t.get("name")] = t
     out = []
     for r in recs:
         t = of.get(r.get("custom_tracker")) or {}
-        out.append({"state": t.get("workflow_state") or "", "at": str(t.get("modified") or r.get("modified") or "")})
+        out.append({"state": t.get("workflow_state") or "", "at": str(t.get("modified") or r.get("modified") or ""),
+                    "next": t.get("next_approver") or ""})
     return out
 
 
@@ -930,7 +948,7 @@ def service_tiles(entry):
             approved = approved + 1
         elif b == "waiting":
             waiting = waiting + 1
-            if r["state"] in service_steps:
+            if r["state"] in service_steps and (not service_mine_only or r["next"] == me):
                 mine = mine + 1
         elif b == "sentback":
             sentback = sentback + 1

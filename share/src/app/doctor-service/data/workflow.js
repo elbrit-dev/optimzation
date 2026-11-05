@@ -20,8 +20,16 @@
  * latest round on the stepper. */
 
 export const NOT_SUBMITTED = 'Not submitted';
+/* The approval chain (11 Nov 2026): a service starts with the manager above
+   the person it is for -- RBM, then SM, then GM (who approves as final or
+   passes it to CEO). An SM's service starts at GM, as all did before. */
+export const RBM = 'RBM Approval';
+export const SM = 'SM Approval';
 export const GM = 'GM Approval';
 export const CEO = 'CEO Approval';
+/* Every waiting step, lowest first, and the role that acts at each. */
+export const WAITING = [RBM, SM, GM, CEO];
+const LEVEL_ROLE = { [RBM]: 'RBM', [SM]: 'SM', [GM]: 'GM', [CEO]: 'CEO' };
 export const APPROVED = 'Approved';
 export const REJECTED = 'Rejected';
 export const REWORK = 'Rework';
@@ -31,6 +39,8 @@ export const EDITABLE = [NOT_SUBMITTED, REWORK];
 export function appState(s) {
   const st = String(s || '').trim();
   if (!st || st === NOT_SUBMITTED || st === 'Draft') return NOT_SUBMITTED;
+  if (st === 'RBM Approval Waiting') return RBM;
+  if (st === 'SM Approval Waiting') return SM;
   if (st === 'GM Approval Waiting') return GM;
   if (st === 'CEO Approval Waiting') return CEO;
   if (/Approved and (Waiting for Verification|Verified)$/.test(st)) return APPROVED;
@@ -100,7 +110,9 @@ export const first = (n) => String(n || '').trim().split(/\s+/)[0] || '';
 export const gradeOf = (seat) => String(seat || '').split('-')[0].replace(/[0-9]/g, '').toUpperCase();
 
 /* Who acted at a step, by the step it left. */
-const ROLE_AT = { [GM]: 'GM', [CEO]: 'CEO' };
+const ROLE_AT = { [RBM]: 'RBM', [SM]: 'SM', [GM]: 'GM', [CEO]: 'CEO' };
+/* A submit (or resubmit): out of Not submitted / Sent back into a waiting step. */
+const isSubmit = (t) => (t.from === NOT_SUBMITTED || t.from === REWORK) && WAITING.includes(t.to);
 
 /* The tracker's Workflow comments, replayed: [{ from, to, by, at }]. */
 function transitions(row) {
@@ -109,7 +121,7 @@ function transitions(row) {
   for (const h of row.history || []) {
     if (h.type !== 'Workflow') continue;
     const to = appState(h.content);
-    if (!to || (to === prev && to !== GM)) continue;
+    if (!to || (to === prev && !WAITING.includes(to))) continue;
     out.push({ from: prev, to, by: h.by, at: h.at });
     prev = to;
   }
@@ -120,10 +132,24 @@ function transitions(row) {
 export function normalize(row) {
   const steps = transitions(row);
   let lastSubmit = -1;
-  steps.forEach((t, i) => { if (t.to === GM) lastSubmit = i; });
+  steps.forEach((t, i) => { if (isSubmit(t)) lastSubmit = i; });
   const round = lastSubmit >= 0 ? steps.slice(lastSubmit + 1) : [];
   const state = appState(row.state);
   const raw = String(row.state || '');
+  // Where this round's chain started (RBM / SM / GM); without history, the
+  // lowest step its state shows, else GM (every older service started there).
+  const startAt = lastSubmit >= 0 ? steps[lastSubmit].to
+    : [RBM, SM].includes(state) ? state
+      : /^(RBM|SM) Rejected$/.test(raw) ? (raw.startsWith('RBM') ? RBM : SM) : GM;
+  const chain = WAITING.slice(WAITING.indexOf(startAt));
+  // The lower steps' deciders: who acted at RBM / SM, and how.
+  const lower = {};
+  for (const lv of [RBM, SM]) {
+    const h = round.find((t) => t.from === lv);
+    if (h) lower[LEVEL_ROLE[lv]] = { name: h.by, at: h.at, to: h.to };
+  }
+  if (raw === 'RBM Rejected' && !lower.RBM) lower.RBM = { name: '', at: row.modified || row.creation, to: REJECTED };
+  if (raw === 'SM Rejected' && !lower.SM) lower.SM = { name: '', at: row.modified || row.creation, to: REJECTED };
   // Who decided is in the tracker's state itself ("GM Approved and Verified",
   // "CEO Rejected" ...): THAT decides the stepper. The history comments only
   // add the names and times (a tracker moved outside the app has none).
@@ -141,9 +167,11 @@ export function normalize(row) {
   else if (raw === 'CEO Rejected') { gm = pick(histGm, CEO); ceo = pick(histCeo, REJECTED); skipped = false; stopRole = 'CEO'; }
   else if (raw === 'CEO Approval Waiting') { gm = pick(histGm, CEO); ceo = null; skipped = false; }
   else if (raw === 'GM Approval Waiting') { gm = null; ceo = null; skipped = false; }
+  else if (raw === 'RBM Rejected' || raw === 'SM Rejected') { gm = null; ceo = null; skipped = false; stopRole = raw.split(' ')[0]; }
+  else if (raw === 'RBM Approval Waiting' || raw === 'SM Approval Waiting') { gm = null; ceo = null; skipped = false; }
   else if (raw === 'Rework') {
     // Sent back from the step named in the note: "Revisit (from CEO Approval Waiting): ..."
-    stopRole = (/^Revisit \(from (GM|CEO) /.exec(String(row.reason || '')) || [])[1] || '';
+    stopRole = (/^Revisit \(from (RBM|SM|GM|CEO) /.exec(String(row.reason || '')) || [])[1] || '';
     if (stopRole === 'CEO') { gm = pick(histGm, CEO); ceo = pick(histCeo, REWORK); }
     else if (stopRole === 'GM') { gm = pick(histGm, REWORK); ceo = null; }
     skipped = false;
@@ -178,9 +206,13 @@ export function normalize(row) {
     modified: row.modified,
     reason: String(row.reason || '').replace(/^Revisit \(from [^)]*\):\s*/, ''),
     waitingOn: row.waiting_on || '',
+    // The user the waiting step is with: at RBM / SM only THAT manager decides.
+    nextApprover: row.next_approver || '',
     submittedAt: lastSubmit >= 0 ? steps[lastSubmit].at : null,
     submittedBy: lastSubmit >= 0 ? steps[lastSubmit].by : null,
-    resubmitted: steps.filter((t) => t.to === GM).length > 1,
+    resubmitted: steps.filter(isSubmit).length > 1,
+    chain,
+    lower,
     gm,
     ceo,
     skipped,
@@ -207,7 +239,7 @@ export function stoppedBy(e) {
   if (last) return { name: last.by, at: last.at, role: e.stopRole || ROLE_AT[last.from] || '' };
   // No history (moved outside the app): the state still names who.
   if (e.stopRole) {
-    const step = e.stopRole === 'CEO' ? e.ceo : e.gm;
+    const step = e.stopRole === 'CEO' ? e.ceo : e.stopRole === 'GM' ? e.gm : (e.lower || {})[e.stopRole];
     return { name: step?.name || '', at: step?.at || e.lastAt, role: e.stopRole };
   }
   return null;
@@ -215,7 +247,7 @@ export function stoppedBy(e) {
 
 export function statusOf(e) {
   if (e.state === NOT_SUBMITTED) return { label: 'Not submitted', bg: '#F1F3F6', fg: '#4B5563' };
-  if (e.state === GM || e.state === CEO) return { label: e.state, bg: '#EAF1FF', fg: '#1D4ED8' };
+  if (WAITING.includes(e.state)) return { label: e.state, bg: '#EAF1FF', fg: '#1D4ED8' };
   // Who decided, as the final status says: "GM Approved", "CEO Rejected".
   if (e.state === APPROVED) {
     // Approved is not the end: MIS still has to carry it out (the ToDo).
@@ -234,10 +266,12 @@ export function statusOf(e) {
 
 /* The little bars on a card: one per approver step (GM, CEO). */
 export function bars(e) {
-  const order = e.skipped ? [GM] : [GM, CEO];
+  const chain = e.chain || [GM, CEO];
+  const order = e.skipped ? chain.filter((x) => x !== CEO) : chain;
   const level = e.state === APPROVED ? order.length : order.indexOf(e.state);
   const stop = e.state === REJECTED || e.state === REWORK ? stoppedBy(e) : null;
-  const stopAt = stop ? Math.max(0, order.indexOf(stop.role === 'CEO' ? CEO : GM)) : -1;
+  const stopLv = stop ? WAITING.find((w) => LEVEL_ROLE[w] === stop.role) || GM : null;
+  const stopAt = stop ? Math.max(0, order.indexOf(stopLv)) : -1;
   return order.map((_, i) => {
     if (e.state === NOT_SUBMITTED) return '#DDE2E8';
     if (stop) return i < stopAt ? '#22A06B' : i === stopAt ? (e.state === REJECTED ? '#DC2626' : '#F59E0B') : '#DDE2E8';
@@ -247,7 +281,14 @@ export function bars(e) {
 
 export function stageText(e) {
   if (e.state === NOT_SUBMITTED) return 'Not in approval yet';
-  if (e.state === GM) return `with GM · ${wait(e.submittedAt || e.lastAt)}`;
+  if (e.state === RBM || e.state === SM) {
+    const done = (e.chain || []).slice(0, (e.chain || []).indexOf(e.state)).map((w) => LEVEL_ROLE[w] + ' ✓');
+    return `${done.length ? done.join(' · ') + ' · ' : ''}with ${LEVEL_ROLE[e.state]}${e.waitingOn ? ' (' + first(e.waitingOn) + ')' : ''} · ${wait(e.lastAt)}`;
+  }
+  if (e.state === GM) {
+    const done = (e.chain || []).slice(0, (e.chain || []).indexOf(GM)).map((w) => LEVEL_ROLE[w] + ' ✓');
+    return `${done.length ? done.join(' · ') + ' · ' : ''}with GM · ${wait(done.length ? e.lastAt : e.submittedAt || e.lastAt)}`;
+  }
   if (e.state === CEO) return `GM ✓ · with CEO · ${wait(e.gm?.at || e.lastAt)}`;
   if (e.state === APPROVED) {
     const approved = e.skipped ? `GM ✓ · final at GM · ${fD(e.gm?.at || e.lastAt)}` : `GM ✓ · CEO ✓ · ${fD(e.ceo?.at || e.lastAt)}`;
@@ -275,10 +316,10 @@ const KIND = {
   skip: ['#F4F6F9', '#D5DAE1', '#9CA3AF'],
 };
 
-/* MIS -> GM -> CEO, for the detail's stepper. */
+/* Entered -> (RBM -> SM ->) GM -> CEO, for the detail's stepper. */
 export function stepper(e) {
   const nodes = [{
-    label: 'MIS',
+    label: e.selfEntered ? e.byRole || 'Entered' : 'MIS',
     sub: e.submittedAt ? first(e.submittedBy || e.enteredBy) + ' · ' + fD(e.submittedAt) : 'Not submitted',
     kind: e.submittedAt ? 'done' : 'current',
   }];
@@ -287,6 +328,9 @@ export function stepper(e) {
     if (isNow) return { label, sub: 'now', kind: 'current' };
     return { label, sub: '', kind: 'todo' };
   };
+  for (const lv of [RBM, SM]) {
+    if ((e.chain || []).includes(lv)) nodes.push(node(LEVEL_ROLE[lv], (e.lower || {})[LEVEL_ROLE[lv]], e.state === lv));
+  }
   nodes.push(node('GM', e.gm, e.state === GM));
   if (e.skipped) nodes.push({ label: 'CEO', sub: 'Not needed', kind: 'skip' });
   else nodes.push(node('CEO', e.ceo, e.state === CEO));
@@ -319,7 +363,8 @@ export function activity(e) {
     let title;
     let dot = '#22A06B';
     let note = '';
-    if (t.to === GM) { title = `${i ? 'Resubmitted' : 'Submitted'} · to GM · ${t.by}`; dot = '#2563EB'; }
+    if (isSubmit(t)) { title = `${t.from === REWORK ? 'Resubmitted' : 'Submitted'} · to ${LEVEL_ROLE[t.to]} · ${t.by}`; dot = '#2563EB'; }
+    else if ((t.from === RBM || t.from === SM) && WAITING.includes(t.to)) title = `Approved · ${t.by} (${LEVEL_ROLE[t.from]}) · sent to ${LEVEL_ROLE[t.to]}`;
     else if (t.to === REJECTED) { title = `Rejected · ${t.by}${role ? ' (' + role + ')' : ''}`; dot = '#DC2626'; }
     else if (t.to === REWORK) { title = `Sent back · ${t.by} (${role})`; dot = '#F59E0B'; }
     else if (t.from === GM && t.to === APPROVED) { title = `Approved as final · ${t.by} (GM)`; note = 'CEO approval not needed'; }
@@ -345,13 +390,16 @@ export function activity(e) {
 /* The approver roles a viewer holds. A tester (or an admin) may hold both
    GM and CEO: they act at whichever step a service is on. */
 export const approverRoles = (viewer) => viewer?.approvers || (viewer?.approver ? [viewer.approver] : []);
-/* The role a waiting service needs: GM at the GM step, CEO at the CEO step. */
-export const stepRole = (e) => (e.state === GM ? 'GM' : e.state === CEO ? 'CEO' : null);
+/* The role a waiting service needs: RBM / SM / GM / CEO at its step. */
+export const stepRole = (e) => LEVEL_ROLE[e.state] || null;
+/* At the RBM / SM step: the service's own manager only (there are many). */
+export const isLowerStep = (e) => e.state === RBM || e.state === SM;
 
 /* Who may do what — the screen's offer; the ERP's workflow is the judge. */
 export function canDecide(e, viewer) {
   const role = stepRole(e);
-  return !!e.tracker && !!role && approverRoles(viewer).includes(role);
+  if (!e.tracker || !role || !approverRoles(viewer).includes(role)) return false;
+  return isLowerStep(e) ? !!viewer?.user && e.nextApprover === viewer.user : true;
 }
 export const canEdit = (e, viewer) => !!viewer?.can_enter && EDITABLE.includes(e.state);
 

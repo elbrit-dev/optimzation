@@ -14,9 +14,12 @@
 # apply_workflow calls on each service's Operational Tracker, as the
 # signed-in user; the tracker is where the state lives.
 #
-# WHO: the viewing roles only (VIEW_ROLES: IT, MIS team, GM, CEO) — they
-# see every app row, so the rows are read past permissions; anyone else is
-# refused.
+# WHO: the viewing roles (VIEW_ROLES: IT, MIS team, GM, CEO) see every app
+# row, read past permissions. AND (11 Nov 2026, only when the app sends
+# v=2): an RBM / SM seat holder -- an approver in the chain RBM -> SM -> GM
+# -- sees only the services waiting on them (next_approver), their own, and
+# those for anyone under them (reports_to); viewer.approver is then "RBM" / "SM".
+# Anyone else is refused.
 #
 # Answer:
 #   viewer   as elbrit_doctor_service_options answers it (+ verifier: the
@@ -43,6 +46,8 @@
 #              reason                     the tracker's reason_for_rejection
 #                                         (send-back / rejection note)
 #              waiting_on                 the tracker's next approver's name
+#              next_approver              that approver's user (the app lets
+#                                         only them decide at RBM / SM)
 #              history                    Workflow and Comment entries of the
 #                                         tracker and the service, oldest
 #                                         first: { type, content, by, at }
@@ -111,6 +116,18 @@ def viewer_of(user):
             "verifier": verifier}
 
 
+TEAM_GRADES = {"RBM": "RBM", "SRBM": "RBM", "DEPUTY RBM": "RBM", "SM": "SM"}
+
+
+def grade_of(seat):
+    head = (seat or "").split("-")[0]
+    out = ""
+    for ch in head:
+        if not ch.isdigit():
+            out = out + ch
+    return out.strip().upper()
+
+
 def chunks(values):
     out = []
     i = 0
@@ -130,8 +147,40 @@ def month_back(d, n):
 
 
 viewer = viewer_of(frappe.session.user)
+# An RBM / SM in the approval chain (new app only): their own queue and team.
+team = None
+me_emp = None
+if not viewer["can_view"] and str(frappe.form_dict.get("v") or "") == "2":
+    mine = frappe.get_all("Employee", filters={"user_id": frappe.session.user, "status": "Active"},
+                          fields=["name", "custom_role_profile"], limit=1)
+    g = TEAM_GRADES.get(grade_of(mine[0].get("custom_role_profile"))) if mine else None
+    if g:
+        viewer["can_view"] = True
+        viewer["approver"] = g
+        viewer["approvers"] = [g]
+        # everyone under them, any depth
+        kids = {}
+        for e in frappe.get_all("Employee", filters={"status": "Active"}, fields=["name", "reports_to"],
+                                limit_page_length=0):
+            if e.get("reports_to"):
+                if e.get("reports_to") not in kids:
+                    kids[e.get("reports_to")] = []
+                kids[e.get("reports_to")].append(e.get("name"))
+        team = {}
+        me_emp = mine[0].get("name")
+        frontier = [me_emp]
+        hops = 0
+        while frontier and hops < 15:
+            hops = hops + 1
+            nxt = []
+            for x in frontier:
+                for k in kids.get(x) or []:
+                    if not team.get(k):
+                        team[k] = 1
+                        nxt.append(k)
+            frontier = nxt
 if not viewer["can_view"]:
-    frappe.throw("Doctor services are open to IT, the MIS team, GM and CEO only.")
+    frappe.throw("Doctor services are open to IT, the MIS team, GM, CEO and the approvers in their chain only.")
 
 meta = frappe.get_meta(DOCTYPE)
 missing = []
@@ -415,6 +464,9 @@ for r in rows:
     r["state"] = t.get("workflow_state") or "Not submitted"
     r["reason"] = t.get("reason_for_rejection") or ""
     r["waiting_on"] = user_name.get(t.get("next_approver")) or t.get("next_approver") or ""
+    r["next_approver"] = t.get("next_approver") or ""
+    if team is not None and r["next_approver"] != frappe.session.user and not team.get(r.get("by"))             and r.get("by") != me_emp:
+        continue
     if t.get("modified") and str(t.get("modified")) > str(r.get("modified")):
         r["modified"] = t.get("modified")
     r["category"] = category.get(r.get("service_name")) or ""

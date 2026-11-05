@@ -19,6 +19,7 @@ const HQ = { 'DR-308': 'HQ-Erode', 'DR-30': 'HQ-Salem', 'DR-43': 'HQ-Salem' };
 const PEOPLE = {
   E01053: { name: 'Balamurugan Eswaran', seat: 'RBM1-CND-CBE' },
   E00006: { name: 'Suresh R', seat: 'SM1-CND' },
+  E00410: { name: 'R Senthil Kumar', seat: 'ABM-CND-CBE' },
 };
 const MIS = { user: 'vishnu.mis@elbrit.org', name: 'Vishnu' };
 const GM_P = { user: 'rajkumar@elbrit.org', name: 'Rajkumar N' };
@@ -75,33 +76,41 @@ const S = {
   gm: 'GM Approval Waiting', ceo: 'CEO Approval Waiting', gmFinal: 'GM Approved and Verified',
   ceoDone: 'CEO Approved and Verified', verified: 'CEO Approved and Verified',
   gmRej: 'GM Rejected', rework: 'Rework',
+  // the chain's lower steps (RBM -> SM -> GM)
+  rbm: 'RBM Approval Waiting', sm: 'SM Approval Waiting',
 };
+// Who waits at each lower step (the sample RBM and SM viewers).
+const NEXT_AT = { 'RBM Approval Waiting': 'bala@elbrit.org', 'SM Approval Waiting': 'suresh@elbrit.org' };
 
 function seed() {
   const rows = [];
   let n = 0;
-  const mk = (by, doctor, service, date, amount, remarks, path, ago, reason) => {
+  const mk = (by, doctor, service, date, amount, remarks, path, ago, reason, start = S.gm) => {
     n += 1;
     const P = PEOPLE[by];
     const history = [];
     const wf = (content, who, d) => history.push({ type: 'Workflow', content, by: who, user: who, at: at(d) });
     // path: the tracker states it went through after MIS saved it.
-    wf(S.gm, MIS.name, ago);
+    wf(start, MIS.name, ago);
     const who = { [S.ceo]: GM_P.name, [S.gmFinal]: GM_P.name, [S.gmRej]: GM_P.name, [S.ceoDone]: CEO_P.name, [S.verified]: MIS.name, [S.rework]: GM_P.name };
     path.forEach((st, i) => wf(st, who[st], ago * (0.6 - i * 0.15)));
-    const state = path.length ? path[path.length - 1] : S.gm;
+    const state = path.length ? path[path.length - 1] : start;
     const id = 'DSV-' + String(1000 + n);
     rows.push({
       name: id, doctor, doctor_name: DOCTORS[doctor], service_name: service, service_amount: amount,
       service_date: date, date: date, by, by_name: P.name, department: CND, hq: HQ[doctor] || 'HQ-Coimbatore',
       role_profile: P.seat, remarks, state, custom_tracker: 'Doctor Service-' + id, service_attachement: null,
       owner: MIS.user, creation: at(ago + 0.5), modified: at(ago * 0.3),
-      reason: reason || '', waiting_on: state === S.gm ? GM_P.name : state === S.ceo ? CEO_P.name : '', entered_by_name: MIS.name,
+      reason: reason || '', waiting_on: state === S.gm ? GM_P.name : state === S.ceo ? CEO_P.name : state === S.rbm ? PEOPLE.E01053.name : state === S.sm ? PEOPLE.E00006.name : '',
+      next_approver: NEXT_AT[state] || '', entered_by_name: by === 'E00410' ? P.name : MIS.name, custom_entered_by: by === 'E00410' ? by : '',
       category: '', history,
     });
   };
   mk('E01053', 'DR-4509', 'cash back activity', '2026-07-15', 51000, 'CASH BACK', [S.rework], 1, 'Revisit (from GM Approval Waiting): Attach the bill / receipt');
   mk('E01053', 'DR-1992', 'Cash', '2026-06-17', 100000, 'CASH', [], 2);
+  // The chain: an ABM's own entry waiting on their RBM, an RBM's on their SM.
+  mk('E00410', 'DR-1', 'Cash', '2026-07-20', 18000, 'CASH', [], 1, '', S.rbm);
+  mk('E01053', 'DR-51', 'EB Bill', '2026-07-18', 2400, 'EB', [], 1, '', S.sm);
   mk('E01053', 'DR-51', 'CAR', '2026-07-05', 35883, 'CAR EMI', [], 1);
   mk('E01053', 'DR-10649', 'EB Bill', '2026-06-02', 920, 'EB - 031280011630 (A. V. THIRUNAVUKKARASU AND A. V. MARUTHAGIRI)', [], 3);
   rows[rows.length - 1].custom_service_details = ebDetails('031280011630');
@@ -124,8 +133,8 @@ const VIEWERS = {
   IT: { user: 'it@elbrit.org', employee: 'E00900', employee_name: 'IT Team', can_enter: false, can_view: true, approver: null, verifier: false },
   // Sales entry: for themselves, behind the doctor's ROI gate.
   ABM: { user: 'senthil@elbrit.org', employee: 'E00410', employee_name: 'R Senthil Kumar', can_enter: true, can_view: false, approver: null, verifier: false, entry: 'sales', grade: 'ABM', seat: 'ABM-CND-CBE' },
-  RBM: { user: 'bala@elbrit.org', employee: 'E01053', employee_name: 'Balamurugan Eswaran', can_enter: true, can_view: false, approver: null, verifier: false, entry: 'sales', grade: 'RBM', seat: 'RBM3-CND-CBE' },
-  SM: { user: 'suresh@elbrit.org', employee: 'E00006', employee_name: 'Suresh R', can_enter: true, can_view: false, approver: null, verifier: false, entry: 'sales', grade: 'SM', seat: 'SM-CND-ELB-KE' },
+  RBM: { user: 'bala@elbrit.org', employee: 'E01053', employee_name: 'Balamurugan Eswaran', can_enter: true, can_view: true, approver: 'RBM', approvers: ['RBM'], verifier: false, entry: 'sales', grade: 'RBM', seat: 'RBM3-CND-CBE' },
+  SM: { user: 'suresh@elbrit.org', employee: 'E00006', employee_name: 'Suresh R', can_enter: true, can_view: true, approver: 'SM', approvers: ['SM'], verifier: false, entry: 'sales', grade: 'SM', seat: 'SM-CND-ELB-KE' },
 };
 
 /* The ROI gate as the options script answers it, made up per doctor: DR-1
@@ -172,6 +181,8 @@ function visitsFor(id) {
 
 /* The "Approval flow" steps the app uses: state|action -> [next, who]. */
 const TRANS = {
+  [S.rbm + '|Approve']: [S.sm, 'RBM'], [S.rbm + '|Reject']: ['RBM Rejected', 'RBM'], [S.rbm + '|Revisit']: [S.rework, 'RBM'],
+  [S.sm + '|Approve']: [S.gm, 'SM'], [S.sm + '|Reject']: ['SM Rejected', 'SM'], [S.sm + '|Revisit']: [S.rework, 'SM'],
   [S.gm + '|Approve']: [S.ceo, 'GM'], [S.gm + '|Final Approve']: [S.gmFinal, 'GM'],
   [S.gm + '|Reject']: [S.gmRej, 'GM'], [S.gm + '|Revisit']: [S.rework, 'GM'],
   [S.ceo + '|Final Approve']: [S.ceoDone, 'CEO'], [S.ceo + '|Reject']: ['CEO Rejected', 'CEO'], [S.ceo + '|Revisit']: [S.rework, 'CEO'],
@@ -234,7 +245,12 @@ export function makeSampleClient(role = 'MIS') {
         } : {}),
       } : {}),
     }),
-    list: () => delay({ viewer, setup: { missing: [] }, rows: rows.map((r) => ({ ...r, doctor_avg: avg(r.doctor) })) }),
+    list: () => delay({
+      viewer, setup: { missing: [] },
+      // An RBM / SM sees what waits on them and their team's (as the live script).
+      rows: rows.filter((r) => !viewer.entry || r.next_approver === viewer.user || r.by === viewer.employee || (viewer.grade !== 'ABM' && r.by === 'E00410'))
+        .map((r) => ({ ...r, doctor_avg: avg(r.doctor) })),
+    }),
     insight: (doctor, exclude) => delay({
       doctor: { id: doctor, name: DOCTORS[doctor] || doctor },
       // Split by department as the live script does (by_dept): most of it the
@@ -291,7 +307,8 @@ export function makeSampleClient(role = 'MIS') {
       if (note) r.reason = kind === 'revisit' ? revisitNote(r.state, note) : note;
       r.history.push({ type: 'Workflow', content: t[0], by: viewer.employee_name, at: now() });
       r.state = t[0];
-      r.waiting_on = t[0] === S.ceo ? CEO_P.name : '';
+      r.waiting_on = t[0] === S.ceo ? CEO_P.name : t[0] === S.gm ? GM_P.name : t[0] === S.sm ? PEOPLE.E00006.name : '';
+      r.next_approver = NEXT_AT[t[0]] || '';
       r.modified = now();
       return delay(r.state);
     },

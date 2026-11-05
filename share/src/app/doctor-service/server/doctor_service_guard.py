@@ -56,9 +56,14 @@
 #      exists).
 #   5. INTO APPROVAL — on an entry role's save of a new service (or one
 #      without a tracker), or of one sent back (Rework): the tracker is made
-#      (or reset) at GM Approval Waiting. next_approver = the first active
-#      GM above the on-behalf employee (reports_to, by the user's GM role);
-#      custom_fallback_approver = that GM's manager (the CEO). A new
+#      (or reset) at the FIRST STEP OF THE CHAIN (11 Nov 2026): the first
+#      live manager above the employee it is for (`by`), up reports_to --
+#      an RBM seat -> RBM Approval Waiting, an SM seat (ZSM too) -> SM
+#      Approval Waiting, a GM-role user -> GM Approval Waiting. So an ABM's
+#      service starts with their RBM, an RBM's with their SM, an SM's with
+#      the GM; a vacant level is skipped. MIS entries too. From there the
+#      "operational tracker" script walks it up (RBM -> SM -> GM).
+#      custom_fallback_approver = the manager above that first approver. A new
 #      tracker is inserted and then set to its step, as the team's own
 #      script does (the workflow starts every new one at ABM, and has no
 #      step out of Rework). A send-back reason is kept as a comment.
@@ -357,6 +362,38 @@ def guard(doc):
         return None
 
 
+    def chain_start(by):
+        # -> [state, role, approver_user, fallback_user]: the chain's first
+        # step for `by` (see 5 in the header); [None, ...] when none is found.
+        eid = frappe.db.get_value("Employee", by, "reports_to")
+        hops = 0
+        while eid and hops < MAX_HOPS:
+            hops = hops + 1
+            e = live_employee(eid)
+            if e:
+                role = None
+                if has_role(e.get("user_id"), "GM"):
+                    role = "GM"
+                else:
+                    g = GATE_GRADE.get(grade_of(frappe.db.get_value("Employee", eid, "custom_role_profile")))
+                    if g == "RBM" or g == "SM":
+                        role = g
+                if role:
+                    fb = None
+                    up = e.get("reports_to")
+                    h2 = 0
+                    while up and h2 < MAX_HOPS and not fb:
+                        h2 = h2 + 1
+                        m = live_employee(up)
+                        if m:
+                            fb = m.get("user_id")
+                        else:
+                            up = frappe.db.get_value("Employee", up, "reports_to")
+                    return [role + " Approval Waiting", role, e.get("user_id"), fb]
+            eid = frappe.db.get_value("Employee", eid, "reports_to")
+        return [None, None, None, None]
+
+
     def gm_and_ceo(by):
         # -> [gm_user, ceo_user]: the first active GM-role user above `by`,
         # and the first active manager above that GM.
@@ -449,7 +486,7 @@ def guard(doc):
         for f in changed:
             if f not in LATE_OK:
                 late.append(f)
-        if old and changed and not editable and (late or ot_state != START):
+        if old and changed and not editable and (late or not str(ot_state or "").endswith(" Approval Waiting")):
             done = str(ot_state or "").endswith("Rejected") or str(ot_state or "").endswith("Verified")
             frappe.throw("This service is " + (str(ot_state) if done else "in approval (" + str(ot_state) + ")")
                          + " and can no longer be edited.")
@@ -589,13 +626,15 @@ def guard(doc):
 
         # ---- 5. into approval
         if can_enter and ((not tracker) or ot_state == REWORK):
-            pair_users = gm_and_ceo(doc.get("by"))
-            gm_user = pair_users[0]
-            ceo_user = pair_users[1]
+            first = chain_start(doc.get("by"))
+            step = first[0]
+            step_role = first[1]
+            gm_user = first[2]
+            ceo_user = first[3]
             if not gm_user:
-                frappe.throw("No GM found above " + str(doc.get("by")) + " (reports_to), so the service has no one to go to.")
+                frappe.throw("No RBM, SM or GM found above " + str(doc.get("by")) + " (reports_to), so the service has no one to go to.")
             by_user = frappe.db.get_value("Employee", doc.get("by"), "user_id")
-            vals = {"status": START, "workflow_state": START, "next_role": "GM",
+            vals = {"status": step, "workflow_state": step, "next_role": step_role,
                     "next_approver": gm_user, "custom_fallback_approver": ceo_user,
                     "data": doc.get("service_amount"), "role_profile": doc.get("role_profile"),
                     "department": doc.get("department"), "hq": doc.get("hq"), "user": by_user}
@@ -604,8 +643,8 @@ def guard(doc):
                     "doctype": OT, "reference_doctype": "Doctor Service", "setting": SETTING,
                     "reference": doc.name, "role_profile": doc.get("role_profile"),
                     "department": doc.get("department"), "hq": doc.get("hq"), "user": by_user,
-                    "next_approver": gm_user, "next_role": "GM",
-                    "data": doc.get("service_amount"), "status": START,
+                    "next_approver": gm_user, "next_role": step_role,
+                    "data": doc.get("service_amount"), "status": step,
                 })
                 ot.flags.update({"ignore_permissions": True, "ignore_mandatory": True, "ignore_links": True})
                 ot.insert()
@@ -616,12 +655,12 @@ def guard(doc):
                     doc.add_comment("Comment", "Earlier send-back: " + reason)
                 vals["reason_for_rejection"] = ""
             frappe.db.set_value(OT, tracker, vals)
-            frappe.get_doc(OT, tracker).add_comment("Workflow", START)
+            frappe.get_doc(OT, tracker).add_comment("Workflow", step)
             doc.custom_tracker = tracker
             # The service mirrors its tracker (the team's "operational tracker"
             # script keeps it in step from the next step on). Safe now that the
             # doctype's own "Doctor Service" workflow is inactive.
-            doc.workflow_state = START
+            doc.workflow_state = step
 
 
 guard(doc)

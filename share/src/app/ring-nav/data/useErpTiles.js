@@ -28,6 +28,9 @@ export async function fetchErpTiles({ endpointUrl, token, month, today, fetchImp
   const params = {};
   if (month) params.month = month;
   if (today) params.today = today;
+  // v=2 (this code only): RBM / SM get the Doctor Service approval tile
+  // for the services waiting on them in the RBM -> SM -> GM chain.
+  params.v = '2';
   const qs = Object.keys(params).length ? `?${new URLSearchParams(params)}` : '';
   const res = await fetchImpl(`${new URL(endpointUrl).origin}/api/method/elbrit_ring_nav${qs}`, {
     headers: { Authorization: authHeader(token), Accept: 'application/json' },

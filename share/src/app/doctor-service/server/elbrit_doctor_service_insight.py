@@ -47,7 +47,8 @@
 # or for the whole doctor.
 #
 # WHO: the viewing roles (VIEW_ROLES); read past permissions — visits are
-# Private events, readable by their participants only.
+# Private events, readable by their participants only. With v=2 (the new
+# app) also an ABM / RBM / SM for a doctor their own permissions show them.
 #
 # safe_exec: no import, no .format(), no set literals, no tuple
 # unpacking, no underscore-prefixed names.
@@ -127,10 +128,19 @@ def ym(y, m):
     return str(y) + "-" + ("0" if m < 10 else "") + str(m)
 
 
-if not viewer_of(frappe.session.user):
-    frappe.throw("Doctor services are open to IT, the MIS team, GM and CEO only.")
-
 doctor = str(frappe.form_dict.get("doctor") or "").strip()
+allowed = viewer_of(frappe.session.user)
+# ABM / RBM / SM (11 Nov 2026, new app only -- v=2): entering a service, or
+# approving one in the chain, they see a doctor's figures when their OWN
+# doctor permissions show them that doctor (frappe.get_list runs as them).
+if not allowed and doctor and str(frappe.form_dict.get("v") or "") == "2":
+    seat = frappe.db.get_value("Employee", {"user_id": frappe.session.user, "status": "Active"},
+                               "custom_role_profile") or ""
+    if grade_of(seat) in ["ABM", "RBM", "SRBM", "DEPUTY RBM", "SM"]:
+        allowed = bool(frappe.get_list("Lead", filters={"name": doctor}, pluck="name", limit_page_length=1))
+if not allowed:
+    frappe.throw("Doctor services are open to IT, the MIS team, GM, CEO and the doctor's own managers only.")
+
 exclude = str(frappe.form_dict.get("exclude") or "").strip()
 if not doctor:
     frappe.throw("Send the doctor (doctor=DR-...).")
