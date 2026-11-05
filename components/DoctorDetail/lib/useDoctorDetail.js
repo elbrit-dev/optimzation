@@ -26,7 +26,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { emptyData, loadDoctorData, readDoctorInput } from "./loadDoctor";
 import { makeConn } from "./source";
 import { appendLeadNote, ensureErpAuth } from "./erp";
-import { PERIODS, buildConsole, initialUi, parseDepartments } from "./console";
+import { buildConsole, initialUi, parseDepartments, periodOk } from "./console";
 import { makeActions } from "./actions";
 import { SAMPLE_DOCTOR_ID, sampleConsoleData } from "./sampleData";
 
@@ -110,7 +110,7 @@ export function useDoctorDetail({
     setUi((u) => ({ ...u, divs: parseDepartments(department), sel: null, chartPage: 0 }));
   }, [deptKey]); // eslint-disable-line react-hooks/exhaustive-deps
   useEffect(() => {
-    setUi((u) => ({ ...u, rangeMode: { ...u.rangeMode, mode: PERIODS.has(period) ? period : "fy" }, sel: null }));
+    setUi((u) => ({ ...u, rangeMode: { ...u.rangeMode, mode: periodOk(period) ? period : "fy" }, sel: null }));
   }, [period]);
   useEffect(() => { setUi((u) => ({ ...u, numShort: valueFormat === "short" })); }, [valueFormat]);
 

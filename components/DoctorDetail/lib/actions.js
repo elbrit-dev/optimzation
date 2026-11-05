@@ -9,7 +9,7 @@
  * same whether the state lives in a React hook or anywhere else.
  */
 
-import { PERIODS, parseDepartments } from "./console";
+import { periodOk, parseDepartments } from "./console";
 
 export function makeActions({ patch, getUi, getData, doctorId, refresh, writeNote, sample, panel }) {
   return {
@@ -33,7 +33,7 @@ export function makeActions({ patch, getUi, getData, doctorId, refresh, writeNot
     /** Replace the whole selection at once — what the `department` prop uses. */
     setDivs: (value) => patch({ divs: parseDepartments(value), sel: null, chartPage: 0 }),
     setRangeMode: (mode) => patch((ui) => ({
-      rangeMode: { ...ui.rangeMode, mode: PERIODS.has(mode) ? mode : "fy" },
+      rangeMode: { ...ui.rangeMode, mode: periodOk(mode) ? mode : "fy" },
       sel: null,
     })),
     setNumShort: (v) => patch({ numShort: !!v }),

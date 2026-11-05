@@ -18,8 +18,7 @@
  * drawer on wide screens, a bottom sheet on narrow ones. */
 
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { CATS, CAT_OF, EDITABLE, REWORK, cleanVals, cmp, fDY, localToday, money, roiTxt, short } from '../data/workflow';
-import { bizView } from '../data/insight';
+import { CATS, CAT_OF, EDITABLE, REWORK, cleanVals, fDY, localToday, money, roiTxt, short } from '../data/workflow';
 import { Combo, DatePicker, Icon, initials } from './parts';
 import { ensureStyles } from './styles';
 
@@ -88,7 +87,6 @@ export function ServiceForm({ client, doctor, entry, viewer, onClose, onSaved })
   ensureStyles();
   const editing = !!entry;
   const [opts, setOpts] = useState(null);
-  const [ins, setIns] = useState(null);
   const [loadErr, setLoadErr] = useState(null);
   const [f, setF] = useState(() => ({
     by: entry?.by || '',
@@ -115,7 +113,6 @@ export function ServiceForm({ client, doctor, entry, viewer, onClose, onSaved })
   useEffect(() => {
     let live = true;
     client.options(doctor.id, entry?.id).then((o) => { if (live) setOpts(o); }).catch((e) => { if (live) setLoadErr(e.message); });
-    client.insight(doctor.id, entry?.id).then((x) => { if (live) setIns(x); }).catch(() => {});
     return () => { live = false; };
   }, [client, doctor.id, entry?.id]);
 
@@ -143,9 +140,8 @@ export function ServiceForm({ client, doctor, entry, viewer, onClose, onSaved })
 
   // Judged on the chosen person's seat department (as the approval is); an SM
   // seat has none, so the chosen pair's department.
-  const judgeDept = chosen?.seat_department || pair?.department || null;
-  const biz = useMemo(() => bizView(ins, Number(f.amount) || 0, null, judgeDept), [ins, f.amount, judgeDept]);
-  const cells = biz ? biz.cells : null;
+  // The Latest ROI box: a sales user's own gate figures, or (MIS) those of the
+  // person chosen -- the doctor page's "Latest ROI" either way.
 
   // A sales entry's amount limit (low ROI / new doctor); the guard checks the same.
   const overCap = (opts?.viewer?.entry ?? viewer?.entry) === 'sales' ? capMessage(opts?.gate, Number(f.amount) || 0) : '';
@@ -187,6 +183,7 @@ export function ServiceForm({ client, doctor, entry, viewer, onClose, onSaved })
   const sales = (opts?.viewer?.entry ?? viewer?.entry) === 'sales';
   const gate = sales ? opts?.gate || null : null;
   const blocked = !!gate && !gate.allowed && !editing;
+  const latestRoi = sales ? gate : chosen?.roi || null;
   const myGrade = opts?.viewer?.grade || viewer?.grade || '';
 
   async function save() {
@@ -323,17 +320,21 @@ export function ServiceForm({ client, doctor, entry, viewer, onClose, onSaved })
             ) : null}
           </div>
 
-          {/* The doctor's numbers come after "On behalf of": picking the
-              RBM / SM picks the department they are shown for. */}
-          {cells ? (
-            <div className="dsv-mini">
-              <div className="h"><b>{judgeDept ? short(judgeDept) : 'This doctor'}</b><span>{biz.window}</span></div>
-              <div className="g">
-                <div><span>Total service</span><b className="num">{money(cells.service)}</b></div>
-                <div><span>Total support</span><b className="num" style={{ color: '#1E3A8A' }}>{money(cells.support)}</b></div>
-                <div><span>ROI</span><b className="num" style={{ color: '#B91C1C' }}>{roiTxt(cells.roi)}</b></div>
-              </div>
-              <div className="f">All departments · support {cmp(cells.allSupport)} · service {cmp(cells.all)} · ROI {roiTxt(cells.allRoi)}</div>
+          {/* The doctor's LATEST ROI -- the same figure as the doctor page's
+              "Latest ROI" and the one the entry rules use: support since the
+              latest service / that service. After "On behalf of": picking the
+              person picks the department it is worked out for. */}
+          {latestRoi ? (
+            <div className="dsv-mini dsv-rise">
+              <div className="h"><b>Latest ROI · {latestRoi.department ? short(latestRoi.department) : 'All departments'}</b>
+                {latestRoi.latest ? <span>since {fDY(latestRoi.latest.date)}</span> : null}</div>
+              {latestRoi.latest ? (
+                <div className="g">
+                  <div><span>Last service</span><b className="num">{money(latestRoi.spent || latestRoi.latest.amount)}</b></div>
+                  <div><span>Support since</span><b className="num" style={{ color: '#1E3A8A' }}>{money(latestRoi.support_since)}</b></div>
+                  <div><span>Latest ROI</span><b className="num" style={{ color: '#B91C1C' }}>{roiTxt(latestRoi.roi)}</b></div>
+                </div>
+              ) : <div className="f">No service yet, so no ROI.</div>}
             </div>
           ) : null}
 

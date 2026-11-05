@@ -154,7 +154,7 @@ function sampleGate(doctor, grade) {
   const cap = !allowed ? null : mode === 'new' ? NEW_CAP[grade] : mode === 'low' ? 5000 : null;
   return {
     allowed, mode, cap, escalate: ESCALATE[grade], grade, need: GATE_BAR[grade], needed_grade: needed, roi,
-    department: grade === 'SM' ? '' : CND, latest, support_since: roi == null ? 0 : Math.round(roi * 50000), months: 6,
+    department: grade === 'SM' ? '' : CND, latest, spent: latest ? latest.amount : 0, support_since: roi == null ? 0 : Math.round(roi * 50000), months: 6,
     from: '2024-04', to: '2026-10', linked: true,
   };
 }
@@ -220,7 +220,7 @@ export function makeSampleClient(role = 'MIS') {
           employees: viewer.entry === 'sales' ? [
             { employee: viewer.employee, employee_name: viewer.employee_name, seat: viewer.seat, grade: viewer.grade, pairs: [{ department: CND, hq: HQ[doctor] || 'HQ-Coimbatore' }] },
           ] : [
-            { employee: 'E01053', employee_name: PEOPLE.E01053.name, seat: PEOPLE.E01053.seat, grade: 'RBM', pairs: [{ department: CND, hq: HQ[doctor] || 'HQ-Coimbatore' }] },
+            { employee: 'E01053', employee_name: PEOPLE.E01053.name, seat: PEOPLE.E01053.seat, grade: 'RBM', pairs: [{ department: CND, hq: HQ[doctor] || 'HQ-Coimbatore' }], roi: sampleGate(doctor, 'RBM') },
             { employee: 'E00006', employee_name: PEOPLE.E00006.name, seat: PEOPLE.E00006.seat, grade: 'SM', pairs: [{ department: CND, hq: HQ[doctor] || 'HQ-Coimbatore' }, { department: 'Elbrit Coimbatore - ELPL', hq: 'HQ-Coimbatore' }] },
           ],
           services: SERVICES.map((name) => ({ name, category: '', capture: CAPTURE[name] || [] })),
