@@ -36,9 +36,9 @@ export function Detail({
 
   const fields = [
     ['Department', short(e.dept)],
-    ['On behalf of', `${e.byName}${e.byRole ? ' · ' + e.byRole : ''}`],
+    [e.selfEntered ? 'Entered for' : 'On behalf of', `${e.byName}${e.byRole ? ' · ' + e.byRole : ''}`],
     ['HQ', (e.hq || '—').replace(/^HQ-/, '')],
-    ['Entered by', `${e.enteredBy} · MIS`],
+    ['Entered by', e.selfEntered ? `${e.enteredBy} · ${e.byRole || 'themselves'} (self)` : `${e.enteredBy} · MIS`],
     ['Created on', fDY(e.created)],
     ['Employee ID', e.by || '—'],
     // What the service type captured (EB number, mobile number, loan number...).
