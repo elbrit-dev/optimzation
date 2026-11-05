@@ -78,6 +78,12 @@ export function resolveRange(range, at = now()) {
     from = mStart(p.getFullYear(), p.getMonth());
     to = mEnd(ny, nm);
     label = monthLabel(p.getFullYear(), p.getMonth()) + " – " + monthLabel(ny, nm);
+  } else if (/^fy\d\d$/.test(mode)) {
+    // a past financial year: "fy25" = April 2025 – March 2026
+    const y = 2000 + Number(mode.slice(2));
+    from = mStart(y, 3);
+    to = mEnd(y + 1, 2);
+    label = "FY " + mode.slice(2) + "-" + String(y + 1).slice(2);
   } else if (mode === "custom" && range?.from && range?.to) {
     const a = String(range.from).split("-").map(Number);
     const b = String(range.to).split("-").map(Number);

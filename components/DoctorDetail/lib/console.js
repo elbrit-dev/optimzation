@@ -68,6 +68,10 @@ export const CHART_H = 184;
  * not because it was slow, and "m6" is what people reached for instead.
  */
 export const PERIODS = new Set(["fy", "cur", "last", "m3", "m6", "all"]);
+/* A PAST financial year, "fy25" = FY 25-26 (Apr 2025 – Mar 2026), back to
+   the data floor (April 2024): offered in the Period list (12 Nov 2026). */
+export const isPastFy = (mode) => /^fy\d\d$/.test(String(mode || ""));
+export const periodOk = (mode) => PERIODS.has(mode) || isPastFy(mode);
 
 export const READ_NAMES = {
   lead: "the doctor's profile", support: "support", service: "service",
@@ -109,7 +113,7 @@ export function initialUi({ department, period, valueFormat } = {}) {
   return {
     divs: parseDepartments(department),
     // Opens on THIS month; the financial year is one tap away in Filter.
-    rangeMode: { mode: PERIODS.has(period) ? period : "cur", from: null, to: null },
+    rangeMode: { mode: periodOk(period) ? period : "cur", from: null, to: null },
     numShort: valueFormat === "short",
     pivotOn: false,
     openRow: null,
@@ -558,6 +562,11 @@ export function buildConsole(data, ui, on) {
     monthsIn >= 3 ? { k: "m3", label: "3 months" } : null,
     monthsIn >= 6 ? { k: "m6", label: "Last 6 months" } : null,
     { k: "fy", label: range.fyLabel },
+    // the past financial years, newest first, down to the data floor
+    ...Array.from({ length: Math.max(0, fyY - new Date(dataFloor()).getFullYear()) }, (_, i) => {
+      const y = fyY - 1 - i;
+      return { k: "fy" + String(y).slice(2), label: "FY " + String(y).slice(2) + "-" + String(y + 1).slice(2) };
+    }),
   ].filter(Boolean).map((o) => ({ ...o, on: rangeMode.mode === o.k }));
   // The custom range reaches back to the data floor (April 2024), not just
   // this financial year.

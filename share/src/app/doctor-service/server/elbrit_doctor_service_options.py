@@ -532,6 +532,14 @@ if doctor:
                 seat_dept[p.get("name")] = p.get("custom_department") or ""
         for e in employees:
             e["seat_department"] = seat_dept.get(e.get("seat")) or ""
+            # The doctor's LATEST ROI in that person's department (an SM seat
+            # has none: the whole doctor) -- the same figure as the doctor
+            # page's "Latest ROI" and the sales gate, so the form shows ONE
+            # ROI (12 Nov 2026; it showed a total-over-total ROI that differed).
+            g = roi_gate(doctor, e["seat_department"], grade_of(e.get("seat")))
+            e["roi"] = {"roi": g["roi"], "latest": g["latest"], "spent": g["spent"],
+                        "support_since": g["support_since"], "months": g["months"],
+                        "department": g["department"]}
         answer["employees"] = employees
         answer["previous"] = previous_service(doctor, str(frappe.form_dict.get("exclude") or "").strip())
         answer["increase_limit"] = INCREASE_LIMIT
