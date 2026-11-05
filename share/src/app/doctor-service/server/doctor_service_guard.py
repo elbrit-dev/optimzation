@@ -185,16 +185,15 @@ def guard(doc):
     def roi_gate(doctor, dept, grade):
         # COPIED from elbrit_doctor_service_options.py -- change both. `grade`: the
         # viewer's seat grade (a SALES_RANK key). -> the gate (see the header).
+        # The same "Latest ROI" as the doctor page (12 Nov 2026 -- it differed:
+        # 777x here against 3.89x there for DR-1): every service counts except
+        # an app one rejected or never submitted; support runs to TODAY; and the
+        # divisor is every service from the latest one's date on.
         today = frappe.utils.nowdate()
-        y = int(today[:4])
-        m = int(today[5:7]) - 1
-        if m < 1:
-            m = 12
-            y = y - 1
-        last_key = str(y) + "-" + ("0" if m < 10 else "") + str(m)
+        last_key = today[:7]
         start = FROM_MONTH + "-01"
-        end = str(frappe.utils.get_last_day(last_key + "-01"))
-        # the latest GIVEN service in the department, inside the window
+        end = today
+        # the latest service in the department, inside the window
         meta = frappe.get_meta("Doctor Service")
         fields = ["name", "service_name", "service_amount", "service_date", "date", "department", "role_profile"]
         for extra in ["custom_via_app", "custom_tracker"]:
@@ -219,21 +218,34 @@ def guard(doc):
                                     limit_page_length=0):
                 rp_dept[p.get("name")] = p.get("custom_department") or ""
         latest = None
+        counted = []
         for r in rows:
             d = str(r.get("service_date") or r.get("date") or "")[:10]
             if not d or d < start or d > end:
                 continue
             if r.get("custom_via_app"):
                 st = state.get(r.get("custom_tracker")) or ""
-                if not (st.endswith("Approved and Verified") or st.endswith("Approved and Waiting for Verification")):
+                if not st or st.endswith("Rejected"):
                     continue
             if dept and (rp_dept.get(r.get("role_profile")) or r.get("department") or "") != dept:
                 continue
             if float(r.get("service_amount") or 0) <= 0:
                 continue
+            counted.append([d, float(r.get("service_amount") or 0)])
             if latest is None or d > latest["date"]:
                 latest = {"service": r.get("service_name"), "date": d, "amount": float(r.get("service_amount") or 0)}
-        # the support since that service's month, up to last month
+        # the divisor: every service from the latest one's date on (same date and
+        # amount once, as the doctor page dedupes)
+        spent = 0
+        if latest:
+            seen_sv = {}
+            for c in counted:
+                k = c[0] + "|" + str(c[1])
+                if c[0] >= latest["date"] and not seen_sv.get(k):
+                    seen_sv[k] = 1
+                    spent = spent + c[1]
+        # the support since that service's month, this month's included (a
+        # support record is dated at its month's end)
         since = 0
         months = 0
         if latest:
@@ -247,7 +259,8 @@ def guard(doc):
                 "role_profile" if si_meta.has_field("role_profile") else "")
             heads = {}
             for s in frappe.get_all("Doctor Support",
-                                    filters=[["doctor", "=", doctor], ["date", ">=", from_day], ["date", "<=", end]],
+                                    filters=[["doctor", "=", doctor], ["date", ">=", from_day],
+                                             ["date", "<=", str(frappe.utils.get_last_day(today))]],
                                     fields=["name", "custom_total_amount"], limit_page_length=0):
                 heads[s.get("name")] = float(s.get("custom_total_amount") or 0)
             if heads:
@@ -279,7 +292,7 @@ def guard(doc):
                     for n in heads:
                         if not with_lines.get(n):
                             since = since + heads[n]
-        roi = (since / latest["amount"]) if latest else None
+        roi = (since / spent) if latest and spent else None
         mine = GATE_GRADE.get(grade) or ""
         need = None
         for g in GATE:
@@ -309,7 +322,7 @@ def guard(doc):
         return {"allowed": allowed, "grade": mine, "need": need, "needed_grade": needed, "mode": mode,
                 "cap": cap if allowed else None, "escalate": ESCALATE.get(mine) or "",
                 "roi": round(roi, 2) if roi is not None else None, "department": dept or "",
-                "latest": latest, "support_since": round(since, 2), "months": months,
+                "latest": latest, "spent": round(spent, 2), "support_since": round(since, 2), "months": months,
                 "from": FROM_MONTH, "to": last_key, "linked": True}
 
 

@@ -25,7 +25,7 @@ import {
   MONTHS, fdate, inrShort, makeMoney, monthLabel, monthsSince, now, plural, roiText, sdate, span,
 } from "./format";
 import {
-  UNATTRIBUTED_NOTE, buildTable, computeRoi, coverageByRole, financialYearStart, flow, mEnd, mStart,
+  UNATTRIBUTED_NOTE, buildTable, computeRoi, coverageByRole, dataFloor, financialYearStart, flow, mEnd, mStart,
   monthSeries, monthWindow, resolveRange, sum,
 } from "./analytics";
 import { TONE } from "../ui/parts";
@@ -559,12 +559,15 @@ export function buildConsole(data, ui, on) {
     monthsIn >= 6 ? { k: "m6", label: "Last 6 months" } : null,
     { k: "fy", label: range.fyLabel },
   ].filter(Boolean).map((o) => ({ ...o, on: rangeMode.mode === o.k }));
-  const floorKey = fyY + "-04";
+  // The custom range reaches back to the data floor (April 2024), not just
+  // this financial year.
+  const floorY = new Date(dataFloor()).getFullYear();
+  const floorKey = floorY + "-" + String(new Date(dataFloor()).getMonth() + 1).padStart(2, "0");
   const picker = {
     open: ui.pickOpen,
     toggle: on.togglePicker,
     year: String(ui.pickYear),
-    prevYear: () => on.setPickYear(Math.max(ui.pickYear - 1, fyY)),
+    prevYear: () => on.setPickYear(Math.max(ui.pickYear - 1, floorY)),
     nextYear: () => on.setPickYear(Math.min(ui.pickYear + 1, ny)),
     label: rangeMode.from && rangeMode.to
       ? (() => {
@@ -585,7 +588,7 @@ export function buildConsole(data, ui, on) {
     pick: on.pickMonth,
     cells: MONTHS.map((mn, i) => {
       const k = ui.pickYear + "-" + String(i + 1).padStart(2, "0");
-      // Future months, and months before the financial year, cannot be picked.
+      // Future months, and months before the data floor (April 2024), cannot be picked.
       const future = ui.pickYear > ny || (ui.pickYear === ny && i > nm) || k < floorKey;
       const edge = k === rangeMode.from || k === rangeMode.to;
       const band = !!rangeMode.from && !!rangeMode.to && k > rangeMode.from && k < rangeMode.to;
