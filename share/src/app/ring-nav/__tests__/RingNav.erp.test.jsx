@@ -46,7 +46,7 @@ describe('RingNav with tiles from ERP', () => {
     render(<RingNav gqlToken="k:s" month="2026-09" />);
     expect(await screen.findByRole('link', { name: /6 left/ })).toHaveAttribute('href', '/secondary-entry');
     expect(labels()).toHaveLength(2);
-    expect(calls[0]).toEqual({ url: 'https://erp.test/api/method/elbrit_ring_nav?month=2026-09', auth: 'token k:s' });
+    expect(calls[0]).toEqual({ url: 'https://erp.test/api/method/elbrit_ring_nav?month=2026-09&v=2', auth: 'token k:s' });
   });
 
   it('re-points a tile by id with hrefs', async () => {
@@ -84,6 +84,6 @@ describe('RingNav previewing a day from ERP', () => {
     const calls = erp([[tile('secondary-entry', '5 Oct')]]);
     render(<RingNav gqlToken="k5:s" now="2026-10-03" />);
     await screen.findByRole('link', { name: /5 Oct/ });
-    expect(calls[0].url).toBe('https://erp.test/api/method/elbrit_ring_nav?today=2026-10-03');
+    expect(calls[0].url).toBe('https://erp.test/api/method/elbrit_ring_nav?today=2026-10-03&v=2');
   });
 });

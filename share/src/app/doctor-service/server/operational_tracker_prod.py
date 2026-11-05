@@ -341,6 +341,45 @@ if old and old.workflow_state != doc.workflow_state \
                     doc.todo = first_todo_name
             except Exception:
                 pass
+    elif (doc.setting == "Doctor Service" or doc.reference_doctype == "Doctor Service") \
+            and ws in ["SM Approval Waiting", "GM Approval Waiting"]:
+        # DOCTOR SERVICE CHAIN (11 Nov 2026): RBM -> SM -> GM. After an RBM /
+        # SM approval, the next approver is the first live manager above the
+        # one who just approved who holds the new step: an SM seat for the SM
+        # step, a GM-role user for the GM step. With no SM on the way up
+        # (vacant, or the RBM reports to the GM), it goes straight to GM.
+        # Inline on purpose: helpers here may not use module variables.
+        want = "SM" if ws == "SM Approval Waiting" else "GM"
+        cur = frappe.db.get_value("Employee", {"user_id": old.next_approver, "status": "Active"}, "reports_to") \
+            if old.next_approver else None
+        found = None
+        found_role = None
+        hops = 0
+        while cur and hops < 15 and not found:
+            hops = hops + 1
+            m = frappe.db.get_value("Employee", cur, ["employee_name", "status", "user_id", "reports_to",
+                                                      "custom_role_profile"], as_dict=True)
+            if not m:
+                break
+            if m.status == "Active" and m.user_id and (m.employee_name or "")[:6].lower() != "vacant":
+                if frappe.db.exists("Has Role", {"parent": m.user_id, "parenttype": "User", "role": "GM"}):
+                    found = m.user_id
+                    found_role = "GM"
+                elif want == "SM":
+                    head = (m.custom_role_profile or "").split("-")[0]
+                    g = ""
+                    for ch in head:
+                        if not ch.isdigit():
+                            g = g + ch
+                    if g.strip().upper() == "SM":
+                        found = m.user_id
+                        found_role = "SM"
+            cur = m.reports_to
+        if found:
+            doc.next_approver = found
+            if found_role == "GM" and ws != "GM Approval Waiting":
+                doc.flags.ignore_validate_workflow = True
+                doc.workflow_state = "GM Approval Waiting"
     elif doc.next_approver:
         # hierarchy flow: multi-level advance up the reports_to chain
         reports_to = frappe.db.get_value("Employee", {"user_id": doc.next_approver, "status": "Active"}, "reports_to")

@@ -76,8 +76,9 @@ export function makeClient({ endpointUrl, token, fetchImpl = (...a) => fetch(...
        them no Add service button until this ships there. */
     options: (doctor, exclude) => method('elbrit_doctor_service_options',
       { v: 2, ...(doctor ? { doctor } : {}), ...(doctor && exclude ? { exclude } : {}) }),
-    list: () => method('elbrit_doctor_service_list'),
-    insight: (doctor, exclude) => method('elbrit_doctor_service_insight', exclude ? { doctor, exclude } : { doctor }),
+    /* v=2 (this code only): RBM / SM approvers get their queue and team. */
+    list: () => method('elbrit_doctor_service_list', { v: 2 }),
+    insight: (doctor, exclude) => method('elbrit_doctor_service_insight', exclude ? { doctor, exclude, v: 2 } : { doctor, v: 2 }),
     /* Service allocation: the GM's monthly amount per SM / ZSM and each SM's
        split of it across their departments (server/elbrit_service_allocation*). */
     allocation: (month) => method('elbrit_service_allocation', month ? { month } : undefined),

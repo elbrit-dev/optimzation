@@ -6,7 +6,7 @@
  * "Is this doctor worth it?", the record's fields, remarks, attachment and
  * activity; the footer carries what THIS viewer may do with it. */
 
-import {
+import { isLowerStep,
   CEO, GM, NOT_SUBMITTED, REJECTED, REWORK, activity, approverRoles, budgetView, canDecide, canEdit, fDY, money, short, statusOf, stepper, stoppedBy,
 } from '../data/workflow';
 import { Biz } from './Biz';
@@ -27,6 +27,8 @@ export function Detail({
   // "Send to CEO" or "Approve as final" for the CEO.
   const isCeo = approverRoles(viewer).includes('CEO');
   const gmCanClose = decide && e.state === GM && !isCeo;
+  // RBM / SM: Approve passes it up the chain (never final here).
+  const lowerStep = isLowerStep(e);
   const stop = e.state === REJECTED || e.state === REWORK ? stoppedBy(e) : null;
   const stopRole = stop?.role === 'MIS' ? 'verification' : stop?.role;
   const ax = e.att ? extOf(e.att) : null;
@@ -60,7 +62,7 @@ export function Detail({
     footer = (
       <>
         <button type="button" className="dsv-btn rej" onClick={onReject} disabled={!!busy}>Reject</button>
-        <button type="button" className="dsv-btn" onClick={onRevisit} disabled={!!busy} title="Send it back to the MIS team to fix">Send back</button>
+        <button type="button" className="dsv-btn" onClick={onRevisit} disabled={!!busy} title={e.selfEntered ? 'Send it back to fix' : 'Send it back to the MIS team to fix'}>Send back</button>
         <span style={{ flex: 1 }} />
         <div className="dsv-decide">
           {gmCanClose ? (
@@ -68,7 +70,7 @@ export function Detail({
               <Icon name="check" size={15} color="#15803D" width={3} />{busy === 'final' ? 'Approving…' : 'Approve as final'}
             </button>
           ) : null}
-          <button type="button" className="dsv-btn pri" onClick={isCeo ? (onCeoApprove || onFinal) : e.state === GM ? onApprove : onFinal} disabled={!!busy}>
+          <button type="button" className="dsv-btn pri" onClick={isCeo ? (onCeoApprove || onFinal) : e.state === GM || lowerStep ? onApprove : onFinal} disabled={!!busy}>
             <Icon name="check" size={16} color="#fff" width={3} />
             {busy === 'approve' || busy === 'ceo' || (busy === 'final' && !gmCanClose) ? 'Working…' : !isCeo && e.state === GM ? 'Send to CEO' : 'Approve'}
             {!sheet ? <span className="k">A</span> : null}
