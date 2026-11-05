@@ -40,6 +40,18 @@
 #      cannot file a service under the wrong department.
 #   3. CHECKS — amount above 0 (2 places), service date not in the future,
 #      service in Doctor Service Master, doctor exists. Attachment optional.
+#   2b. SALES ENTRY (5 Nov 2026) — an ABM / RBM / SM seat holder (no MIS
+#      role) may enter a service for THEMSELVES only (`by` = their own
+#      employee, linked to the doctor), and only when the doctor's latest
+#      ROI clears their grade's bar: >= 4 ABM, >= 3.5 RBM, >= 3 SM; below 3
+#      SM / ZSM only, up to 5,000; a NEW doctor (no given service): ABM up to
+#      20,000, RBM 35,000, SM 50,000. roi_gate() is COPIED from elbrit_doctor_service_options.py
+#      (see the ROI GATE there) -- change both. MIS has no gate.
+#   3b. INCREASE REASON (5 Nov 2026) -- a service more than INCREASE_LIMIT
+#      (10,000) above the doctor's previous given service needs
+#      custom_increase_reason (when the field exists); at or under the limit
+#      the field is cleared. previous_service() is COPIED from
+#      elbrit_doctor_service_options.py -- change both.
 #   4. custom_entered_by — the MIS employee who raised it (if the field
 #      exists).
 #   5. INTO APPROVAL — on an entry role's save of a new service (or one
@@ -64,12 +76,26 @@ def guard(doc):
     ENTRY_ROLES = ["MIS", "User MIS", "MIS Admin", "Manager MIS", "CRM Manager", "IT"]
     ON_BEHALF_GRADES = ["RBM", "SM"]
     MAX_HOPS = 15
+    # ROI GATE -- COPIED from elbrit_doctor_service_options.py, change both.
+    FROM_MONTH = "2024-04"
+    GATE = [["ABM", 4.0], ["RBM", 3.5], ["SM", 3.0]]
+    SALES_RANK = {"ABM": 1, "RBM": 2, "SRBM": 2, "DEPUTY RBM": 2, "SM": 3}
+    GATE_GRADE = {"ABM": "ABM", "RBM": "RBM", "SRBM": "RBM", "DEPUTY RBM": "RBM", "SM": "SM"}
+    # ROI below the lowest bar: SM / ZSM only, at most LOW_CAP a service.
+    LOW_GRADE = "SM"
+    LOW_CAP = 5000
+    # A NEW doctor (no given service yet): every sales grade, up to its own cap;
+    # over it, ESCALATE says whom to ask.
+    NEW_CAP = {"ABM": 20000, "RBM": 35000, "SM": 50000}
+    ESCALATE = {"ABM": "RBM", "RBM": "SM", "SM": "MIS"}
+    INCREASE_LIMIT = 10000
     OT = "Operational Tracker"
     SETTING = "Doctor Service"
     START = "GM Approval Waiting"
     REWORK = "Rework"
     CONTENT = ["doctor", "service_name", "service_date", "service_amount", "by",
-               "department", "hq", "remarks", "service_attachement", "custom_service_details"]
+               "department", "hq", "remarks", "service_attachement", "custom_service_details",
+               "custom_increase_reason"]
     LATE_OK = ["service_attachement"]
 
 
@@ -96,8 +122,9 @@ def guard(doc):
         return EMP_CACHE[eid]
 
 
-    def linked_managers(doctor):
+    def linked_managers(doctor, grades=None):
         # COPIED from elbrit_doctor_service_options.py — change both.
+        want = grades or ON_BEHALF_GRADES
         rows = frappe.get_all("Role Profile Multiselect",
                               filters={"parenttype": "Lead", "parent": doctor, "parentfield": "custom_role_profile"},
                               fields=["role_profile_list", "department", "hq"],
@@ -131,7 +158,7 @@ def guard(doc):
                         break
                     own = e.get("custom_role_profile") or e.get("role_id") or ""
                     g = grade_of(own)
-                    if g in ON_BEHALF_GRADES and e.get("status") == "Active" and not is_vacant_name(e.get("employee_name")):
+                    if g in want and e.get("status") == "Active" and not is_vacant_name(e.get("employee_name")):
                         if eid not in found:
                             found[eid] = {"employee": eid, "employee_name": e.get("employee_name"),
                                           "seat": own, "grade": g, "pairs": []}
@@ -148,6 +175,174 @@ def guard(doc):
         for eid in order:
             out.append(found[eid])
         return out
+
+
+    def roi_gate(doctor, dept, grade):
+        # COPIED from elbrit_doctor_service_options.py -- change both. `grade`: the
+        # viewer's seat grade (a SALES_RANK key). -> the gate (see the header).
+        today = frappe.utils.nowdate()
+        y = int(today[:4])
+        m = int(today[5:7]) - 1
+        if m < 1:
+            m = 12
+            y = y - 1
+        last_key = str(y) + "-" + ("0" if m < 10 else "") + str(m)
+        start = FROM_MONTH + "-01"
+        end = str(frappe.utils.get_last_day(last_key + "-01"))
+        # the latest GIVEN service in the department, inside the window
+        meta = frappe.get_meta("Doctor Service")
+        fields = ["name", "service_name", "service_amount", "service_date", "date", "department", "role_profile"]
+        for extra in ["custom_via_app", "custom_tracker"]:
+            if meta.has_field(extra):
+                fields.append(extra)
+        rows = frappe.get_all("Doctor Service", filters={"doctor": doctor}, fields=fields, limit_page_length=0)
+        trackers = []
+        seats = []
+        for r in rows:
+            if r.get("custom_via_app") and r.get("custom_tracker"):
+                trackers.append(r.get("custom_tracker"))
+            if r.get("role_profile") and r.get("role_profile") not in seats:
+                seats.append(r.get("role_profile"))
+        state = {}
+        if trackers:
+            for t in frappe.get_all("Operational Tracker", filters=[["name", "in", trackers]],
+                                    fields=["name", "workflow_state"], limit_page_length=0):
+                state[t.get("name")] = str(t.get("workflow_state") or "")
+        rp_dept = {}
+        if seats:
+            for p in frappe.get_all("Role Profile", filters=[["name", "in", seats]], fields=["name", "custom_department"],
+                                    limit_page_length=0):
+                rp_dept[p.get("name")] = p.get("custom_department") or ""
+        latest = None
+        for r in rows:
+            d = str(r.get("service_date") or r.get("date") or "")[:10]
+            if not d or d < start or d > end:
+                continue
+            if r.get("custom_via_app"):
+                st = state.get(r.get("custom_tracker")) or ""
+                if not (st.endswith("Approved and Verified") or st.endswith("Approved and Waiting for Verification")):
+                    continue
+            if dept and (rp_dept.get(r.get("role_profile")) or r.get("department") or "") != dept:
+                continue
+            if float(r.get("service_amount") or 0) <= 0:
+                continue
+            if latest is None or d > latest["date"]:
+                latest = {"service": r.get("service_name"), "date": d, "amount": float(r.get("service_amount") or 0)}
+        # the support since that service's month, up to last month
+        since = 0
+        months = 0
+        if latest:
+            from_day = latest["date"][:7] + "-01"
+            months = (int(last_key[:4]) - int(from_day[:4])) * 12 + int(last_key[5:7]) - int(from_day[5:7]) + 1
+            si = "Support Items"
+            si_meta = frappe.get_meta(si)
+            si_dept = "custom_department" if si_meta.has_field("custom_department") else (
+                "department" if si_meta.has_field("department") else "")
+            si_seat = "custom_role_profile" if si_meta.has_field("custom_role_profile") else (
+                "role_profile" if si_meta.has_field("role_profile") else "")
+            heads = {}
+            for s in frappe.get_all("Doctor Support",
+                                    filters=[["doctor", "=", doctor], ["date", ">=", from_day], ["date", "<=", end]],
+                                    fields=["name", "custom_total_amount"], limit_page_length=0):
+                heads[s.get("name")] = float(s.get("custom_total_amount") or 0)
+            if heads:
+                lf = ["parent", "amount"]
+                if si_dept:
+                    lf.append(si_dept + " as dept")
+                if si_seat:
+                    lf.append(si_seat + " as seat")
+                lines = frappe.get_all(si, filters=[["parenttype", "=", "Doctor Support"],
+                                                    ["parent", "in", list(heads.keys())]],
+                                       fields=lf, limit_page_length=0)
+                lseats = []
+                for it in lines:
+                    if it.get("seat") and it.get("seat") not in rp_dept and it.get("seat") not in lseats:
+                        lseats.append(it.get("seat"))
+                if lseats:
+                    for p in frappe.get_all("Role Profile", filters=[["name", "in", lseats]],
+                                            fields=["name", "custom_department"], limit_page_length=0):
+                        rp_dept[p.get("name")] = p.get("custom_department") or ""
+                with_lines = {}
+                for it in lines:
+                    with_lines[it.get("parent")] = 1
+                    # the SEAT's department; the line's own only for a seat without one
+                    if dept and (rp_dept.get(it.get("seat")) or it.get("dept") or "") != dept:
+                        continue
+                    since = since + float(it.get("amount") or 0)
+                if not dept:
+                    # a record without lines counts by its own total
+                    for n in heads:
+                        if not with_lines.get(n):
+                            since = since + heads[n]
+        roi = (since / latest["amount"]) if latest else None
+        mine = GATE_GRADE.get(grade) or ""
+        need = None
+        for g in GATE:
+            if g[0] == mine:
+                need = g[1]
+        # Three cases (5 Nov 2026):
+        #   new  no given service yet -- every sales grade, up to NEW_CAP[grade]
+        #   low  ROI below the lowest bar (3) -- SM / ZSM only, up to LOW_CAP
+        #   roi  ROI >= 3 -- the grade bars (GATE), no amount limit
+        cap = None
+        if roi is None:
+            mode = "new"
+            needed = "ABM"
+            cap = NEW_CAP.get(mine)
+        else:
+            needed = None
+            for g in GATE:
+                if needed is None and roi >= g[1]:
+                    needed = g[0]
+            if needed:
+                mode = "roi"
+            else:
+                mode = "low"
+                needed = LOW_GRADE
+                cap = LOW_CAP
+        allowed = (SALES_RANK.get(grade) or 0) >= (SALES_RANK.get(needed) or 99)
+        return {"allowed": allowed, "grade": mine, "need": need, "needed_grade": needed, "mode": mode,
+                "cap": cap if allowed else None, "escalate": ESCALATE.get(mine) or "",
+                "roi": round(roi, 2) if roi is not None else None, "department": dept or "",
+                "latest": latest, "support_since": round(since, 2), "months": months,
+                "from": FROM_MONTH, "to": last_key, "linked": True}
+
+
+    def previous_service(doctor, exclude):
+        # COPIED from elbrit_doctor_service_options.py -- change both.
+        # The doctor's latest GIVEN service (imported = paid; an app one once
+        # finally approved), any department, any date; `exclude` = the record
+        # being edited. -> { name, service, date, amount } or None.
+        meta = frappe.get_meta("Doctor Service")
+        fields = ["name", "service_name", "service_amount", "service_date", "date"]
+        for extra in ["custom_via_app", "custom_tracker"]:
+            if meta.has_field(extra):
+                fields.append(extra)
+        rows = frappe.get_all("Doctor Service", filters={"doctor": doctor}, fields=fields, limit_page_length=0)
+        trackers = []
+        for r in rows:
+            if r.get("custom_via_app") and r.get("custom_tracker"):
+                trackers.append(r.get("custom_tracker"))
+        state = {}
+        if trackers:
+            for t in frappe.get_all("Operational Tracker", filters=[["name", "in", trackers]],
+                                    fields=["name", "workflow_state"], limit_page_length=0):
+                state[t.get("name")] = str(t.get("workflow_state") or "")
+        best = None
+        for r in rows:
+            if exclude and r.get("name") == exclude:
+                continue
+            if r.get("custom_via_app"):
+                st = state.get(r.get("custom_tracker")) or ""
+                if not (st.endswith("Approved and Verified") or st.endswith("Approved and Waiting for Verification")):
+                    continue
+            amt = float(r.get("service_amount") or 0)
+            d = str(r.get("service_date") or r.get("date") or "")[:10]
+            if amt <= 0 or not d:
+                continue
+            if best is None or d > best["date"]:
+                best = {"name": r.get("name"), "service": r.get("service_name"), "date": d, "amount": amt}
+        return best
 
 
     def has_role(u, role):
@@ -224,8 +419,16 @@ def guard(doc):
         for r in ENTRY_ROLES:
             if r in roles:
                 can_enter = True
-        mine = frappe.get_all("Employee", filters={"user_id": user, "status": "Active"}, pluck="name", limit=1)
-        me = mine[0] if mine else user
+        mine = frappe.get_all("Employee", filters={"user_id": user, "status": "Active"},
+                              fields=["name", "employee_name", "custom_role_profile"], limit=1)
+        me = mine[0].get("name") if mine else user
+        # Sales entry: an ABM / RBM / SM seat holder without an MIS role.
+        my_seat = (mine[0].get("custom_role_profile") or "") if mine else ""
+        my_grade = grade_of(my_seat)
+        sales = False
+        if not can_enter and mine and my_grade in SALES_RANK and not is_vacant_name(mine[0].get("employee_name")):
+            can_enter = True
+            sales = True
 
         old = None if doc.is_new() else doc.get_doc_before_save()
         tracker = old.get("custom_tracker") if old else None
@@ -251,7 +454,7 @@ def guard(doc):
             frappe.throw("This service is " + (str(ot_state) if done else "in approval (" + str(ot_state) + ")")
                          + " and can no longer be edited.")
         if (not old or changed) and not can_enter:
-            frappe.throw("Only the MIS team can add or edit a doctor service.")
+            frappe.throw("Only the MIS team, ABMs, RBMs and SMs can add or edit a doctor service.")
 
         # ---- 2 + 3. validate content, set department / HQ from the employee
         if not old or changed:
@@ -302,6 +505,18 @@ def guard(doc):
             if amount <= 0:
                 frappe.throw("Enter an amount above 0.")
             doc.service_amount = amount
+            # 3b. a jump of more than INCREASE_LIMIT over the previous service needs a reason
+            if has("custom_increase_reason"):
+                prev = previous_service(doc.get("doctor"), None if doc.is_new() else doc.name)
+                if prev and amount - prev["amount"] > INCREASE_LIMIT:
+                    if not str(doc.get("custom_increase_reason") or "").strip():
+                        frappe.throw("This is " + frappe.utils.fmt_money(amount - prev["amount"], currency="INR")
+                                     + " more than the doctor's previous service (" + str(prev["service"]) + ", "
+                                     + frappe.utils.fmt_money(prev["amount"], currency="INR")
+                                     + "). Give the reason for the increase.")
+                    doc.custom_increase_reason = str(doc.get("custom_increase_reason")).strip()
+                else:
+                    doc.custom_increase_reason = None
 
             if not doc.get("service_date"):
                 frappe.throw("Pick the service date.")
@@ -311,9 +526,38 @@ def guard(doc):
             if not doc.get("by"):
                 frappe.throw("Choose the RBM or SM this service is entered for.")
             chosen = None
-            for m in linked_managers(doc.get("doctor")):
-                if m["employee"] == doc.get("by"):
-                    chosen = m
+            if sales:
+                # a sales entry is for the person entering it, and must pass the gate
+                if doc.get("by") != me:
+                    frappe.throw("You can enter a service only for yourself.")
+                for m in linked_managers(doc.get("doctor"), list(SALES_RANK.keys())):
+                    if m["employee"] == me:
+                        chosen = m
+                if not chosen:
+                    frappe.throw("This doctor is not linked to you, so you cannot enter a service for them.")
+                my_dept = frappe.db.get_value("Role Profile", my_seat, "custom_department") or "" if my_seat else ""
+                gate = roi_gate(doc.get("doctor"), my_dept, my_grade)
+                if not gate["allowed"]:
+                    if gate["mode"] == "low":
+                        frappe.throw("This doctor's latest ROI is " + str(gate["roi"]) + "x, below 3x: only an SM / ZSM"
+                                     + " can enter a service for them, up to "
+                                     + frappe.utils.fmt_money(LOW_CAP, currency="INR") + ".")
+                    who = gate["needed_grade"] + " and above" if gate["needed_grade"] != "SM" else "SM / ZSM"
+                    frappe.throw("This doctor's latest ROI is " + str(gate["roi"]) + "x; " + ("an " if gate["grade"][:1] in "AEFHILMNORSX" else "a ")
+                                 + gate["grade"] + " needs " + str(gate["need"]) + "x to enter a service."
+                                 + " It can be entered by " + who + ".")
+                if gate["cap"] and float(doc.get("service_amount") or 0) > gate["cap"]:
+                    if gate["mode"] == "low":
+                        frappe.throw("You've hit the limit: you can't add more than "
+                                     + frappe.utils.fmt_money(gate["cap"], currency="INR")
+                                     + " of service for this doctor (latest ROI below 3x).")
+                    esc = gate["escalate"]
+                    frappe.throw("Your limit for a new doctor is " + frappe.utils.fmt_money(gate["cap"], currency="INR")
+                                 + ". For more, contact " + ("the MIS team" if esc == "MIS" else "your " + esc) + ".")
+            else:
+                for m in linked_managers(doc.get("doctor")):
+                    if m["employee"] == doc.get("by"):
+                        chosen = m
             if not chosen:
                 frappe.throw(str(doc.get("by")) + " is not an RBM or SM linked to this doctor, so the service cannot be filed under them.")
 

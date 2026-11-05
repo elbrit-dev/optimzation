@@ -122,7 +122,33 @@ const VIEWERS = {
   GM: { user: GM_P.user, employee: 'E00003', employee_name: GM_P.name, can_enter: false, can_view: true, approver: 'GM', approvers: ['GM'], verifier: false },
   CEO: { user: CEO_P.user, employee: 'E00015', employee_name: CEO_P.name, can_enter: false, can_view: true, approver: 'CEO', approvers: ['GM', 'CEO'], verifier: false },
   IT: { user: 'it@elbrit.org', employee: 'E00900', employee_name: 'IT Team', can_enter: false, can_view: true, approver: null, verifier: false },
+  // Sales entry: for themselves, behind the doctor's ROI gate.
+  ABM: { user: 'senthil@elbrit.org', employee: 'E00410', employee_name: 'R Senthil Kumar', can_enter: true, can_view: false, approver: null, verifier: false, entry: 'sales', grade: 'ABM', seat: 'ABM-CND-CBE' },
+  RBM: { user: 'bala@elbrit.org', employee: 'E01053', employee_name: 'Balamurugan Eswaran', can_enter: true, can_view: false, approver: null, verifier: false, entry: 'sales', grade: 'RBM', seat: 'RBM3-CND-CBE' },
+  SM: { user: 'suresh@elbrit.org', employee: 'E00006', employee_name: 'Suresh R', can_enter: true, can_view: false, approver: null, verifier: false, entry: 'sales', grade: 'SM', seat: 'SM-CND-ELB-KE' },
 };
+
+/* The ROI gate as the options script answers it, made up per doctor: DR-1
+   clears every bar, DR-30 only the SM's, DR-43 none (MIS only), DR-46036 has
+   no service yet; others from a hash. */
+const GATE_BAR = { ABM: 4, RBM: 3.5, SM: 3 };
+const NEW_CAP = { ABM: 20000, RBM: 35000, SM: 50000 };
+const ESCALATE = { ABM: 'RBM', RBM: 'SM', SM: 'MIS' };
+const RANK = { ABM: 1, RBM: 2, SM: 3 };
+function sampleGate(doctor, grade) {
+  const fixed = { 'DR-1': 4.32, 'DR-30': 3.21, 'DR-43': 2.1, 'DR-46036': null };
+  const roi = doctor in fixed ? fixed[doctor] : Math.round((([...doctor].reduce((a, c) => a + c.charCodeAt(0), 0) % 30) / 10 + 2) * 100) / 100;
+  const mode = roi == null ? 'new' : roi >= 3 ? 'roi' : 'low';
+  const needed = roi == null ? 'ABM' : roi >= 4 ? 'ABM' : roi >= 3.5 ? 'RBM' : 'SM';
+  const latest = roi == null ? null : { service: 'Cash', date: '2026-05-26', amount: 50000 };
+  const allowed = RANK[grade] >= RANK[needed];
+  const cap = !allowed ? null : mode === 'new' ? NEW_CAP[grade] : mode === 'low' ? 5000 : null;
+  return {
+    allowed, mode, cap, escalate: ESCALATE[grade], grade, need: GATE_BAR[grade], needed_grade: needed, roi,
+    department: grade === 'SM' ? '' : CND, latest, support_since: roi == null ? 0 : Math.round(roi * 50000), months: 6,
+    from: '2024-04', to: '2026-10', linked: true,
+  };
+}
 
 /* Last-3 visits by role, deterministic per doctor. */
 function visitsFor(id) {
@@ -171,8 +197,18 @@ export function makeSampleClient(role = 'MIS') {
       viewer,
       ...(doctor ? {
         doctor: { id: doctor, name: DOCTORS[doctor] || doctor },
+        ...(viewer.entry === 'sales' ? { gate: sampleGate(doctor, viewer.grade) } : {}),
+        // The doctor's latest service (any state here) and the increase limit.
+        increase_limit: 10000,
+        previous: (() => {
+          const r = rows.filter((x) => x.doctor === doctor && Number(x.service_amount) > 0)
+            .sort((x, y) => String(y.service_date).localeCompare(String(x.service_date)))[0];
+          return r ? { name: r.name, service: r.service_name, date: r.service_date, amount: Number(r.service_amount) } : null;
+        })(),
         ...(viewer.can_enter ? {
-          employees: [
+          employees: viewer.entry === 'sales' ? [
+            { employee: viewer.employee, employee_name: viewer.employee_name, seat: viewer.seat, grade: viewer.grade, pairs: [{ department: CND, hq: HQ[doctor] || 'HQ-Coimbatore' }] },
+          ] : [
             { employee: 'E01053', employee_name: PEOPLE.E01053.name, seat: PEOPLE.E01053.seat, grade: 'RBM', pairs: [{ department: CND, hq: HQ[doctor] || 'HQ-Coimbatore' }] },
             { employee: 'E00006', employee_name: PEOPLE.E00006.name, seat: PEOPLE.E00006.seat, grade: 'SM', pairs: [{ department: CND, hq: HQ[doctor] || 'HQ-Coimbatore' }, { department: 'Elbrit Coimbatore - ELPL', hq: 'HQ-Coimbatore' }] },
           ],

@@ -79,7 +79,7 @@ CHUNK = 500
 ENTRY_ROLES = ["MIS", "User MIS", "MIS Admin", "Manager MIS", "CRM Manager", "IT"]
 VIEW_ROLES = ["IT", "MIS", "User MIS", "MIS Admin", "Manager MIS", "CRM Manager", "GM", "CEO"]
 OT = "Operational Tracker"
-WANTED = ["custom_via_app", "custom_entered_by", "custom_tracker"]
+WANTED = ["custom_via_app", "custom_entered_by", "custom_tracker", "custom_increase_reason"]
 
 
 def viewer_of(user):

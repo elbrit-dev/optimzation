@@ -70,7 +70,12 @@ export function makeClient({ endpointUrl, token, fetchImpl = (...a) => fetch(...
 
   return {
     live: true,
-    options: (doctor) => method('elbrit_doctor_service_options', doctor ? { doctor } : undefined),
+    /* `exclude`: the service being edited, left out of `previous`.
+       `v: 2` turns on SALES ENTRY (ABM / RBM / SM behind the ROI gate):
+       only this code sends it, so app.elbrit.org (main, without it) shows
+       them no Add service button until this ships there. */
+    options: (doctor, exclude) => method('elbrit_doctor_service_options',
+      { v: 2, ...(doctor ? { doctor } : {}), ...(doctor && exclude ? { exclude } : {}) }),
     list: () => method('elbrit_doctor_service_list'),
     insight: (doctor, exclude) => method('elbrit_doctor_service_insight', exclude ? { doctor, exclude } : { doctor }),
     /* Service allocation: the GM's monthly amount per SM / ZSM and each SM's

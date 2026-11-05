@@ -168,6 +168,12 @@ export function Detail({
             {fields.map(([l, v]) => <div key={l}><span>{l}</span><b title={v}>{v}</b></div>)}
           </div>
         </div>
+        {e.increaseReason ? (
+          <div className="dsv-sec">
+            <span className="cap" style={{ color: '#B45309' }}>Reason for the increase</span>
+            <p className="dsv-remark" style={{ background: '#FFFAF0', borderColor: '#F5D9A8' }}>{e.increaseReason}</p>
+          </div>
+        ) : null}
         <div className="dsv-sec">
           <span className="cap">Remarks</span>
           <p className="dsv-remark">{e.remarks || '—'}</p>
