@@ -20,7 +20,7 @@ const shared = {
   },
   sampleRole: {
     type: 'choice',
-    options: ['MIS', 'GM', 'CEO', 'IT'],
+    options: ['MIS', 'GM', 'CEO', 'IT', 'ABM', 'RBM', 'SM'],
     advanced: true,
     helpText: 'With sample data: who is looking. Live, the ERP says who the token is.',
   },

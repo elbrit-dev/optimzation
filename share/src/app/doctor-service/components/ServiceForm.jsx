@@ -18,12 +18,94 @@
  * drawer on wide screens, a bottom sheet on narrow ones. */
 
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { CATS, CAT_OF, EDITABLE, REWORK, cleanVals, cmp, localToday, money, roiTxt, short } from '../data/workflow';
+import { CATS, CAT_OF, EDITABLE, REWORK, cleanVals, cmp, fDY, localToday, money, roiTxt, short } from '../data/workflow';
 import { bizView } from '../data/insight';
 import { Combo, DatePicker, Icon, initials } from './parts';
 import { ensureStyles } from './styles';
 
 const pairKey = (p) => (p ? p.department + '|' + p.hq : '');
+const GRADE_NAME = { ABM: 'Area Business Manager', RBM: 'Regional Business Manager', SM: 'Sales Manager' };
+const MON3 = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+const monKey = (k) => (k ? `${MON3[Number(k.slice(5, 7)) - 1]} ${k.slice(0, 4)}` : '');
+// Who may enter for a doctor, by the grade its ROI needs (null: MIS only).
+// "an ABM / an RBM / an SM": said letter by letter
+const an = (g) => (/^[AEFHILMNORSX]/.test(g || '') ? 'an ' : 'a ') + g;
+// Over a new doctor's limit: whom to ask (gate.escalate).
+const askWho = (g) => (g === 'MIS' ? 'the MIS team' : `your ${g}`);
+/* The amount limit's message, or '' while within it (the guard says the same). */
+export const capMessage = (gate, amount) => {
+  if (!gate?.cap || !(amount > gate.cap)) return '';
+  return gate.mode === 'low'
+    ? `You've hit the limit: you can't add more than ${money(gate.cap)} of service for this doctor (latest ROI below 3x).`
+    : `Your limit for a new doctor is ${money(gate.cap)}. For more, contact ${askWho(gate.escalate)}.`;
+};
+const whoMay = (g) => (g === 'ABM' ? 'an ABM, RBM or SM' : g === 'RBM' ? 'your RBM or SM' : g === 'SM' ? 'your SM / ZSM' : 'the MIS team');
+
+/* SALES ENTRY (ABM / RBM / SM): the doctor's latest ROI against what the
+   person's grade needs -- support since the latest service ÷ that service.
+   `compact`: the one-line strip when they may enter; else the full panel
+   that replaces the form when they may not. The server (options + the save
+   guard) decides; this only shows it. */
+function GatePanel({ gate, compact }) {
+  const roi = gate.roi;
+  const need = gate.need || 0;
+  const scale = Math.max(5, need * 1.25, roi || 0);
+  const pct = (v) => `${Math.min(100, Math.max(0, (v / scale) * 100))}%`;
+  const ok = gate.allowed;
+  const tone = ok ? '#15803D' : roi != null && roi >= need * 0.85 ? '#B45309' : '#DC2626';
+  const where = gate.department ? short(gate.department) : 'All departments';
+  if (compact) {
+    return (
+      <div className="dsv-note" style={{ display: 'flex', alignItems: 'center', gap: 8, color: '#15803D', background: '#ECFDF3', borderColor: '#BBF7D0' }}>
+        <Icon name="check" size={14} color="#15803D" width={2.6} />
+        <span>
+          {gate.mode === 'new' ? <>New doctor — no service yet. As {an(gate.grade)} you can enter up to <b>{money(gate.cap)}</b>.</>
+            : gate.mode === 'low' ? <>Latest ROI <b>{roiTxt(roi)}</b> is below 3x — as {an(gate.grade)} you can enter up to <b>{money(gate.cap)}</b>.</>
+              : <>Latest ROI <b>{roiTxt(roi)}</b> — {an(gate.grade)} needs {need}x, so you can enter this service.</>}
+        </span>
+      </div>
+    );
+  }
+  return (
+    <div className="dsv-mini" role="status" aria-label="Service entry needs a higher ROI">
+      <div className="h"><b>{gate.linked === false ? 'Not your doctor' : 'ROI too low for you to enter'}</b><span>{where} · {monKey(gate.from)} – {monKey(gate.to)}</span></div>
+      <div style={{ padding: '12px 14px', display: 'flex', flexDirection: 'column', gap: 12 }}>
+        {gate.linked === false ? (
+          <span style={{ fontSize: 13, color: 'var(--ink2)' }}>This doctor is not linked to you, so you cannot enter a service for them. Ask the MIS team.</span>
+        ) : (
+          <>
+            {gate.latest ? (
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3,minmax(0,1fr))', gap: 8 }}>
+                <div><span style={{ fontSize: 11, color: 'var(--mute)' }}>Latest service</span><b style={{ display: 'block', fontSize: 14 }}>{money(gate.latest.amount)}</b><span style={{ fontSize: 11.5, color: 'var(--mute)' }}>{gate.latest.service} · {fDY(gate.latest.date)}</span></div>
+                <div><span style={{ fontSize: 11, color: 'var(--mute)' }}>Support since</span><b style={{ display: 'block', fontSize: 14, color: '#1E3A8A' }}>{money(gate.support_since)}</b><span style={{ fontSize: 11.5, color: 'var(--mute)' }}>{gate.months} month{gate.months === 1 ? '' : 's'}</span></div>
+                <div><span style={{ fontSize: 11, color: 'var(--mute)' }}>Latest ROI</span><b style={{ display: 'block', fontSize: 14, color: tone }}>{roiTxt(roi)}</b><span style={{ fontSize: 11.5, color: 'var(--mute)' }}>support ÷ service</span></div>
+              </div>
+            ) : (
+              <span style={{ fontSize: 13, color: 'var(--ink2)' }}>No service has been given to this doctor since {monKey(gate.from)}, so there is no ROI yet.</span>
+            )}
+            {roi != null ? (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+                <div style={{ position: 'relative', height: 10, borderRadius: 99, background: '#EEF1F5' }} aria-hidden="true">
+                  <i style={{ position: 'absolute', left: 0, top: 0, bottom: 0, width: pct(roi), borderRadius: 99, background: tone }} />
+                  <i style={{ position: 'absolute', top: -4, bottom: -4, left: pct(need), width: 2, background: '#111827' }} />
+                </div>
+                <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12, color: 'var(--mute)' }}>
+                  <span>Now <b style={{ color: tone }}>{roiTxt(roi)}</b></span>
+                  <span>{an(gate.grade).replace(/^a/, 'A')} needs <b style={{ color: 'var(--ink)' }}>{need}x</b>{need > roi ? ` · ${(need - roi).toFixed(2)}x short` : ''}</span>
+                </div>
+              </div>
+            ) : null}
+            <span style={{ fontSize: 13, color: 'var(--ink2)', fontWeight: 600 }}>
+              {gate.mode === 'low'
+                ? <>The ROI is below 3x: only an SM / ZSM can enter a service for this doctor, up to {money(5000)}. Ask your SM / ZSM.</>
+                : <>Ask {whoMay(gate.needed_grade)} to enter this service.</>}
+            </span>
+          </>
+        )}
+      </div>
+    </div>
+  );
+}
 
 export function ServiceForm({ client, doctor, entry, viewer, onClose, onSaved }) {
   ensureStyles();
@@ -39,6 +121,7 @@ export function ServiceForm({ client, doctor, entry, viewer, onClose, onSaved })
     date: entry?.date || localToday(),
     amount: entry ? String(entry.amount) : '',
     remarks: entry?.remarks || '',
+    reason: entry?.increaseReason || '',
     // Service details, by key: what the chosen service asks for (EB number,
     // mobile number...). Filled from the record being edited, or this
     // doctor's earlier values for the service once the options arrive.
@@ -54,7 +137,7 @@ export function ServiceForm({ client, doctor, entry, viewer, onClose, onSaved })
 
   useEffect(() => {
     let live = true;
-    client.options(doctor.id).then((o) => { if (live) setOpts(o); }).catch((e) => { if (live) setLoadErr(e.message); });
+    client.options(doctor.id, entry?.id).then((o) => { if (live) setOpts(o); }).catch((e) => { if (live) setLoadErr(e.message); });
     client.insight(doctor.id, entry?.id).then((x) => { if (live) setIns(x); }).catch(() => {});
     return () => { live = false; };
   }, [client, doctor.id, entry?.id]);
@@ -87,7 +170,16 @@ export function ServiceForm({ client, doctor, entry, viewer, onClose, onSaved })
   const biz = useMemo(() => bizView(ins, Number(f.amount) || 0, null, judgeDept), [ins, f.amount, judgeDept]);
   const cells = biz ? biz.cells : null;
 
-  const amtOk = Number(f.amount) > 0;
+  // A sales entry's amount limit (low ROI / new doctor); the guard checks the same.
+  const overCap = (opts?.viewer?.entry ?? viewer?.entry) === 'sales' ? capMessage(opts?.gate, Number(f.amount) || 0) : '';
+  const amtOk = Number(f.amount) > 0 && !overCap;
+  // More than the limit (10,000) above the doctor's previous given service:
+  // a reason is required; otherwise the field stays hidden. The guard checks
+  // the same on save.
+  const prev = opts?.previous || null;
+  const limit = opts?.increase_limit ?? 10000;
+  const jump = prev && amtOk ? Number(f.amount) - prev.amount : 0;
+  const needReason = !!prev && jump > limit;
   // The details the chosen service asks for, and what this doctor gave before.
   const capture = services.find((s) => s.name === f.service)?.capture || [];
   const known = opts?.known?.[f.service] || {};
@@ -111,8 +203,14 @@ export function ServiceForm({ client, doctor, entry, viewer, onClose, onSaved })
     if (Object.keys(fill).length) setF((s) => ({ ...s, det: { ...s.det, ...fill } }));
   }, [f.service, opts]); // eslint-disable-line react-hooks/exhaustive-deps
   const setDet = (key, list) => set({ det: { ...f.det, [key]: list } }, 'det');
-  const done = [!!chosen && !!pair, !!f.service && !missing.length, !!f.date, amtOk].filter(Boolean).length;
+  const done = [!!chosen && !!pair, !!f.service && !missing.length, !!f.date, amtOk, ...(needReason ? [!!f.reason.trim()] : [])].filter(Boolean).length;
+  const total = needReason ? 5 : 4;
   const canEnter = viewer?.can_enter ?? opts?.viewer?.can_enter;
+  // ABM / RBM / SM: for themselves only, behind the doctor's ROI gate.
+  const sales = (opts?.viewer?.entry ?? viewer?.entry) === 'sales';
+  const gate = sales ? opts?.gate || null : null;
+  const blocked = !!gate && !gate.allowed && !editing;
+  const myGrade = opts?.viewer?.grade || viewer?.grade || '';
 
   async function save() {
     const e = {};
@@ -123,7 +221,9 @@ export function ServiceForm({ client, doctor, entry, viewer, onClose, onSaved })
     if (f.service && missing.length) e.det = `Add the ${missing.map((c) => c.label).join(', ')}.`;
     if (!f.date) e.date = 'Pick the service date.';
     else if (f.date > localToday()) e.date = 'The service date cannot be in the future.';
-    if (!amtOk) e.amount = 'Enter an amount above ₹0.';
+    if (overCap) e.amount = overCap;
+    else if (!amtOk) e.amount = 'Enter an amount above ₹0.';
+    if (needReason && !f.reason.trim()) e.reason = 'Say why this service is more than the previous one.';
     setErr(e);
     if (Object.keys(e).length) return;
     setSaving('submit');
@@ -137,6 +237,7 @@ export function ServiceForm({ client, doctor, entry, viewer, onClose, onSaved })
       department: pair.department,
       hq: pair.hq,
       remarks: f.remarks.trim(),
+      custom_increase_reason: needReason ? f.reason.trim() : '',
     };
     // What the service asked for, as JSON on the record (the guard keeps only
     // the service's own fields and checks the required ones).
@@ -182,7 +283,7 @@ export function ServiceForm({ client, doctor, entry, viewer, onClose, onSaved })
 
         <div className="dsv-db" style={{ paddingBottom: combo ? 380 : 18 }}>
           {loadErr ? <div className="dsv-err">{loadErr}</div> : null}
-          {opts && !canEnter ? <div className="dsv-note">Only the MIS team (MIS, MIS Admin, Manager MIS, CRM Manager) and IT can add a doctor service.</div> : null}
+          {opts && !canEnter ? <div className="dsv-note">Only the MIS team, IT, and ABMs / RBMs / SMs (for their own doctors) can add a doctor service.</div> : null}
           {editing && entry.state === REWORK ? (
             <div className="dsv-banner dsv-banner--back" style={{ margin: 0 }}><b>Sent back — fix and resubmit</b>{entry.reason ? <span>“{entry.reason}”</span> : null}</div>
           ) : null}
@@ -196,9 +297,19 @@ export function ServiceForm({ client, doctor, entry, viewer, onClose, onSaved })
             </div>
           </div>
 
+          {blocked ? <GatePanel gate={gate} /> : null}
+          {gate && gate.allowed ? <GatePanel gate={gate} compact /> : null}
+
+          {blocked ? null : (<>
           <div className="dsv-field">
-            <span className="lab">On behalf of <i>*</i></span>
-            {opts && canEnter && !employees.length ? (
+            <span className="lab">{sales ? 'Entered for' : 'On behalf of'} <i>*</i></span>
+            {sales ? (
+              <div className="dsv-locked">
+                <span className="dsv-av">{initials(chosen?.employee_name || opts?.viewer?.employee_name || '')}</span>
+                <span className="x"><b>{chosen?.employee_name || opts?.viewer?.employee_name || '…'}</b><span>{myGrade} · you</span></span>
+                <span className="lk"><Icon name="lock" size={12} color="#6B7280" width={2.2} />Yourself</span>
+              </div>
+            ) : opts && canEnter && !employees.length ? (
               <div className="dsv-note">No RBM or SM is linked to this doctor. Fix the doctor's role profile in ERP first — the department comes from them.</div>
             ) : (
               <Combo
@@ -330,9 +441,23 @@ export function ServiceForm({ client, doctor, entry, viewer, onClose, onSaved })
                 <span>₹</span>
                 <input type="number" inputMode="decimal" min="0" step="0.01" value={f.amount} placeholder="0.00" onChange={(e) => set({ amount: e.target.value }, 'amount')} />
               </span>
-              {err.amount ? <span className="er">{err.amount}</span> : null}
+              {err.amount || overCap ? <span className="er">{err.amount || overCap}</span> : null}
             </label>
           </div>
+
+          {/* Shown, and required, only when the amount is more than the
+              limit above the doctor's previous service. */}
+          {needReason ? (
+            <label className="dsv-field">
+              <span className="lab">Reason for the increase <i>*</i></span>
+              <span style={{ fontSize: 12.5, color: '#B45309', fontWeight: 600 }}>
+                {money(jump)} more than the previous service ({prev.service} · {fDY(prev.date)} · {money(prev.amount)}).
+              </span>
+              <textarea className="dsv-ta" rows={2} value={f.reason} onChange={(e) => set({ reason: e.target.value }, 'reason')}
+                placeholder="Why is this service higher than the last one?" style={err.reason ? { borderColor: '#DC2626' } : undefined} />
+              {err.reason ? <span className="er">{err.reason}</span> : null}
+            </label>
+          ) : null}
 
           <label className="dsv-field">
             <span className="lab">Remarks</span>
@@ -356,21 +481,31 @@ export function ServiceForm({ client, doctor, entry, viewer, onClose, onSaved })
           </div>
 
           <div className="dsv-auto">
-            <div><span>Entered by</span><b>{viewer?.employee_name || opts?.viewer?.employee_name || '—'} · MIS</b></div>
-            <div><span>On behalf of</span><b>{chosen ? `${chosen.employee} · ${chosen.employee_name}` : '—'}</b></div>
-            <div><span>Designation</span><b>{chosen ? (chosen.grade === 'SM' ? 'Sales Manager' : 'Regional Business Manager') : '—'}</b></div>
+            <div><span>Entered by</span><b>{viewer?.employee_name || opts?.viewer?.employee_name || '—'} · {sales ? myGrade : 'MIS'}</b></div>
+            <div><span>{sales ? 'Entered for' : 'On behalf of'}</span><b>{chosen ? `${chosen.employee} · ${chosen.employee_name}` : '—'}</b></div>
+            <div><span>Designation</span><b>{chosen ? GRADE_NAME[chosen.grade] || GRADE_NAME[myGrade] || chosen.grade : '—'}</b></div>
             <div><span>Department</span><b>{pair ? pair.department : '—'}</b></div>
             <div><span>HQ</span><b>{pair ? pair.hq : '—'}</b></div>
             <div><span>Approval route</span><b>GM → CEO (GM may approve as final)</b></div>
           </div>
+          </>)}
           {failed ? <div className="dsv-err" role="alert">{failed}</div> : null}
         </div>
 
         <div className="dsv-df">
-          <span className="p">{done === 4 ? 'Ready to submit' : `${done} of 4 required`}</span>
-          <button type="button" className="dsv-btn pri" disabled={!!saving || !canEnter || !editable} style={{ background: done === 4 ? undefined : '#93B4F8' }} onClick={save}>
-            {saving ? 'Submitting…' : editing ? 'Save & resubmit' : 'Submit for approval'}
-          </button>
+          {blocked ? (
+            <>
+              <span className="p">Needs a higher ROI</span>
+              <button type="button" className="dsv-btn" onClick={onClose}>Close</button>
+            </>
+          ) : (
+            <>
+              <span className="p">{done === total ? 'Ready to submit' : `${done} of ${total} required`}</span>
+              <button type="button" className="dsv-btn pri" disabled={!!saving || !canEnter || !editable} style={{ background: done === total ? undefined : '#93B4F8' }} onClick={save}>
+                {saving ? 'Submitting…' : editing ? 'Save & resubmit' : 'Submit for approval'}
+              </button>
+            </>
+          )}
         </div>
       </div>
     </div>

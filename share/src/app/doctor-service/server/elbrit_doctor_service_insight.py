@@ -13,7 +13,7 @@
 # "Is this doctor worth it?" for one doctor — the block on the approval
 # detail, the Add service form and the doctor page's Services card:
 #
-#   months    the last MONTHS months up to last month, oldest first:
+#   months    every month from FROM_MONTH (Apr 2024) up to last month, oldest first:
 #             { month: "YYYY-MM", support, by_dept: { department: amount } }
 #             — support = the month's Support Items lines summed (what the
 #             doctor gave back, every department; the record's own
@@ -53,7 +53,9 @@
 # unpacking, no underscore-prefixed names.
 # =====================================================================
 
-MONTHS = 18
+# The window's first month: every month from here to last month (was the last
+# 18 months, ie from about Apr 2025; widened 5 Nov 2026).
+FROM_MONTH = "2024-04"
 ROLES = ["BE", "ABM", "RBM", "SM"]
 ENTRY_ROLES = ["MIS", "User MIS", "MIS Admin", "Manager MIS", "CRM Manager", "IT"]
 VIEW_ROLES = ["IT", "MIS", "User MIS", "MIS Admin", "Manager MIS", "CRM Manager", "GM", "CEO"]
@@ -136,22 +138,23 @@ lead = frappe.db.get_value("Lead", doctor, ["name", "lead_name"], as_dict=True)
 if not lead:
     frappe.throw("No such doctor: " + doctor)
 
-# ---- the window: MONTHS months ending last month
+# ---- the window: FROM_MONTH up to last month
 today = frappe.utils.nowdate()
 y = int(today[:4])
 m = int(today[5:7]) - 1
 if m < 1:
     m = 12
     y = y - 1
+last_key = ym(y, m)
 keys = []
-i = 0
-while i < MONTHS:
-    keys.insert(0, ym(y, m))
-    m = m - 1
-    if m < 1:
-        m = 12
-        y = y - 1
-    i = i + 1
+y = int(FROM_MONTH[:4])
+m = int(FROM_MONTH[5:7])
+while ym(y, m) <= last_key and len(keys) < 120:
+    keys.append(ym(y, m))
+    m = m + 1
+    if m > 12:
+        m = 1
+        y = y + 1
 start = keys[0] + "-01"
 end = str(frappe.utils.get_last_day(keys[-1] + "-01"))
 

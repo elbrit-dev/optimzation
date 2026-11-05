@@ -159,6 +159,7 @@ export function normalize(row) {
     date: row.service_date || row.date,
     amount: Number(row.service_amount) || 0,
     remarks: row.remarks || '',
+    increaseReason: row.custom_increase_reason || '',
     details: detailsOf(row.custom_service_details),
     att: row.service_attachement || null,
     state,

@@ -12,7 +12,7 @@ import { MON, money } from '../data/workflow';
 /* Support and service, month by month — a small table, 6 months at a time:
  *   Month | Service | Support, newest first, with the 6 months' total.
  * Presets (Last 6 / Previous 6 / Earlier 6) and an "Ending" month picker
- * move the 6-month window over the insight's months (18, to last month).
+ * move the 6-month window over the insight's months (Apr 2024 to last month).
  * The DEPARTMENT the figures are for is the service's own; the approvers
  * (GM / CEO / IT, on the approval page) may switch it to any department
  * the doctor has support or services in, for this table only.
