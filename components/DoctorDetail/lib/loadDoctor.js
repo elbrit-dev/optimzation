@@ -144,7 +144,7 @@ export async function loadDoctorData(
 
   const first = Math.max(1, Math.min(1000, Number(pobLimit) || 500));
   /*
-   * ONLY THE CURRENT FINANCIAL YEAR — from 1 April — is read. The dated reads
+   * ONLY FROM THE DATA FLOOR — 1 April 2024 (dataFloor) — is read. The dated reads
    * ask ERP for that window; everything is cut again below after deriving,
    * which also covers Doctor Service (its service_date can be null, so it is
    * read whole and cut here) and the notes, which arrive on the Lead.

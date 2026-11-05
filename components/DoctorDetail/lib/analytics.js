@@ -21,11 +21,15 @@ export function financialYearStart(at = now()) {
 }
 
 /**
- * The page's floor: nothing before 1 April of the current Indian financial
- * year is read or shown (the reads are cut there too — see loadDoctor.js).
+ * The page's floor: nothing before DATA_FROM (1 April 2024) is read or shown
+ * (the reads are cut there too — see loadDoctor.js). Was the current
+ * financial year's 1 April; widened 12 Nov 2026 so the custom range can pick
+ * 2024 and 2025, as the Doctor Service ROI already counts from April 2024.
+ * The page still OPENS on the current financial year.
  */
-export function dataFloor(at = now()) {
-  return financialYearStart(at).getTime();
+export const DATA_FROM = { y: 2024, m: 3 };
+export function dataFloor() {
+  return new Date(DATA_FROM.y, DATA_FROM.m, 1).getTime();
 }
 
 const mStart = (y, m) => new Date(y, m, 1).getTime();
@@ -83,16 +87,17 @@ export function resolveRange(range, at = now()) {
   }
 
   /*
-   * Every period stops at the start of the financial year. "All time" becomes
-   * the FY to date, and a 3- or 6-month window that would reach back past
-   * April starts at April instead — its label says so.
+   * Every period stops at the data floor (April 2024, see dataFloor). "All
+   * time" becomes "since April 2024", and a range reaching further back starts
+   * there instead — its label says so.
    */
-  const floor = fy.getTime();
+  const floor = dataFloor();
   if (from < floor) {
     from = floor;
+    const fl = new Date(floor);
     label = mode === "all" || to === Infinity
-      ? fyLabel
-      : monthLabel(fy.getFullYear(), 3) + " – " + monthLabel(new Date(to).getFullYear(), new Date(to).getMonth());
+      ? "Since " + monthLabel(fl.getFullYear(), fl.getMonth())
+      : monthLabel(fl.getFullYear(), fl.getMonth()) + " – " + monthLabel(new Date(to).getFullYear(), new Date(to).getMonth());
   }
 
   return { mode, from, to, label, fyLabel, bounded: from > -Infinity };
