@@ -70,8 +70,9 @@
 # ROI GATE (5 Nov 2026). A doctor's LATEST ROI = the doctor page's "Latest
 # ROI": the support from the month of their latest service up to today,
 # divided by every service from that date on (an app service counts unless
-# rejected or never submitted). Counted in the viewer's seat department (an SM
-# seat has none: the whole doctor), from FROM_MONTH on. Who may enter:
+# rejected or never submitted). Counted in the viewer's seat department; an SM
+# seat has none, so the doctor's department that reaches them when it is just
+# one, else the whole doctor (gate_dept). From FROM_MONTH on. Who may enter:
 #   ROI >= 4    ABM and above        ROI >= 3.5  RBM and above
 #   ROI >= 3    SM / ZSM only        (no amount limit in these three)
 #   below 3     SM / ZSM only, at most LOW_CAP (5,000) a service
@@ -190,6 +191,21 @@ def linked_managers(doctor, grades=None):
     return out
 
 
+
+
+def gate_dept(seat_dept, pairs):
+    # The department a person's Latest ROI is worked out in: their seat's;
+    # a seat without one (SM / ZSM) takes the doctor's department that
+    # reaches them -- when it is just one (12 Nov 2026: an SM saw "All
+    # departments" for a doctor they cover only in Elbrit Coimbatore).
+    # Several: "" (the whole doctor). COPIED into doctor_service_guard.py.
+    if seat_dept:
+        return seat_dept
+    depts = []
+    for p in pairs or []:
+        if p.get("department") and p.get("department") not in depts:
+            depts.append(p.get("department"))
+    return depts[0] if len(depts) == 1 else ""
 
 
 def roi_gate(doctor, dept, grade):
@@ -511,6 +527,7 @@ if doctor:
             my_dept = ""
             if viewer["seat"]:
                 my_dept = frappe.db.get_value("Role Profile", viewer["seat"], "custom_department") or ""
+            my_dept = gate_dept(my_dept, employees[0]["pairs"] if employees else [])
             gate = roi_gate(doctor, my_dept, grade_of(viewer["seat"]))
             if not employees:
                 gate["allowed"] = False
@@ -536,7 +553,7 @@ if doctor:
             # has none: the whole doctor) -- the same figure as the doctor
             # page's "Latest ROI" and the sales gate, so the form shows ONE
             # ROI (12 Nov 2026; it showed a total-over-total ROI that differed).
-            g = roi_gate(doctor, e["seat_department"], grade_of(e.get("seat")))
+            g = roi_gate(doctor, gate_dept(e["seat_department"], e.get("pairs")), grade_of(e.get("seat")))
             e["roi"] = {"roi": g["roi"], "latest": g["latest"], "spent": g["spent"],
                         "support_since": g["support_since"], "months": g["months"],
                         "department": g["department"]}

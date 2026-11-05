@@ -182,6 +182,17 @@ def guard(doc):
         return out
 
 
+    def gate_dept(seat_dept, pairs):
+        # COPIED from elbrit_doctor_service_options.py -- change both.
+        if seat_dept:
+            return seat_dept
+        depts = []
+        for p in pairs or []:
+            if p.get("department") and p.get("department") not in depts:
+                depts.append(p.get("department"))
+        return depts[0] if len(depts) == 1 else ""
+
+
     def roi_gate(doctor, dept, grade):
         # COPIED from elbrit_doctor_service_options.py -- change both. `grade`: the
         # viewer's seat grade (a SALES_RANK key). -> the gate (see the header).
@@ -586,6 +597,7 @@ def guard(doc):
                 if not chosen:
                     frappe.throw("This doctor is not linked to you, so you cannot enter a service for them.")
                 my_dept = frappe.db.get_value("Role Profile", my_seat, "custom_department") or "" if my_seat else ""
+                my_dept = gate_dept(my_dept, chosen["pairs"])
                 gate = roi_gate(doc.get("doctor"), my_dept, my_grade)
                 if not gate["allowed"]:
                     if gate["mode"] == "low":
