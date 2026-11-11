@@ -4,9 +4,9 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Button, Card, Field, Icon, SegmentedControl, Sheet, StatusPill, cx } from '@/design-system';
 import { getEndpointConfigFromUrlKeyAsync } from '@/app/graphql-playground/constants';
 import { PinnedBar, PinnedBarSpacer } from '@/app/secondary-entry/components/PinnedBar';
-import { daysOff, groupWaiting, rangeLabel, shapeLeaves } from '../data/shape';
+import { groupWaiting, rangeLabel, shapeLeaves } from '../data/shape';
 import { createErpLeaveSource } from '../data/erp';
-import { LeaveCard, WeekStrip } from './LeaveCard';
+import { LeaveCard } from './LeaveCard';
 
 /* Leave approvals — every leave waiting on the signed-in approver, in one
  * place, decided like the other approvals: a card per request, Approve /
@@ -15,8 +15,7 @@ import { LeaveCard, WeekStrip } from './LeaveCard';
  * WHAT A CARD ANSWERS, so the approver need not open anything: who, which
  * leave and when, how soon it starts and how long it has waited, the reason
  * and any note attached. Most urgent first: started or starting
- * today, then the next few days, then later. A strip of the next seven days
- * shows how thin the team is on each.
+ * today, then the next few days, then later.
  *
  * WHO DECIDES IS THE ERP'S: listed are Open leaves whose leave_approver — or
  * escalation approver, the level above — is the user. The decision goes
@@ -169,10 +168,9 @@ export function LeaveApproval({
     () => (sourceRows ?? []).map((r) => (done.has(r.name) ? { ...r, status: done.get(r.name), modified: `${today} 00:00:00`, modified_by__name: viewer } : r)),
     [sourceRows, done, today, viewer],
   );
-  const { waiting, others, decided, everyone } = useMemo(() => shapeLeaves(rows, { viewer, today }), [rows, viewer, today]);
+  const { waiting, others, decided } = useMemo(() => shapeLeaves(rows, { viewer, today }), [rows, viewer, today]);
   const groups = useMemo(() => groupWaiting(waiting), [waiting]);
   const otherGroups = useMemo(() => groupWaiting(others), [others]);
-  const week = useMemo(() => daysOff(everyone, today), [everyone, today]);
 
   const [tab, setTab] = useState('waiting');
   const [selected, setSelected] = useState(() => new Set());
@@ -272,8 +270,6 @@ export function LeaveApproval({
 
       {!loading && sourceRows ? (
         <>
-          <WeekStrip days={week} />
-
           <SegmentedControl
             block
             ariaLabel="Leaves"

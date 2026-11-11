@@ -3,8 +3,7 @@
 import { Avatar, Button, Card, Icon, StatusPill, Tag, cx } from '@/design-system';
 import { rangeLabel, shortDay } from '../data/shape';
 
-/* The pieces of the Leave Approval screen: one request's card, the week
- * strip of who is off, and a decided leave's row. Presentational only. */
+/* One leave request's card on the Leave Approval screen. Presentational only. */
 
 const TYPE_TONE = {
   'Sick Leave': 'magenta',
@@ -125,35 +124,5 @@ export function LeaveCard({ leave: l, selected, onToggle, onApprove, onReject, b
         </div>
       ) : null}
     </Card>
-  );
-}
-
-/* The next seven days, each with how many people are off: approved (green)
- * and still asked (amber). Counts only — the names are in the list below. */
-export function WeekStrip({ days }) {
-  return (
-    <div className="flex flex-col gap-1.5">
-      <div className="grid grid-cols-7 gap-1">
-        {days.map((d) => (
-          <div
-            key={d.iso}
-            aria-label={`${d.weekday} ${d.day}: ${d.approved.length} on leave, ${d.waiting.length} asked`}
-            className={cx('flex flex-col items-center gap-0.5 rounded-lg px-0.5 py-1.5', d.weekday === 'Today' ? 'bg-brand-tint-weak' : 'bg-surface')}
-          >
-            <span className="text-10 text-ds-muted">{d.weekday}</span>
-            <span className="text-13 font-semibold text-heading">{d.day}</span>
-            <span className="flex h-4 items-center gap-1 text-11 font-semibold">
-              {d.approved.length ? <span className="text-approved-text">{d.approved.length}</span> : null}
-              {d.waiting.length ? <span className="text-pending-text">{d.waiting.length}</span> : null}
-              {!d.approved.length && !d.waiting.length ? <span className="text-ds-muted">–</span> : null}
-            </span>
-          </div>
-        ))}
-      </div>
-      <p className="flex items-center gap-3 px-1 text-10 text-ds-muted">
-        <span className="flex items-center gap-1"><span className="size-1.5 rounded-full bg-[var(--status-approved)]" />on leave</span>
-        <span className="flex items-center gap-1"><span className="size-1.5 rounded-full bg-[var(--status-pending)]" />asked, not decided</span>
-      </p>
-    </div>
   );
 }

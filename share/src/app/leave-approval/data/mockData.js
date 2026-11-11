@@ -60,7 +60,7 @@ export function buildMockRows() {
       posting_date: '2026-11-05',
       leave_approver__name: 'ravi.abm@example.org', leave_approver_name: 'Ravi Shankar',
     }),
-    /* Already decided — the Decided tab, and who is off this week. */
+    /* Already decided — the Decided tab. */
     leave('HR-LAP-2026-00490', {
       employee__name: 'E01106', employee_name: 'Lakshmi N', employee_email: 'lakshmi.be@example.org',
       leave_type__name: 'Casual Leave', from_date: '2026-11-13', to_date: '2026-11-13', total_leave_days: 1,

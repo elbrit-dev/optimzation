@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { daysOff, groupWaiting, normalizeLeave, rangeLabel, shapeLeaves } from '../data/shape';
+import { groupWaiting, normalizeLeave, rangeLabel, shapeLeaves } from '../data/shape';
 import { leaveApprovalTile } from '../data/tile';
 import { MOCK_ABM, MOCK_RBM, MOCK_TODAY, buildMockRows } from '../data/mockData';
 
@@ -50,12 +50,6 @@ describe('leave approval shape', () => {
     expect(rangeLabel('2026-11-11', '2026-11-11')).toBe('Wed 11 Nov');
     expect(rangeLabel('2026-11-11', '2026-11-12')).toBe('11 – 12 Nov');
     expect(rangeLabel('2026-11-30', '2026-12-02')).toBe('30 Nov – 2 Dec');
-  });
-
-  it('counts who is off each day', () => {
-    const fri = daysOff(shape(MOCK_ABM).everyone, MOCK_TODAY).find((d) => d.iso === '2026-11-13');
-    expect(fri.approved).toEqual(['Lakshmi N']);
-    expect(fri.waiting.sort()).toEqual(['Manoj K', 'Priya V']);
   });
 
   it('groups by urgency and drops empty groups', () => {

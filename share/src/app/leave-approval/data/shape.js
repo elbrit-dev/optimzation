@@ -99,20 +99,18 @@ export function normalizeLeave(row) {
   };
 }
 
-/* Every row → { waiting, others, decided, everyone } for `viewer` on `today`.
+/* Every row → { waiting, others, decided } for `viewer` on `today`.
  * The rows are already the ones the viewer may see (the ERP's
  * elbrit_leave_approvals decides: HR, IT, the CEO everyone's; anyone else
  * their team's), so:
  *   waiting  Open leaves the viewer may decide, most urgent first
  *   others   the other Open leaves — waiting on someone else, shown with who
  *            the decision waits on, no buttons — most urgent first
- *   decided  every Approved / Rejected leave, newest first
- *   everyone every Open or Approved leave — the "who is off" strip */
+ *   decided  every Approved / Rejected leave, newest first */
 export function shapeLeaves(rows, { viewer, today }) {
   const me = lower(viewer);
   const t = dayNumber(today);
   const all = (rows ?? []).map(normalizeLeave).filter(Boolean);
-  const everyone = all.filter((l) => l.status === 'Open' || l.status === 'Approved');
 
   const waitedOf = (l) => (l.appliedOn ? Math.max(0, t - dayNumber(l.appliedOn)) : 0);
   const reachesMe = (l) =>
@@ -137,25 +135,7 @@ export function shapeLeaves(rows, { viewer, today }) {
     .filter((l) => l.status === 'Approved' || l.status === 'Rejected')
     .sort((a, b) => String(b.decidedOn).localeCompare(String(a.decidedOn)));
 
-  return { waiting, others, decided, everyone };
-}
-
-/* The next `n` days from `today`, each with who is off — approved or still
-   waiting — for the strip above the list. */
-export function daysOff(everyone, today, n = 7) {
-  const t = dayNumber(today);
-  return Array.from({ length: n }, (_, i) => {
-    const iso = isoOf(t + i);
-    const p = parts(iso);
-    const off = everyone.filter((l) => dayNumber(l.from) <= t + i && t + i <= dayNumber(l.to));
-    return {
-      iso,
-      weekday: i === 0 ? 'Today' : p.wd,
-      day: p.d,
-      approved: off.filter((l) => l.status === 'Approved').map((l) => l.employeeName),
-      waiting: off.filter((l) => l.status === 'Open').map((l) => l.employeeName),
-    };
-  });
+  return { waiting, others, decided };
 }
 
 /* Groups for the list, in order, empty ones dropped. */
