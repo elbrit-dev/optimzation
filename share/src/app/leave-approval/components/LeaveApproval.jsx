@@ -94,6 +94,21 @@ function RejectSheet({ open, leaves, busy, error, onClose, onConfirm }) {
   );
 }
 
+function SectionTitle({ children }) {
+  return <h2 className="px-1 pt-1 text-13 font-semibold text-heading">{children}</h2>;
+}
+
+function GroupTitle({ group: g }) {
+  return (
+    <div className="flex items-baseline justify-between px-1">
+      <span className={cx('text-11 font-semibold uppercase tracking-wide', g.tone === 'danger' ? 'text-danger-text' : g.tone === 'warning' ? 'text-pending-text' : 'text-ds-muted')}>
+        {g.title}
+      </span>
+      <span className="text-11 text-ds-muted">{g.items.length}</span>
+    </div>
+  );
+}
+
 export function LeaveApproval({
   rows: rowsProp,
   gqlEnvironment = 'ERP',
@@ -154,12 +169,12 @@ export function LeaveApproval({
     () => (sourceRows ?? []).map((r) => (done.has(r.name) ? { ...r, status: done.get(r.name), modified: `${today} 00:00:00`, modified_by__name: viewer } : r)),
     [sourceRows, done, today, viewer],
   );
-  const { waiting, decided, everyone } = useMemo(() => shapeLeaves(rows, { viewer, today }), [rows, viewer, today]);
+  const { waiting, others, decided, everyone } = useMemo(() => shapeLeaves(rows, { viewer, today }), [rows, viewer, today]);
   const groups = useMemo(() => groupWaiting(waiting), [waiting]);
+  const otherGroups = useMemo(() => groupWaiting(others), [others]);
   const week = useMemo(() => daysOff(everyone, today), [everyone, today]);
 
   const [tab, setTab] = useState('waiting');
-  const [pickedDay, setPickedDay] = useState(null);
   const [selected, setSelected] = useState(() => new Set());
   useEffect(() => {
     const live = new Set(waiting.map((l) => l.name));
@@ -257,7 +272,7 @@ export function LeaveApproval({
 
       {!loading && sourceRows ? (
         <>
-          <WeekStrip days={week} picked={pickedDay} onPick={setPickedDay} />
+          <WeekStrip days={week} />
 
           <SegmentedControl
             block
@@ -265,7 +280,7 @@ export function LeaveApproval({
             value={tab}
             onChange={setTab}
             items={[
-              { id: 'waiting', label: `Waiting${waiting.length ? ` · ${waiting.length}` : ''}` },
+              { id: 'waiting', label: `Waiting${waiting.length + others.length ? ` · ${waiting.length + others.length}` : ''}` },
               { id: 'decided', label: 'Decided' },
             ]}
           />
@@ -278,36 +293,49 @@ export function LeaveApproval({
           ) : null}
 
           {tab === 'waiting' ? (
-            waiting.length ? (
-              groups.map((g) => (
-                <div key={g.id} className="flex flex-col gap-2">
-                  <div className="flex items-baseline justify-between px-1">
-                    <span className={cx('text-11 font-semibold uppercase tracking-wide', g.tone === 'danger' ? 'text-danger-text' : g.tone === 'warning' ? 'text-pending-text' : 'text-ds-muted')}>
-                      {g.title}
-                    </span>
-                    <span className="text-11 text-ds-muted">{g.items.length}</span>
-                  </div>
-                  {g.items.map((l) => (
-                    <LeaveCard
-                      key={l.name}
-                      leave={l}
-                      canDecide={canDecide}
-                      selected={selected.has(l.name)}
-                      onToggle={() => toggle(l.name)}
-                      busy={busy}
-                      onApprove={() => decide([l.name], 'approve')}
-                      onReject={() => setRejecting([l.name])}
-                    />
+            <>
+              {waiting.length ? (
+                <>
+                  {others.length ? <SectionTitle>Waiting on you · {waiting.length}</SectionTitle> : null}
+                  {groups.map((g) => (
+                    <div key={g.id} className="flex flex-col gap-2">
+                      <GroupTitle group={g} />
+                      {g.items.map((l) => (
+                        <LeaveCard
+                          key={l.name}
+                          leave={l}
+                          canDecide={canDecide}
+                          selected={selected.has(l.name)}
+                          onToggle={() => toggle(l.name)}
+                          busy={busy}
+                          onApprove={() => decide([l.name], 'approve')}
+                          onReject={() => setRejecting([l.name])}
+                        />
+                      ))}
+                    </div>
                   ))}
-                </div>
-              ))
-            ) : (
-              <Card className="flex flex-col items-center gap-2 py-8 text-center">
-                <Icon name="check-circle" size="xl" className="text-success" />
-                <span className="text-14 font-semibold text-heading">No leave waiting on you</span>
-                <span className="text-12 text-ds-secondary">New requests from your team show up here and on the strip.</span>
-              </Card>
-            )
+                </>
+              ) : (
+                <Card className="flex flex-col items-center gap-2 py-8 text-center">
+                  <Icon name="check-circle" size="xl" className="text-success" />
+                  <span className="text-14 font-semibold text-heading">No leave waiting on you</span>
+                  <span className="text-12 text-ds-secondary">New requests from your team show up here and on the strip.</span>
+                </Card>
+              )}
+              {others.length ? (
+                <>
+                  <SectionTitle>Waiting on others · {others.length}</SectionTitle>
+                  {otherGroups.map((g) => (
+                    <div key={g.id} className="flex flex-col gap-2">
+                      <GroupTitle group={g} />
+                      {g.items.map((l) => (
+                        <LeaveCard key={l.name} leave={l} viewer={viewer} />
+                      ))}
+                    </div>
+                  ))}
+                </>
+              ) : null}
+            </>
           ) : (
             decided.length ? (
               decided.map((l) => <LeaveCard key={l.name} leave={l} viewer={viewer} />)

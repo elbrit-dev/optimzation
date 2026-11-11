@@ -43,7 +43,9 @@ const mockMode = {
           </button>
         </RailSection>
       ),
-      props: (p) => ({ ...p, rows, today: MOCK_TODAY, writer }),
+      /* What the ERP's elbrit_leave_approvals would hand each: the ABM their
+         own team's leaves, the RBM everyone's below them. */
+      props: (p) => ({ ...p, rows: viewer === MOCK_ABM ? rows.filter((r) => r.leave_approver__name === MOCK_ABM) : rows, today: MOCK_TODAY, writer }),
     };
   },
 };
@@ -57,7 +59,7 @@ export const leaveApprovalHarness = {
   hidden: ['className'],
   defaults: { bottomGap: 'calc(var(--harness-bottom, 0px) + 12px)' },
   frame: { width: 390, surface: 'app', padded: true },
-  modes: [mockMode, { id: 'live', label: 'ERP', note: 'Leave Applications read as the person acting (GraphQL); decisions through the Leave Approval workflow.' }],
+  modes: [mockMode, { id: 'live', label: 'ERP', note: 'Leaves the person acting may see (elbrit_leave_approvals; GraphQL where it is not installed); decisions through the Leave Approval workflow.' }],
   addons: [
     dryRunWrites({
       label: 'Send decisions to ERP',

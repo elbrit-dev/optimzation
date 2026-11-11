@@ -99,41 +99,45 @@ export function normalizeLeave(row) {
   };
 }
 
-/* Every row → { waiting, decided, everyone } for `viewer` on `today`.
+/* Every row → { waiting, others, decided, everyone } for `viewer` on `today`.
+ * The rows are already the ones the viewer may see (the ERP's
+ * elbrit_leave_approvals decides: HR, IT, the CEO everyone's; anyone else
+ * their team's), so:
  *   waiting  Open leaves the viewer may decide, most urgent first
- *   decided  Approved / Rejected leaves the viewer was approver of, newest first
- *   everyone every visible leave (any status but Rejected / Cancelled) — the
- *            "who is off" strip */
+ *   others   the other Open leaves — waiting on someone else, shown with who
+ *            the decision waits on, no buttons — most urgent first
+ *   decided  every Approved / Rejected leave, newest first
+ *   everyone every Open or Approved leave — the "who is off" strip */
 export function shapeLeaves(rows, { viewer, today }) {
   const me = lower(viewer);
   const t = dayNumber(today);
   const all = (rows ?? []).map(normalizeLeave).filter(Boolean);
   const everyone = all.filter((l) => l.status === 'Open' || l.status === 'Approved');
 
-  const isMine = (l) => !!me && (l.approver === me || l.escalationApprover === me);
   const waitedOf = (l) => (l.appliedOn ? Math.max(0, t - dayNumber(l.appliedOn)) : 0);
   const reachesMe = (l) =>
     l.approver === me || (l.escalationApprover === me && (waitedOf(l) >= ESCALATE_AFTER_DAYS || dayNumber(l.from) <= t));
-  const waiting = all
-    .filter((l) => l.status === 'Open' && !!me && reachesMe(l))
-    .map((l) => {
-      const start = dayNumber(l.from);
-      const urgency = start <= t ? 'started' : start - t <= UPCOMING_DAYS ? 'soon' : 'later';
-      return {
-        ...l,
-        role: l.approver === me ? 'approver' : 'escalation',
-        urgency,
-        startsIn: start - t,
-        waitingDays: waitedOf(l),
-      };
-    })
-    .sort((a, b) => dayNumber(a.from) - dayNumber(b.from) || b.waitingDays - a.waitingDays);
+  const withTiming = (l, role) => {
+    const start = dayNumber(l.from);
+    const urgency = start <= t ? 'started' : start - t <= UPCOMING_DAYS ? 'soon' : 'later';
+    return { ...l, role, urgency, startsIn: start - t, waitingDays: waitedOf(l) };
+  };
+  const bySoonest = (a, b) => dayNumber(a.from) - dayNumber(b.from) || b.waitingDays - a.waitingDays;
+  const open = all.filter((l) => l.status === 'Open');
+  const waiting = open
+    .filter((l) => !!me && reachesMe(l))
+    .map((l) => withTiming(l, l.approver === me ? 'approver' : 'escalation'))
+    .sort(bySoonest);
+  const others = open
+    .filter((l) => !(me && reachesMe(l)))
+    .map((l) => withTiming(l, 'watcher'))
+    .sort(bySoonest);
 
   const decided = all
-    .filter((l) => (l.status === 'Approved' || l.status === 'Rejected') && isMine(l))
+    .filter((l) => l.status === 'Approved' || l.status === 'Rejected')
     .sort((a, b) => String(b.decidedOn).localeCompare(String(a.decidedOn)));
 
-  return { waiting, decided, everyone };
+  return { waiting, others, decided, everyone };
 }
 
 /* The next `n` days from `today`, each with who is off — approved or still
