@@ -106,6 +106,9 @@ export function LeaveCard({ leave: l, selected, onToggle, onApprove, onReject, b
             Decision waiting on <span className="font-semibold text-heading">{l.approverName ?? l.approver ?? 'the approver'}</span>
           </Fact>
         ) : null}
+        {!decided && l.role === 'override' ? (
+          <Fact icon="shield">Waiting on {l.approverName ?? l.approver} — you can decide as HR</Fact>
+        ) : null}
         {!decided && l.role === 'escalation' ? (
           <Fact icon="arrow-up" tone="warning">
             {l.waitingDays ? `Waiting on ${l.approverName ?? l.approver} for ${l.waitingDays} day${l.waitingDays === 1 ? '' : 's'}` : `Not yet decided by ${l.approverName ?? l.approver}`} — you can decide as the next level

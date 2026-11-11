@@ -24,7 +24,9 @@
 # Which leaves: every Open one, and every one ending within the last
 # RECENT_DAYS (the Decided tab, and who is off this week).
 #
-# Rows come in the GraphQL shape the screen reads (links as `x__name`).
+# Rows come in the GraphQL shape the screen reads (links as `x__name`); an Open
+# row also carries `decide`: who decides it under the live rule (resolver.py)
+# and whether the caller can ("approver" / "escalation" / "override" / null).
 # READ-ONLY. Deciding stays with the "Leave Approval" workflow, as the
 # caller (the screen's data/erp.js).
 #
@@ -38,6 +40,9 @@ SEE_ALL_ROLE_PROFILE = "IT"
 RECENT_DAYS = 30
 
 me = frappe.session.user
+# Testing aid: a System Manager may look AS another user (?as=user@...), read-only.
+if frappe.form_dict.get("as") and frappe.db.exists("Has Role", {"parent": me, "parenttype": "User", "role": "System Manager"}):
+    me = frappe.form_dict.get("as")
 today = frappe.form_dict.get("today") or ""
 if len(today) != 10:
     today = frappe.utils.nowdate()
@@ -91,7 +96,7 @@ if seat:
         i = i + 500
 
 FIELDS = ["name", "employee", "employee_name", "department", "leave_type", "from_date", "to_date",
-          "half_day", "half_day_date", "total_leave_days", "description", "posting_date", "status",
+          "half_day", "half_day_date", "total_leave_days", "description", "posting_date", "status", "docstatus",
           "custom_attachement", "leave_approver", "leave_approver_name", "custom_escalation_approver",
           "modified", "modified_by"]
 WINDOWS = [[["status", "=", "Open"]], [["to_date", ">=", since]]]
@@ -113,8 +118,12 @@ else:
     while i < len(team):
         take([["employee", "in", team[i:i + 500]]])
         i = i + 500
-    take([["leave_approver", "=", me]])
-    take([["custom_escalation_approver", "=", me]])
+    # ...and every Open leave the live rule routes to the caller, wherever it is.
+    for r in frappe.get_all("Leave Application", filters=[["status", "=", "Open"], ["docstatus", "=", 0]],
+                            fields=FIELDS, limit_page_length=0):
+        rr = LRE["route"](r.get("employee"), r.get("leave_type"))
+        if me in rr.get("approvers") or me in rr.get("escalation"):
+            found[r.get("name")] = r
 
 LINKS = ["employee", "department", "leave_type", "leave_approver", "custom_escalation_approver", "modified_by"]
 rows = []
@@ -128,6 +137,12 @@ for n in found:
         if v is not None and f in ["from_date", "to_date", "half_day_date", "posting_date", "modified"]:
             v = str(v)
         out[(f + "__name") if f in LINKS else f] = v
+    # Who decides it, live (resolver.py), and may the caller?
+    if r.get("status") == "Open" and r.get("docstatus") in [0, None]:
+        rr = LRE["route"](r.get("employee"), r.get("leave_type"))
+        out["decide"] = {"can": LRE["can"](me, r, rr, today), "kind": rr.get("kind"),
+                         "approvers": rr.get("approvers"), "approver_names": LRE["names"](rr.get("approvers")) if rr.get("approvers") else "HR",
+                         "escalation": rr.get("escalation"), "escalation_names": LRE["names"](rr.get("escalation")) if rr.get("escalation") else None}
     rows.append(out)
 
 frappe.response["message"] = {

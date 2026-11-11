@@ -67,4 +67,17 @@ describe('leave approval Ring Nav tile', () => {
   it('gives no tile when nothing waits', () => {
     expect(leaveApprovalTile([])).toBeNull();
   });
+
+  it('follows the ERP live rule when rows carry it, over the stored approver fields', () => {
+    const rows = buildMockRows().map((r) => ({ ...r }));
+    const a = rows.find((r) => r.name === 'HR-LAP-2026-00503');
+    const b = rows.find((r) => r.name === 'HR-LAP-2026-00505');
+    a.decide = { can: null, approver_names: 'Ravi Shankar' };                  // stored says Arun, the rule says Ravi
+    b.decide = { can: 'override', approver_names: 'Arun Prakash' };            // HR deciding someone else's
+    const { waiting, others } = shapeLeaves(rows, { viewer: MOCK_ABM, today: MOCK_TODAY });
+    expect(waiting.some((l) => l.name === a.name)).toBe(false);
+    expect(others.find((l) => l.name === a.name).approverName).toBe('Ravi Shankar');
+    expect(waiting.find((l) => l.name === b.name).role).toBe('override');
+  });
 });
+
