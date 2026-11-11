@@ -521,6 +521,7 @@ function SecondaryRow({ L, view, open, pop }) {
           <span style={{ display: "flex", alignItems: "baseline", gap: 6 }}>
             <span style={{ fontSize: 32, fontWeight: 700, letterSpacing: "-0.035em", lineHeight: 1, ...tabNum }}>{t.pctTxt}</span>
             <span style={{ fontSize: 13, color: "#5b6576" }}>sold</span>
+            {t.growth && <span style={{ marginLeft: "auto", alignSelf: "center", fontSize: 12, fontWeight: 600, padding: "2px 8px", borderRadius: 99, whiteSpace: "nowrap", background: t.growth.bg, color: t.growth.c, ...tabNum }}>{t.growth.t}</span>}
           </span>
           <span style={track(6)}><span style={fill(t.w)} /></span>
           <span style={{ display: "grid", gridTemplateColumns: "repeat(3,1fr)", gap: 8, ...tabNum }}>
@@ -528,7 +529,7 @@ function SecondaryRow({ L, view, open, pop }) {
               <span key={c.l} style={{ display: "flex", flexDirection: "column" }}>
                 <span style={{ fontSize: 11, color: "#8a93a3" }}>{c.l}</span>
                 <span style={{ fontSize: 14, fontWeight: 600, overflowWrap: "anywhere" }}>{c.v}</span>
-                <span style={{ fontSize: 11.5, color: "#5b6576" }}>{c.n} Nos</span>
+                <span style={{ fontSize: 11.5, color: "#5b6576" }}>{c.n || " "}</span>
               </span>
             ))}
           </span>

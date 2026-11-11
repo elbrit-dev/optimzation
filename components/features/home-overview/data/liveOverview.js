@@ -161,13 +161,29 @@ export async function fetchPrimaryDistributors(conn, period, unit, level) {
   return out.filter((c) => known(c.name)).sort((a, b) => b.value - a.value).slice(0, 6);
 }
 
+/* Target and last month's sales come back on Department / HQ rows
+   (2026-11-11). An ERP whose SECONDARY report does not have them yet refuses
+   the whole query, so it is asked again without them rather than losing the
+   section. */
+const SECONDARY_BASE = ["SALES_QTY", "SALES_VALUE", "CLOSING_QTY", "CLOSING_BALANCE"];
+const SECONDARY_TARGETS = ["TARGET_VALUE", "LAST_MONTH_SALES_VALUE"];
 async function secondaryFor(conn, P) {
-  const { rows } = await runReport(conn, {
+  const ask = (metrics) => runReport(conn, {
     report: "SECONDARY", date_range: { from_date: P.fromDate, to_date: P.endDate },
-    group_by: ["DEPARTMENT", "HQ", "CUSTOMER"], metrics: ["SALES_QTY", "SALES_VALUE", "CLOSING_QTY", "CLOSING_BALANCE"],
+    group_by: ["DEPARTMENT", "HQ", "CUSTOMER"], metrics,
   });
-  /* What was on hand is what went out plus what is left. */
-  const fig = (n) => { const s = val(n.sales_qty), c = val(n.closing_qty); return { s, c, o: s + c, sv: val(n.sales_value), cv: val(n.closing_balance) }; };
+  const { rows } = await ask([...SECONDARY_BASE, ...SECONDARY_TARGETS]).catch((e) => {
+    console.warn("[home-overview] SECONDARY without target columns:", e?.message || e);
+    return ask(SECONDARY_BASE);
+  });
+  /* `o` is what moved through: sold + left (the sell-through base; no longer
+     shown as an "Opening" figure -- as a value it double counted).
+     t: the target, lm: last month's sales value (null = not sent). */
+  const opt = (v) => (v == null || v === "" ? null : val(v));
+  const fig = (n) => {
+    const s = val(n.sales_qty), c = val(n.closing_qty);
+    return { s, c, o: s + c, sv: val(n.sales_value), cv: val(n.closing_balance), t: opt(n.target_value), lm: opt(n.last_month_sales_value) };
+  };
   const depts = [];
   let d = null, h = null;
   for (const r of rows) {
@@ -272,12 +288,13 @@ export async function fetchSupport(conn, today) {
     topDoctors: topDoctors(lines, doctors), brands: brandSplit(lines),
   }));
 
-  /* Data health is an admin's view of the whole import, so only the widest
-     scope gets it. */
+  /* Data health: head office over the whole import, and every manager over
+     THEIR OWN team -- `cur` is already cut to the viewer's subtree, so a ZSM
+     sees the vacant seats and ₹0-rate lines under them and nothing else
+     (2026-11-11; it was All India non-sales only). A BE has no team under
+     them, so no seat of theirs can be vacant: they do not get it. */
   let health;
-  const me = meOf(org);
-  const salesLogin = me && (tree.N.has(me.id) || /general manager/i.test(me.designation || ""));
-  if (tree.viewer === tree.root && !salesLogin) {
+  if (tree.viewer === tree.root || tree.viewer.kids?.length) {
     const zero = cur.filter((l) => l.a > 0 && !l.rate).length;
     const vacant = cur.filter((l) => { const n = nodeOf(l); return n.vac || n.pseudo; }).reduce((s, l) => s + l.a, 0);
     const lm = [...byIdx.values()].reduce((m, x) => (x.lastModified > m ? x.lastModified : m), "");

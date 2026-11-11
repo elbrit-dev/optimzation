@@ -157,15 +157,23 @@ function buildSecondary(s, level) {
   const Pd = s.period || {};
   const days = Math.max(1, num(Pd.closed ? Pd.totalDays : Pd.elapsed) || 25);
   const units = src.map((u) => ({ ...u, key: u.name, short: level === "dept" ? shortName(u.name) : u.name, r: ratio(u.s, u.o) }));
-  const tot = units.reduce((x, u) => ({ s: x.s + u.s, c: x.c + u.c, o: x.o + u.o, sv: x.sv + num(u.sv), cv: x.cv + num(u.cv), dist: x.dist + num(u.dist) }), { s: 0, c: 0, o: 0, sv: 0, cv: 0, dist: 0 });
+  // t: target -- null when no unit sent one, so "—" rather than ₹0.
+  const tot = units.reduce((x, u) => ({ s: x.s + u.s, c: x.c + u.c, o: x.o + u.o, sv: x.sv + num(u.sv), cv: x.cv + num(u.cv), dist: x.dist + num(u.dist), t: u.t == null ? x.t : num(x.t) + num(u.t), lm: u.lm == null ? x.lm : num(x.lm) + num(u.lm) }), { s: 0, c: 0, o: 0, sv: 0, cv: 0, dist: 0, t: null, lm: null });
   const rT = ratio(tot.s, tot.o);
   // Amount first, Nos under it - same order as the secondary summary card.
   const cells = (t) => [
-    { l: "Sold", v: cr(num(t.sv)), n: nos(t.s) },
-    { l: "Closing", v: cr(num(t.cv)), n: nos(t.c) },
-    { l: "Opening", v: cr(num(t.sv) + num(t.cv)), n: nos(t.o) },
+    { l: "Sold", v: cr(num(t.sv)), n: nos(t.s) + " Nos" },
+    { l: "Closing", v: cr(num(t.cv)), n: nos(t.c) + " Nos" },
+    // Target replaced Opening (sales + closing, which double counted).
+    { l: "Target", v: t.t == null ? "—" : cr(num(t.t)), n: t.t ? pc(ratio(num(t.sv), num(t.t))) + " achieved" : "" },
   ];
-  const tile = (t, name, key, all) => ({ key, name, dist: t.dist, pctTxt: pc(ratio(t.s, t.o)), w: pct(ratio(t.s, t.o)), cells: cells(t), all });
+  // Growth: this month's sales value against last month's; null without one.
+  const growthOf = (t) => {
+    if (!num(t.lm)) return null;
+    const g = (num(t.sv) - num(t.lm)) / Math.abs(num(t.lm));
+    return { t: signed(g) + " vs last month", c: g >= 0 ? "#067647" : "#b42318", bg: g >= 0 ? "#ecfdf3" : "#fef3f2" };
+  };
+  const tile = (t, name, key, all) => ({ key, name, dist: t.dist, pctTxt: pc(ratio(t.s, t.o)), w: pct(ratio(t.s, t.o)), cells: cells(t), growth: growthOf(t), all });
   const v = rT >= 0.5 ? ["Healthy", ...OK] : rT >= 0.3 ? ["Watch stock", ...WN] : ["Slow", ...BD];
   const stock = [...units].sort((a, b) => ratio(b.c, b.o) - ratio(a.c, a.o))[0];
   const heroU = [...units].sort((a, b) => b.o - a.o).slice(0, 6), hMax = Math.max(1, ...heroU.map((x) => x.o));
@@ -176,7 +184,7 @@ function buildSecondary(s, level) {
     slide: {
       key: "secondary", name: "Secondary", dot: "#2563eb", kicker: "Secondary · " + (Pd.label || ""), title: pc(rT), sub: "of stock sold", isBars: true,
       bars: heroU.map((u) => ({ gh: (u.o / hMax) * 86 + "%", h: (u.s / hMax) * 86 + "%", c: "#2563eb" })),
-      mstats: [{ v: cr(tot.sv), l: "sales value" }, { v: nos(tot.c), l: "Nos closing stock" }, { v: nos(tot.o), l: "Nos opening stock" }, { v: tot.dist, l: "distributors" }],
+      mstats: [{ v: cr(tot.sv), l: "sales value" }, { v: nos(tot.c), l: "Nos closing stock" }, { v: tot.t == null ? "—" : cr(tot.t), l: "target" }, { v: tot.dist, l: "distributors" }],
     },
     stock,
   };
@@ -324,7 +332,7 @@ export function buildView({ primary, invoiced, secondary, visit, support, asOf }
     P?.worst && { c: P.worst.dot, t: P.worst.short + " at " + P.worst.pctTxt, s: "of target · " + cr(Math.max(0, P.worst.t - P.worst.a)) + " to go", act: { mode: "pri", k: P.worst.key } },
     V?.repsW?.notN > 0 && { c: A, t: nos(V.repsW.notN) + " reps not reported", s: "Only " + pc(ratio(V.reps.reported, V.reps.total)) + " reported " + (V.live ? "so far today" : V.period), act: { mode: "reps", f: "not" } },
     V?.fU && { c: R, t: V.forceT + " force visits " + (V.live ? "today" : V.period), s: "Most in " + V.fU.short, act: { mode: "visit", u: V.fU.key, f: "force" } },
-    S?.stock && { c: "#2563eb", t: S.stock.short + " stock unsold", s: pc(ratio(S.stock.c, S.stock.o)) + " of opening still with distributors", act: { mode: "sec", k: S.stock.key } },
+    S?.stock && { c: "#2563eb", t: S.stock.short + " stock unsold", s: pc(ratio(S.stock.c, S.stock.o)) + " of the stock still with distributors", act: { mode: "sec", k: S.stock.key } },
   ].filter(Boolean);
 
   return {
@@ -402,7 +410,7 @@ export function secondaryPanel(view, key) {
   const cv = cover(t.s, t.c);
   const rows = key == null
     ? S.units.map((x) => ({ name: x.short, sub: plural(num(x.dist), "distributor"), cells: [cell(nos(x.s)), cell(nos(x.c)), cell(pc(ratio(x.s, x.o)), "#1d4ed8", 600)], w: pct(ratio(x.s, x.o)), wc: "#2563eb" }))
-    : (t.hqs || []).map((h) => ({ name: h.name, sub: nos(h.o) + " Nos opening", cells: [cell(nos(h.s)), cell(nos(h.c)), cell(pc(ratio(h.s, h.o)), "#1d4ed8", 600)], w: pct(ratio(h.s, h.o)), wc: "#2563eb" }));
+    : (t.hqs || []).map((h) => ({ name: h.name, sub: plural(num(h.dist), "distributor"), cells: [cell(nos(h.s)), cell(nos(h.c)), cell(pc(ratio(h.s, h.o)), "#1d4ed8", 600)], w: pct(ratio(h.s, h.o)), wc: "#2563eb" }));
   const dists = [...(t.customers || [])].sort((a, b) => b.c - a.c).slice(0, 8);
   return {
     kicker: "Secondary · " + (S.period.label || ""), dot: "#2563eb", title: key == null ? t.name : t.short, sub: plural(num(t.dist), "distributor"),
@@ -412,7 +420,7 @@ export function secondaryPanel(view, key) {
       { l: "Closing stock", v: cr(num(t.cv)), s: nos(t.c) + " Nos" },
       { l: "Stock cover", v: cv + " days", s: "at the month's sell rate", c: cv > 45 ? "#b42318" : "#0b1220" },
     ],
-    bar: { t: "Opening stock used", w: pct(ratio(t.s, t.o)), bg: "#dbe5f7", l: "Sold " + nos(t.s), r: "Closing " + nos(t.c) },
+    bar: { t: "Stock sold", w: pct(ratio(t.s, t.o)), bg: "#dbe5f7", l: "Sold " + nos(t.s), r: "Closing " + nos(t.c) },
     tables: [
       ...(rows.length > 1 || key == null ? [{ t: key == null ? (level === "dept" ? "By team" : "By HQ") : "By HQ", s: "Nos", gtc: gtc(3), head: [H(key == null ? "Name" : "HQ", "left"), H("Sold"), H("Closing"), H("Sold %")], rows }] : []),
       { t: "Distributors", s: "highest closing stock first", gtc: gtc(3), head: [H("Distributor", "left"), H("Sold"), H("Closing"), H("Cover")],
