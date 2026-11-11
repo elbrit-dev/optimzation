@@ -293,8 +293,9 @@ const CSS = `
   .tc-stats { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 }
 @container tc (max-width: 380px) {
-  .tc-head { flex-direction: column; gap: 10px; }
-  .tc-toggle { align-self: flex-start; }
+  /* Show HQ stays on the name's line, top-right; a long name wraps beside it. */
+  .tc-head { gap: 8px; }
+  .tc-toggle { padding: 4px 8px; font-size: 11.5px; }
   /* One row per figure, using the width instead of leaving it empty: the label
      holds the left edge and the numbers sit against the right. */
   .tc-stats { grid-template-columns: minmax(0, 1fr); gap: 8px; }
