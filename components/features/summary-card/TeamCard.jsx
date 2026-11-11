@@ -176,7 +176,7 @@ const CSS = `
 .tc-head__main { flex: 1 1 auto; min-width: 0; }
 .tc-eyebrow { display: block; font-size: 10.5px; font-weight: 700; letter-spacing: .09em;
   text-transform: uppercase; color: #64748b; }
-.tc-title { margin: 4px 0 0; font-size: clamp(17px, 1.7cqi, 21px); font-weight: 700;
+.tc-title { margin: 3px 0 0; font-size: clamp(15px, 1.4cqi, 18px); font-weight: 700;
   line-height: 1.25; letter-spacing: -.01em; color: #0f172a;
   overflow-wrap: anywhere; }
 .tc-sub { display: flex; align-items: center; gap: 6px; margin: 6px 0 0;
@@ -184,7 +184,7 @@ const CSS = `
 .tc-sub__dot { width: 4px; height: 4px; border-radius: 50%; background: #94a3b8; flex: 0 0 auto; }
 
 .tc-toggle { flex: 0 0 auto; display: inline-flex; align-items: center; gap: 6px;
-  padding: 7px 12px; font: inherit; font-size: 12.5px; font-weight: 600; color: #334155;
+  padding: 5px 10px; font: inherit; font-size: 12px; font-weight: 600; color: #334155;
   background: #fff; border: 1px solid #cbd5e1; border-radius: 8px; cursor: pointer;
   transition: background .15s ease, border-color .15s ease; }
 .tc-toggle:hover { background: #f8fafc; border-color: #94a3b8; }
@@ -198,37 +198,37 @@ const CSS = `
   background: #e2e8f0; overflow: hidden; }
 .tc-progress__fill { height: 100%; border-radius: 999px; background: var(--tc-accent, #3b82f6);
   transition: width .45s cubic-bezier(.22,.61,.36,1); }
-.tc-progress__pct { flex: 0 0 auto; font-size: 12px; font-weight: 600; color: #475569;
+.tc-progress__pct { flex: 0 0 auto; font-size: 11.5px; font-weight: 600; color: #475569;
   font-variant-numeric: tabular-nums; }
 
 /* ---- sales / closing / target ---- */
 .tc-stats { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: 14px 20px; padding: 16px 20px 18px; }
+  gap: 12px 18px; padding: 14px 20px 16px; }
 .tc-stat { border-left: 2px solid var(--tc-accent, #3b82f6); padding-left: 12px; min-width: 0; }
 .tc-stat__figs { display: contents; }
-.tc-stat__label { font-size: 10.5px; font-weight: 700; letter-spacing: .08em;
+.tc-stat__label { font-size: 10px; font-weight: 700; letter-spacing: .08em;
   text-transform: uppercase; color: #64748b; }
-.tc-stat__value { margin-top: 4px; font-size: clamp(18px, 2cqi, 26px); font-weight: 700;
+.tc-stat__value { margin-top: 3px; font-size: clamp(15px, 1.6cqi, 20px); font-weight: 700;
   line-height: 1.15; color: #0f172a; font-variant-numeric: tabular-nums;
   white-space: nowrap; }
 .tc-stat__value[data-empty="true"] { color: #94a3b8; }
-.tc-stat__money { margin-top: 3px; font-size: 13px; font-weight: 600; color: #334155;
+.tc-stat__money { margin-top: 2px; font-size: 11.5px; font-weight: 600; color: #475569;
   font-variant-numeric: tabular-nums; white-space: nowrap; }
 
-/* ---- the three readings: growth, gap, % of target ---- */
-.tc-kpis { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 1px;
+/* ---- the two readings, always side by side: growth | % of target (+ gap) ---- */
+.tc-kpis { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 1px;
   margin: 0 20px 18px; background: #e2e8f0; border: 1px solid #e2e8f0; border-radius: 10px;
   overflow: hidden; }
-.tc-kpi { background: #f8fafc; padding: 10px 12px; min-width: 0; }
+.tc-kpi { background: #f8fafc; padding: 8px 12px; min-width: 0; }
 .tc-kpi__label { font-size: 10px; font-weight: 700; letter-spacing: .07em;
   text-transform: uppercase; color: #64748b; }
-.tc-kpi__value { margin-top: 4px; font-size: 17px; font-weight: 700; color: #0f172a;
+.tc-kpi__value { margin-top: 2px; font-size: 15px; font-weight: 700; color: #0f172a;
   font-variant-numeric: tabular-nums; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .tc-kpi__value[data-tone="up"] { color: #15803d; }
 .tc-kpi__value[data-tone="down"] { color: #b91c1c; }
 .tc-kpi__value[data-empty="true"] { color: #94a3b8; }
-.tc-kpi__sub { margin-top: 2px; font-size: 11px; color: #64748b; white-space: nowrap;
-  overflow: hidden; text-overflow: ellipsis; font-variant-numeric: tabular-nums; }
+.tc-kpi__sub { margin-top: 1px; font-size: 10.5px; line-height: 1.35; color: #64748b;
+  overflow-wrap: anywhere; font-variant-numeric: tabular-nums; }
 .tc-hq__line { margin-top: 10px; display: flex; flex-wrap: wrap; gap: 4px 12px;
   font-size: 11.5px; color: #475569; font-variant-numeric: tabular-nums; }
 .tc-hq__line b { font-weight: 700; }
@@ -258,7 +258,7 @@ const CSS = `
 .tc-hq__head { display: flex; align-items: center; gap: 8px; }
 .tc-hq__chip { flex: 0 0 auto; font-size: 9.5px; font-weight: 700; letter-spacing: .04em;
   color: #1d4ed8; background: #dbeafe; border-radius: 4px; padding: 3px 5px; }
-.tc-hq__name { flex: 1 1 auto; min-width: 0; font-size: 13.5px; font-weight: 600;
+.tc-hq__name { flex: 1 1 auto; min-width: 0; font-size: 13px; font-weight: 600;
   color: #0f172a; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .tc-hq__meta { flex: 0 0 auto; font-size: 11px; color: #94a3b8; }
 .tc-hq__bar { height: 4px; border-radius: 999px; background: #e2e8f0; overflow: hidden;
@@ -269,10 +269,10 @@ const CSS = `
 .tc-hq__stat { border-left: 2px solid #bfdbfe; padding-left: 8px; min-width: 0; }
 .tc-hq__statLabel { font-size: 9.5px; font-weight: 700; letter-spacing: .07em;
   text-transform: uppercase; color: #64748b; }
-.tc-hq__statValue { margin-top: 3px; font-size: 14px; font-weight: 700; color: #0f172a;
+.tc-hq__statValue { margin-top: 2px; font-size: 12.5px; font-weight: 700; color: #0f172a;
   font-variant-numeric: tabular-nums; white-space: nowrap; }
 .tc-hq__statValue[data-empty="true"] { color: #cbd5e1; }
-.tc-hq__statQty { margin-top: 2px; font-size: 11px; color: #64748b;
+.tc-hq__statQty { margin-top: 1px; font-size: 10.5px; color: #64748b;
   font-variant-numeric: tabular-nums; }
 
 @keyframes tc-in { from { opacity: 0; } to { opacity: 1; } }
@@ -287,7 +287,7 @@ const CSS = `
 }
 @container tc (max-width: 560px) {
   .tc-progress { padding: 12px 14px 0; }
-  .tc-kpis { margin: 0 14px 16px; grid-template-columns: minmax(0, 1fr); }
+  .tc-kpis { margin: 0 14px 16px; }
 }
 @container tc (max-width: 460px) {
   .tc-stats { grid-template-columns: repeat(2, minmax(0, 1fr)); }
@@ -297,13 +297,13 @@ const CSS = `
   .tc-toggle { align-self: flex-start; }
   /* One row per figure, using the width instead of leaving it empty: the label
      holds the left edge and the numbers sit against the right. */
-  .tc-stats { grid-template-columns: minmax(0, 1fr); gap: 10px; }
+  .tc-stats { grid-template-columns: minmax(0, 1fr); gap: 8px; }
   .tc-stat { display: flex; align-items: center; justify-content: space-between;
     gap: 14px; padding: 2px 0 2px 10px; }
   .tc-stat__label { flex: 0 0 auto; }
   .tc-stat__figs { display: block; flex: 1 1 auto; min-width: 0; text-align: right; }
-  .tc-stat__value { margin-top: 0; font-size: clamp(17px, 6.4cqi, 21px); }
-  .tc-stat__money { margin-top: 1px; font-size: 11.5px; }
+  .tc-stat__value { margin-top: 0; font-size: 15px; }
+  .tc-stat__money { margin-top: 1px; font-size: 11px; }
 }
 
 @media (prefers-reduced-motion: reduce) {
@@ -360,26 +360,32 @@ function Kpi({ label, value, sub, tone }) {
 
 const toneOf = (p) => (p === null ? undefined : p > 0 ? "up" : p < 0 ? "down" : undefined);
 
-/** The three readings, worded once for the card. */
+/** Whole rupees: the gap is a headline, not a ledger line. */
+const fmtWhole = (v, currency) => (num(v) === null ? null : fmtFull(Math.round(num(v)), currency));
+
+/**
+ * The two readings, worded once for the card. Primary - Secondary rides on the
+ * % of target box's second line rather than a box of its own, so both fit one
+ * row at every width (asked 2026-11-11).
+ */
 function readings(f, currency) {
   const growth = growthPct(f);
   const gap = gapValue(f);
+  const second = [
+    f.priPct !== null ? `Primary ${cutPct(f.priPct)}%` : null,
+    gap !== null ? `Gap ${fmtWhole(gap, currency)}` : null,
+  ].filter(Boolean).join(" \u00b7 ");
   return [
     {
       label: "Growth vs last month",
       value: signedPct(growth),
       tone: toneOf(growth),
-      sub: f.last.sales !== null ? `Last month ${fmtFull(f.last.sales, currency)}` : "No last month figure",
-    },
-    {
-      label: "Primary \u2212 Secondary",
-      value: fmtFull(gap, currency),
-      sub: f.primary !== null ? `Primary ${fmtFull(f.primary, currency)}` : "No primary figure",
+      sub: f.last.sales !== null ? `Last month ${fmtWhole(f.last.sales, currency)}` : "No last month figure",
     },
     {
       label: "Secondary % of target",
       value: f.secPct === null ? null : `${cutPct(f.secPct)}%`,
-      sub: f.priPct !== null ? `Primary ${cutPct(f.priPct)}% of target` : f.target === null ? "No target" : "",
+      sub: second || (f.target === null ? "No target" : ""),
     },
   ];
 }
