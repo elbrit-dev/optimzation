@@ -81,11 +81,13 @@ export function gradeRank({ roleId, designation } = {}) {
 /**
  * The grade at which what the company SPENT on a doctor becomes visible.
  *
- * "Till SM the service should not be visible": a BE, an ABM and an RBM see
- * support, POB and visits but never the service figures; an SM and everyone
- * above them does. An unresolved reader ranks 0 and is refused.
+ * Every sales grade, from BE up (2026-11-11; it was SM and above). Each reader
+ * sees the service and the ROI of THEIR OWN rows only: the rows are cut to the
+ * reader's seats and (department, HQ) pairings before anything is totalled
+ * (scope.js, scopeRawRows), so a BE's ROI is their department at their HQ, not
+ * the doctor's whole. An unresolved reader still ranks 0 and is refused.
  */
-export const SERVICE_MIN_RANK = 5;
+export const SERVICE_MIN_RANK = 1;
 
 /**
  * At or above this grade the reader is not IN the sales hierarchy, they oversee

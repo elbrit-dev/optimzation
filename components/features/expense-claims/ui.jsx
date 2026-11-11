@@ -221,8 +221,9 @@ export function Sheet({ title, sub, chips, onClose, maxWidth = 640, z: _z = 70, 
       <Drawer.Portal>
         <Drawer.Backdrop />
         <Drawer.Viewport>
-      {/* 92dvh is the phone sheet's cap; from 768px it is a full-height side drawer. */}
-      <Drawer.Popup className="ec-root max-h-[92dvh] md:max-h-none" aria-label={title} style={{ width: "100%", maxWidth, display: "flex", flexDirection: "column", background: body || "#fff", overflow: "hidden" }}>
+      {/* 92dvh is the phone sheet's cap; from 768px it is the centred popup,
+          capped at the window by the drawer CSS, with the body scrolling inside. */}
+      <Drawer.Popup className="ec-root max-h-[92dvh]" aria-label={title} style={{ width: "100%", maxWidth, display: "flex", flexDirection: "column", background: body || "#fff", overflow: "hidden" }}>
         <Drawer.Handle />
         {inner}
       </Drawer.Popup>

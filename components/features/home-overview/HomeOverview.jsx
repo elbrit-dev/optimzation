@@ -3,7 +3,7 @@
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import Router from "next/router";
 import { Sheet, useRetained } from "@/design-system";
-import { buildView, primaryPanel, repsPanel, secondaryPanel, supportPanel, updatedLabel, visitPanel } from "./model";
+import { buildView, healthPanel, leavePanel, primaryPanel, repsPanel, secondaryPanel, supportPanel, updatedLabel, visitPanel } from "./model";
 import { SAMPLE } from "./sampleData";
 import { useOverviewData } from "./data/useOverviewData";
 import { useReviewSection } from "./data/useReviewSection";
@@ -399,6 +399,20 @@ function VisitRow({ L, view, open, pop }) {
           <span style={{ fontSize: 12, color: "#5b6576" }}>{V.repsW.notN} not yet{V.repsW.holN ? ` · ${V.repsW.holN} on holiday` : ""}{V.repsW.awayN ? ` · ${V.repsW.awayN} on leave / other work` : ""} · {V.reps.vacant} vacant</span>
         </Tile>
       )}
+      {V.leave && (
+        <Tile width={L.posterW} onClick={() => pop({ mode: "leave" })} style={between} label={(V.live ? "Today's leaves" : "On leave") + ": " + V.leave.n}>
+          <span style={{ display: "flex", alignItems: "center", gap: 7 }}>
+            <span style={{ width: 8, height: 8, borderRadius: "50%", background: "#b54708" }} />
+            <span style={{ fontSize: 14, fontWeight: 600 }}>{V.live ? "Today's leaves" : "On leave"}</span>
+          </span>
+          <span style={{ display: "flex", alignItems: "baseline", gap: 6 }}>
+            <span style={{ fontSize: 40, fontWeight: 700, letterSpacing: "-0.04em", lineHeight: 1, color: V.leave.n ? "#b54708" : "#0b1220" }}>{V.leave.n}</span>
+            <span style={{ fontSize: 13, color: "#8a93a3" }}>of {V.reps.total}</span>
+          </span>
+          <span style={track(6)}><span style={fill(pct100(V.leave.n, V.reps.total), "#b54708")} /></span>
+          <span style={{ fontSize: 12, color: "#5b6576" }}>{V.leave.n ? `Across ${V.leave.teams} ${V.leave.teams === 1 ? kind : view.kinds} · tap to see who` : "No one on leave" + (V.live ? " today" : "")}</span>
+        </Tile>
+      )}
       {V.units.map((h) => (
         <Tile key={h.key} width={L.posterW} onClick={() => pop({ mode: "visit", u: h.key, f: "all" })} style={between}>
           <span style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 8 }}>
@@ -575,7 +589,7 @@ function SupportRow({ L, view, open, pop }) {
         </Tile>
       ))}
       {U.health && (
-        <Tile width={L.landW} onClick={() => open("support")}>
+        <Tile width={L.landW} onClick={() => pop({ mode: "health", f: "vac" })} label="Data health: vacant seats and ₹0-rate lines">
           <span style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 14, fontWeight: 600 }}>
             {U.health.issues > 0 && <span style={{ fontSize: 11, fontWeight: 600, padding: "2px 8px", borderRadius: 99, background: "#fffaeb", color: "#b54708" }}>{U.health.issues} {U.health.issues === 1 ? "issue" : "issues"}</span>}
             Data health
@@ -788,6 +802,101 @@ function VisitBody({ spec, setPan, pan }) {
   );
 }
 
+/* Support data health: vacant seats still carrying support (each opens to
+   the doctors linked to it), and the ₹0-rate lines by product. */
+function HealthBody({ spec, pan, setPan }) {
+  const muted = { fontSize: 11, color: "#8a93a3", ...ell };
+  return (
+    <>
+      <div style={{ display: "flex", flexDirection: "column", gap: 12, minWidth: 0 }}>
+        <Kpis kpis={spec.kpis} />
+        <div style={boxed}>
+          <span style={{ fontSize: 12, color: "#5b6576", textWrap: "pretty" }}>{spec.note}</span>
+          {spec.lastImport && <span style={{ fontSize: 11, color: "#8a93a3" }}>Last import {spec.lastImport}</span>}
+        </div>
+      </div>
+      <div style={{ display: "flex", flexDirection: "column", gap: 10, minWidth: 0 }}>
+        <div className="ho-rail" style={{ display: "flex", gap: 6, overflowX: "auto" }}>
+          {spec.tabs.map((t) => <button key={t.k} type="button" onClick={() => setPan({ ...pan, f: t.k, ex: undefined })} style={filterBtn(t.on)}>{t.label} · {t.n}</button>)}
+        </div>
+        {spec.tab === "vac" && (spec.seats.length ? spec.seats.map((s) => (
+          <div key={s.key} style={{ borderRadius: 12, boxShadow: "0 0 0 1px #e4e7ec", overflow: "hidden" }}>
+            <button type="button" className="ho-row" aria-expanded={s.open} onClick={() => setPan({ ...pan, ex: s.open ? null : s.key })} style={{ width: "100%", display: "grid", gridTemplateColumns: "minmax(0,1fr) auto 20px", gap: 12, alignItems: "center", padding: "12px 14px", border: 0, background: "#fff", textAlign: "left", cursor: "pointer" }}>
+              <span style={{ display: "flex", flexDirection: "column", gap: 3, minWidth: 0 }}>
+                <span style={{ display: "flex", alignItems: "center", gap: 6, minWidth: 0 }}>
+                  <span style={{ fontSize: 14, fontWeight: 600, ...ell }}>{s.name}</span>
+                  {s.role && s.role !== "—" && <span style={{ flex: "none", fontSize: 10, fontWeight: 600, padding: "1px 7px", borderRadius: 99, background: "#fffaeb", color: "#b54708" }}>{s.role}</span>}
+                </span>
+                {s.where && <span style={muted}>{s.where}</span>}
+                <span style={{ fontSize: 12, color: "#5b6576", ...ell }}>{s.mgr}</span>
+                <span style={track(4)}><span style={fill(s.w, "#b54708")} /></span>
+                <span style={{ fontSize: 11, color: "#5b6576" }}>{s.nDoc} {s.nDoc === 1 ? "doctor" : "doctors"} · {s.nLines} lines · {s.share} of the month</span>
+              </span>
+              <span style={{ fontSize: 15, fontWeight: 700, color: "#b54708", ...tabNum }}>{s.vS}</span>
+              <span style={{ color: "#8a93a3", display: "grid", placeItems: "center", transform: `rotate(${s.open ? 180 : 0}deg)`, transition: "transform .2s" }}><Chevron d="M6 9l6 6 6-6" /></span>
+            </button>
+            {s.open && (
+              <div style={{ display: "flex", flexDirection: "column", padding: "0 14px 8px", background: "#fff" }}>
+                {s.doctors.map((d) => (
+                  <div key={d.key} style={{ display: "grid", gridTemplateColumns: "30px minmax(0,1fr) auto", gap: 10, alignItems: "center", padding: "8px 0", borderTop: "1px solid #f2f4f7" }}>
+                    <span style={{ width: 30, height: 30, borderRadius: "50%", background: "#eef3fe", color: "#1d4ed8", display: "grid", placeItems: "center", fontSize: 11, fontWeight: 700 }}>{d.ini}</span>
+                    <span style={{ minWidth: 0, display: "flex", flexDirection: "column" }}><span style={{ fontSize: 13, fontWeight: 500, ...ell }}>{d.name}</span>{d.sub && <span style={muted}>{d.sub}</span>}</span>
+                    <span style={{ display: "flex", flexDirection: "column", alignItems: "flex-end" }}><span style={{ fontSize: 13, fontWeight: 600, ...tabNum }}>{d.vS}</span><span style={{ fontSize: 11, color: "#8a93a3" }}>{d.units} units</span></span>
+                  </div>
+                ))}
+                {s.more > 0 && <div style={{ padding: "8px 0 4px", borderTop: "1px solid #f2f4f7", fontSize: 12, color: "#5b6576" }}>+ {s.more} more doctors on this seat — the Support Report has them all</div>}
+              </div>
+            )}
+          </div>
+        )) : <div style={{ padding: "32px 0", textAlign: "center", fontSize: 13, color: "#8a93a3" }}>No support on vacant seats this month.</div>)}
+        {spec.tab === "zero" && (spec.zero.length ? (
+          <div style={{ borderRadius: 12, boxShadow: "0 0 0 1px #e4e7ec", padding: "2px 14px", background: "#fff" }}>
+            {spec.zero.map((z, i) => (
+              <div key={z.key} style={{ display: "grid", gridTemplateColumns: "minmax(0,1fr) auto", gap: 10, alignItems: "center", padding: "10px 0", borderTop: i ? "1px solid #f2f4f7" : 0 }}>
+                <span style={{ minWidth: 0, display: "flex", flexDirection: "column" }}><span style={{ fontSize: 13, fontWeight: 500, ...ell }}>{z.name}</span><span style={muted}>{[z.sub, z.doctors + " doctors", z.units + " units"].filter(Boolean).join(" · ")}</span></span>
+                <span style={{ fontSize: 13, fontWeight: 600, color: "#b54708", whiteSpace: "nowrap", ...tabNum }}>{z.lines} lines</span>
+              </div>
+            ))}
+          </div>
+        ) : <div style={{ padding: "32px 0", textAlign: "center", fontSize: 13, color: "#8a93a3" }}>No ₹0-rate lines this month.</div>)}
+      </div>
+    </>
+  );
+}
+
+const pct100 = (a, b) => Math.min(100, b ? (a / b) * 100 : 0) + "%";
+
+/* Today's leaves: only the people on leave, every team open, each person
+   with their role, HQ, leave type and who they report to. */
+function LeaveBody({ spec }) {
+  if (spec.empty) return <div style={{ padding: "32px 0", textAlign: "center", fontSize: 13, color: "#8a93a3" }}>No one is on leave.</div>;
+  return (
+    <div style={{ display: "flex", flexDirection: "column", gap: 10, minWidth: 0 }}>
+      {spec.groups.map((u) => (
+        <div key={u.key} style={{ borderRadius: 12, boxShadow: "0 0 0 1px #e4e7ec", overflow: "hidden", background: "#fff" }}>
+          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12, padding: "12px 14px", background: "#fafbfc", borderBottom: "1px solid #f2f4f7" }}>
+            <span style={{ fontSize: 14, fontWeight: 600, ...ell }}>{u.name}</span>
+            <span style={{ fontSize: 13, fontWeight: 700, color: "#b54708", ...tabNum }}>{u.n} on leave</span>
+          </div>
+          <div style={{ display: "flex", flexDirection: "column", padding: "0 14px" }}>
+            {u.people.map((p, i) => (
+              <div key={p.name + i} style={{ display: "grid", gridTemplateColumns: "30px minmax(0,1fr) auto", gap: 10, alignItems: "center", padding: "9px 0", borderTop: i ? "1px solid #f2f4f7" : 0 }}>
+                <span style={{ width: 30, height: 30, borderRadius: "50%", background: p.av, color: "#fff", display: "grid", placeItems: "center", fontSize: 11, fontWeight: 700 }}>{p.ini}</span>
+                <span style={{ minWidth: 0, display: "flex", flexDirection: "column" }}>
+                  <span style={{ fontSize: 13, fontWeight: 500, ...ell }}>{p.name}</span>
+                  <span style={{ fontSize: 11, color: "#8a93a3", ...ell }}>{p.meta}</span>
+                  {p.mgr && <span style={{ fontSize: 11, color: "#5b6576", ...ell }}>{p.mgr}</span>}
+                </span>
+                <span style={{ fontSize: 12, fontWeight: 600, color: "#b54708", whiteSpace: "nowrap" }}>{p.st}</span>
+              </div>
+            ))}
+          </div>
+        </div>
+      ))}
+    </div>
+  );
+}
+
 function RepsBody({ spec, setPan, pan }) {
   return (
     <>
@@ -988,6 +1097,8 @@ export default function HomeOverview({
     : pan.mode === "sec" ? secondaryPanel(view, pan.k)
     : pan.mode === "sup" ? supportPanel(view, pan.k)
     : pan.mode === "reps" ? repsPanel(view, pan.f, pan.ex)
+    : pan.mode === "leave" ? leavePanel(view)
+    : pan.mode === "health" ? healthPanel(view, pan.f, pan.ex)
     : visitPanel(view, pan.u, pan.f, pan.exp || {});
   /* What the panel draws while it animates out after `pan` goes null. */
   const shownPan = useRetained(pan);
@@ -1062,7 +1173,7 @@ export default function HomeOverview({
       </div>
 
       <Panel open={spec != null} spec={shownSpec} onClose={() => setPan(null)}>
-        {shownSpec && (shownPan.mode === "visit" ? <VisitBody spec={shownSpec} pan={shownPan} setPan={setPan} /> : shownPan.mode === "reps" ? <RepsBody spec={shownSpec} pan={shownPan} setPan={setPan} /> : <DetailBody spec={shownSpec} />)}
+        {shownSpec && (shownPan.mode === "visit" ? <VisitBody spec={shownSpec} pan={shownPan} setPan={setPan} /> : shownPan.mode === "reps" ? <RepsBody spec={shownSpec} pan={shownPan} setPan={setPan} /> : shownPan.mode === "leave" ? <LeaveBody spec={shownSpec} /> : shownPan.mode === "health" ? <HealthBody spec={shownSpec} pan={shownPan} setPan={setPan} /> : <DetailBody spec={shownSpec} />)}
       </Panel>
     </div>
   );

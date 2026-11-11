@@ -92,6 +92,8 @@ SEE_ALL = ["System Manager", "Accounts Manager", "Accounts User"]
 AUTO_SCORE = 90
 REVIEW_ABOVE = 50000                         # a bill above this always goes to Accounts, whatever its score
 ROW_INPUT = ["amount", "expense_date", "expense_type", "description", "custom_bill"]
+KINDS = ["Miscellaneous", "Food"]           # a running claim holds one kind of bill
+FOOD_LIMIT = 6000                           # Food a month, every role (3 Nov 2026)
 
 old = doc.get_doc_before_save()
 if old and old.get("custom_running"):
@@ -111,10 +113,19 @@ if doc.get("custom_running"):
         frappe.throw("You can only add bills to your own claim.")
     # Who may decide a bill In Review: Accounts, never on their own claim.
     decider = checker or (accounts and not own)
+    # Which running claim: Miscellaneous, or Food (one per month, FOOD_LIMIT a month).
+    kind = (doc.expenses or [None])[0]
+    kind = kind.expense_type if kind else "Miscellaneous"
+    if kind not in KINDS:
+        frappe.throw("Only Miscellaneous or Food bills go on a running claim.")
+    month = str(doc.posting_date or "")[:7]
     if doc.docstatus == 0:
-        other = frappe.db.get_value("Expense Claim", {"employee": doc.employee, "custom_running": 1, "docstatus": 0, "name": ["!=", doc.name]}, "name")
-        if other:
-            frappe.throw(str(doc.employee_name or doc.employee) + " already has an open claim, " + other + ". Add the bill there.")
+        for other in frappe.get_all("Expense Claim", filters={"employee": doc.employee, "custom_running": 1, "docstatus": 0, "name": ["!=", doc.name]}, fields=["name", "posting_date"]):
+            if not frappe.db.exists("Expense Claim Detail", {"parent": other.name, "parenttype": "Expense Claim", "expense_type": kind}):
+                continue
+            if kind == "Food" and str(other.posting_date)[:7] != month:
+                continue
+            frappe.throw(str(doc.employee_name or doc.employee) + " already has an open " + ("Food claim for this month, " if kind == "Food" else "claim, ") + other.name + ". Add the bill there.")
 
     if not doc.cost_center:
         doc.cost_center = frappe.get_cached_value("Company", doc.company, "cost_center")
@@ -128,8 +139,10 @@ if doc.get("custom_running"):
         seen.append(r.name)
         if not r.cost_center:
             r.cost_center = doc.cost_center      # the claim cannot be booked without it
-        if r.expense_type != "Miscellaneous":
-            frappe.throw("Bill " + str(r.idx) + ": only Miscellaneous bills go on this claim.")
+        if r.expense_type != kind:
+            frappe.throw("Bill " + str(r.idx) + ": only " + kind + " bills go on this claim.")
+        if kind == "Food" and str(r.expense_date or "")[:7] != month:
+            frappe.throw("Bill " + str(r.idx) + ": a Food bill goes on the Food claim of its own month (" + str(r.expense_date) + ").")
         r.description = " ".join(str(r.description or "").split())
         if not r.description:
             frappe.throw("Bill " + str(r.idx) + ": say what it was for.")
@@ -176,6 +189,19 @@ if doc.get("custom_running"):
     for name in prev:
         if name not in seen and (prev[name].get("custom_bill_status") or "Checking") != "Checking" and not checker:
             frappe.throw("Bill " + str(prev[name].idx) + " is " + str(prev[name].custom_bill_status) + " and cannot be removed.")
+    # The month's Food limit: everything not Rejected counts. Checked only when
+    # the total grows, so deciding bills never trips it.
+    if kind == "Food" and not checker:
+        now = 0
+        for r in doc.expenses or []:
+            if r.custom_bill_status != "Rejected":
+                now = now + frappe.utils.flt(r.amount)
+        was = 0
+        for name in prev:
+            if (prev[name].get("custom_bill_status") or "Checking") != "Rejected":
+                was = was + frappe.utils.flt(prev[name].amount)
+        if now > was and now > FOOD_LIMIT:
+            frappe.throw("Food limit is " + frappe.utils.fmt_money(FOOD_LIMIT, currency="INR") + " a month: " + frappe.utils.fmt_money(was, currency="INR") + " is used, so " + frappe.utils.fmt_money(FOOD_LIMIT - was if was < FOOD_LIMIT else 0, currency="INR") + " is left.")
 '''
 
 ROUTE = r'''

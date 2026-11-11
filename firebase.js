@@ -27,4 +27,3 @@ if (typeof window !== 'undefined') {
 
 export default app;
 export { db };
-

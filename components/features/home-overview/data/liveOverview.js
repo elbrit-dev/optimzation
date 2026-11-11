@@ -282,8 +282,43 @@ export async function fetchSupport(conn, today) {
     const vacant = cur.filter((l) => { const n = nodeOf(l); return n.vac || n.pseudo; }).reduce((s, l) => s + l.a, 0);
     const lm = [...byIdx.values()].reduce((m, x) => (x.lastModified > m ? x.lastModified : m), "");
     const d = lm ? new Date(lm.replace(" ", "T")) : null;
+    /* The detail behind the two numbers, for the Data health popup: each
+       vacant / unassigned seat still carrying support, who it reports to and
+       the doctors linked to it; and the ₹0-rate lines by product. */
+    const realUp = (n) => { let p = n.parent; while (p && (p.vac || p.pseudo)) p = p.parent; return p && p !== tree.root ? p : null; };
+    const seats = new Map();
+    for (const l of cur) {
+      const n = nodeOf(l);
+      if (!n.vac && !n.pseudo) continue;
+      if (!seats.has(n)) seats.set(n, []);
+      seats.get(n).push(l);
+    }
+    const vacantSeats = [...seats].map(([n, lines]) => {
+      const up = realUp(n);
+      const docs = new Map();
+      for (const l of lines) {
+        const x = docs.get(l.d) || { v: 0, q: 0, items: new Set() };
+        x.v += l.a; x.q += l.q; x.items.add(l.brand); docs.set(l.d, x);
+      }
+      return {
+        id: n.id, name: n.name, role: n.role, code: n.code, dept: n.dept, hq: n.hq, pseudo: n.pseudo,
+        mgr: up ? up.name : "", mgrRole: up ? up.role : "",
+        value: lines.reduce((s, l) => s + l.a, 0), lines: lines.length,
+        doctors: [...docs].sort((a, b) => b[1].v - a[1].v).map(([id, x]) => {
+          const d = doctors[id] || {};
+          return { id, name: d.name || id, spec: d.spec && d.spec !== "—" ? d.spec : "", hq: d.hq || "", value: x.v, qty: x.q, brands: [...x.items].slice(0, 3) };
+        }),
+      };
+    }).sort((a, b) => b.value - a.value);
+    const zItems = new Map();
+    for (const l of cur) {
+      if (!(l.a > 0 && !l.rate)) continue;
+      const x = zItems.get(l.item) || { name: l.item, brand: l.brand, lines: 0, qty: 0, doctors: new Set() };
+      x.lines += 1; x.qty += l.q; x.doctors.add(l.d); zItems.set(l.item, x);
+    }
+    const zeroItems = [...zItems.values()].sort((a, b) => b.lines - a.lines).map((x) => ({ ...x, doctors: x.doctors.size }));
     health = {
-      issues: (zero ? 1 : 0) + (vacant ? 1 : 0), zeroRateLines: zero, vacantValue: vacant,
+      issues: (zero ? 1 : 0) + (vacant ? 1 : 0), zeroRateLines: zero, vacantValue: vacant, vacantSeats, zeroItems,
       lastImport: d && !isNaN(d) ? `${d.getDate()} ${MON[d.getMonth()]} · ${pad(d.getHours())}:${pad(d.getMinutes())}` : "",
     };
   }
@@ -861,7 +896,8 @@ function shapeVisit(rows, team, P, mode, scoped, excuseFor = () => null) {
     for (const m of people) {
       if (!m || listed.has(m.id)) continue;
       listed.add(m.id);
-      const who = { name: m.name, role: m.short || "—", hq: String(m.hq || "").replace(/^HQ-\s*/, "") };
+      const boss = byId.get(m.reportsTo);
+      const who = { name: m.name, role: m.short || "—", hq: String(m.hq || "").replace(/^HQ-\s*/, ""), mgr: boss && !boss.vacant ? boss.name : "", mgrRole: boss?.short || "" };
       const why = excused(m);
       if (m.vacant) vacant.push(who);
       else if (didReport(m.id)) reported.push({ ...who, time: hhmm(firstOf.get(m.id)) });

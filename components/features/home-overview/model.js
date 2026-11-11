@@ -212,8 +212,12 @@ function buildVisit(v, level) {
   const period = live ? "live today" : v.period || "";
   const grad = (i) => (force[i] ? `linear-gradient(180deg,${R} 0%,${R} ${ratio(force[i], tots[i]) * 100}%,${G} ${ratio(force[i], tots[i]) * 100}%)` : G);
   const fU = [...units].sort((a, b) => b.forceN - a.forceN)[0];
+  /* On leave, as the leave card and its popup list them: the people per unit,
+     so the card's number is exactly the popup's list. */
+  const lvUnits = allUnits.filter((u) => u.reps?.leave?.length);
+  const leave = reps && { n: sum(lvUnits.map((u) => u.reps.leave.length)), teams: lvUnits.length };
   return {
-    live, period, units, allUnits, hours, geo, force, plan, done, forceT, geoT: sum(geo), reps,
+    live, period, units, allUnits, hours, geo, force, plan, done, forceT, geoT: sum(geo), reps, leave,
     range: hourLabel(hours[0]) + " – " + hourLabel(hours[hours.length - 1]),
     allHours: hours.map((l, i) => ({ label: l, gH: (geo[i] / max) * 100 + "%", fH: (force[i] / max) * 100 + "%", gR: force[i] ? "0" : "4px 4px 0 0" })),
     repsW: reps && { rep: pct(ratio(reps.reported, reps.total)), not: pct(ratio(notN, reps.total)), notN, away: pct(ratio(reps.leave + reps.other, reps.total)), awayN: reps.leave + reps.other, hol: pct(ratio(reps.holiday, reps.total)), holN: reps.holiday },
@@ -272,7 +276,7 @@ function buildSupport(s) {
       ini: initials(String(d.name).replace(/^dr\.?\s+/i, "")), vS: cr(num(d.value)), w: pct(num(d.value) / (num(a[0].value) || 1)),
       share: pc(ratio(num(d.value), sel.value)), units: nos(num(d.qty)),
     })),
-    health: h && { issues: num(h.issues), zero: nos(num(h.zeroRateLines)), vacant: cr(num(h.vacantValue)), lastImport: h.lastImport },
+    health: h && { issues: num(h.issues), zero: nos(num(h.zeroRateLines)), vacant: cr(num(h.vacantValue)), lastImport: h.lastImport, raw: h },
     card: {
       kicker: "Doctor support · " + sel.label,
       verdict: dd ? dd.t + " vs " + prevName : sel.label, vFg: dd ? dd.c : "#5b6576", vBg: dd ? dd.bg : "#f2f4f7",
@@ -545,5 +549,72 @@ export function repsPanel(view, filter = "not", openUnit) {
     note: pc(ratio(reported, total)) + " of filled seats have reported." + (groups[0] && filter === "not" && groups[0].n ? " " + groups[0].name + " has the most pending." : ""),
     filters: [["not", "Not reported", not], ["rep", "Reported", reported], ["lv", "On leave", leaveN], ["ow", "Other work", otherN], ["hol", "Holiday", holN], ["vac", "Vacant", vacant]].map(([k, label, n]) => ({ k, label, n, on: filter === k })),
     groups: groups.map((g) => ({ ...g, open: g.key === openKey })),
+  };
+}
+
+/* Support data health: the vacant / unassigned seats that still carry doctor
+   support this month -- who each reports to and which doctors are linked to
+   it -- and the ₹0-rate lines by product. `tab` = vac | zero, `ex` = the
+   seat whose doctors are open. */
+export function healthPanel(view, tab = "vac", ex) {
+  const { U } = view;
+  const h = U?.health?.raw;
+  if (!h) return null;
+  const total = num(U.sel.value);
+  const seats = (h.vacantSeats || []).map((s) => ({
+    key: s.id, name: s.name, role: s.role,
+    where: [s.dept, s.hq ? "HQ-" + s.hq : "", s.code && !s.name.includes(s.code) ? s.code : ""].filter(Boolean).join(" · "),
+    mgr: s.mgr ? "Reports to " + s.mgr + (s.mgrRole ? " (" + s.mgrRole + ")" : "") : "No manager on file",
+    vS: cr(num(s.value)), share: pc(ratio(num(s.value), total)), w: pct(ratio(num(s.value), num(h.vacantValue))),
+    nDoc: s.doctors.length, nLines: s.lines, more: Math.max(0, s.doctors.length - 60),
+    doctors: s.doctors.slice(0, 60).map((d) => ({
+      key: d.id, name: d.name, ini: initials(String(d.name).replace(/^dr\.?\s+/i, "")),
+      sub: [d.spec, d.hq ? "HQ-" + String(d.hq).replace(/^HQ-\s*/i, "") : "", (d.brands || []).join(", ")].filter(Boolean).join(" · "),
+      vS: cr(num(d.value)), units: nos(num(d.qty)),
+    })),
+  }));
+  const openKey = ex === undefined ? seats[0]?.key : ex;
+  const nDocs = sum(seats.map((s) => s.nDoc));
+  const zero = (h.zeroItems || []).map((z) => ({ key: z.name, name: z.name, sub: z.brand && z.brand !== z.name ? z.brand : "", lines: nos(z.lines), doctors: nos(z.doctors), units: nos(num(z.qty)) }));
+  return {
+    kicker: U.kicker, dot: "#b54708", title: "Data health", sub: "Doctor support · " + U.sel.label,
+    kpis: [
+      { l: "On vacant profiles", v: U.health.vacant, c: num(h.vacantValue) ? "#b54708" : "#0b1220" },
+      { l: "Vacant seats", v: nos(seats.length) },
+      { l: "Doctors linked", v: nos(nDocs) },
+      { l: "Lines with ₹0 rate", v: U.health.zero, c: num(h.zeroRateLines) ? "#b54708" : "#0b1220" },
+    ],
+    note: seats.length
+      ? pc(ratio(num(h.vacantValue), total)) + " of " + U.sel.label + "'s support sits on seats with nobody in them. Assign each seat, or move its doctors to a filled one."
+      : "Every line this month sits on a filled seat.",
+    tabs: [["vac", "Vacant seats", seats.length], ["zero", "₹0 rate", zero.length]].map(([k, label, n]) => ({ k, label, n, on: tab === k })),
+    tab, seats: seats.map((s) => ({ ...s, open: s.key === openKey })), zero,
+    lastImport: h.lastImport,
+  };
+}
+
+/* Today's leaves: only the people on approved leave who logged nothing,
+   grouped by their team (department / HQ), each with who they report to. */
+export function leavePanel(view) {
+  const { V, kinds } = view;
+  if (!V?.reps) return null;
+  const groups = (V.allUnits || V.units)
+    .map((u) => ({ key: u.key, name: u.short, list: u.reps?.leave || [] }))
+    .filter((g) => g.list.length)
+    .sort((a, b) => b.list.length - a.list.length || a.name.localeCompare(b.name))
+    .map((g) => ({
+      key: g.key, name: g.name, n: g.list.length,
+      people: [...g.list].sort((a, b) => a.name.localeCompare(b.name)).map((p) => ({
+        name: p.name, ini: initials(p.name), av: avatar(p.name),
+        meta: p.role + (p.hq ? " · HQ-" + p.hq : ""),
+        mgr: p.mgr ? "Reports to " + p.mgr + (p.mgrRole ? " (" + p.mgrRole + ")" : "") : "",
+        st: p.time || "Leave",
+      })),
+    }));
+  const n = sum(groups.map((g) => g.n));
+  return {
+    kicker: V.kicker, dot: LEAVE_C, title: V.live ? "Today's leaves" : "On leave · " + V.period,
+    sub: n + (n === 1 ? " person" : " people") + " · " + groups.length + " " + (groups.length === 1 ? kinds.replace(/s$/, "") : kinds),
+    groups, empty: !n,
   };
 }

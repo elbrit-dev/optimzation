@@ -4,7 +4,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { useClaims } from "./data/useClaims";
 import { Icon, ell, tabNum } from "./ui";
 import { BillSheet } from "./sheets";
-import { FOOD_SAMPLE, FoodBar, useFood } from "./FoodPanel";
+import { FoodBar, useFood } from "./FoodPanel";
 import { MON, cashOf, inr, isoDay, ledger, typeColor } from "./model";
 
 /* The Home page's Expense section, between the greeting and Visits: one
@@ -35,7 +35,7 @@ const SAMPLE = { cash: { balance: 1940, added: 10000, over: 0 }, bills: 2 };
 
 export default function ClaimsStrip({ url, token, employee, today = new Date(), pad = "16px", sample = false, desk = false, onOpen }) {
   const data = useClaims({ url, token, employee });
-  const food = useFood(today);
+  const food = useFood(data.claims, today);
   const [form, setForm] = useState(false); // "Add a bill" open
   const [toast, setToast] = useState(null);
   const tt = useRef(null);
@@ -87,7 +87,7 @@ export default function ClaimsStrip({ url, token, employee, today = new Date(), 
         <button type="button" className="ec-act" onClick={() => canAdd && !sample && setForm(true)} aria-label="Add a bill" title="Add a bill"
           style={{ flex: "none", width: 44, height: 44, borderRadius: 14, border: 0, background: "#2563eb", color: "#fff", display: "grid", placeItems: "center", cursor: "pointer", transition: "background .18s" }}><Icon d={CAMERA} size={20} /></button>
       </div>
-      {FOOD_SAMPLE && <FoodBar food={food} onOpen={onOpen} />}
+      {(sample || data.status === "ready") && <FoodBar food={food} onOpen={onOpen} />}
       </div>
 
       {form && <BillSheet conn={data.conn} me={data.me} claims={data.claims} advances={data.advances} today={today} desk={desk} onClose={() => setForm(false)} onSaved={saved} onChecked={data.reload} />}

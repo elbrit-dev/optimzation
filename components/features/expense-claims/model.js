@@ -126,7 +126,7 @@ export const CLEARED = new Set(["Verified", "Paid"]);
  * still owe. Claims of the old flow (one claim per trip, reporting officer)
  * are not part of it -- they stay under "All past claims". */
 export function ledger(claims, advances = []) {
-  const running = claims.filter((c) => c.running && live(c));
+  const running = claims.filter((c) => c.running && !c.food && live(c));   // Food has its own limit
   const open = running.find((c) => c.docstatus === 0) || null;
   const ev = [];
   for (const a of advances) {
@@ -165,6 +165,12 @@ export function ledger(claims, advances = []) {
     any: ev.length > 0,
   };
 }
+
+/* The Food used in a month ("yyyy-mm"): every bill not Rejected on that
+   month's Food claim (the guard's FOOD_LIMIT counts the same way). */
+export const foodUsed = (claims, month) => claims
+  .filter((c) => c.food && c.status !== "Cancelled" && c.posting.slice(0, 7) === month)
+  .reduce((s, c) => s + c.lines.filter((l) => l.state !== "Rejected").reduce((a, l) => a + l.amount, 0), 0);
 
 /* In-hand cash in short (the home Settle bar). */
 export function cashOf(claims, advances) {

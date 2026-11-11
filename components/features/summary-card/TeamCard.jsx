@@ -6,16 +6,30 @@ import TrendChart from "./TrendChart";
  * TeamCard — the "secondary" variant of SummaryCard.
  *
  * Where the primary variant is about incentive against target, this one is about
- * what a team sold and what it is holding: two figures, SALES and CLOSING, each
- * with its value and its quantity, plus the HQs that make up the team shown as
- * small tiles behind a Show/Hide HQ toggle.
+ * what a team sold and what it is holding: SALES and CLOSING (value and
+ * quantity) and the TARGET, then three readings of them -- growth vs last
+ * month, the gap between Primary and Secondary, and Secondary as a % of
+ * target -- plus the HQs that make up the team shown as small tiles behind a
+ * Show/Hide HQ toggle. (Market inventory in days was tried and dropped,
+ * 2026-11-11.)
+ *
+ * There is no Opening any more. It used to be sales + closing, which is not
+ * what was on the shelf (that also needs what came in) and double counted the
+ * sales; the business asked for the Target in its place (2026-11-11).
  *
  * It takes the payload as it arrives, either wrapped or not:
  *
  *   { data: { Team, HQ?, distributors, sales: { quantity, value },
  *             closing: { quantity, value }, customer,
- *             total_qty, total_sales_value, total_closing_qty, total_closing_value },
+ *             total_qty, total_sales_value, total_closing_qty, total_closing_value,
+ *             target_value, inc_primary, target_pct, secondary_target_pct,
+ *             last_month_sales_value, last_month_inc_primary, last_month_target_value },
  *     Team }
+ *
+ * The new figures are read under the Secondary report's own column names
+ * (target_value, inc_primary, ... above), or nested as { target: { value } },
+ * { primary: { value } }, { last_month: { sales_value, inc_primary,
+ * target_value } } -- see readFigures. Any that are missing render as "—".
  *
  * `sales` / `closing` are read first and the `total_*` fields are the fallback,
  * so a payload that only carries the totals still renders. A node with an `HQ`
@@ -44,6 +58,17 @@ const K = {
   totalValue: "total_sales_value",
   totalClosingQty: "total_closing_qty",
   totalClosingValue: "total_closing_value",
+};
+
+/** First of several places a figure may sit; null when none has it. */
+const pick = (d, paths) => {
+  for (const path of paths) {
+    let v = d;
+    for (const key of path.split(".")) v = v == null ? undefined : v[key];
+    const n = num(v);
+    if (n !== null) return n;
+  }
+  return null;
 };
 
 const LOCALE = "en-IN";
@@ -87,33 +112,44 @@ const plural = (n, one, many) => `${n.toLocaleString(LOCALE)} ${n === 1 ? one : 
 /** "HQ-Bangalore" is shown as "Bangalore" next to an HQ chip. */
 const hqName = (raw) => String(raw || "").replace(/^HQ[-\s]*/i, "");
 
-/** Sum that keeps "no data" as null: two nulls stay null, one null counts as nothing. */
-const addOrNull = (a, b) => (a === null && b === null ? null : (a || 0) + (b || 0));
-
 /**
- * The three figures of one node. `sales` and `closing` are read first with the
- * `total_*` fields as a fallback; `opening` is not sent by the API at all — what
- * was there to begin with is what went out plus what is still on the shelf, so
- * opening = sales + closing, in quantity and in value.
+ * The figures of one node. `sales` and `closing` are read first with the
+ * `total_*` fields as a fallback. Target, Inc Primary and last month's three
+ * come from the Secondary report's columns (Department / HQ rows and the Total
+ * only), flat or nested.
  */
 const readFigures = (d) => {
   const sales = {
-    value: num(d?.[K.sales]?.[K.value]) ?? num(d?.[K.totalValue]),
-    qty: num(d?.[K.sales]?.[K.qty]) ?? num(d?.[K.totalQty]),
+    value: num(d?.[K.sales]?.[K.value]) ?? num(d?.[K.totalValue]) ?? pick(d, ["sales_value"]),
+    qty: num(d?.[K.sales]?.[K.qty]) ?? num(d?.[K.totalQty]) ?? pick(d, ["sales_qty"]),
   };
   const closing = {
-    value: num(d?.[K.closing]?.[K.value]) ?? num(d?.[K.totalClosingValue]),
-    qty: num(d?.[K.closing]?.[K.qty]) ?? num(d?.[K.totalClosingQty]),
+    value: num(d?.[K.closing]?.[K.value]) ?? num(d?.[K.totalClosingValue]) ?? pick(d, ["closing_balance", "closing_value"]),
+    qty: num(d?.[K.closing]?.[K.qty]) ?? num(d?.[K.totalClosingQty]) ?? pick(d, ["closing_qty"]),
   };
-  const opening = {
-    value: addOrNull(sales.value, closing.value),
-    qty: addOrNull(sales.qty, closing.qty),
+  const target = pick(d, ["target.value", "target_value", "total_target_value", "target"]);
+  const primary = pick(d, ["primary.value", "inc_primary", "total_inc_primary", "primary"]);
+  const last = {
+    sales: pick(d, ["last_month.sales_value", "last_month.sales.value", "last_month_sales_value"]),
+    primary: pick(d, ["last_month.inc_primary", "last_month.primary.value", "last_month_inc_primary"]),
+    target: pick(d, ["last_month.target_value", "last_month.target.value", "last_month_target_value"]),
   };
-  return { opening, sales, closing };
+  // As the report computes them when it sends them; worked out here otherwise.
+  const secPct = pick(d, ["secondary_target_pct", "target.secondary_pct"]) ??
+    (target ? ((sales.value || 0) / target) * 100 : null);
+  const priPct = pick(d, ["target_pct", "target.primary_pct"]) ??
+    (target && primary !== null ? (primary / target) * 100 : null);
+  return { sales, closing, target, primary, last, secPct, priPct };
 };
 
-/** How much of the opening stock went out, by quantity. */
-const soldPct = (f) => (f.opening.qty ? ((f.sales.qty || 0) / f.opening.qty) * 100 : null);
+/** Secondary this month against last month, as a %. */
+const growthPct = (f) =>
+  f.last.sales && f.sales.value !== null ? ((f.sales.value - f.last.sales) / Math.abs(f.last.sales)) * 100 : null;
+
+/** Primary billed but not yet sold through: Inc Primary - Secondary sales. */
+const gapValue = (f) => (f.primary !== null && f.sales.value !== null ? f.primary - f.sales.value : null);
+
+const signedPct = (p) => (p === null ? null : `${p > 0 ? "+" : p < 0 ? "\u2212" : ""}${cutPct(Math.abs(p))}%`);
 
 /* -------------------------------------------------------------------------- */
 /* styles                                                                     */
@@ -156,7 +192,7 @@ const CSS = `
 .tc-toggle__chev { transition: transform .2s ease; }
 .tc-toggle[aria-expanded="true"] .tc-toggle__chev { transform: rotate(180deg); }
 
-/* ---- how much of the opening went out, by quantity ---- */
+/* ---- secondary as a % of target ---- */
 .tc-progress { display: flex; align-items: center; gap: 10px; padding: 14px 20px 0; }
 .tc-progress__track { flex: 1 1 auto; height: 8px; border-radius: 999px;
   background: #e2e8f0; overflow: hidden; }
@@ -165,7 +201,7 @@ const CSS = `
 .tc-progress__pct { flex: 0 0 auto; font-size: 12px; font-weight: 600; color: #475569;
   font-variant-numeric: tabular-nums; }
 
-/* ---- opening / sales / closing ---- */
+/* ---- sales / closing / target ---- */
 .tc-stats { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: 14px 20px; padding: 16px 20px 18px; }
 .tc-stat { border-left: 2px solid var(--tc-accent, #3b82f6); padding-left: 12px; min-width: 0; }
@@ -178,6 +214,26 @@ const CSS = `
 .tc-stat__value[data-empty="true"] { color: #94a3b8; }
 .tc-stat__money { margin-top: 3px; font-size: 13px; font-weight: 600; color: #334155;
   font-variant-numeric: tabular-nums; white-space: nowrap; }
+
+/* ---- the three readings: growth, gap, % of target ---- */
+.tc-kpis { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 1px;
+  margin: 0 20px 18px; background: #e2e8f0; border: 1px solid #e2e8f0; border-radius: 10px;
+  overflow: hidden; }
+.tc-kpi { background: #f8fafc; padding: 10px 12px; min-width: 0; }
+.tc-kpi__label { font-size: 10px; font-weight: 700; letter-spacing: .07em;
+  text-transform: uppercase; color: #64748b; }
+.tc-kpi__value { margin-top: 4px; font-size: 17px; font-weight: 700; color: #0f172a;
+  font-variant-numeric: tabular-nums; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.tc-kpi__value[data-tone="up"] { color: #15803d; }
+.tc-kpi__value[data-tone="down"] { color: #b91c1c; }
+.tc-kpi__value[data-empty="true"] { color: #94a3b8; }
+.tc-kpi__sub { margin-top: 2px; font-size: 11px; color: #64748b; white-space: nowrap;
+  overflow: hidden; text-overflow: ellipsis; font-variant-numeric: tabular-nums; }
+.tc-hq__line { margin-top: 10px; display: flex; flex-wrap: wrap; gap: 4px 12px;
+  font-size: 11.5px; color: #475569; font-variant-numeric: tabular-nums; }
+.tc-hq__line b { font-weight: 700; }
+.tc-hq__line b[data-tone="up"] { color: #15803d; }
+.tc-hq__line b[data-tone="down"] { color: #b91c1c; }
 
 /* ---- the day-wise trend strip ---- */
 .tc-trend { padding: 0 20px 18px; }
@@ -231,6 +287,7 @@ const CSS = `
 }
 @container tc (max-width: 560px) {
   .tc-progress { padding: 12px 14px 0; }
+  .tc-kpis { margin: 0 14px 16px; grid-template-columns: minmax(0, 1fr); }
 }
 @container tc (max-width: 460px) {
   .tc-stats { grid-template-columns: repeat(2, minmax(0, 1fr)); }
@@ -271,8 +328,8 @@ function useStyles() {
 /* -------------------------------------------------------------------------- */
 
 /** The amount is the headline; the Nos figure sits under it as context. */
-function Stat({ label, value, qty, currency }) {
-  const quantity = fmtQty(qty);
+function Stat({ label, value, qty, sub, currency }) {
+  const quantity = sub !== undefined ? sub : fmtQty(qty);
   const money = fmtFull(value, currency);
   return (
     <div className="tc-stat">
@@ -283,16 +340,56 @@ function Stat({ label, value, qty, currency }) {
         <div className="tc-stat__value" data-empty={money ? "false" : "true"}>
           {money || "—"}
         </div>
-        <div className="tc-stat__money">{quantity || "No quantity"}</div>
+        <div className="tc-stat__money">{quantity || (sub !== undefined ? "\u00a0" : "No quantity")}</div>
       </div>
     </div>
   );
 }
 
+function Kpi({ label, value, sub, tone }) {
+  return (
+    <div className="tc-kpi">
+      <div className="tc-kpi__label">{label}</div>
+      <div className="tc-kpi__value" data-tone={tone || undefined} data-empty={value ? "false" : "true"}>
+        {value || "\u2014"}
+      </div>
+      <div className="tc-kpi__sub">{sub || "\u00a0"}</div>
+    </div>
+  );
+}
+
+const toneOf = (p) => (p === null ? undefined : p > 0 ? "up" : p < 0 ? "down" : undefined);
+
+/** The three readings, worded once for the card. */
+function readings(f, currency) {
+  const growth = growthPct(f);
+  const gap = gapValue(f);
+  return [
+    {
+      label: "Growth vs last month",
+      value: signedPct(growth),
+      tone: toneOf(growth),
+      sub: f.last.sales !== null ? `Last month ${fmtFull(f.last.sales, currency)}` : "No last month figure",
+    },
+    {
+      label: "Primary \u2212 Secondary",
+      value: fmtFull(gap, currency),
+      sub: f.primary !== null ? `Primary ${fmtFull(f.primary, currency)}` : "No primary figure",
+    },
+    {
+      label: "Secondary % of target",
+      value: f.secPct === null ? null : `${cutPct(f.secPct)}%`,
+      sub: f.priPct !== null ? `Primary ${cutPct(f.priPct)}% of target` : f.target === null ? "No target" : "",
+    },
+  ];
+}
+
 function HqTile({ node, currency, onClick }) {
   const d = unwrap(node);
   const figures = readFigures(d);
-  const pct = soldPct(figures);
+  const pct = figures.secPct;
+  const growth = growthPct(figures);
+  const gap = gapValue(figures);
   const distributors = num(d?.[K.distributors]);
   const clickable = typeof onClick === "function";
 
@@ -337,22 +434,29 @@ function HqTile({ node, currency, onClick }) {
 
       <div className="tc-hq__stats">
         {[
-          ["Sales", figures.sales],
-          ["Closing", figures.closing],
-          ["Opening", figures.opening],
-        ].map(([label, f]) => {
-          const money = fmtFull(f.value, currency);
+          ["Sales", figures.sales.value, fmtQty(figures.sales.qty) || "No quantity"],
+          ["Closing", figures.closing.value, fmtQty(figures.closing.qty) || "No quantity"],
+          ["Target", figures.target, pct !== null ? `${cutPct(pct)}% achieved` : "\u00a0"],
+        ].map(([label, value, sub]) => {
+          const money = fmtFull(value, currency);
           return (
             <div className="tc-hq__stat" key={label}>
               <div className="tc-hq__statLabel">{label}</div>
               <div className="tc-hq__statValue" data-empty={money ? "false" : "true"}>
-                {money || "—"}
+                {money || "\u2014"}
               </div>
-              <div className="tc-hq__statQty">{fmtQty(f.qty) || "No quantity"}</div>
+              <div className="tc-hq__statQty">{sub}</div>
             </div>
           );
         })}
       </div>
+
+      {growth !== null || gap !== null ? (
+        <div className="tc-hq__line">
+          {growth !== null ? <span>Growth <b data-tone={toneOf(growth)}>{signedPct(growth)}</b></span> : null}
+          {gap !== null ? <span>Gap <b>{fmtFull(gap, currency)}</b></span> : null}
+        </div>
+      ) : null}
     </article>
   );
 }
@@ -394,7 +498,7 @@ export default function TeamCard({
   const eyebrow = total ? "Total" : isHq ? "Headquarter" : "Team";
   const distributors = num(node[K.distributors]);
   const figures = readFigures(node);
-  const pct = soldPct(figures);
+  const pct = figures.secPct;
 
   const tiles = total || !(Array.isArray(hq) && hq.length) ? null : hq;
 
@@ -470,14 +574,23 @@ export default function TeamCard({
                 style={{ width: `${Math.max(0, Math.min(100, pct))}%` }}
               />
             </div>
-            <span className="tc-progress__pct">{cutPct(pct)}% sold</span>
+            <span className="tc-progress__pct">{cutPct(pct)}% of target</span>
           </div>
         ) : null}
 
         <div className="tc-stats">
           <Stat label="Sales" value={figures.sales.value} qty={figures.sales.qty} currency={currency} />
           <Stat label="Closing" value={figures.closing.value} qty={figures.closing.qty} currency={currency} />
-          <Stat label="Opening" value={figures.opening.value} qty={figures.opening.qty} currency={currency} />
+          <Stat
+            label="Target"
+            value={figures.target}
+            sub={figures.secPct !== null ? `${cutPct(figures.secPct)}% achieved` : null}
+            currency={currency}
+          />
+        </div>
+
+        <div className="tc-kpis">
+          {readings(figures, currency).map((r) => <Kpi key={r.label} {...r} />)}
         </div>
 
         {Array.isArray(trend) && trend.length ? (

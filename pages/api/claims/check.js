@@ -1,38 +1,34 @@
 // pages/api/claims/check.js
 //
-// POST { endpoint: <ERP GraphQL URL>, claim: "HR-EXP-2026-00016" }
-//      Authorization: Bearer <the user's Firebase ID token>
-//      x-erp-token:   <the user's ERP token>
+// POST { endpoint: <ERP GraphQL URL>, claim: "HR-EXP-2026-00016", rows: [...],
+//        reads: { <row name>: { read, sig } } }
+//      x-erp-token: <the user's ERP token>
 //
-// Checks every bill on an Expense Claim with verify-doc and saves the result
-// on the claim: each row's AI score (the AMOUNT check -- bill vs claim within
-// 2%) and reason, the amount / date / vendor read off its bill, and every
-// detail read off the bill as JSON (custom_bill_meta); the claim's score
-// (money-weighted over its rows) and summary. Runs when the employee sends
-// the claim for approval -- before the reporting officer sees it. The ERP turns the score into Low / Medium / High risk ("Expense
-// Claim AI Guard"), and "Expense Claim Route" uses it after the reporting
-// officer approves: 90+ is verified without a person.
+// The bill check, in plain code (5 Nov 2026) -- no AI runs here. The AI ran
+// once, when the bill was attached (/api/claims/read-bill: toMarkdown, then
+// Clairic and Clef Flash), and its read came back signed by this server. Here
+// each bill's signed read is compared with what the person submitted on the
+// row (lib/billReader.js compareBill): total, date and bill type must match,
+// each read with confidence 0.9 or more. All three -> score 100, else 40 with
+// the reasons. The ERP decides from the score ("Expense Running Guard": 90+
+// Verified, anything above Rs 50,000 still to Accounts; else In Review + a
+// Task). The read itself is kept on the row (custom_bill_meta).
 //
 // Who does what:
 //   - the claim is READ with the user's own token, so only someone who may
 //     see the claim can have it checked;
-//   - verify-doc is called AS THE USER (their Firebase + ERP tokens) and
-//     fetches each bill from the ERP with the user's token;
+//   - a read is trusted only with this server's signature, so nobody can
+//     hand in made-up AI values;
 //   - the result is WRITTEN with the AI checker login (ERP_AI_CHECKER_TOKEN,
-//     or ERP_AI_CHECKER_TOKEN_UAT when the page points at UAT ERP),
-//     the only login the AI Guard lets write scores -- so nobody can score
-//     their own claim by writing the fields directly.
+//     or ERP_AI_CHECKER_TOKEN_UAT when the page points at UAT ERP), the only
+//     login the AI Guard lets write scores.
 //
-// The running Miscellaneous claim (custom_running, 27 Oct 2026) is checked
-// bill by bill as each is added: only rows still "Checking" are scored, and
-// the score decides the bill at once in the ERP ("Expense Running Guard":
-// 90+ Verified, else In Review + an Accounts Task) -- no reporting officer.
-//
-// Not switched on (no checker login or no Gemini key yet) -> { skipped }.
+// A bill with no signed read (the reader was off, or the old claim form) is
+// scored 0 -- a person in Accounts checks it.
 
 import { allowedErpHosts } from "../../../lib/erpServer";
+import { compareBill, readIsSigned } from "../../../lib/billReader";
 
-const VERIFY_URL = (process.env.VERIFY_DOC_URL || "https://verify-doc--elbrit-sso-d01d9.asia-southeast1.hosted.app").replace(/\/+$/, "");
 const NO_SCORE_TYPES = ["Advance"];
 const tokenHeader = (t) => (/^(token|bearer)\s/i.test(t) ? t : `token ${t}`);
 const flt = (v) => Number(v) || 0;
@@ -59,43 +55,33 @@ async function erp(origin, token, path, init = {}) {
   return json;
 }
 
-/* The check is a VALUE check: what the employee entered -- amount (within 2%,
-   weight 80) and date (same day, 20); the title is theirs and not checked --
-   against the bill, plus the rules (it is a bill; whose name). Docling reads
-   the bill; Laya (IT's yes/no answerer, "decider": "laya", since 3 Nov 2026 --
-   was gpt-6-luna) answers from Docling's text alone: it never sees the photo,
-   so there is no printed-vs-handwritten check. An answer Laya is unsure of
-   counts as not confirmed, so the bill goes to Accounts. The bill's details
-   -- vendor, GSTIN, bill no., date, payment mode, full text -- come from
-   Docling's extraction (verify-doc's ocr.bill, read by rules, no model) and
-   are kept on the row as JSON (custom_bill_meta). */
-
 // Keep in step with REVIEW_ABOVE in the Expense Running Guard.
 const REVIEW_ABOVE = 50000;
 
-function rowRequest(row, origin, userErpToken) {
-  // The running Miscellaneous claim has no sub types: its row title says what it was for.
-  const kind = [row.expense_type, row.custom_sub_type || row.description].filter(Boolean).join(" / ");
+/* One row against its signed read -> what is written on the row. */
+function scoreRow(row, signed) {
+  const claimed = flt(row.amount);
+  const above = claimed > REVIEW_ABOVE ? " Above ₹50,000 -- always checked by Accounts." : "";
+  if (!signed || !readIsSigned(signed.read, signed.sig)) {
+    return { row, score: 0, reason: "No bill read was kept for this bill -- checked by Accounts." + above, meta: { verification: { status: "Not read", checked_at: new Date().toISOString() } } };
+  }
+  const read = signed.read;
+  const { ok, checks } = compareBill(read, { amount: claimed, date: row.expense_date, food: row.expense_type === "Food" });
+  const score = ok ? 100 : 40;
+  const v = read.values || {};
   return {
-    decider: "laya",
-    documents: [{ url: origin + row.custom_bill, headers: { Authorization: tokenHeader(userErpToken) } }],
-    context: `Employee expense claim in India, amounts in INR. Expense: ${kind}.`,
-    fields: {
-      // What the employee entered, against the bill: amount and date (the
-      // title is theirs, not checked). Either one off drops it below 90 (to Accounts).
-      amount: {
-        type: "number", expected: flt(row.amount), weight: 80, tolerance: "2%",
-        description: "the FINAL amount actually paid: the grand / total amount, INCLUDING any handwritten additions or corrections (e.g. '950 +20 = 970' means 970) and any handling or delivery fee -- never a sub-total, a tax line or a single item",
-      },
-      ...(row.expense_date ? { date: { type: "date", expected: row.expense_date, weight: 20, toleranceDays: 0, description: "the bill or transaction date" } } : {}),
+    row,
+    score,
+    reason: (ok ? "Total, date and bill type match the bill." : checks.filter((c) => !c.ok).map((c) => c.why).join("; ") + ".") + above,
+    amount: typeof v.total === "number" ? v.total : null,
+    date: v.date || null,
+    vendor: v.vendor ? String(v.vendor).slice(0, 140) : null,
+    // The row's custom_bill_meta: the read as the models gave it (once, on
+    // attach) and how it compared with what was submitted.
+    meta: {
+      bill: { ...v, title: read.title, title_confidence: read.titleConfidence, confidence: read.confidence, read_at: read.at, markdown: String(read.md || "").slice(0, 4000) },
+      verification: { status: ok ? "Matched" : "Mismatch", checked_at: new Date().toISOString(), score, min_confidence: 0.9, checks },
     },
-    rules: [
-      // Asked as written -- Laya answers short questions best (see verify-doc's laya.mjs).
-      // (The old "customer is the employee" rule is gone: Laya said no on a bill
-      // naming no customer, and it was never scored.)
-      "Is this a bill or receipt?",
-    ],
-    bands: { low: 90, medium: 70 },
   };
 }
 
@@ -104,7 +90,7 @@ export default async function handler(req, res) {
     res.setHeader("Allow", "POST");
     return res.status(405).json({ error: "Method not allowed." });
   }
-  const idToken = /^Bearer\s+(.+)$/i.exec(req.headers.authorization || "")?.[1];
+  const reads = req.body?.reads && typeof req.body.reads === "object" ? req.body.reads : {};
   const userErp = String(req.headers["x-erp-token"] || "").trim();
   const claimName = String(req.body?.claim || "").trim();
   // Only these rows (the bill just added), so checks of different bills run
@@ -118,7 +104,7 @@ export default async function handler(req, res) {
   } catch {
     return res.status(400).json({ error: "That ERP is not one this app talks to." });
   }
-  if (!idToken || !userErp) return res.status(401).json({ error: "Sign in again to check bills." });
+  if (!userErp) return res.status(401).json({ error: "Sign in again to check bills." });
   if (!/^[\w.\-]+$/.test(claimName)) return res.status(400).json({ error: "Which claim?" });
 
   // The checker login's key differs per ERP: UAT has its own.
@@ -134,102 +120,16 @@ export default async function handler(req, res) {
     return res.status(e.status === 403 || e.status === 404 ? 403 : 502).json({ error: e.status === 403 || e.status === 404 ? "You cannot see that claim." : `The ERP could not be read: ${e.message}` });
   }
 
-  // One verify-doc call per bill, in parallel. On the running claim only the
-  // bills still being checked: the rest were decided already (a score once
-  // written decides the bill -- "Expense Running Guard").
+  // Each bill still being checked, against its signed read (plain code).
   const rows = claim.expenses || [];
   const running = !!Number(claim.custom_running);
-  const scored = await Promise.all(
-    rows.map(async (row) => {
-      if (NO_SCORE_TYPES.includes(row.expense_type)) return { row, skip: true };
-      if (only && !only.has(row.name)) return { row, skip: true };
-      if (running && (row.custom_bill_status || "Checking") !== "Checking") return { row, skip: true };
-      if (!row.custom_bill) return { row, score: 0, reason: "No bill attached to this row." };
-      try {
-        const r = await fetch(`${VERIFY_URL}/v1/verify`, {
-          method: "POST",
-          headers: { "Content-Type": "application/json", Authorization: `Bearer ${idToken}`, "X-ERP-Token": tokenHeader(userErp) },
-          body: JSON.stringify(rowRequest(row, origin, userErp)),
-          signal: AbortSignal.timeout(100000),
-        });
-        const out = await r.json().catch(() => ({}));
-        if (r.status === 503) return { row, unavailable: out.error || "verify-doc is not ready" };
-        if (!r.ok) return { row, failed: out.error || `verify-doc answered HTTP ${r.status}` };
-        const f = out.fields || {};
-        const reasons = [];
-        if (f.amount && f.amount.ok === false) reasons.push(f.amount.reason);
-        if (f.date && f.date.ok === false) reasons.push(`Date: ${f.date.reason}`);
-        const [notABill] = out.rules || [];
-        if (notABill && notABill.pass === false) reasons.push("Not a bill, receipt, ticket or invoice.");
-        if (notABill && notABill.pass == null && notABill.reason) reasons.push(`Bill or not: ${notABill.reason}`);
-        if (out.document && out.document.readable === false) reasons.push("The bill could not be read.");
-        const val = (k) => (f[k] && f[k].found != null && f[k].found !== "" ? f[k].found : null);
-        // The row's custom_bill_meta (JSON): what is on the attachment, and how
-        // it compared with the claim -- nothing about the model that read it.
-        // The score is the amount + date check; something that is not a bill
-        // (or that Laya is unsure is one, or is unreadable) is capped below
-        // the bar however well the amount matches, so a person looks at it.
-        const wrong = notABill?.pass !== true || out.document?.readable === false;
-        const score = wrong ? Math.min(out.score ?? 0, 40) : out.score ?? 0;
-        const claimed = flt(row.amount);
-        const onBill = typeof val("amount") === "number" ? val("amount") : null;
-        const dl = out.ocr?.bill || {}; // Docling's extraction, read by rules
-        const meta = {
-          bill: {
-            source: out.ocr?.text ? "docling" : "none",
-            title: dl.title || null,
-            vendor: dl.vendor || null,
-            vendor_gstin: dl.vendor_gstin || null,
-            invoice_no: dl.invoice_no || null,
-            bill_date: dl.date || null,
-            customer: dl.customer || null,
-            payment_mode: dl.payment_mode || null,
-            total_on_bill: dl.amount ?? null,
-            // The bill's full text as Docling (IT's OCR) extracted it.
-            text: out.ocr?.text ? String(out.ocr.text).slice(0, 4000) : null,
-          },
-          verification: {
-            status: out.document?.readable === false ? "Unreadable" : reasons.length ? "Mismatch" : "Matched",
-            checked_at: new Date().toISOString(),
-            score,
-            risk: score >= 90 ? "Low" : score >= 70 ? "Medium" : "High", // same bands as the ERP's AI Guard
-            amount: {
-              claimed,
-              on_bill: onBill,
-              difference: onBill == null ? null : Math.round((claimed - onBill) * 100) / 100,
-              tolerance: "2%",
-              match: f.amount ? f.amount.ok === true : false,
-              reason: f.amount?.reason || null,
-            },
-            date: f.date ? { claimed: row.expense_date, on_bill: f.date.found ?? null, match: f.date.ok === true, reason: f.date.reason || null } : null,
-            checks: (out.rules || []).map((r) => ({ rule: r.rule, pass: r.pass, reason: r.reason })),
-            issues: reasons,
-            summary: out.summary || null,
-          },
-        };
-        return {
-          row,
-          score,
-          // Above ₹50,000 the ERP sends the bill to Accounts whatever its score
-          // (Expense Running Guard, REVIEW_ABOVE): say so on their Task.
-          reason: (reasons.length ? reasons.join("; ") : "Amount and date match the bill.") + (claimed > REVIEW_ABOVE ? " Above ₹50,000 -- always checked by Accounts." : ""),
-          // Amount, date and vendor on the bill: Docling's extraction (Laya
-          // answers yes/no and reads no values).
-          amount: val("amount"),
-          date: dl.date || null,
-          vendor: dl.vendor ? String(dl.vendor).slice(0, 140) : null,
-          meta,
-        };
-      } catch (e) {
-        return { row, failed: e.name === "TimeoutError" ? "the check took too long" : e.message };
-      }
-    }),
-  );
-
-  const down = scored.find((s) => s.unavailable);
-  if (down) return res.status(200).json({ skipped: true, reason: `The AI bill check is not available: ${down.unavailable}` });
-  const failed = scored.filter((s) => s.failed);
-  if (failed.length) return res.status(502).json({ error: `Bills could not be checked: ${failed[0].failed}` });
+  const scored = rows.map((row) => {
+    if (NO_SCORE_TYPES.includes(row.expense_type)) return { row, skip: true };
+    if (only && !only.has(row.name)) return { row, skip: true };
+    if (running && (row.custom_bill_status || "Checking") !== "Checking") return { row, skip: true };
+    if (!row.custom_bill) return { row, score: 0, reason: "No bill attached to this row." };
+    return scoreRow(row, reads[row.name]);
+  });
 
   const counted = scored.filter((s) => !s.skip);
   if (!counted.length) return res.status(200).json({ skipped: true, reason: running ? "Every bill on this claim is checked already." : "Advance requests have no bills to check." });

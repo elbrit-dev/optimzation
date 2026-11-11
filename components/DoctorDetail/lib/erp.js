@@ -269,9 +269,34 @@ const LADDER_ALIAS = {
  * to the calendar's rule -- see its note -- so the folding lives here, where
  * only this page's rungs are decided.
  */
-export function ladderRole(roleId) {
+export function ladderRole(roleId, designation) {
   const prefix = rolePrefix(roleId);
-  return LADDER_ALIAS[prefix] ?? prefix;
+  const bySeat = LADDER_ALIAS[prefix] ?? prefix;
+  /* The HR designation, when it is the more senior of the two, decides the
+     column -- the same "higher wins" rule grade.js uses. E00181 sits on seat
+     SRBM-ELBR-KE-COC but is designated Sales Manager with RBMs under him: his
+     visits belong under SM, not RBM. */
+  const byTitle = titleRung(designation);
+  if (!byTitle) return bySeat;
+  const s = ROLE_LADDER.indexOf(bySeat), t = ROLE_LADDER.indexOf(byTitle);
+  if (s === -1) return bySeat && SEAT_OFF_LADDER.has(bySeat) ? bySeat : byTitle;
+  return t > s ? byTitle : bySeat;
+}
+
+/* Head-office seats keep their own label; a designation never folds them
+   onto a sales rung. */
+const SEAT_OFF_LADDER = new Set(["GM", "IT", "CEO", "ADMIN", "MIS"]);
+const TITLE_RUNGS = [
+  [/sales manager/i, "SM"],
+  [/senior regional|deputy rbm|regional business manager/i, "RBM"],
+  [/area business manager/i, "ABM"],
+  [/business executive/i, "BE"],
+];
+function titleRung(designation) {
+  const text = String(designation ?? "");
+  if (!text || /general manager/i.test(text)) return null;
+  for (const [re, rung] of TITLE_RUNGS) if (re.test(text)) return rung;
+  return null;
 }
 
 /**
@@ -531,7 +556,7 @@ export async function fetchEmployeeIndex({ employeeIds = [] } = {}) {
     const entry = {
       employee: row.name,
       name: row.employee_name,
-      role: ladderRole(roleId),
+      role: ladderRole(roleId, row.designation),
       roleId,
       division: department.division,
       department: department.label,

@@ -189,6 +189,9 @@ export function shapeClaim(node) {
     // next advance payment closes it; then what the advances did not cover is
     // owed to them (grand_total) until Accounts pays it.
     running: !!Number(node.custom_running),
+    // A running claim of Food bills (3 Nov 2026): one a month, the Food limit's
+    // own -- never part of the Miscellaneous settlement.
+    food: !!Number(node.custom_running) && lines.length > 0 && lines.every((l) => l.type === FOOD),
     owed: docstatus === 1 ? Math.max(0, num(node.grand_total) - num(node.total_amount_reimbursed)) : 0,
     remark: String(node.remark || "").trim(),
     modified: node.modified,
@@ -203,6 +206,10 @@ export function shapeClaim(node) {
 }
 
 export const ADVANCE = "Advance";
+export const FOOD = "Food";
+/* The Food limit a month, every role (3 Nov 2026). Keep in step with
+   FOOD_LIMIT in the Expense Running Guard. */
+export const FOOD_LIMIT = 6000;
 
 /* The signed-in person's Employee record, Active first so an old Left record
    on a recycled login never answers for them. `employee` (a docname) skips
@@ -443,15 +450,23 @@ export async function requestAdvance(conn, { employee, amount, purpose, date }) 
 
 /* The employee's open running claim, read fresh (null = none yet): a bill is
    always added onto the latest version -- a background check may have saved
-   it a moment ago. */
-export async function fetchOpenClaim(conn, employee) {
+   it a moment ago. food: the Food claim of that month ("yyyy-mm") instead of
+   the Miscellaneous one. */
+export async function fetchOpenClaim(conn, employee, { food } = {}) {
+  // Every open running claim (a few at most), then the one of the right kind:
+  // a child-table filter here 500s over REST (ambiguous column on the join).
   const q = new URLSearchParams({
     filters: JSON.stringify([["employee", "=", employee], ["custom_running", "=", 1], ["docstatus", "=", 0]]),
-    fields: JSON.stringify(["name"]),
-    limit_page_length: "1",
+    fields: JSON.stringify(["name", "posting_date"]),
+    limit_page_length: "50",
   });
-  const name = ((await rest(conn, `/api/resource/Expense%20Claim?${q}`)).data || [])[0]?.name;
-  return name ? fetchClaim(conn, name) : null;
+  const rows = ((await rest(conn, `/api/resource/Expense%20Claim?${q}`)).data || [])
+    .filter((r) => !food || String(r.posting_date || "").slice(0, 7) === food);
+  for (const r of rows) {
+    const c = await fetchClaim(conn, r.name);
+    if (food ? c.food : !c.lines.some((l) => l.type === FOOD)) return c;
+  }
+  return null;
 }
 
 /* Runs a save again on a fresh read when someone else saved first ("modified
@@ -565,92 +580,49 @@ export async function saveSanctioned(conn, claim, sanctionedById) {
 
 /* ------------------------------ AI check -------------------------------- */
 
-/* The signed-in user's Firebase ID token -- verify-doc's proof that a real,
-   signed-in person is asking (with the ERP token as the second half). */
-async function firebaseIdToken() {
-  const { default: app } = await import("../../../../firebase");
-  const user = app.auth().currentUser;
-  if (!user) throw new Error("Sign in again to check bills.");
-  return user.getIdToken();
-}
-
-/* Reads a bill the moment it is attached, so the form can fill the row in:
-   the browser sends the file straight to verify-doc's /v1/extract (CORS is
-   open to the app's origins) as the signed-in user. Only reads -- the
-   comparison and score still happen on send (checkClaim). Also says whether
-   it is a printed bill at all (kind), so the form can refuse a handwritten
-   bill or a wrong photo before anything is saved.
-   -> { amount, date, vendor, what, kind, readable } (null = not read) */
-const VERIFY_URL = (process.env.NEXT_PUBLIC_VERIFY_DOC_URL || "https://verify-doc--elbrit-sso-d01d9.asia-southeast1.hosted.app").replace(/\/+$/, "");
-const BILL_FIELDS = {
-  amount: { type: "number", description: "the FINAL amount actually paid: the grand / total amount, INCLUDING any handwritten additions or corrections and any handling or delivery fee -- never a sub-total, a tax line or a single item" },
-  date: { type: "date", description: "the bill or transaction date" },
-  vendor: { type: "text", description: "the shop, company or person who issued the bill" },
-  // The bill's title on the claim: a general kind, never the items (27 Oct 2026).
-  title: {
-    type: "text",
-    judge: true,
-    description: "a short general title for this expense, 2-3 words, never the item names: e.g. Food bill, Cab bill, Auto bill, Fuel bill, Hotel bill, Train ticket, Bus ticket, Flight ticket, Toll, Parking, Courier, Stationery, Medicine, Mobile recharge",
-  },
-  // Only printed bills are accepted (27 Oct 2026): the form refuses anything else.
-  kind: {
-    type: "text",
-    judge: true, // not printed on the bill -- the model's own reading (verify-doc asks it never to be null)
-    description: "classify the image, answer with exactly one of: PRINTED (a machine-printed bill, receipt, invoice or ticket -- a thermal till slip, a computer print-out, an e-ticket, a ride receipt; a printed slip with a small handwritten note or addition on it is still PRINTED); HANDWRITTEN (a bill whose items and amounts are written by hand, including a printed bill-book page with only the shop's name printed and the items and amounts filled in by hand); NOT_A_BILL (anything else -- a selfie, a person, a product, a screenshot of a chat or an app screen, a blank or unreadable page)",
-  },
-};
-/* PRINTED / HANDWRITTEN / NOT_A_BILL as the AI answered it -> printed | handwritten | not_a_bill | null
-   (null: no verdict -- a verify-doc without "judge" fields reads it as a printed value and leaves it empty) */
-const kindOf = (v) => {
-  const s = String(v || "").toUpperCase().replace(/[^A-Z]/g, "");
-  return s.startsWith("PRINT") ? "printed" : s.startsWith("HAND") ? "handwritten" : s.startsWith("NOT") ? "not_a_bill" : null;
-};
-/* Opening the bill form wakes Docling (its GPU sleeps when idle and takes
-   30-75 s to start) while the person takes the photo. Fire and forget. */
-export function warmBillReader() {
-  firebaseIdToken()
-    .then((t) => fetch(`${VERIFY_URL}/v1/warm`, { method: "POST", headers: { Authorization: `Bearer ${t}` } }))
-    .catch(() => {});
-}
-
-export async function extractBill(conn, file, type) {
-  const idToken = await firebaseIdToken();
+/* Reads a bill the moment it is attached -- the only time any AI runs on it:
+   our server (/api/claims/read-bill) sends it to Cloudflare toMarkdown, then
+   Clairic (values) and Clef Flash (title) on that Markdown. The form fills
+   title, amount and date from it; the person may change them. The read comes
+   back signed by the server and goes along to checkClaim, which compares it
+   with what was submitted in plain code.
+   -> { amount, date, vendor, what, kind, readable, signed } (null = not read;
+      signed = { read, sig } for checkClaim; skipped = the reader is off) */
+export async function extractBill(conn, file) {
   const form = new FormData();
-  form.append("file", file, file.name || "bill");
-  form.append("request", JSON.stringify({ context: `Employee expense claim in India, amounts in INR.${type ? ` Expense: ${type}.` : ""}`, fields: BILL_FIELDS, reader: "docling" }));
-  const res = await fetch(`${VERIFY_URL}/v1/extract`, {
+  form.append("files", file, file.name || "bill");
+  const res = await fetch("/api/claims/read-bill", {
     method: "POST",
-    headers: { Authorization: `Bearer ${idToken}`, "X-ERP-Token": conn.authToken },
+    headers: { "x-erp-token": conn.authToken, "x-erp-endpoint": conn.endpointUrl },
     body: form,
-    // reader "docling": Docling's text read by rules, no AI model or model key (4-6 s;
-    // 30-75 s when Docling's GPU has slept). It cannot judge printed vs handwritten, so
-    // `kind` comes back empty here -- the check on send (Docling + model) judges that.
     signal: AbortSignal.timeout(150000),
   });
   const json = await res.json().catch(() => ({}));
   if (!res.ok) throw new Error(json.error || `The bill could not be read (HTTP ${res.status}).`);
-  const f = json.fields || {};
-  const v = (k) => (f[k] && f[k].value != null && f[k].value !== "" ? f[k].value : null);
+  if (json.skipped) return { skipped: true, readable: true };
+  if (!json.read) return { readable: false };
+  const r = json.read, v = r.values || {};
   return {
-    amount: typeof v("amount") === "number" && v("amount") > 0 ? v("amount") : null,
-    date: /^\d{4}-\d{2}-\d{2}$/.test(String(v("date") || "")) ? v("date") : null,
-    vendor: v("vendor"),
-    what: v("title"),
-    kind: kindOf(v("kind")),
-    readable: json.document?.readable !== false,
+    amount: typeof v.total === "number" && v.total > 0 ? v.total : null,
+    date: /^\d{4}-\d{2}-\d{2}$/.test(String(v.date || "")) ? v.date : null,
+    vendor: v.vendor || null,
+    what: r.title && r.title !== "Not a bill" && r.title !== "Other bill" ? r.title : null,
+    food: r.title === "Food bill",
+    kind: r.title === "Not a bill" ? "not_a_bill" : "printed",
+    readable: true,
+    signed: { read: r, sig: json.sig },
   };
 }
 
-/* Has the app server check every bill on the claim with verify-doc and save
-   the score on it. -> { score, risk, summary, rows } | { skipped, reason } */
-/* rows: only these bills (the one just added) -- checks of different bills
-   then run side by side; none = every bill still due on the claim. */
-export async function checkClaim(conn, name, rows) {
-  const idToken = await firebaseIdToken();
+/* Has the app server compare each bill on the claim with its signed read
+   (plain code) and save the result. -> { score, risk, summary, rows } | { skipped, reason }
+   rows: only these bills (the one just added); none = every bill still due.
+   reads: { <row name>: signed } from extractBill. */
+export async function checkClaim(conn, name, rows, reads) {
   const res = await fetch("/api/claims/check", {
     method: "POST",
-    headers: { "Content-Type": "application/json", Authorization: `Bearer ${idToken}`, "x-erp-token": conn.authToken },
-    body: JSON.stringify({ endpoint: conn.endpointUrl, claim: name, ...(rows ? { rows } : {}) }),
+    headers: { "Content-Type": "application/json", "x-erp-token": conn.authToken },
+    body: JSON.stringify({ endpoint: conn.endpointUrl, claim: name, ...(rows ? { rows } : {}), ...(reads ? { reads } : {}) }),
   });
   const json = await res.json().catch(() => ({}));
   if (!res.ok) throw new Error(json.error || `The bill check failed (HTTP ${res.status}).`);

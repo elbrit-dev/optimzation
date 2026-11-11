@@ -2,22 +2,26 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import {
-  ATTACH_ACCEPT, checkClaim, checkFile, extractBill, fetchClaim, fetchOpenClaim, invalidateClaims, requestAdvance, retryOnConflict, saveClaim,
-  uploadClaimFile, warmBillReader,
+  ATTACH_ACCEPT, FOOD, FOOD_LIMIT, checkClaim, checkFile, extractBill, fetchClaim, fetchOpenClaim, invalidateClaims, requestAdvance, retryOnConflict, saveClaim,
+  uploadClaimFile,
 } from "./data/claimsApi";
 import { IC, Icon, Note, Sheet, Spinner, btn, ell, tabNum } from "./ui";
-import { inr, isoDay, ledger, shortDate } from "./model";
+import { MON, foodUsed, inr, isoDay, ledger, shortDate } from "./model";
 
 /* The settlement sheets (Miscellaneous), in the app's theme:
  *
  *   BillSheet  "Add a bill" -- the AI bill check form: what it was for, a
- *              photo of the bill (Docling reads it: an unreadable photo is
- *              refused and nothing is saved; it fills only the general title),
- *              the amount and the date the person types from the bill.
+ *              photo of the bill (read once on attach -- Cloudflare toMarkdown,
+ *              then Clairic + Clef Flash: title, amount, date, food or not;
+ *              not-a-bill or unreadable is refused and nothing is saved),
+ *              which the person checks and corrects only if needed.
+ *              A bill the scan reads as food (the person can switch it) goes
+ *              to that month's Food claim instead, within FOOD_LIMIT.
  *              "Check my bill" adds it to the person's open claim; in the
- *              background the AI compares the bill (Docling's read + the
- *              photo) with what they typed: 90+ is Verified and counts,
- *              anything else goes to Accounts to check. No reporting officer.
+ *              background plain code compares that read with what they sent
+ *              (total, date, bill type; each read 90%+ sure): all match ->
+ *              Verified and counts, anything else (or above ₹50,000) goes to
+ *              Accounts to check. No AI runs again. No reporting officer.
  *   CashSheet  "Request cash" -- an Employee Advance for Accounts to approve
  *              and pay. Someone owed money asks for exactly that ("Settle").
  *              Paying it closes the open claim: its bills come out of the
@@ -65,13 +69,13 @@ const CHECKING = { ok: false, title: "Bill saved", text: "The AI is checking it 
 
 /* Why a photo is refused on attach (extractBill's kind). */
 const WRONG = {
-  handwritten: { title: "Not the correct attachment — this is a handwritten bill", text: "Only printed bills are accepted. Ask the shop for a printed bill or receipt and take a photo of that." },
   not_a_bill: { title: "Not the correct attachment — this is not a bill", text: "Take a photo of the printed bill or receipt itself, with the amount and date clear." },
   unreadable: { title: "Not the correct attachment — the bill could not be read", text: "Take a clear, well-lit photo of the whole printed bill and try again." },
   failed: { title: "The bill could not be checked", text: "The AI check did not answer. Choose the photo again in a moment." },
 };
 
 /* Money in short, for the footer: +in hand / −owed on the open claim. */
+const shortMonth = (m) => MON[+m.slice(5, 7) - 1] || m;
 const signed = (L) => L.balance - (L.over - L.owedClosed);
 
 export function BillSheet({ conn, me, claims = [], advances = [], today = new Date(), onClose, onSaved, onChecked, desk }) {
@@ -82,18 +86,20 @@ export function BillSheet({ conn, me, claims = [], advances = [], today = new Da
   const [file, setFile] = useState(null);
   const [thumb, setThumb] = useState(null);
   const [read, setRead] = useState(null);
+  const [food, setFood] = useState(false);   // a food bill: to the month's Food claim
   const [busy, setBusy] = useState("");
   const [error, setError] = useState("");
   const [tried, setTried] = useState(false);
   const [done, setDone] = useState(null);
   const pick = useRef(null);
-  useEffect(() => { warmBillReader(); }, []); // Docling starts while the photo is taken
   useEffect(() => () => { if (thumb) URL.revokeObjectURL(thumb); }, [thumb]);
 
   const L = useMemo(() => ledger(claims, advances), [claims, advances]);
   const now = signed(L);
   const amt = Number(amount) || 0;
   const after = now - amt;
+  const month = date.slice(0, 7);
+  const foodLeft = Math.max(0, FOOD_LIMIT - foodUsed(claims, month));
 
   const attach = (f) => {
     const err = checkFile(f);
@@ -101,33 +107,37 @@ export function BillSheet({ conn, me, claims = [], advances = [], today = new Da
     setError("");
     setFile(f);
     setThumb(f.type.startsWith("image/") ? URL.createObjectURL(f) : null);
-    setRead({ busy: true });
-    extractBill(conn, f, "Miscellaneous")
+    setRead({ busy: true, file: f });
+    // The one AI run (toMarkdown -> Clairic + Clef Flash, 5 Nov 2026): title,
+    // amount, date and food-or-not come off the bill; the person checks them,
+    // changes any if needed, and sends. The signed read goes along to the check.
+    extractBill(conn, f)
       .then((x) => {
-        // Handwritten, not a bill or unreadable is refused here. No verdict on a readable
-        // bill (an older verify-doc) goes through: the check on send still caps a
-        // handwritten bill and sends it to Accounts.
-        const wrong = x.kind === "handwritten" || x.kind === "not_a_bill" ? x.kind : !x.readable ? "unreadable" : null;
-        if (wrong) return setRead((r) => (r?.busy ? { busy: false, wrong } : r));
-        // The amount and date are the person's own: never filled from the read
-        // (Docling misreads handwriting). The check after submit compares them.
-        setRead((r) => (r?.busy ? { busy: false } : r));
+        const wrong = x.kind === "not_a_bill" ? "not_a_bill" : !x.readable ? "unreadable" : null;
+        if (wrong) return setRead((r) => (r?.busy && r.file === f ? { busy: false, wrong } : r));
         const what = String(x.what || x.vendor || "").trim();
-        if (what) setTitle((t) => t || what.charAt(0).toUpperCase() + what.slice(1, 60));
+        setTitle(what ? what.charAt(0).toUpperCase() + what.slice(1, 60) : "");
+        setFood(!!x.food);
+        setAmount(x.amount ? String(x.amount) : "");
+        setDate(x.date && x.date <= todayIso ? x.date : todayIso);
+        setRead((r) => (r?.busy && r.file === f ? { busy: false, filled: !!(x.amount || x.date || what), signed: x.signed || null, manual: !!x.skipped } : r));
       })
-      .catch(() => setRead((r) => (r?.busy ? { busy: false, wrong: "failed" } : r)));
+      .catch(() => setRead((r) => (r?.busy && r.file === f ? { busy: false, wrong: "failed" } : r)));
   };
 
-  const missing = !title.trim() ? "Say what it was for"
-    : !file ? "Add a photo of the printed bill"
+  const missing = !file ? "Add a photo of the bill"
+    : read?.busy ? "Wait a moment — the bill is being read"
     : read?.wrong ? WRONG[read.wrong].title
-    : !amt ? "Enter the bill amount" : "";
+    : !title.trim() ? "Say what it was for"
+    : !amt ? "Enter the bill amount"
+    : food && amt > foodLeft ? `Over the Food limit: ${inr(foodLeft)} of ${inr(FOOD_LIMIT)} is left for ${shortMonth(month)}. Ask for more from Food.` : "";
   const submit = async () => {
     setTried(true);
     if (missing) return setError(missing);
     setError("");
     const toLine = (l) => ({ id: l.id, type: l.type, sub: "", date: l.date, note: l.note, amount: l.amount, bill: l.bill });
-    const mine = (bill, id) => ({ id, type: "Miscellaneous", sub: "", date, note: title.trim(), amount: amt, bill });
+    const type = food ? FOOD : "Miscellaneous";
+    const mine = (bill, id) => ({ id, type, sub: "", date, note: title.trim(), amount: amt, bill });
     let name, row, before, waiting = [];
     try {
       setBusy("Saving…");
@@ -135,9 +145,10 @@ export function BillSheet({ conn, me, claims = [], advances = [], today = new Da
       // have saved it a moment ago -- then read it again and retry. Two first
       // bills at once: the second finds the claim the first just opened.
       name = await retryOnConflict(async () => {
-        const open = await fetchOpenClaim(conn, me.id);
+        // A food bill: the Food claim of the bill's month (posted on the 1st).
+        const open = await fetchOpenClaim(conn, me.id, { food: food ? month : null });
         before = new Set((open?.lines || []).map((l) => l.id));
-        return saveClaim(conn, { claim: open || undefined, employee: me.id, postingDate: open?.posting || todayIso, remark: open?.remark || "", running: true, lines: [...(open ? open.lines.map(toLine) : []), mine("")] });
+        return saveClaim(conn, { claim: open || undefined, employee: me.id, postingDate: open?.posting || (food ? `${month}-01` : todayIso), remark: open?.remark || "", running: true, lines: [...(open ? open.lines.map(toLine) : []), mine("")] });
       }, /already has an open claim/i);
       setBusy("Uploading the bill…");
       const url = (await uploadClaimFile(conn, name, file)).file_url;
@@ -157,7 +168,7 @@ export function BillSheet({ conn, me, claims = [], advances = [], today = new Da
     // The check runs on its own: the person is not held up. Whatever it decides
     // reaches the page through onChecked (a bill it misses stays "Checking" and
     // goes along with the next bill's check).
-    checkClaim(conn, name, [row, ...waiting])
+    checkClaim(conn, name, [row, ...waiting], read?.signed ? { [row]: read.signed } : undefined)
       .catch((e) => console.warn("[expense-claims] background check:", e.message))
       .finally(() => { invalidateClaims(conn, me.id); onChecked?.(); });
     invalidateClaims(conn, me.id);
@@ -167,7 +178,8 @@ export function BillSheet({ conn, me, claims = [], advances = [], today = new Da
       name, v,
       lines: [
         [`${title.trim()} · ${shortDate(date)}`, inr(amt)],
-        v.ok ? (after >= 0 ? ["In hand now", inr(after)] : ["Owed to you", inr(-after)]) : ["Counts", "once verified"],
+        food ? ["Food left this month", inr(foodLeft - amt)]
+          : v.ok ? (after >= 0 ? ["In hand now", inr(after)] : ["Owed to you", inr(-after)]) : ["Counts", "once verified"],
       ],
     });
   };
@@ -178,8 +190,17 @@ export function BillSheet({ conn, me, claims = [], advances = [], today = new Da
   ) : (
     <>
       <div style={{ flex: 1, minWidth: 0, display: "flex", flexDirection: "column" }}>
-        <span style={{ fontSize: 12, color: "#5b6576" }}>{!amt ? (now >= 0 ? "In hand now" : "Owed to you now") : after >= 0 ? "In hand after this" : "Owed to you after this"}</span>
-        <b style={{ fontSize: 22, letterSpacing: "-0.02em", color: (amt ? after : now) < 0 ? "#b42318" : "#0b1220", ...tabNum }}>{inr(Math.abs(amt ? after : now))}</b>
+        {food ? (
+          <>
+            <span style={{ fontSize: 12, color: "#5b6576" }}>{amt ? "Food left after this" : `Food left · ${shortMonth(month)}`}</span>
+            <b style={{ fontSize: 22, letterSpacing: "-0.02em", color: amt > foodLeft ? "#b42318" : "#0b1220", ...tabNum }}>{amt > foodLeft ? `${inr(amt - foodLeft)} over` : inr(foodLeft - amt)}</b>
+          </>
+        ) : (
+          <>
+            <span style={{ fontSize: 12, color: "#5b6576" }}>{!amt ? (now >= 0 ? "In hand now" : "Owed to you now") : after >= 0 ? "In hand after this" : "Owed to you after this"}</span>
+            <b style={{ fontSize: 22, letterSpacing: "-0.02em", color: (amt ? after : now) < 0 ? "#b42318" : "#0b1220", ...tabNum }}>{inr(Math.abs(amt ? after : now))}</b>
+          </>
+        )}
       </div>
       <button type="button" className="ec-cta" disabled={!!busy} onClick={submit} style={{ ...btn.primary, height: 50, padding: "0 22px", borderRadius: 14, fontSize: 15.5, display: "flex", alignItems: "center", gap: 8, opacity: missing && tried ? 0.55 : 1 }}>
         {busy ? <><Spinner size={14} />{busy}</> : <><Icon d={IC.shield} size={18} />Check my bill</>}
@@ -188,17 +209,12 @@ export function BillSheet({ conn, me, claims = [], advances = [], today = new Da
   );
 
   return (
-    <Sheet title={done ? "" : "Add a bill"} sub={done ? null : "Take a photo of your printed bill — we check it for you."}
+    <Sheet title={done ? "" : "Add a bill"} sub={done ? null : "Take a photo of your bill — the details fill in by themselves."}
       chips={done ? null : <span style={{ display: "flex", alignItems: "center", gap: 5, fontSize: 11, fontWeight: 700, letterSpacing: ".08em", textTransform: "uppercase", color: "#1d4ed8" }}><Icon d={SCAN} size={13} />AI bill check</span>}
       onClose={close} desktop="dialog" maxWidth={520} footer={footer}>
       <style>{CSS}</style>
       {done ? <Done title={done.v.title} amount={amt} lines={done.lines} ai={{ ok: done.v.ok, text: done.v.text }} /> : (
         <div style={{ display: "flex", flexDirection: "column", gap: 16, padding: desk ? "18px 24px 20px" : "14px 16px 18px" }}>
-          <label style={{ display: "flex", flexDirection: "column", gap: 6 }}>
-            <span style={lbl}>What was it for</span>
-            <input className="ecs-in" placeholder="e.g. Fuel – Salem trip, Team lunch" value={title} maxLength={140} onChange={(e) => setTitle(e.target.value)} style={{ borderColor: tried && !title.trim() ? "#f04438" : undefined }} />
-          </label>
-
           <button type="button" className="ecs-drop" onClick={() => pick.current?.click()}
             style={{ display: "flex", flexDirection: file ? "row" : "column", alignItems: "center", justifyContent: "center", gap: file ? 12 : 6, width: "100%", minHeight: file ? 76 : 150, padding: file ? "10px 12px" : "18px 14px", borderRadius: 16, border: `1.5px ${file ? "solid" : "dashed"} ${read?.wrong ? "#f04438" : file ? "#12b76a" : tried && !file ? "#f04438" : "#b2c8f7"}`, background: read?.wrong ? "#fef3f2" : file ? "#f6fef9" : "#f5f8ff", color: "#0b1220", textAlign: file ? "left" : "center", cursor: "pointer" }}>
             {file ? (
@@ -214,9 +230,8 @@ export function BillSheet({ conn, me, claims = [], advances = [], today = new Da
             ) : (
               <>
                 <span style={{ color: "#2563eb", display: "flex", marginBottom: 4 }}><Icon d={IC.camera} size={30} /></span>
-                <span style={{ fontSize: 15, fontWeight: 700 }}>Take a photo of your printed bill</span>
+                <span style={{ fontSize: 15, fontWeight: 700 }}>Take a photo of your bill</span>
                 <span style={hint}>Keep the amount and date clear</span>
-                <span style={{ display: "flex", alignItems: "center", gap: 5, marginTop: 2, padding: "3px 10px", borderRadius: 99, background: "#fffaeb", color: "#b54708", fontSize: 12, fontWeight: 700 }}><Icon d={IC.file} size={12} />Printed bills only — no handwritten bills</span>
                 <span style={{ fontSize: 13.5, fontWeight: 700, color: "#1d4ed8", textDecoration: "underline", textUnderlineOffset: 3, marginTop: 4 }}>Choose photo</span>
               </>
             )}
@@ -232,26 +247,51 @@ export function BillSheet({ conn, me, claims = [], advances = [], today = new Da
             </div>
           ) : null}
 
-          <div style={{ display: "grid", gridTemplateColumns: "minmax(0,1.4fr) minmax(0,1fr)", gap: 10 }}>
-            <label style={{ display: "flex", flexDirection: "column", gap: 6, minWidth: 0 }}>
-              <span style={lbl}>Bill amount</span>
-              <span className="ecs-in" style={{ display: "flex", alignItems: "center", gap: 8, height: 58, borderColor: tried && !amt ? "#f04438" : undefined }}>
-                <span style={{ fontSize: 20, fontWeight: 700, color: "#475467" }}>₹</span>
-                <input inputMode="decimal" placeholder="0" aria-label="Bill amount" value={amount} onChange={(e) => setAmount(e.target.value.replace(/[^\d.]/g, ""))} style={{ flex: 1, minWidth: 0, border: 0, outline: 0, background: "transparent", fontSize: 22, fontWeight: 800, letterSpacing: "-0.02em", ...tabNum }} />
+          {file && read?.busy && (
+            <div role="status" aria-live="polite" style={{ display: "flex", alignItems: "center", gap: 10, padding: "14px 16px", borderRadius: 14, background: "#f5f8ff", color: "#1d4ed8", fontSize: 14, fontWeight: 600 }}>
+              <Spinner size={16} />Reading the bill — title, amount and date fill in by themselves…
+            </div>
+          )}
+          {file && !read?.busy && !read?.wrong && (
+            <>
+            <label style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+              <span style={lbl}>What was it for</span>
+              <input className="ecs-in" placeholder="e.g. Fuel – Salem trip, Team lunch" value={title} maxLength={140} onChange={(e) => setTitle(e.target.value)} style={{ borderColor: tried && !title.trim() ? "#f04438" : undefined }} />
+            </label>
+            <div role="radiogroup" aria-label="Kind of bill" style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+              <span style={lbl}>Kind of bill</span>
+              <span style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 4, padding: 4, borderRadius: 14, background: "#f2f4f7" }}>
+                {[[false, "Other expense"], [true, "Food"]].map(([v, l]) => (
+                  <button key={l} type="button" role="radio" aria-checked={food === v} onClick={() => setFood(v)}
+                    style={{ height: 40, borderRadius: 11, border: 0, background: food === v ? "#fff" : "transparent", boxShadow: food === v ? "0 1px 2px rgba(16,24,40,.12)" : "none", color: food === v ? "#0b1220" : "#5b6576", fontSize: 14, fontWeight: 600, cursor: "pointer" }}>{l}</button>
+                ))}
               </span>
-            </label>
-            <label style={{ display: "flex", flexDirection: "column", gap: 6, minWidth: 0 }}>
-              <span style={lbl}>Bill date</span>
-              <input type="date" className="ecs-in" max={todayIso} value={date} onChange={(e) => e.target.value && setDate(e.target.value)} style={{ height: 58, fontSize: 15 }} />
-            </label>
-          </div>
-          <span style={{ ...hint, marginTop: -8 }}>Type the total and the date exactly as on the bill</span>
+              <span style={hint}>{food ? `Goes to your Food limit — ${inr(foodLeft)} of ${inr(FOOD_LIMIT)} left for ${shortMonth(month)}` : "Goes to your settlement claim"}{read?.filled ? " · picked from the bill, change it if wrong" : ""}</span>
+            </div>
+
+            <div style={{ display: "grid", gridTemplateColumns: "minmax(0,1.4fr) minmax(0,1fr)", gap: 10 }}>
+              <label style={{ display: "flex", flexDirection: "column", gap: 6, minWidth: 0 }}>
+                <span style={lbl}>Bill amount</span>
+                <span className="ecs-in" style={{ display: "flex", alignItems: "center", gap: 8, height: 58, borderColor: tried && !amt ? "#f04438" : undefined }}>
+                  <span style={{ fontSize: 20, fontWeight: 700, color: "#475467" }}>₹</span>
+                  <input inputMode="decimal" placeholder="0" aria-label="Bill amount" value={amount} onChange={(e) => setAmount(e.target.value.replace(/[^\d.]/g, ""))} style={{ flex: 1, minWidth: 0, border: 0, outline: 0, background: "transparent", fontSize: 22, fontWeight: 800, letterSpacing: "-0.02em", ...tabNum }} />
+                </span>
+              </label>
+              <label style={{ display: "flex", flexDirection: "column", gap: 6, minWidth: 0 }}>
+                <span style={lbl}>Bill date</span>
+                <input type="date" className="ecs-in" max={todayIso} value={date} onChange={(e) => e.target.value && setDate(e.target.value)} style={{ height: 58, fontSize: 15 }} />
+              </label>
+            </div>
+            <span style={{ ...hint, marginTop: -8, color: read?.filled ? "#b54708" : hint.color }}>{read?.filled ? "Filled from the bill — change anything only if it is wrong" : read?.manual ? "Type the total and the date exactly as on the bill" : "Could not read these off the bill — type them exactly as on it"}</span>
+
+            </>
+          )}
 
           <div style={{ display: "flex", gap: 10, padding: "12px 14px", borderRadius: 14, background: "#f7f8fa" }}>
             <span style={{ color: "#1d4ed8", display: "flex", flex: "none", marginTop: 1 }}><Icon d={IC.shield} size={18} /></span>
             <span style={{ display: "flex", flexDirection: "column", gap: 3 }}>
               <b style={{ fontSize: 13.5 }}>What happens next?</b>
-              <span style={{ fontSize: 13, color: "#5b6576", lineHeight: 1.45 }}>Send printed bills. The bill is read and compared with what you entered: a match is verified at once and counts straight away; anything unusual or unclear goes to Accounts to check — never rejected silently.</span>
+              <span style={{ fontSize: 13, color: "#5b6576", lineHeight: 1.45 }}>The bill is read once when you add it. If what you send matches it, it is verified at once and counts straight away; anything different or unclear, or any bill above ₹50,000, goes to Accounts to check — never rejected silently.</span>
             </span>
           </div>
           {error && <Note>{error}</Note>}

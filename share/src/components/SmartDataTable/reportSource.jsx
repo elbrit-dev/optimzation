@@ -567,9 +567,14 @@ const SECONDARY_FILTER_KEYS = {
 
 // Keys are the row fieldnames the server returns, not the enum names:
 // CLOSING_BALANCE comes back as closing_balance, labelled "Closing Value".
+// Target, Inc Primary and the two Target % come back on Department / HQ rows
+// and the Total only (added server-side 2026-11-11); Customer / Item rows have
+// them blank, so a view grouped below HQ shows them only on its top levels.
 const SECONDARY_METRICS = {
   sales_qty: 'SALES_QTY', sales_value: 'SALES_VALUE',
   closing_qty: 'CLOSING_QTY', closing_balance: 'CLOSING_BALANCE',
+  target_value: 'TARGET_VALUE', inc_primary: 'INC_PRIMARY',
+  target_pct: 'TARGET_PCT', secondary_target_pct: 'SECONDARY_TARGET_PCT',
 };
 
 /** Mirror of report_registry.py's REPORTS, keyed by ReportName enum value. */
@@ -675,13 +680,87 @@ export function resolveDrillDown(rawApiConfig) {
   };
 }
 
+/* CONFIG-DRIVEN KEYS. The maps above are a mirror of the server registry, and
+   every entry in them is just its key upper-snaked (target_value ->
+   TARGET_VALUE, "Batch No" -> BATCH_NO). So a key a config names that is NOT
+   mirrored here is sent as that enum anyway: a metric or dimension added on
+   the server works from the config alone, with no change in this file.
+
+   `strict` turns that off -- unknown keys are dropped, as they always used to
+   be. The fetches go strict and retry once when the server rejects a key it
+   does not have (see _isUnknownKeyError), so a stale or mistyped key in an old
+   config still loads the report instead of failing it. */
+const _toEnumName = (key) => String(key ?? '').trim().toUpperCase().replace(/[^A-Z0-9]+/g, '_').replace(/^_+|_+$/g, '');
+
+function _metricEnumOf(report, key, strict) {
+  if (report.metrics[key]) return report.metrics[key];
+  return strict ? null : _toEnumName(key) || null;
+}
+
+function _dimensionEnumOf(report, label, strict) {
+  if (report.dimensions[label]) return report.dimensions[label];
+  return strict ? null : _toEnumName(label) || null;
+}
+
+/** The selected_columns / group_by keys a config names that the mirror does not. */
+export function unmirroredKeysOf(gqlVars) {
+  const report = _reportDefOf(gqlVars);
+  const filters = gqlVars?.filters ?? {};
+  return [
+    ..._toList(filters.selected_columns).filter(k => !report.metrics[k]),
+    ..._toList(filters.group_by).filter(l => !report.dimensions[l]),
+  ];
+}
+
+/* The server's answer to a metric / dimension the named report does not
+   define: its own INVALID_*_FOR_REPORT, or GraphQL's enum validation when the
+   name is not in the schema's enum at all. */
+const UNKNOWN_KEY_RE = /INVALID_(METRIC|DIMENSION)_FOR_REPORT|Report(Metric|Dimension)\b|does not exist in .*enum|not a valid enum/i;
+function _isUnknownKeyError(payload) {
+  try { return UNKNOWN_KEY_RE.test(typeof payload === 'string' ? payload : JSON.stringify(payload)); } catch { return false; }
+}
+
+/**
+ * POST one v2 request built by `makeVariables(strict)`. Lenient first when the
+ * config names keys the mirror lacks; if the server refuses one of them, once
+ * more strict. Returns { json, strict } -- which mode answered.
+ */
+async function _postV2WithKeyFallback({ endpoint, token, query, gqlVars, makeVariables, errCtx, signal }) {
+  const unmirrored = unmirroredKeysOf(gqlVars);
+  const send = async (strict) => {
+    const variables = makeVariables(strict);
+    const ctx = { ...errCtx, variables };
+    const res = await fetch(endpoint, {
+      method: 'POST',
+      headers: { Authorization: `token ${token}`, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ query, variables }),
+      signal,
+    });
+    const retryable = !strict && unmirrored.length > 0;
+    if (!res.ok) {
+      if (retryable && _isUnknownKeyError(await res.clone().text().catch(() => ''))) return null;
+      throw await reportGraphQLFailure(res, ctx);
+    }
+    const json = await res.json();
+    if (json.errors?.length) {
+      if (retryable && _isUnknownKeyError(json.errors)) return null;
+      throw reportGraphQLErrors(json.errors, ctx);
+    }
+    return { json, strict, variables };
+  };
+  const first = await send(unmirrored.length === 0);
+  if (first) return first;
+  console.warn(`[customReportV2] report ${resolveReportKey(gqlVars)} does not have ${unmirrored.map(k => `"${k}"`).join(', ')} — loading without them`);
+  return send(true);
+}
+
 /** group_by as ReportDimension enums, unsliced. */
-export function groupByEnumsOf(gqlVars) {
+export function groupByEnumsOf(gqlVars, { strict = false } = {}) {
   const reportKey = resolveReportKey(gqlVars);
-  const { dimensions } = REPORTS[reportKey];
+  const report = REPORTS[reportKey];
   return _toList((gqlVars.filters ?? {}).group_by)
     .map(label => {
-      const dimEnum = dimensions[label];
+      const dimEnum = _dimensionEnumOf(report, label, strict);
       if (!dimEnum) console.warn(`[customReportV2] group_by dimension "${label}" is not defined on report ${reportKey} — dropping`);
       return dimEnum;
     })
@@ -714,8 +793,8 @@ const PERIOD_FIELD_RE = /^(.+)_(\d{4})_(\d{2})$/; // net_primary_2026_08
  *   total_<metric>        → { metric, scope: TOTAL }
  *   <metric>_YYYY_MM      → { metric, scope: PERIOD, period: "YYYY-MM" }
  */
-function _buildSortInput(sortBy, sortOrder, groupByEnums, report, isPivot) {
-  const { filterKeys, metrics } = report;
+function _buildSortInput(sortBy, sortOrder, groupByEnums, report, isPivot, metricOf = (k) => report.metrics[k]) {
+  const { filterKeys } = report;
   const defaultDir = String(sortOrder || 'asc').trim().toUpperCase() === 'DESC' ? 'DESC' : 'ASC';
   const pairs = _toList(sortBy).map(entry => {
     const [field, dir] = entry.split(':');
@@ -743,14 +822,14 @@ function _buildSortInput(sortBy, sortOrder, groupByEnums, report, isPivot) {
       else console.warn(`[customReportV2] sort field "${field}" is not in group_by — dropping (would raise SORT_DIMENSION_NOT_GROUPED)`);
       continue;
     }
-    const metricEnum = metrics[field];
+    const metricEnum = metricOf(field);
     if (metricEnum) { out.push({ metric: metricEnum, direction }); continue; }
 
-    const totalMetric = field.startsWith('total_') && metrics[field.slice('total_'.length)];
+    const totalMetric = field.startsWith('total_') && metricOf(field.slice('total_'.length));
     if (totalMetric) { out.push({ metric: totalMetric, scope: 'TOTAL', direction }); continue; }
 
     const period = field.match(PERIOD_FIELD_RE);
-    const periodMetric = period && metrics[period[1]];
+    const periodMetric = period && metricOf(period[1]);
     if (periodMetric) {
       out.push({ metric: periodMetric, scope: 'PERIOD', period: `${period[2]}-${period[3]}`, direction });
       continue;
@@ -785,7 +864,7 @@ function _resolvePeriodDataBy(value, report, reportKey) {
  * Translate the flat V1-shaped gqlVars (`{ filters: {...}, sort_by, page, limit }`)
  * into customReportV2's structured `CustomReportV2Input`.
  */
-export function buildCustomReportV2Input(gqlVars, drillDown = null) {
+export function buildCustomReportV2Input(gqlVars, drillDown = null, { strict = false } = {}) {
   const filters = gqlVars.filters ?? {};
   const reportKey = resolveReportKey(gqlVars);
   const report = REPORTS[reportKey];
@@ -794,18 +873,28 @@ export function buildCustomReportV2Input(gqlVars, drillDown = null) {
   // the tree arrives one node at a time. Sorting is resolved against the sliced
   // list too, so a sort on a level this call no longer groups by is dropped
   // rather than sent and rejected.
-  const allGroupByEnums = groupByEnumsOf(gqlVars);
+  const allGroupByEnums = groupByEnumsOf(gqlVars, { strict });
   const groupByEnums = drillDown
     ? allGroupByEnums.slice(0, drillDown.initialDepth)
     : allGroupByEnums;
 
-  const metricEnums = _toList(filters.selected_columns).map(key => {
-    const metricEnum = report.metrics[key];
+  const selected = _toList(filters.selected_columns);
+  const metricEnums = selected.map(key => {
+    const metricEnum = _metricEnumOf(report, key, strict);
     if (!metricEnum) console.warn(`[customReportV2] metric "${key}" is not defined on report ${reportKey} — dropping`);
     return metricEnum;
   }).filter(Boolean);
+  // Sorting may name a metric the mirror lacks only when the config selected it
+  // -- a stray sort field is never turned into an enum.
+  const metricOf = (key) => report.metrics[key] ?? (!strict && selected.includes(key) ? _toEnumName(key) : null);
 
-  const dimensionFilters = Object.entries(report.filterKeys)
+  // A filter on a dimension the mirror lacks: its key is the enum lower-cased
+  // (as every mirrored one is but item_code), and only for a dimension the
+  // config groups by -- the filters blob also carries dates and toggles.
+  const filterKeys = { ...report.filterKeys };
+  const mirroredDims = new Set(Object.values(report.filterKeys));
+  if (!strict) for (const dimEnum of allGroupByEnums) if (!mirroredDims.has(dimEnum)) filterKeys[dimEnum.toLowerCase()] = dimEnum;
+  const dimensionFilters = Object.entries(filterKeys)
     .filter(([key]) => filters[key] != null && filters[key] !== '' && !(Array.isArray(filters[key]) && filters[key].length === 0))
     .map(([key, dimEnum]) => ({
       dimension: dimEnum,
@@ -813,7 +902,7 @@ export function buildCustomReportV2Input(gqlVars, drillDown = null) {
       values: _toList(filters[key]),
     }));
 
-  const sort = _buildSortInput(gqlVars.sort_by, gqlVars.sort_order, groupByEnums, report, !!filters.pivot_by_month);
+  const sort = _buildSortInput(gqlVars.sort_by, gqlVars.sort_order, groupByEnums, { ...report, filterKeys }, !!filters.pivot_by_month, metricOf);
 
   const periodDataBy = _resolvePeriodDataBy(filters.period_data_by, report, reportKey);
 
@@ -1077,25 +1166,38 @@ export function graphqlQueryReportDataSource(rawApiConfig) {
 
     const isV2 = version === 'v2';
     if (isV2 && rawApiConfig.rootValue != null) gqlVars = _scopeToRoot(gqlVars, rawApiConfig.rootValue);
-    const v2Input = isV2 ? buildCustomReportV2Input(gqlVars, drillDown) : null;
     const query = isV2 ? CUSTOM_REPORT_V2_QUERY : buildCustomReportV1Query(gqlVars, rawApiConfig.variableTypes);
-    const body  = isV2 ? { input: v2Input } : gqlVars;
-
-    const res = await fetch(endpoint, {
-      method:  'POST',
-      headers: { Authorization: `token ${token}`, 'Content-Type': 'application/json' },
-      body:    JSON.stringify({ query, variables: body }),
-    });
-    // `body`, not gqlVars: on v2 the request carries the structured input, and
-    // reporting the flat V1-shaped vars would describe a payload never sent.
+    // Errors carry the variables actually sent: on v2 the structured input,
+    // not the flat V1-shaped vars it was built from.
     const errCtx = {
       source: 'graphqlQueryReportDataSource',
       operation: isV2 ? 'CustomReportV2' : 'CustomReport',
-      endpoint, query, variables: body,
+      endpoint, query,
     };
-    if (!res.ok) throw await reportGraphQLFailure(res, errCtx);
-    const { data, errors } = await res.json();
-    if (errors?.length) throw reportGraphQLErrors(errors, errCtx);
+
+    let data, v2Input = null, strictKeys = true;
+    if (isV2) {
+      // Keys the config names but the mirror lacks go to the server as enums;
+      // refused, the report loads once more without them.
+      const sent = await _postV2WithKeyFallback({
+        endpoint, token, query, gqlVars, errCtx,
+        makeVariables: (strict) => ({ input: buildCustomReportV2Input(gqlVars, drillDown, { strict }) }),
+      });
+      data = sent.json.data;
+      v2Input = sent.variables.input;
+      strictKeys = sent.strict;
+    } else {
+      const res = await fetch(endpoint, {
+        method:  'POST',
+        headers: { Authorization: `token ${token}`, 'Content-Type': 'application/json' },
+        body:    JSON.stringify({ query, variables: gqlVars }),
+      });
+      const ctx = { ...errCtx, variables: gqlVars };
+      if (!res.ok) throw await reportGraphQLFailure(res, ctx);
+      const json = await res.json();
+      if (json.errors?.length) throw reportGraphQLErrors(json.errors, ctx);
+      data = json.data;
+    }
 
     const { report_meta, edges } = isV2 ? data.customReportV2 : data.customReport;
     const gqlColumns = report_meta[0]?.columns ?? [];
@@ -1131,7 +1233,7 @@ export function graphqlQueryReportDataSource(rawApiConfig) {
       // drillDownMeta, not drillDown: the store already has a `drillDown` key on
       // each view holding the fetched children, and one name for two things
       // invites splicing a config object where a node map is expected.
-      drillDownMeta: drillDown && { ...drillDown, fullGroupBy: groupByEnumsOf(gqlVars) },
+      drillDownMeta: drillDown && { ...drillDown, fullGroupBy: groupByEnumsOf(gqlVars, { strict: strictKeys }), strictKeys },
       groupByEnums: v2Input?.group_by ?? null,
     };
   };
@@ -1203,9 +1305,9 @@ export function samePathValues(a, b) {
 }
 
 export function buildDrillDownInput(gqlVars, path, {
-  depth, includeChildCounts = true, page = 1, limit,
+  depth, includeChildCounts = true, page = 1, limit, strict = false,
 } = {}) {
-  const base = buildCustomReportV2Input(gqlVars);
+  const base = buildCustomReportV2Input(gqlVars, null, { strict });
 
   const input = {
     report: base.report,
@@ -1244,22 +1346,18 @@ export function buildDrillDownInput(gqlVars, path, {
  */
 export async function graphqlFetchDrillDown(rawApiConfig, gqlVars, path, opts = {}) {
   const { endpoint, token } = await resolveApiConfig(rawApiConfig);
-  const input = buildDrillDownInput(gqlVars, path, opts);
-
-  const res = await fetch(endpoint, {
-    method:  'POST',
-    headers: { Authorization: `token ${token}`, 'Content-Type': 'application/json' },
-    body:    JSON.stringify({ query: _GQL_REPORT_DRILL_DOWN, variables: { input } }),
-    signal:  opts.signal,
-  });
   const errCtx = {
     source: 'graphqlFetchDrillDown',
     operation: `ReportDrillDown(${path.map(p => p.value).join(' / ')})`,
-    endpoint, query: _GQL_REPORT_DRILL_DOWN, variables: { input },
+    endpoint, query: _GQL_REPORT_DRILL_DOWN,
   };
-  if (!res.ok) throw await reportGraphQLFailure(res, errCtx);
-  const { data, errors } = await res.json();
-  if (errors?.length) throw reportGraphQLErrors(errors, errCtx);
+  // Same key fallback as the top-level call. `opts.strict` (the top-level call
+  // already had to drop keys the server refused) goes strict straight away.
+  const { json: { data } } = await _postV2WithKeyFallback({
+    endpoint, token, query: _GQL_REPORT_DRILL_DOWN, errCtx, signal: opts.signal,
+    gqlVars: opts.strict ? { ...gqlVars, filters: { ...gqlVars.filters, selected_columns: [], group_by: [] } } : gqlVars,
+    makeVariables: (strict) => ({ input: buildDrillDownInput(gqlVars, path, { ...opts, strict: strict || !!opts.strict }) }),
+  });
 
   const { report_meta, edges } = data.reportDrillDown;
   const gqlColumns = report_meta[0]?.columns ?? [];

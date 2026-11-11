@@ -87,9 +87,20 @@ import { Textarea } from "@calendar/components/ui/textarea";
 import {
 	fetchEmployeeHolidays,
 	fetchEmployeeLeaveBalance,
+	fetchProbationLeaveContext,
 	saveLeaveApplication,
 	updateLeaveAttachment,
 } from "@calendar/components/calendar/module/leave/services/leave.service";
+import {
+	LOP_LEAVE_TYPE,
+	PROBATION_LEAVE_LABEL,
+	PROBATION_LEAVE_TYPE,
+	availableInMonth,
+	monthKey,
+	splitProbationLeave,
+	takenByMonth,
+	ymd,
+} from "@calendar/lib/calendar/probationLeave";
 import { resolveLoggedInRoleId, resolveOwnHqOptions, resolveSeatHqs, resolveSuperiorShareUserIds, resolveSuperiorShareUserIdsAboveSm, resolveSuperiorShareUserIdsUpTo } from "@calendar/lib/employeeHeirachy";
 import { resolvePobDepartments } from "@calendar/lib/calendar/pobDepartments";
 import { saveDocToErp } from "@calendar/components/calendar/module/todo/services/todo.service";
@@ -182,6 +193,8 @@ export function AddEditEventDialog({
 	const isEditing = !!event;
 	const [leaveBalance, setLeaveBalance] = useState(null);
 	const [leaveLoading, setLeaveLoading] = useState(false);
+	// Probationary Leave (lib/calendar/probationLeave): null until read.
+	const [probation, setProbation] = useState(null);
 	const [holidayDates, setHolidayDates] = useState(null);
 	const employeeResolvers = useEmployeeResolvers(allEmployeeOptions);
 	const { getEmployeeIdByEmail } = useEmployeeResolvers(allEmployeeOptions);
@@ -236,6 +249,7 @@ export function AddEditEventDialog({
 	const allDay = useWatch({ control: form.control, name: "allDay" });
 	const leaveType = useWatch({ control: form.control, name: "leaveType", });
 	const leavePeriod = useWatch({ control: form.control, name: "leavePeriod", });
+	const halfDayPosition = useWatch({ control: form.control, name: "halfDayPosition" });
 	const medicalAttachment = useWatch({ control: form.control, name: "medicalAttachment" });
 	const otherType = useWatch({ control: form.control, name: "otherType" });
 	const title = useWatch({ control: form.control, name: "title" });
@@ -482,8 +496,76 @@ export function AddEditEventDialog({
 	}, [leaveBalance, leaveType]);
 	const isLeaveWithoutPaySelected =
 		selectedLeaveBalance?.isLeaveWithoutPay === true;
+	// ON PROBATION: only Probationary Leave and LOP; this month's limit (1 a
+	// month, unused carries, never above 2) and, over it, the split into
+	// Probationary Leave + LOP that the save will file.
+	const onProbation = probation?.onProbation === true;
+	// What counts as taken, less the leave being edited: approved leave always;
+	// a PENDING one only for its days in the current month or later. Once its
+	// month is over and it is still waiting, it no longer holds those days, so it
+	// does not eat into what carries forward (asked 2026-11-11).
+	const probationTaken = useMemo(() => {
+		const now = new Date();
+		const monthStart = ymd(new Date(now.getFullYear(), now.getMonth(), 1));
+		return (probation?.approved ?? [])
+			.filter((l) => !event?.erpName || l.name !== event.erpName)
+			.map((l) => {
+				if (!l.pending || String(l.from) >= monthStart) return l;
+				if (String(l.to) < monthStart) return null;
+				// Spans into this month: only this month's part still counts.
+				const halfIn = l.halfDay && String(l.halfDayDate ?? "") >= monthStart;
+				return { ...l, from: monthStart, halfDay: halfIn, halfDayDate: halfIn ? l.halfDayDate : null };
+			})
+			.filter(Boolean);
+	}, [probation, event?.erpName]);
+	const leaveTypesOffered = onProbation ? [PROBATION_LEAVE_TYPE, LOP_LEAVE_TYPE] : undefined;
+	const probationMonthAvailable = useMemo(() => {
+		if (!onProbation) return null;
+		const month = monthKey(startDate instanceof Date && !isNaN(startDate) ? startDate : new Date());
+		const fromLimit = availableInMonth(probation.joiningDate, month, takenByMonth(probationTaken, holidayDates));
+		const fromErp = leaveBalance?.[PROBATION_LEAVE_TYPE]?.available;
+		return fromErp == null ? fromLimit : Math.max(0, Math.min(fromLimit, Number(fromErp) || 0));
+	}, [onProbation, probation, probationTaken, startDate, holidayDates, leaveBalance]);
+	const probationSplit = useMemo(() => {
+		if (!onProbation || selectedTag !== TAG_IDS.LEAVE || leaveType !== PROBATION_LEAVE_TYPE) return null;
+		if (!(startDate instanceof Date) || !(endDate instanceof Date) || isNaN(startDate) || isNaN(endDate)) return null;
+		const isHalf = leavePeriod === "Half";
+		const from = ymd(startDate), to = ymd(endDate);
+		return splitProbationLeave(
+			{ from, to, halfDay: isHalf, halfDayDate: isHalf ? (halfDayPosition === "LAST_DAY" ? to : from) : null },
+			{
+				joiningDate: probation.joiningDate,
+				approvedLeaves: probationTaken,
+				holidays: holidayDates,
+				erpAvailable: leaveBalance?.[PROBATION_LEAVE_TYPE]?.available ?? null,
+			}
+		);
+	}, [onProbation, probation, probationTaken, selectedTag, leaveType, startDate, endDate, leavePeriod, halfDayPosition, holidayDates, leaveBalance]);
+	// The cards: Probationary Leave shows what is open in the leave's month.
+	const leaveCardBalance = useMemo(() => {
+		if (!onProbation || !leaveBalance) return leaveBalance;
+		const base = leaveBalance[PROBATION_LEAVE_TYPE] ?? { allocated: 0, used: 0, pending: 0, isLeaveWithoutPay: false };
+		return { ...leaveBalance, [PROBATION_LEAVE_TYPE]: { ...base, available: probationMonthAvailable ?? 0 } };
+	}, [onProbation, leaveBalance, probationMonthAvailable]);
+	const leaveCardDisplay = useMemo(
+		() => ({ [PROBATION_LEAVE_TYPE]: { label: PROBATION_LEAVE_LABEL, sub: " this month" } }),
+		[]
+	);
+	// A probation employee's form never sits on a type they cannot use; a
+	// confirmed employee's never on Probationary Leave.
+	useEffect(() => {
+		// A saved leave keeps its type when it is edited.
+		if (!isOpen || selectedTag !== TAG_IDS.LEAVE || !probation || isEditing) return;
+		if (onProbation && ![PROBATION_LEAVE_TYPE, LOP_LEAVE_TYPE].includes(leaveType)) {
+			form.setValue("leaveType", probationMonthAvailable > 0 ? PROBATION_LEAVE_TYPE : LOP_LEAVE_TYPE, { shouldDirty: false, shouldValidate: true });
+		} else if (!onProbation && leaveType === PROBATION_LEAVE_TYPE) {
+			form.setValue("leaveType", "Casual Leave", { shouldDirty: false, shouldValidate: true });
+		}
+	}, [isOpen, selectedTag, probation, onProbation, leaveType, probationMonthAvailable, isEditing, form]);
 	const hasInsufficientLeaveBalance =
 		selectedTag === TAG_IDS.LEAVE &&
+		// Probationary Leave over its limit is split, never refused.
+		leaveType !== PROBATION_LEAVE_TYPE &&
 		!isLeaveWithoutPaySelected &&
 		Boolean(selectedLeaveBalance) &&
 		leaveDays > 0 &&
@@ -1111,10 +1193,18 @@ export function AddEditEventDialog({
 		let alive = true;
 		setLeaveLoading(true);
 
-		fetchEmployeeLeaveBalance(LOGGED_IN_USER.id)
-			.then((data) => {
+		Promise.all([
+			fetchEmployeeLeaveBalance(LOGGED_IN_USER.id),
+			// Unreadable = not on probation: the normal leave types, as before.
+			fetchProbationLeaveContext(LOGGED_IN_USER.id).catch((err) => {
+				console.error("Probation check failed", err);
+				return { onProbation: false, joiningDate: null, approved: [] };
+			}),
+		])
+			.then(([data, probationContext]) => {
 				if (!alive) return;
 				setLeaveBalance(data);
+				setProbation(probationContext);
 			})
 			.catch((err) => {
 				console.error("Leave balance error", err);
@@ -2288,6 +2378,69 @@ export function AddEditEventDialog({
 				return;
 			}
 
+			// PROBATIONARY LEAVE OVER ITS LIMIT: filed as separate leaves -- the
+			// days the monthly limit covers as Probationary Leave, the rest as
+			// Leave Without Pay (lib/calendar/probationLeave). Each is an
+			// ordinary Leave Application with the same approvers and shares.
+			if (
+				values.leaveType === PROBATION_LEAVE_TYPE &&
+				probationSplit &&
+				probationSplit.lopDays > 0
+			) {
+				if (isEditing) {
+					toast.error(
+						`This leave is now over the Probationary Leave limit (${probationSplit.paidDays} day${probationSplit.paidDays === 1 ? "" : "s"} allowed). Shorten it, or cancel it and apply again — the extra days are then filed as Leave Without Pay.`
+					);
+					return;
+				}
+				const toDate = (s) => {
+					const [y, m, d] = s.split("-").map(Number);
+					return new Date(y, m - 1, d);
+				};
+				const saved = [];
+				for (const part of probationSplit.parts) {
+					const partValues = {
+						...values,
+						leaveType: part.leaveType,
+						startDate: toDate(part.from),
+						endDate: toDate(part.to),
+						leavePeriod: part.halfDay ? "Half" : "Full",
+						halfDayPosition: part.halfDay && part.halfDayDate === part.to && part.from !== part.to ? "LAST_DAY" : "FIRST_DAY",
+						medicalAttachment: undefined,
+					};
+					const partDoc = mapFormToErpLeave(partValues, { holidayDates });
+					delete partDoc.custom_attachement;
+					try {
+						const savedPart = await saveLeaveApplication(partDoc, {
+							shareWithUserIds: leaveShareUserIds,
+							deferShareSync: true,
+							skipExistingShareCheck: true,
+						});
+						const partLeave = mapErpLeaveToCalendar({
+							...partDoc,
+							name: savedPart.name,
+							employee_name: LOGGED_IN_USER.name,
+							color: "#DC2626",
+						});
+						addEvent({ ...partLeave, erpName: savedPart.name, id: savedPart.name });
+						saved.push(part);
+					} catch (partError) {
+						// What is already filed stays filed; say exactly what is missing.
+						const label = (p) => `${p.leaveType === PROBATION_LEAVE_TYPE ? PROBATION_LEAVE_LABEL : "Leave Without Pay"} ${p.from}${p.to !== p.from ? ` to ${p.to}` : ""}`;
+						const message = partError?.response?.errors?.[0]?.message || partError?.message || "ERP refused it";
+						toast.error(
+							(saved.length ? `Filed: ${saved.map(label).join(", ")}. ` : "") +
+							`Could not file ${label(part)}: ${message}`
+						);
+						return;
+					}
+				}
+				finalize(
+					`Leave applied: ${probationSplit.paidDays} day${probationSplit.paidDays === 1 ? "" : "s"} Probationary Leave + ${probationSplit.lopDays} day${probationSplit.lopDays === 1 ? "" : "s"} Leave Without Pay`
+				);
+				return;
+			}
+
 			const currentLeaveBalance =
 				leaveBalance?.[values.leaveType] ?? null;
 			const isLeaveWithoutPay =
@@ -2843,7 +2996,7 @@ export function AddEditEventDialog({
 			    them scrolls. The sheet itself must not scroll, or the buttons
 			    ride up with a long doctor list and leave a gap under them. dvh,
 			    not vh: on a phone vh counts the space behind the browser bar. */}
-			<ModalContent className="flex max-h-[90dvh] min-h-[70dvh] flex-col overflow-hidden">
+			<ModalContent className="flex max-h-[90dvh] min-h-[70dvh] flex-col overflow-hidden md:h-[min(52rem,calc(100dvh_-_48px))]">
 				<ModalHeader className="shrink-0">
 					<ModalTitle>{isEditing ? "Edit Event" : "Add Event"}</ModalTitle>
 					{/* <ModalDescription /> */}
@@ -3011,12 +3164,19 @@ export function AddEditEventDialog({
 										error={fieldState.error?.message}
 									>
 										<LeaveTypeCards
-											balance={leaveBalance}
+											balance={leaveCardBalance}
 											loading={leaveLoading}
 											value={field.value}
 											onChange={field.onChange}
+											types={leaveTypesOffered}
+											display={leaveCardDisplay}
 										/>
-										{field.value && leaveBalance?.[field.value] && (
+										{onProbation && (
+											<div className="mt-2 text-sm text-muted-foreground">
+												On probation: 1 day of Probationary Leave a month, an unused day carries over, never more than 2. Days over the limit are filed as Leave Without Pay.
+											</div>
+										)}
+										{!onProbation && field.value && leaveBalance?.[field.value] && (
 											<div className="mt-2 space-y-1 text-sm text-muted-foreground">
 												<div>
 													{leaveBalance[field.value].isLeaveWithoutPay ? (
@@ -3276,8 +3436,18 @@ export function AddEditEventDialog({
 											hasInsufficientLeaveBalance && "text-destructive"
 										)}
 									>
-										Leave request is for {leaveDays} day
-										{leaveDays === 1 ? "" : "s"} of {leaveType}.
+										{probationSplit && probationSplit.lopDays > 0 ? (
+											<>
+												Over this month&apos;s Probationary Leave limit: {probationSplit.paidDays} day
+												{probationSplit.paidDays === 1 ? "" : "s"} Probationary Leave + {probationSplit.lopDays} day
+												{probationSplit.lopDays === 1 ? "" : "s"} Leave Without Pay, filed as {probationSplit.parts.length} leaves.
+											</>
+										) : (
+											<>
+												Leave request is for {leaveDays} day
+												{leaveDays === 1 ? "" : "s"} of {leaveType === PROBATION_LEAVE_TYPE ? PROBATION_LEAVE_LABEL : leaveType}.
+											</>
+										)}
 									</div>
 								)}
 

@@ -7,7 +7,7 @@ import { useClaims } from "./data/useClaims";
 import { CASH_REQUESTS, fetchFileBlob } from "./data/claimsApi";
 import { CSS, FONT_HREF, Highlights, IC, Icon, Note, Rail, Sheet, Spinner, btn, card, ell, tabNum } from "./ui";
 import { BillSheet, CashSheet } from "./sheets";
-import { FOOD_SAMPLE, FoodCard, FoodSheet, useFood } from "./FoodPanel";
+import { FoodCard, FoodSheet, useFood } from "./FoodPanel";
 import { BILL_STATE, MON, WD, billState, dateOf, inr, ledger, monthKey, monthLabel, shortDate, weeksOf } from "./model";
 
 /* Expense claims -- the claims prototype's Settlements screen, in the app's
@@ -256,7 +256,7 @@ export default function ClaimReport({
   const mi = months.indexOf(month);
 
   const [bill, setBill] = useState(null);
-  const food = useFood(today);
+  const food = useFood(claims, today);
   const [foodOpen, setFoodOpen] = useState(null); // null | { day }
   const [sheet, setSheet] = useState(null); // "bill" | "cash"
   const [toast, setToast] = useState(null);
@@ -372,8 +372,8 @@ export default function ClaimReport({
             )}
           </section>
 
-          {/* Food (sample for now): between the cash card and Highlights. */}
-          {FOOD_SAMPLE && <FoodCard food={food} isDesk={isDesk} onSeeAll={() => setFoodOpen({ day: null })} onDay={(day) => setFoodOpen({ day })} />}
+          {/* Food: between the cash card and Highlights. */}
+          <FoodCard food={food} isDesk={isDesk} onSeeAll={() => setFoodOpen({ day: null })} onDay={(day) => setFoodOpen({ day })} />
 
           {hl.length > 0 && (
             <section style={{ display: "flex", flexDirection: "column", gap: 8 }}>
