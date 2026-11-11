@@ -25,6 +25,8 @@ import { reviewReportMeta } from './app/review-report/plasmic.meta.js';
 import { secondaryEntryMeta } from './app/secondary-entry/plasmic.meta.js';
 import { secondaryApprovalMeta } from './app/secondary-approval/plasmic.meta.js';
 import { doctorSupportApprovalMeta, doctorSupportEntryMeta } from './app/doctor-support/plasmic.meta.js';
+import { LeaveApproval } from './app/leave-approval/components/LeaveApproval.jsx';
+import { leaveApprovalMeta } from './app/leave-approval/plasmic.meta.js';
 import { doctorServiceAllocationMeta, doctorServiceApprovalMeta, doctorServiceEntryMeta } from './app/doctor-service/plasmic.meta.js';
 import { DoctorServiceAllocation } from './app/doctor-service/components/AllocationWorkspace.jsx';
 import { ringNavMeta } from './app/ring-nav/plasmic.meta.js';
@@ -683,6 +685,7 @@ export function registerElbritCoreComponents(loader) {
   loader.registerComponent(DoctorServiceEntry, doctorServiceEntryMeta);
   loader.registerComponent(DoctorServiceApproval, doctorServiceApprovalMeta);
   loader.registerComponent(DoctorServiceAllocation, doctorServiceAllocationMeta);
+  loader.registerComponent(LeaveApproval, leaveApprovalMeta);
   loader.registerComponent(RingNav, ringNavMeta);
   registerDesignSystem(loader);
 }

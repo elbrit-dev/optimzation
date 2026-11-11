@@ -6,6 +6,13 @@ import RingNav from '@/app/ring-nav/components/RingNav';
 import { ringNavMeta } from '@/app/ring-nav/plasmic.meta';
 import { DEFAULT_RING_NAV_ITEMS } from '@/app/ring-nav/data/defaultRingNavItems';
 import { emulatedBrowser } from '../addons/emulatedBrowser';
+import { shapeLeaves } from '@/app/leave-approval/data/shape';
+import { leaveApprovalTile } from '@/app/leave-approval/data/tile';
+import { MOCK_ABM, MOCK_TODAY, buildMockRows } from '@/app/leave-approval/data/mockData';
+
+/* The leave-approval tile, from the Leave Approval screen's own mock — the
+   tile the strip gets when leaves wait on the approver (data/tile.js). */
+const LEAVE_APPROVAL_TILE = leaveApprovalTile(shapeLeaves(buildMockRows(), { viewer: MOCK_ABM, today: MOCK_TODAY }).waiting);
 
 /* The sample tiles — Mock mode's starting `items` and `data`. They show in
    the Props panel as source and are edited there; any tile field may be a
@@ -30,7 +37,10 @@ export const RING_NAV_MOCK = {
         { value: s.draft, tone: 'danger', label: 'Draft' },
       ],
     },
-    ...DEFAULT_RING_NAV_ITEMS.slice(1),
+    ...DEFAULT_RING_NAV_ITEMS.slice(1, 3),
+    /* Approvals: leave first — a leave waiting is time-bound in days, not by month end. */
+    LEAVE_APPROVAL_TILE,
+    ...DEFAULT_RING_NAV_ITEMS.slice(3),
   ],
 };
 
