@@ -96,6 +96,15 @@ export function normalizeLeave(row) {
     attachment: clean(row.custom_attachement),
     decidedOn: clean(String(row.modified ?? '').slice(0, 10)),
     decidedBy: lower(row.modified_by__name ?? row.modified_by),
+    /* The ERP's live answer (elbrit_leave_approvals): who decides, and may
+       the viewer — "approver" | "escalation" | "override" | null. */
+    decide: row.decide
+      ? {
+          can: row.decide.can ?? null,
+          approverNames: clean(row.decide.approver_names),
+          escalationNames: clean(row.decide.escalation_names),
+        }
+      : null,
   };
 }
 
@@ -113,9 +122,15 @@ export function shapeLeaves(rows, { viewer, today }) {
   const all = (rows ?? []).map(normalizeLeave).filter(Boolean);
 
   const waitedOf = (l) => (l.appliedOn ? Math.max(0, t - dayNumber(l.appliedOn)) : 0);
+  /* The ERP's live rule when the row carries it; else (mock, older ERP) the
+     stored approver fields. */
   const reachesMe = (l) =>
-    l.approver === me || (l.escalationApprover === me && (waitedOf(l) >= ESCALATE_AFTER_DAYS || dayNumber(l.from) <= t));
+    l.decide
+      ? Boolean(l.decide.can)
+      : l.approver === me || (l.escalationApprover === me && (waitedOf(l) >= ESCALATE_AFTER_DAYS || dayNumber(l.from) <= t));
+  const roleOf = (l) => (l.decide ? l.decide.can : l.approver === me ? 'approver' : 'escalation');
   const withTiming = (l, role) => {
+    if (l.decide?.approverNames) l = { ...l, approverName: l.decide.approverNames };
     const start = dayNumber(l.from);
     const urgency = start <= t ? 'started' : start - t <= UPCOMING_DAYS ? 'soon' : 'later';
     return { ...l, role, urgency, startsIn: start - t, waitingDays: waitedOf(l) };
@@ -124,7 +139,7 @@ export function shapeLeaves(rows, { viewer, today }) {
   const open = all.filter((l) => l.status === 'Open');
   const waiting = open
     .filter((l) => !!me && reachesMe(l))
-    .map((l) => withTiming(l, l.approver === me ? 'approver' : 'escalation'))
+    .map((l) => withTiming(l, roleOf(l)))
     .sort(bySoonest);
   const others = open
     .filter((l) => !(me && reachesMe(l)))

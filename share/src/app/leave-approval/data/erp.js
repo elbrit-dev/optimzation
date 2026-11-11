@@ -106,25 +106,22 @@ export function createErpLeaveSource({ endpointUrl, token, fetchImpl = fetch }) 
     },
 
     /* [{ name, action: 'approve'|'reject', reason }] → [{ name, ok, status, error }] */
+    /* Decide through elbrit_leave_decide: the ERP checks the live rule (the
+       caller must be the approver, the escalation person once allowed, or HR)
+       and submits as the caller — no share or Leave Approver role needed.
+       Where that script is not installed, the workflow's own action. */
     async decide(decisions) {
       const out = [];
       for (const d of decisions) {
         const want = d.action === 'approve' ? 'Approved' : 'Rejected';
         try {
-          const doc = await method(`frappe.client.get?doctype=Leave%20Application&name=${encodeURIComponent(d.name)}`);
-          if (d.action === 'reject' && d.reason?.trim()) {
-            await method('frappe.desk.form.utils.add_comment', {
-              reference_doctype: 'Leave Application',
-              reference_name: d.name,
-              content: `Rejected: ${d.reason.trim()}`,
-              comment_email: await method('frappe.auth.get_logged_user'),
-              comment_by: '',
-            });
+          let after;
+          try {
+            after = await method('elbrit_leave_decide', { name: d.name, action: d.action, reason: d.reason ?? '' });
+          } catch (e) {
+            if (!/Failed to get method|not found|elbrit_leave_decide/i.test(e.message)) throw e;
+            after = await legacyDecide(d);
           }
-          const after = await method('frappe.model.workflow.apply_workflow', {
-            doc: JSON.stringify(doc),
-            action: d.action === 'approve' ? 'Approve' : 'Reject',
-          });
           const ok = after?.status === want;
           out.push({ name: d.name, ok, status: after?.status ?? null, error: ok ? null : `The leave is "${after?.status}", not ${want}.` });
         } catch (error) {
@@ -134,6 +131,20 @@ export function createErpLeaveSource({ endpointUrl, token, fetchImpl = fetch }) 
       return out;
     },
   };
+
+  async function legacyDecide(d) {
+    const doc = await method(`frappe.client.get?doctype=Leave%20Application&name=${encodeURIComponent(d.name)}`);
+    if (d.action === 'reject' && d.reason?.trim()) {
+      await method('frappe.desk.form.utils.add_comment', {
+        reference_doctype: 'Leave Application',
+        reference_name: d.name,
+        content: `Rejected: ${d.reason.trim()}`,
+        comment_email: await method('frappe.auth.get_logged_user'),
+        comment_by: '',
+      });
+    }
+    return method('frappe.model.workflow.apply_workflow', { doc: JSON.stringify(doc), action: d.action === 'approve' ? 'Approve' : 'Reject' });
+  }
 }
 
 /* The Mock mode's writer: plays the workflow on the seeded rows. */
