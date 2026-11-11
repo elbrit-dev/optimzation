@@ -1,5 +1,6 @@
 import { LOGGED_IN_USER } from "@calendar/components/auth/calendar-users";
 import { roleCodeFromProfile } from "@calendar/lib/meetingRoles";
+import { effectiveSeat, isBoSeat } from "@calendar/lib/boSeat";
 
 // The host passes LOGGED_IN_USER.roleId from the Employee `role_id` field, which
 // can be stale and differs from `custom_role_profile` — the field the role
@@ -34,7 +35,8 @@ export function seesAllOtherWork(users = []) {
     return true;
   }
   return [resolveLoggedInRoleId(users), LOGGED_IN_USER?.roleId].some((roleId) =>
-    ALL_OTHER_WORK_ROLE_CODES.includes(roleCodeFromProfile(roleId))
+    // A back-office seat (BO-IT-SFSM1) counts as its role template ("IT").
+    ALL_OTHER_WORK_ROLE_CODES.includes(roleCodeFromProfile(effectiveSeat(roleId)))
   );
 }
 
@@ -55,6 +57,27 @@ export function resolveVisibleRoleIds(
   // ADMIN
   if (LOGGED_IN_USER.role === "Admin") {
     return [...roleMap.keys()];
+  }
+
+  // A back-office seat sees what the shared profile it replaced saw: everyone
+  // on the same role template (BO-IT-SFSM1 and every other "IT" seat), events
+  // still stamped with the template's own name ("IT"), and the seats under it.
+  if (isBoSeat(myRoleId)) {
+    const template = effectiveSeat(myRoleId);
+    const team = new Set([myRoleId]);
+    if (template !== myRoleId) {
+      team.add(template);
+      for (const id of roleMap.keys()) {
+        if (isBoSeat(id) && effectiveSeat(id) === template) team.add(id);
+      }
+    }
+    const below = [myRoleId];
+    while (below.length) {
+      for (const childId of childrenMap.get(below.shift()) || []) {
+        if (!team.has(childId)) { team.add(childId); below.push(childId); }
+      }
+    }
+    return [...team];
   }
 
   const visible = new Set();
@@ -93,6 +116,11 @@ export function isLeafRole(elbritEdges = [], roleId) {
   if (LOGGED_IN_USER?.role === "Admin" || LOGGED_IN_USER?.roleId === "Admin") {
     return false;
   }
+
+  // A back-office seat (BO-...) gets the events ERP hands it, unnarrowed --
+  // as the shared IT / MIS / HR Manager profiles it replaced did (those sat at
+  // the top with no parent, so they were leaves). ERP scopes them already.
+  if (isBoSeat(roleId)) return true;
 
   const { roleMap } = buildRoleIndex(elbritEdges);
   const node = roleMap.get(roleId);

@@ -24,6 +24,8 @@
  * something a reader could edit to grant themselves sight.
  */
 
+import { effectiveSeat } from "@calendar/lib/boSeat";
+
 const SEAT_RANK = {
   BE: 1, TL: 1, KAM: 1,
   ABM: 2,
@@ -66,7 +68,8 @@ export function seatPrefix(roleId) {
 }
 
 export function gradeRank({ roleId, designation } = {}) {
-  const bySeat = SEAT_RANK[seatPrefix(roleId)] ?? 0;
+  // A back-office seat (BO-IT-SFSM1) ranks as its role template ("IT"): see boSeat.js.
+  const bySeat = SEAT_RANK[seatPrefix(effectiveSeat(roleId))] ?? 0;
   const text = String(designation ?? "");
   let byTitle = 0;
   for (const [pattern, rank] of DESIGNATION_RANK) {

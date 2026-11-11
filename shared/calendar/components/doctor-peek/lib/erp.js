@@ -15,6 +15,7 @@
 
 import { AUTH_CONFIG } from "@calendar/components/auth/calendar-users";
 import { graphqlRequest } from "@calendar/lib/graphql-client";
+import { loadSeatTemplates } from "@calendar/lib/boSeat";
 
 import { SERVICE_MIN_RANK, gradeRank } from "./grade";
 
@@ -340,6 +341,8 @@ export async function resolveViewer() {
   }
 
   const roleId = row?.custom_role_profile ?? row?.role_id ?? null;
+  // A back-office seat is graded as its role template (grade.js): load them first.
+  await loadSeatTemplates({ url: AUTH_CONFIG.erpUrl, token: AUTH_CONFIG.authToken });
   const role = rolePrefix(roleId) ?? (email && !row ? null : null);
   const department = parseDepartment(row?.department);
   const rank = gradeRank({ roleId, designation: row?.designation });
