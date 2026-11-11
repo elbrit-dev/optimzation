@@ -38,12 +38,14 @@ function Fact({ icon, tone = 'muted', children }) {
 }
 
 /* One request: who, what and when — and its two buttons. Ticking it adds
- * it to the pinned bar's batch. A DECIDED leave (`viewer` given, status not
+ * it to the pinned bar's batch. A leave waiting on SOMEONE ELSE (role
+ * 'watcher') has no checkbox or buttons, and says who it waits on. A DECIDED leave (`viewer` given, status not
  * Open) is the same card with its decision in place of the checkbox and
  * buttons: the status, who decided and when. */
 export function LeaveCard({ leave: l, selected, onToggle, onApprove, onReject, busy, canDecide, viewer }) {
   const decided = l.status === 'Approved' || l.status === 'Rejected';
-  const actionable = canDecide && !decided;
+  const watching = l.role === 'watcher';
+  const actionable = canDecide && !decided && !watching;
   const startTone = l.urgency === 'started' ? 'danger' : l.urgency === 'soon' ? 'warning' : 'muted';
   const by = l.decidedBy && l.decidedBy === viewer ? 'you' : l.decidedBy?.split('@')[0] ?? null;
   return (
@@ -100,6 +102,11 @@ export function LeaveCard({ leave: l, selected, onToggle, onApprove, onReject, b
             </a>
           </Fact>
         ) : null}
+        {!decided && watching ? (
+          <Fact icon="user">
+            Decision waiting on <span className="font-semibold text-heading">{l.approverName ?? l.approver ?? 'the approver'}</span>
+          </Fact>
+        ) : null}
         {!decided && l.role === 'escalation' ? (
           <Fact icon="arrow-up" tone="warning">
             {l.waitingDays ? `Waiting on ${l.approverName ?? l.approver} for ${l.waitingDays} day${l.waitingDays === 1 ? '' : 's'}` : `Not yet decided by ${l.approverName ?? l.approver}`} — you can decide as the next level
@@ -121,50 +128,32 @@ export function LeaveCard({ leave: l, selected, onToggle, onApprove, onReject, b
   );
 }
 
-/* The next seven days, each with how many are off: approved (green) and
- * still asked (amber). A tap shows who. */
-export function WeekStrip({ days, picked, onPick }) {
+/* The next seven days, each with how many people are off: approved (green)
+ * and still asked (amber). Counts only — the names are in the list below. */
+export function WeekStrip({ days }) {
   return (
-    <div className="flex flex-col gap-2">
+    <div className="flex flex-col gap-1.5">
       <div className="grid grid-cols-7 gap-1">
-        {days.map((d) => {
-          const n = d.approved.length + d.waiting.length;
-          const on = picked === d.iso;
-          return (
-            <button
-              key={d.iso}
-              type="button"
-              onClick={() => onPick(on ? null : d.iso)}
-              aria-pressed={on}
-              aria-label={`${d.weekday} ${d.day}: ${d.approved.length} off, ${d.waiting.length} asked`}
-              className={cx(
-                'flex flex-col items-center gap-1 rounded-lg border px-0.5 py-1.5 transition-colors',
-                on ? 'border-brand bg-brand-tint-weak' : 'border-transparent bg-surface',
-              )}
-            >
-              <span className="text-10 text-ds-muted">{d.weekday}</span>
-              <span className="text-13 font-semibold text-heading">{d.day}</span>
-              <span className="flex h-2 items-center gap-0.5">
-                {d.approved.slice(0, 3).map((_, i) => <span key={`a${i}`} className="size-1.5 rounded-full bg-[var(--status-approved)]" />)}
-                {d.waiting.slice(0, 3).map((_, i) => <span key={`w${i}`} className="size-1.5 rounded-full bg-[var(--status-pending)]" />)}
-                {!n ? <span className="size-1.5 rounded-full bg-[var(--ds-border)]" /> : null}
-              </span>
-            </button>
-          );
-        })}
+        {days.map((d) => (
+          <div
+            key={d.iso}
+            aria-label={`${d.weekday} ${d.day}: ${d.approved.length} on leave, ${d.waiting.length} asked`}
+            className={cx('flex flex-col items-center gap-0.5 rounded-lg px-0.5 py-1.5', d.weekday === 'Today' ? 'bg-brand-tint-weak' : 'bg-surface')}
+          >
+            <span className="text-10 text-ds-muted">{d.weekday}</span>
+            <span className="text-13 font-semibold text-heading">{d.day}</span>
+            <span className="flex h-4 items-center gap-1 text-11 font-semibold">
+              {d.approved.length ? <span className="text-approved-text">{d.approved.length}</span> : null}
+              {d.waiting.length ? <span className="text-pending-text">{d.waiting.length}</span> : null}
+              {!d.approved.length && !d.waiting.length ? <span className="text-ds-muted">–</span> : null}
+            </span>
+          </div>
+        ))}
       </div>
-      {picked ? (() => {
-        const d = days.find((x) => x.iso === picked);
-        if (!d) return null;
-        return (
-          <p className="rounded-lg bg-surface px-3 py-2 text-11 text-ds-secondary">
-            <span className="font-semibold text-heading">{shortDay(d.iso)}: </span>
-            {d.approved.length || d.waiting.length
-              ? [d.approved.length ? `off — ${d.approved.join(', ')}` : null, d.waiting.length ? `asked — ${d.waiting.join(', ')}` : null].filter(Boolean).join(' · ')
-              : 'everyone in'}
-          </p>
-        );
-      })() : null}
+      <p className="flex items-center gap-3 px-1 text-10 text-ds-muted">
+        <span className="flex items-center gap-1"><span className="size-1.5 rounded-full bg-[var(--status-approved)]" />on leave</span>
+        <span className="flex items-center gap-1"><span className="size-1.5 rounded-full bg-[var(--status-pending)]" />asked, not decided</span>
+      </p>
     </div>
   );
 }

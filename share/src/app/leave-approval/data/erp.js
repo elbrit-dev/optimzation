@@ -1,10 +1,12 @@
 /* Leave approvals against the ERP, as the signed-in user (their own token —
  * the ERP's permissions decide what is read and what may be decided).
  *
- * READ — GraphQL LeaveApplications, links as `x__name` only (see shape.js):
- *   every Open leave the user can see (an approver is shared their team's
- *   leaves), and every leave that ends within the last RECENT_DAYS (the
- *   Decided tab, and who is off). The screen keeps those routed to the user.
+ * READ — the elbrit_leave_approvals server script (server/): every Open
+ *   leave the user may see, and every one ending within the last
+ *   RECENT_DAYS (the Decided tab, and who is off) — HR, IT and the CEO
+ *   everyone's, anyone else their team's down the Role Profile tree. Rows
+ *   in the GraphQL shape (links as `x__name`). Without the script, GraphQL
+ *   LeaveApplications: what the ERP lets the user read.
  *
  * DECIDE — the "Leave Approval" workflow's own actions, as the desk does:
  *   approve  apply_workflow "Approve"  (Open → Approved, submitted)
@@ -82,7 +84,17 @@ export function createErpLeaveSource({ endpointUrl, token, fetchImpl = fetch }) 
   return {
     whoAmI: () => method('frappe.auth.get_logged_user'),
 
+    /* The leaves the caller may see — the ERP decides who sees whose
+       (elbrit_leave_approvals: HR, IT and the CEO everyone's; anyone else
+       their team's, down the Role Profile tree). Where that script is not
+       installed, the plain GraphQL read: what the ERP lets them read. */
     async load({ today }) {
+      try {
+        const m = await method(`elbrit_leave_approvals?today=${encodeURIComponent(today)}`);
+        if (Array.isArray(m?.rows)) return m.rows;
+      } catch {
+        /* not installed here — fall back below */
+      }
       const since = new Date(Date.parse(today) - RECENT_DAYS * 86400000).toISOString().slice(0, 10);
       const [open, recent] = await Promise.all([
         gql(LEAVES_QUERY, { first: 2000, filters: [{ fieldname: 'status', operator: 'EQ', value: 'Open' }] }),

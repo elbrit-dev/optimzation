@@ -29,6 +29,16 @@ describe('leave approval shape', () => {
     expect(shape(MOCK_ABM).decided.map((l) => l.name)).toEqual(['HR-LAP-2026-00490', 'HR-LAP-2026-00488', 'HR-LAP-2026-00481']);
   });
 
+  it('lists the open leaves waiting on someone else, without making them the viewer\'s', () => {
+    const { waiting, others } = shape(MOCK_RBM);
+    const names = new Set(waiting.map((l) => l.name));
+    expect(others.length).toBeGreaterThan(0);
+    for (const l of others) {
+      expect(names.has(l.name)).toBe(false);
+      expect(l.role).toBe('watcher');
+    }
+  });
+
   it('reads the ERP rich-text reason as plain text and the department as a team', () => {
     const l = normalizeLeave({ name: 'x', from_date: '2026-11-11', description: '<h4><code>housewarming&nbsp;ceremony</code></h4>', department__name: 'Elbrit Kerala - ELPL', status: 'OPEN' });
     expect(l.reason).toBe('housewarming ceremony');
