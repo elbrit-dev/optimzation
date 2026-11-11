@@ -518,21 +518,44 @@ function SecondaryRow({ L, view, open, pop }) {
             <span style={{ fontSize: 14, fontWeight: 600 }}>{t.name}</span>
             <span style={{ fontSize: 12, color: "#8a93a3", whiteSpace: "nowrap" }}>{t.dist} {t.dist === 1 ? "distributor" : "distributors"}</span>
           </span>
-          <span style={{ display: "flex", alignItems: "baseline", gap: 6 }}>
-            <span style={{ fontSize: 32, fontWeight: 700, letterSpacing: "-0.035em", lineHeight: 1, ...tabNum }}>{t.pctTxt}</span>
-            <span style={{ fontSize: 13, color: "#5b6576" }}>sold</span>
-            {t.growth && <span style={{ marginLeft: "auto", alignSelf: "center", fontSize: 12, fontWeight: 600, padding: "2px 8px", borderRadius: 99, whiteSpace: "nowrap", background: t.growth.bg, color: t.growth.c, ...tabNum }}>{t.growth.t}</span>}
+          {/* The growth chip has its own line under the figure: beside it, it
+              ran past the tile's edge on a 340px tile. */}
+          <span style={{ display: "flex", flexDirection: "column", alignItems: "flex-start", gap: 6 }}>
+            <span style={{ display: "flex", alignItems: "baseline", gap: 6 }}>
+              <span style={{ fontSize: 32, fontWeight: 700, letterSpacing: "-0.035em", lineHeight: 1, ...tabNum }}>{t.pctTxt}</span>
+              <span style={{ fontSize: 13, color: "#5b6576" }}>sold</span>
+            </span>
+            {t.growth && <span style={{ fontSize: 11.5, fontWeight: 600, padding: "2px 8px", borderRadius: 99, whiteSpace: "nowrap", background: t.growth.bg, color: t.growth.c, ...tabNum }}>{t.growth.t}</span>}
           </span>
           <span style={track(6)}><span style={fill(t.w)} /></span>
-          <span style={{ display: "grid", gridTemplateColumns: "repeat(3,1fr)", gap: 8, ...tabNum }}>
-            {t.cells.map((c) => (
-              <span key={c.l} style={{ display: "flex", flexDirection: "column" }}>
-                <span style={{ fontSize: 11, color: "#8a93a3" }}>{c.l}</span>
-                <span style={{ fontSize: 14, fontWeight: 600, overflowWrap: "anywhere" }}>{c.v}</span>
-                <span style={{ fontSize: 11.5, color: "#5b6576" }}>{c.n || " "}</span>
-              </span>
-            ))}
-          </span>
+          {/* One line per figure: an amount broken mid-number ("₹1,85,88," /
+              "010") reads as two numbers. On a desktop tile the three sit side by
+              side at 13px, which fits ₹XX,XX,XX,XXX in a third of the tile; on a
+              phone's 270px tile a crore figure cannot fit a third, so the
+              figures become rows -- label left, amount and Nos right. */}
+          {L.isDesk ? (
+            <span style={{ display: "grid", gridTemplateColumns: "repeat(3,minmax(0,1fr))", gap: 8, ...tabNum }}>
+              {t.cells.map((c) => (
+                <span key={c.l} style={{ display: "flex", flexDirection: "column", minWidth: 0 }}>
+                  <span style={{ fontSize: 11, color: "#8a93a3" }}>{c.l}</span>
+                  <span title={c.v} style={{ fontSize: 13, fontWeight: 600, letterSpacing: "-0.01em", ...ell }}>{c.v}</span>
+                  <span style={{ fontSize: 11, color: "#5b6576", ...ell }}>{c.n || " "}</span>
+                </span>
+              ))}
+            </span>
+          ) : (
+            <span style={{ display: "flex", flexDirection: "column", gap: 6, ...tabNum }}>
+              {t.cells.map((c) => (
+                <span key={c.l} style={{ display: "flex", alignItems: "baseline", justifyContent: "space-between", gap: 8, minWidth: 0 }}>
+                  <span style={{ fontSize: 11.5, color: "#8a93a3", flex: "none" }}>{c.l}</span>
+                  <span style={{ display: "flex", alignItems: "baseline", gap: 6, minWidth: 0 }}>
+                    <span style={{ fontSize: 13, fontWeight: 600, whiteSpace: "nowrap" }}>{c.v}</span>
+                    {c.n ? <span style={{ fontSize: 11, color: "#5b6576", ...ell }}>{c.n}</span> : null}
+                  </span>
+                </span>
+              ))}
+            </span>
+          )}
         </Tile>
       ))}
     </Row>
