@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { addClaimComment, applyAction, fetchMe, fetchQueue, makeConn, saveSanctioned } from "./data/claimsApi";
 import { loggedUser } from "../support-report/data/erpClient";
+import { effectiveSeat, loadSeatTemplates } from "@calendar/lib/boSeat";
 import { MON, dateOf, inr, shortDate, spanOf, typeColor } from "./model";
 import { CSS, Chip, FONT_HREF, FilePreview, IC, Icon, Note, RiskBadge, Sheet, Spinner, billFile, btn, card, ell, label, tabNum } from "./ui";
 
@@ -77,8 +78,12 @@ export default function ClaimApprovals({ url, token, mode = "auto", verifiers = 
     setLists((s) => ({ ...s, status: s.approve || s.verify ? "ready" : "loading" }));
     try {
       const me = await loggedUser(conn);
-      const profile = await fetchMe(conn).then((e) => e.roleProfile).catch(() => "");
-      const overview = !!overviewRoleProfile && profile === overviewRoleProfile;
+      const [profile] = await Promise.all([
+        fetchMe(conn).then((e) => e.roleProfile).catch(() => ""),
+        loadSeatTemplates({ url: conn.endpointUrl, token: conn.authToken }),
+      ]);
+      // A back-office seat (BO-IT-SFSM1) counts as its role template ("IT").
+      const overview = !!overviewRoleProfile && effectiveSeat(profile) === overviewRoleProfile;
       const verifier = (verifiers || []).includes(me);
       // A reporting officer keeps read access to claims they approved, so
       // "In Review" is only ever listed for the verifiers and the overview.

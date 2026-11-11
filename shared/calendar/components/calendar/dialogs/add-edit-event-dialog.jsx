@@ -128,6 +128,7 @@ import {
 } from "@calendar/components/calendar/module/travel-request/services/travel-request.service";
 import { fetchDocSharesByDocument } from "@calendar/components/calendar/module/event/services/docshare.service";
 import { cn } from "@calendar/lib/utils";
+import { isBoSeat } from "@calendar/lib/boSeat";
 
 // Head-office teams that are allowed to apply for Half Day leave. Field-sales
 // users (BE/ABM/RBM/SM role profiles) do not get Half Day. Matched as a whole
@@ -137,6 +138,8 @@ const HEAD_OFFICE_ROLE_KEYWORDS = ["IT", "MIS", "HR", "PMT", "DESIGN"];
 
 function isHeadOfficeRole(roleId) {
 	if (!roleId) return false;
+	// Every back-office seat (BO-<dept>-..., any department) is head office.
+	if (isBoSeat(roleId)) return true;
 	const segments = String(roleId)
 		.toUpperCase()
 		.split(/[^A-Z0-9]+/)

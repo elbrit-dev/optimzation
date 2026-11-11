@@ -24,6 +24,8 @@
 
 import { cached, gql, loggedUser, makeConn } from "./erpClient";
 
+import { loadSeatTemplates } from "@calendar/lib/boSeat";
+
 export { makeConn, loggedUser };
 
 const FIRST = 2000;
@@ -101,6 +103,8 @@ export function fetchOrg(conn) {
         // The seats only fill gaps; a token that cannot read them still works.
         .catch(() => new Map()),
       loggedUser(conn),
+      // Back-office seats' role templates, before anyone is graded (grade.js).
+      loadSeatTemplates({ url: conn.endpointUrl, token: conn.authToken }),
     ]);
     return { rows, seats, email };
   });

@@ -2,10 +2,11 @@ import { fetchAllCustomers } from "@calendar/components/calendar/module/event/se
 import { ELBRIT_ROLEID, normalizeRoleProfiles } from "@calendar/components/calendar/module/event/graphql/events.query";
 import { fetchEmployeeNodes } from "@calendar/components/calendar/module/event/services/master-data.service";
 import { mapEmployeesToCalendarUsers } from "@calendar/components/calendar/module/event/services/employee-to-calendar-user";
-import { LOGGED_IN_USER } from "@calendar/components/auth/calendar-users";
+import { AUTH_CONFIG, LOGGED_IN_USER } from "@calendar/components/auth/calendar-users";
 import { tagSentryEmployee } from "@calendar/lib/sentryEmployee";
 import { getCached } from "@calendar/lib/data-cache";
 import { graphqlRequest } from "@calendar/lib/graphql-client";
+import { loadSeatTemplates } from "@calendar/lib/boSeat";
 
 const ROLE_CACHE_KEY = "ELBRIT_ROLE_PROFILES";
 
@@ -104,6 +105,9 @@ export async function fetchCalendarBootstrapData() {
       fetchEmployeeNodes(),
       fetchElbritRoleEdges(),
       fetchAllCustomers(),
+      // Back-office seats' role templates (boSeat.js), before anyone's access
+      // is read off a seat. Never rejects; empty where ERP has none.
+      loadSeatTemplates({ url: AUTH_CONFIG.erpUrl, token: AUTH_CONFIG.authToken }),
     ]);
 
   if (employeesResult.status === "fulfilled") {
