@@ -105,3 +105,43 @@ describe('SurveyHome — the Home content slot and the strip props', () => {
     expect(again.container.querySelector('.pt-1\\.5')).toBeNull();
   });
 });
+
+describe('SurveyHome — openInPlace', () => {
+  /* Whether anything cancelled the click's navigation: read after React
+     has handled it, then cancelled so the test page stays put. */
+  function watchClicks() {
+    const seen = [];
+    const listener = (e) => {
+      seen.push(e.defaultPrevented);
+      e.preventDefault();
+    };
+    document.addEventListener('click', listener);
+    return { seen, stop: () => document.removeEventListener('click', listener) };
+  }
+
+  it('on (default): a circle opens the survey in place, the navigation cancelled', async () => {
+    const user = userEvent.setup();
+    setup();
+    const clicks = watchClicks();
+    await user.click(await screen.findByRole('link', { name: /^Rx audit/ }));
+    clicks.stop();
+    expect(clicks.seen).toEqual([true]);
+    expect(await screen.findByRole('heading', { name: 'Rx audit — vascular range' })).toBeTruthy();
+  });
+
+  it('off: a circle is an ordinary link to /survey/<campaign> — nothing opens in place', async () => {
+    const user = userEvent.setup();
+    setup({}, { openInPlace: false });
+    const link = await screen.findByRole('link', { name: /^Rx audit/ });
+    expect(link.getAttribute('href')).toBe('/survey/SC-2026-0031');
+    const clicks = watchClicks();
+    await user.click(link);
+    clicks.stop();
+    expect(clicks.seen).toEqual([false]);
+    await new Promise((r) => setTimeout(r, 20));
+    expect(screen.queryByRole('heading', { name: 'Rx audit — vascular range' })).toBeNull();
+    expect(screen.getByRole('navigation', { name: 'Shortcuts' })).toBeTruthy();
+    expect(screen.getByText('Home page content')).toBeTruthy();
+  });
+});
+

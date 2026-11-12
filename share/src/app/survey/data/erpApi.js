@@ -41,13 +41,24 @@ export function surveyErrorMessage(json, status) {
   return erpErrorMessage(json, status);
 }
 
-export function createErpApi({ endpointUrl, gqlEnvironment = 'ERP', gqlToken, allowWrites = true, fetchImpl, XHR } = {}) {
+/* `strictEnvironment`: the /tokens registry answers an unknown name with
+   its DEFAULT row — a typo would quietly read and write another ERP. With
+   it on, the row found must carry exactly the name asked for, or nothing
+   is sent. */
+export function createErpApi({ endpointUrl, gqlEnvironment = 'ERP', gqlToken, allowWrites = true, strictEnvironment = false, fetchImpl, XHR } = {}) {
   const auth = authHeader(gqlToken);
   const doFetch = fetchImpl ?? ((...a) => fetch(...a));
   let originPromise = null;
   const origin = () => {
     originPromise ??= (async () => {
-      const url = endpointUrl || (await getEndpointConfigFromUrlKeyAsync(gqlEnvironment))?.endpointUrl;
+      let url = endpointUrl;
+      if (!url) {
+        const config = await getEndpointConfigFromUrlKeyAsync(gqlEnvironment);
+        if (strictEnvironment && config?.name !== gqlEnvironment) {
+          throw new Error(`No ERP named "${gqlEnvironment}" in /tokens. Set gqlEnvironment to a row name exactly as it is there (e.g. UAT or ERP).`);
+        }
+        url = config?.endpointUrl;
+      }
       if (!url) throw new Error(`No ERP is set up for "${gqlEnvironment}".`);
       return new URL(url).origin;
     })();

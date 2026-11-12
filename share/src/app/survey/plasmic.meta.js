@@ -42,6 +42,49 @@ export const surveyHomeMeta = {
       description: 'The default inset: pt-1.5 pb-0.5, and a 16px side margin INSIDE the scroller — the strip runs to the device edges, the first and last tiles rest 16px in, and tiles scroll out under the screen edge. Turn off to place it flush and inset it yourself.',
     },
     ariaLabel: { type: 'string', defaultValue: 'Shortcuts', description: 'Accessible name of the strip.' },
+    openInPlace: {
+      type: 'boolean',
+      defaultValue: true,
+      helpText:
+        'On (default): a survey circle opens the survey here, in place — the address stays the same. Off: the circle is an ordinary link like the other tiles and goes to <hrefBase>/<campaign> — make that page (e.g. /survey/[campaign]) with a Survey Page on it.',
+    },
+    className: { type: 'string' },
+  },
+};
+
+export const surveyPageMeta = {
+  name: 'SurveyPage',
+  displayName: 'Survey Page',
+  section: 'ElbritCoreLib',
+  importPath: './src/app/survey/components/SurveyPage',
+  importName: 'SurveyPage',
+  description:
+    "One survey on its own page — where a survey circle goes when Surveys has openInPlace off. No strip: Back + the survey's title, its tags and progress, its doctors or distributors (Add for Self-tag), and each one's form (every question type, file uploads, drafts on the device, Submit). Back from a form returns to the survey (asking first if answers are unsaved); Back from the survey fires onBack. Read and sent as the signed-in person.",
+  props: {
+    campaign: {
+      type: 'string',
+      helpText:
+        "REQUIRED. The survey's campaign name (e.g. SC-0012) — bind to the page URL parameter, e.g. on a page at /survey/[campaign] bind $ctx.params.campaign. A campaign that is closed or not sent to this person shows \"This survey isn't available\".",
+    },
+    gqlToken: {
+      type: 'string',
+      helpText: "REQUIRED. The signed-in person's own ERP token ('key:secret'). Without it the page asks them to sign in — never a shared key.",
+    },
+    gqlEnvironment: {
+      type: 'string',
+      defaultValue: 'ERP',
+      helpText:
+        'The /tokens registry row NAME the ERP host is resolved from — exactly as it is written there (UAT for erp-uat, ERP for production). A name with no row shows an error; there is no fallback to another ERP. Never a credential.',
+    },
+    bottomGap: {
+      type: 'string',
+      helpText: "Space under the form's pinned Save draft / Submit bar. Any CSS length; e.g. calc(4rem + 12px) to clear the app's bottom navigation.",
+    },
+    onBack: {
+      type: 'eventHandler',
+      argTypes: [],
+      helpText: 'Fires on Back from the survey — e.g. navigate to the home page. Unbound: the browser goes back.',
+    },
     className: { type: 'string' },
   },
 };

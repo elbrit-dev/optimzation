@@ -10,7 +10,13 @@ Survey Center (admin) stays on the ERP.
 signed-in person's own ERP token) and `gqlEnvironment` (the `/tokens` row
 name — `UAT` for erp-uat; the default `ERP` is production). Leave `tiles`
 empty: it loads the usual Ring Nav tiles from ERP itself and adds the survey
-circles after the entry tiles. A circle opens its survey in place.
+circles after the entry tiles. A circle opens its survey in place — or,
+with `openInPlace` off, goes to `<hrefBase>/<campaign>` like any tile.
+
+That page holds **Survey Page** (`SurveyPage`): bind `campaign` to the page
+URL parameter (`/survey/[campaign]` → `$ctx.params.campaign`), `gqlToken`,
+`gqlEnvironment` (a `/tokens` row name exactly — no fallback) and `onBack`
+(navigate home). One survey, no strip; a row opens its form.
 
 Copied from Elbrit-Play (`src/app/survey`), where the dev harness
 (`/dev/harness/survey`) and SURVEYS_CONTEXT.md live.
@@ -26,6 +32,8 @@ data/
   mockData.js       5 surveys, 3 roles, 10 distributors, 6 doctors
 components/
   SurveyHome        root: home strip + page; a circle opens its survey, Back returns home; drafts, guard
+  SurveyPage        one survey on its own page (/survey/<campaign>): survey → form, Back → onBack
+  parts             PageHeader, drafts on the device, the "Discard changes?" sheet — shared by both
   SurveyScreen      one survey: header, tags, progress, rows, Add (Self-tag)
   AddSubjectsSheet  search + multi-select of the rep's doctors / distributors
   SubjectForm       "S2 › D1": questions, Save draft (on device), Submit, success

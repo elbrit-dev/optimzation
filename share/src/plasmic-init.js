@@ -28,7 +28,8 @@ import { doctorSupportApprovalMeta, doctorSupportEntryMeta } from './app/doctor-
 import { LeaveApproval } from './app/leave-approval/components/LeaveApproval.jsx';
 import { leaveApprovalMeta } from './app/leave-approval/plasmic.meta.js';
 import { SurveyHome } from './app/survey/components/SurveyHome.jsx';
-import { surveyHomeMeta } from './app/survey/plasmic.meta.js';
+import { SurveyPage } from './app/survey/components/SurveyPage.jsx';
+import { surveyHomeMeta, surveyPageMeta } from './app/survey/plasmic.meta.js';
 import { doctorServiceAllocationMeta, doctorServiceApprovalMeta, doctorServiceEntryMeta } from './app/doctor-service/plasmic.meta.js';
 import { DoctorServiceAllocation } from './app/doctor-service/components/AllocationWorkspace.jsx';
 import { ringNavMeta } from './app/ring-nav/plasmic.meta.js';
@@ -689,6 +690,7 @@ export function registerElbritCoreComponents(loader) {
   loader.registerComponent(DoctorServiceAllocation, doctorServiceAllocationMeta);
   loader.registerComponent(LeaveApproval, leaveApprovalMeta);
   loader.registerComponent(SurveyHome, surveyHomeMeta);
+  loader.registerComponent(SurveyPage, surveyPageMeta);
   loader.registerComponent(RingNav, ringNavMeta);
   registerDesignSystem(loader);
 }

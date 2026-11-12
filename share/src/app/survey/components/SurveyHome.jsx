@@ -1,7 +1,7 @@
 'use client';
 
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
-import { Button, Icon, Sheet, cx } from '@/design-system';
+import { Button, Icon, cx } from '@/design-system';
 import RingNav from '@/app/ring-nav/components/RingNav';
 import { useUnsavedGuard } from '@/app/secondary-entry/components/useUnsavedGuard';
 import { createSurveyApi } from '../api';
@@ -9,6 +9,7 @@ import { shortName, surveysFromMyList } from '../data/shape';
 import { SURVEY_TILE_PREFIX, surveyTiles, withSurveyTiles } from '../data/tiles';
 import { DEFAULT_REFRESH_MS, useErpTiles } from '@/app/ring-nav/data/useErpTiles';
 import { SurveyScreen } from './SurveyScreen';
+import { DiscardChangesSheet, PageHeader, readDrafts, scroller, writeDrafts } from './parts';
 import { SubjectForm } from './SubjectForm';
 
 /* Surveys in the Elbrit app — the rep side of the ERP's Survey system
@@ -41,59 +42,6 @@ import { SubjectForm } from './SubjectForm';
  * DRAFTS live on this device, per user (the ERP has none — its own page
  * does the same), in localStorage when the browser allows it. */
 
-/* The task page's top bar — Secondary Entry's header: a bare chevron flush
-   with the content edge (no box; lighter on hover, brand on press), the
-   title beside it. A form's title leads with its survey, "S2 › D1". */
-function PageHeader({ onBack, backLabel, title, parent }) {
-  return (
-    <header className="flex items-center gap-2">
-      <button
-        type="button"
-        onClick={onBack}
-        aria-label={backLabel}
-        className="flex shrink-0 items-center text-heading transition-colors hover:text-brand-hover active:text-brand"
-      >
-        <Icon name="chevron-left" />
-      </button>
-      <h1 className="flex min-w-0 flex-1 items-baseline gap-1.5 text-16 font-semibold text-heading @2xl/survey:text-20">
-        {parent ? (
-          <>
-            <span className="shrink-0 font-medium text-ds-muted">{parent}</span>
-            <Icon name="chevron-right" size="var(--fs-10)" className="shrink-0 self-center text-ds-muted" aria-hidden="true" />
-          </>
-        ) : null}
-        <span className="min-w-0 truncate">{title}</span>
-      </h1>
-    </header>
-  );
-}
-
-/* The element whose scroll is the page's: the nearest scrolling ancestor,
-   else the document. */
-function scroller(el) {
-  for (let n = el?.parentElement; n; n = n.parentElement) {
-    const o = getComputedStyle(n).overflowY;
-    if ((o === 'auto' || o === 'scroll') && n.scrollHeight > n.clientHeight) return n;
-  }
-  return typeof document !== 'undefined' ? document.scrollingElement : null;
-}
-
-const draftKey = (user) => `elbrit.survey.drafts.${user || 'anon'}`;
-function readDrafts(user) {
-  try {
-    return JSON.parse(window.localStorage.getItem(draftKey(user)) || '{}') || {};
-  } catch {
-    return {};
-  }
-}
-function writeDrafts(user, drafts) {
-  try {
-    window.localStorage.setItem(draftKey(user), JSON.stringify(drafts));
-  } catch {
-    /* private window or storage blocked: drafts last this session */
-  }
-}
-
 export function SurveyHome({
   api: apiProp,
   source = 'erp',
@@ -110,6 +58,10 @@ export function SurveyHome({
   stickyBar = true,
   inset = true,
   ariaLabel = 'Shortcuts',
+  /* true (default): a survey circle opens the survey here, in place.
+     false: the circle is an ordinary link, like every other tile — it goes
+     to <hrefBase>/<campaign>, the page with SurveyPage on it. */
+  openInPlace = true,
   className,
 }) {
   const api = useMemo(() => apiProp ?? createSurveyApi({ source, gqlEnvironment, gqlToken }), [apiProp, source, gqlEnvironment, gqlToken]);
@@ -203,9 +155,10 @@ export function SurveyHome({
   }, [onHome]);
   const guard = useUnsavedGuard({ dirty: dirty && view.response != null, onBack: toSurvey });
 
-  /* A survey's circle opens that survey, wherever the person is. */
+  /* A survey's circle opens that survey, wherever the person is — or, with
+     openInPlace off, is left to navigate to its own page like any tile. */
   const onTile = (id, href, event) => {
-    if (!id.startsWith(SURVEY_TILE_PREFIX)) return;
+    if (!id.startsWith(SURVEY_TILE_PREFIX) || !openInPlace) return;
     event?.preventDefault();
     const campaign = decodeURIComponent(href.split('/').pop());
     guard.request(() => {
@@ -290,27 +243,7 @@ export function SurveyHome({
         </>
       )}
 
-      <Sheet.Root open={guard.confirmOpen} onOpenChange={(o) => !o && guard.cancel()} desktop="dialog">
-        <Sheet.Popup surface="app">
-          <Sheet.Header>
-            <Sheet.Title>Discard changes?</Sheet.Title>
-            <Sheet.Close />
-          </Sheet.Header>
-          <Sheet.Body>
-            <p className="text-sm text-ds-secondary">Your answers are not saved. Save a draft to keep them, or leave without saving.</p>
-          </Sheet.Body>
-          <Sheet.Footer>
-            <div className="flex justify-end gap-2">
-              <Button type="default" size="app" onClick={guard.cancel}>
-                Keep editing
-              </Button>
-              <Button type="primary" size="app" danger onClick={guard.confirm}>
-                Discard
-              </Button>
-            </div>
-          </Sheet.Footer>
-        </Sheet.Popup>
-      </Sheet.Root>
+      <DiscardChangesSheet open={guard.confirmOpen} onCancel={guard.cancel} onConfirm={guard.confirm} />
     </section>
   );
 }
