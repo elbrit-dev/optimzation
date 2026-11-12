@@ -141,7 +141,7 @@ for n in found:
     if r.get("status") == "Open" and r.get("docstatus") in [0, None]:
         rr = LRE["route"](r.get("employee"), r.get("leave_type"))
         out["decide"] = {"can": LRE["can"](me, r, rr, today), "kind": rr.get("kind"),
-                         "approvers": rr.get("approvers"), "approver_names": LRE["names"](rr.get("approvers")) if rr.get("approvers") else "HR",
+                         "approvers": rr.get("approvers"), "approver_names": rr.get("label") or (LRE["names"](rr.get("approvers")) if rr.get("approvers") else "HR"),
                          "escalation": rr.get("escalation"), "escalation_names": LRE["names"](rr.get("escalation")) if rr.get("escalation") else None}
     rows.append(out)
 

@@ -139,7 +139,14 @@ def lr_engine():
             for x in LR["emp"].values():
                 if x.get("department") in LR_HR_DEPARTMENTS and lr_real(x) and x.get("user_id") != me_user:
                     hr.append(x.get("user_id"))
-            return {"kind": "hr", "approvers": hr, "escalation": [], "approver_seat": None, "escalation_seat": None}
+            # Shown as the department itself ("HR"), read live from Department.department_name.
+            lbl = []
+            for d in LR_HR_DEPARTMENTS:
+                n = frappe.db.get_value("Department", d, "department_name") or d
+                if n not in lbl:
+                    lbl.append(n)
+            return {"kind": "hr", "approvers": hr, "escalation": [], "approver_seat": None, "escalation_seat": None,
+                    "label": ", ".join(lbl)}
         seat = e.get("custom_role_profile")
         if seat and (lr_code(seat) in LR_SALES_CODES or lr_is_gm(seat)) and not seat.startswith("BO-"):
             if lr_is_gm(seat):
