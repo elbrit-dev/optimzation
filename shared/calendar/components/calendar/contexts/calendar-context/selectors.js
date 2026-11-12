@@ -262,12 +262,19 @@ export function buildLeaveNotifications(
   events,
   employeeResolvers
 ) {
+  // Only leaves still ahead (or running today) prompt the approver. A leave
+  // that ended before today and was never actioned in ERP (e.g. Abirahul's
+  // August LWPs, still Open with Sivaramkumar) is no longer a heads-up --
+  // it stays on the calendar as Open, but no toast on every load.
+  const todayStart = new Date();
+  todayStart.setHours(0, 0, 0, 0);
   return events
     .filter(
       (event) =>
         event.tags === TAG_IDS.LEAVE &&
         event.status?.toLowerCase() === STATUS.OPEN.toLowerCase() &&
-        isLoggedInUserEmail(event.leave_approver)
+        isLoggedInUserEmail(event.leave_approver) &&
+        new Date(event.endDate ?? event.startDate) >= todayStart
     )
     .map((leave) => ({
       id: leave.erpName,
