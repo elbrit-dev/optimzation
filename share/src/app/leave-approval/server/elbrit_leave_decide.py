@@ -25,7 +25,7 @@ lr_today = frappe.utils.nowdate()
 lr_r = LRE["route"](lr_doc.employee, lr_doc.leave_type)
 lr_who = LRE["can"](frappe.session.user, lr_doc.as_dict(), lr_r, lr_today)
 if not lr_who:
-    frappe.throw("You can't decide this leave. It is for " + (LRE["names"](lr_r.get("approvers")) if lr_r.get("approvers") else "HR") + " to decide.")
+    frappe.throw("You can't decide this leave. It is for " + (lr_r.get("label") or (LRE["names"](lr_r.get("approvers")) if lr_r.get("approvers") else "HR")) + " to decide.")
 
 if lr_reason:
     frappe.get_doc({"doctype": "Comment", "comment_type": "Comment", "reference_doctype": "Leave Application",

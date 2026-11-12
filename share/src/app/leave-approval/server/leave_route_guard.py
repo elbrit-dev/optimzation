@@ -27,5 +27,5 @@ if doc.docstatus == 0 and doc.status == "Open":
 if doc.status in ["Approved", "Rejected"] and lr_old_status in [None, "Open"]:
     lr_who = LRE["can"](frappe.session.user, doc.as_dict(), lr_r, lr_today)
     if not lr_who:
-        lr_for = LRE["names"](lr_r.get("approvers")) if lr_r.get("approvers") else "HR"
+        lr_for = lr_r.get("label") or (LRE["names"](lr_r.get("approvers")) if lr_r.get("approvers") else "HR")
         frappe.throw("You can't decide this leave. It is for " + lr_for + " to decide.", title="Not your leave to decide")
