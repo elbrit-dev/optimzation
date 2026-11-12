@@ -106,6 +106,10 @@ export function SurveyHome({
   bottomGap = 'var(--space-12)',
   /* The home page under the strip — in the app, the home screen itself. */
   homeContent = null,
+  /* Passed to the strip — Ring Nav's own props, same meaning. */
+  stickyBar = true,
+  inset = true,
+  ariaLabel = 'Shortcuts',
   className,
 }) {
   const api = useMemo(() => apiProp ?? createSurveyApi({ source, gqlEnvironment, gqlToken }), [apiProp, source, gqlEnvironment, gqlToken]);
@@ -216,7 +220,7 @@ export function SurveyHome({
   return (
     <section ref={rootRef} className={cx('@container/survey flex w-full scroll-mt-3 flex-col', className)}>
       {/* The strip is home's alone: a survey or form is its own page. */}
-      {survey ? null : <RingNav items={ringItems} onItemClick={onTile} ariaLabel="Daily tasks" />}
+      {survey ? null : <RingNav items={ringItems} onItemClick={onTile} stickyBar={stickyBar} inset={inset} ariaLabel={ariaLabel} />}
 
       {survey ? (
         <div className="mx-auto flex w-full max-w-3xl flex-col gap-3 px-4 pb-4 pt-3">

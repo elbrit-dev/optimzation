@@ -7,9 +7,9 @@ import { DEFAULT_RING_NAV_ITEMS } from '@/app/ring-nav/data/defaultRingNavItems'
 
 const home = <p>Home page content</p>;
 
-function setup(options = {}) {
+function setup(options = {}, props = {}) {
   const api = createSurveyApi({ source: 'mock', role: 'BE', delay: 0, ...options });
-  return render(<SurveyHome api={api} tiles={DEFAULT_RING_NAV_ITEMS} homeContent={home} today="2026-11-11" />);
+  return render(<SurveyHome api={api} tiles={DEFAULT_RING_NAV_ITEMS} homeContent={home} today="2026-11-11" {...props} />);
 }
 
 describe('SurveyHome — a circle per survey, home first', () => {
@@ -34,18 +34,19 @@ describe('SurveyHome — a circle per survey, home first', () => {
     setup();
     await user.click(await screen.findByRole('link', { name: /^Rx audit/ }));
     expect(await screen.findByRole('heading', { name: 'Rx audit — vascular range' })).toBeTruthy();
-    expect(screen.queryByRole('navigation', { name: 'Daily tasks' })).toBeNull();
+    expect(screen.queryByRole('navigation', { name: 'Shortcuts' })).toBeNull();
     expect(screen.queryByText('Home page content')).toBeNull();
 
     /* A row opens its form, also without the strip; Back returns to the survey. */
     await user.click(screen.getByRole('button', { name: /^Dr\. Joseph Prabhu/ }));
     expect(await screen.findByRole('heading', { name: /Rx audit.*Dr\. Joseph Prabhu/ })).toBeTruthy();
-    expect(screen.queryByRole('navigation', { name: 'Daily tasks' })).toBeNull();
+    expect(screen.queryByRole('navigation', { name: 'Shortcuts' })).toBeNull();
+    expect(screen.queryByText('Home page content')).toBeNull();
     await user.click(screen.getByRole('button', { name: 'Back to Rx audit — vascular range' }));
     expect(await screen.findByRole('heading', { name: 'Rx audit — vascular range' })).toBeTruthy();
 
     await user.click(screen.getByRole('button', { name: 'Back to home' }));
-    expect(screen.getByRole('navigation', { name: 'Daily tasks' })).toBeTruthy();
+    expect(screen.getByRole('navigation', { name: 'Shortcuts' })).toBeTruthy();
     expect(screen.getByRole('link', { name: /^Rx audit/ })).toBeTruthy();
     expect(screen.getByText('Home page content')).toBeTruthy();
   });
@@ -72,5 +73,35 @@ describe('SurveyHome — a circle per survey, home first', () => {
     expect(await screen.findByText('Couldn’t load your surveys')).toBeTruthy();
     expect(screen.getByRole('button', { name: 'Try again' })).toBeTruthy();
     expect(screen.getByText('Home page content')).toBeTruthy();
+  });
+});
+
+describe('SurveyHome — the Home content slot and the strip props', () => {
+  it('shows Home content on home only — a survey opens as its own page without it', async () => {
+    const user = userEvent.setup();
+    setup();
+    await screen.findByRole('link', { name: /^Rx audit/ });
+    expect(screen.getByText('Home page content')).toBeTruthy();
+    await user.click(screen.getByRole('link', { name: /^Rx audit/ }));
+    expect(await screen.findByRole('heading', { name: 'Rx audit — vascular range' })).toBeTruthy();
+    expect(screen.queryByText('Home page content')).toBeNull();
+    expect(screen.queryByRole('navigation')).toBeNull();
+    await user.click(screen.getByRole('button', { name: 'Back to home' }));
+    expect(screen.getByText('Home page content')).toBeTruthy();
+  });
+
+  it('passes stickyBar, inset and ariaLabel to the strip — sticky and inset by default', async () => {
+    const { container, unmount } = setup();
+    await screen.findByRole('navigation', { name: 'Shortcuts' });
+    const sticky = container.querySelector('.sticky');
+    expect(sticky).toBeTruthy();
+    expect(sticky.contains(screen.getByRole('navigation', { name: 'Shortcuts' }))).toBe(true);
+    expect(sticky.className).toContain('pt-1.5');
+    unmount();
+
+    const again = setup({}, { stickyBar: false, inset: false, ariaLabel: 'Today' });
+    await screen.findByRole('navigation', { name: 'Today' });
+    expect(again.container.querySelector('.sticky')).toBeNull();
+    expect(again.container.querySelector('.pt-1\\.5')).toBeNull();
   });
 });

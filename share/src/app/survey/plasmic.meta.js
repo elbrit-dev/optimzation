@@ -26,6 +26,22 @@ export const surveyHomeMeta = {
       type: 'string',
       helpText: "Space under the form's pinned Save draft / Submit bar. Any CSS length; e.g. calc(4rem + 12px) to clear the app's bottom navigation.",
     },
+    homeContent: {
+      type: 'slot',
+      displayName: 'Home content',
+      helpText: 'The home page under the strip. Shown on home only: when a survey or a form is open it is hidden, so the survey is its own page (header + survey).',
+    },
+    stickyBar: {
+      type: 'boolean',
+      defaultValue: true,
+      description: 'Pin the strip to the top of the nearest scrolling ancestor while the page scrolls under it.',
+    },
+    inset: {
+      type: 'boolean',
+      defaultValue: true,
+      description: 'The default inset: pt-1.5 pb-0.5, and a 16px side margin INSIDE the scroller — the strip runs to the device edges, the first and last tiles rest 16px in, and tiles scroll out under the screen edge. Turn off to place it flush and inset it yourself.',
+    },
+    ariaLabel: { type: 'string', defaultValue: 'Shortcuts', description: 'Accessible name of the strip.' },
     className: { type: 'string' },
   },
 };
