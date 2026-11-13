@@ -274,6 +274,12 @@ export function payrollOf(month) {
 /* ---------- planned trips (for an own-car request) ---------- */
 
 const hqName = (t) => String(t || "").replace(/^HQ[-\s]*/i, "").trim();
+/* A trip's route from and back to the rep's own HQ, by name (13 Nov 2026):
+   "Coimbatore (HQ) → Madurai → Bodi → Coimbatore (HQ)". */
+export const routeText = (places, hq) => {
+  const home = hqName(hq) ? `${hqName(hq)} (HQ)` : "HQ";
+  return [home, ...(places || []), home].join(" → ");
+};
 const sameHq = (a, b) => hqName(a).toLowerCase().replace(/[^a-z0-9]/g, "") === hqName(b).toLowerCase().replace(/[^a-z0-9]/g, "");
 const localISO = (iso) => {
   const d = new Date(iso);
@@ -347,7 +353,7 @@ export function plannedTrips({ events, me, homeHq, rows, today, hqTourPlanTag })
       from: t.from,
       to: t.to,
       towns: t.towns,
-      places: ["HQ", ...t.towns, "HQ"].join(" → "),
+      places: routeText(t.towns, homeHq),
       name: t.towns.slice(0, 2).join(" · "),
       km: kmVal,
       kmKnown: known,

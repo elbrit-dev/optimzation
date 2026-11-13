@@ -14,7 +14,7 @@ import { cn } from "@calendar/lib/utils";
 import { ModalTitle } from "@calendar/components/ui/responsive-modal";
 import { useFieldExpenses } from "@calendar/components/calendar/field/field-context";
 import { inr, rangeLabel } from "@calendar/lib/field-expenses/field-days";
-import { FUEL_PRICE, MILEAGE_KM_PER_L, fuelCost, tollEstimate } from "@calendar/lib/field-expenses/claim-rules";
+import { FUEL_PRICE, MILEAGE_KM_PER_L, fuelCost, routeText, tollEstimate } from "@calendar/lib/field-expenses/claim-rules";
 
 const MONTH_LONG = ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"];
 const monthName = (ym) => MONTH_LONG[Number(ym.slice(5, 7)) - 1];
@@ -320,7 +320,7 @@ export function CarRequestSheet({ opts }) {
     id: t.id,
     from: t.from,
     to: t.to,
-    places: ["HQ", ...t.places, "HQ"].join(" → "),
+    places: routeText(t.places, f.data?.employee?.hq),
     name: t.name,
     km: t.km,
     kmKnown: true,

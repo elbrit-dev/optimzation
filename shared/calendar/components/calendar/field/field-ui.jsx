@@ -46,7 +46,7 @@ import {
   inr,
   rangeLabel,
 } from "@calendar/lib/field-expenses/field-days";
-import { FUEL_PRICE, MILEAGE_KM_PER_L, fuelCost, tollEstimate } from "@calendar/lib/field-expenses/claim-rules";
+import { FUEL_PRICE, MILEAGE_KM_PER_L, fuelCost, routeText, tollEstimate } from "@calendar/lib/field-expenses/claim-rules";
 import { PREVIEW, STATUS_LABEL, canRecall, isLocked, statusKey } from "@calendar/lib/field-expenses/trip-claims-store";
 import { readTripBill } from "@calendar/lib/field-expenses/bill-reader";
 import { addTripToMonth, monthWord, removeTripFromMonth, tripClaimRows } from "@calendar/lib/field-expenses/erp-claim";
@@ -491,7 +491,7 @@ function CarMode({ trip, calc, editable, tab, setTab }) {
         tripId: trip.id,
         from: trip.from,
         to: trip.to,
-        places: ["HQ", ...trip.places, "HQ"].join(" → "),
+        places: routeText(trip.places, f.data?.employee?.hq),
         km,
         fuel,
         fuelCost: fuelCost(km, fuel),

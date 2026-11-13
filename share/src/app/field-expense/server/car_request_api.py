@@ -60,6 +60,22 @@ elif action == "create":
     for g in frappe.get_all("Employee", filters={"custom_role_profile": ["in", APPROVER_SEATS], "status": "Active"}, fields=["user_id"], limit_page_length=5):
         if g.user_id and not gm:
             gm = g.user_id
+    # the route starts and ends at the rep's own HQ BY NAME (13 Nov 2026): a
+    # bare "HQ" stop becomes "Coimbatore (HQ)" -- the seat's territory
+    places = str(fd.get("places") or "")[:500]
+    home = ""
+    if emp.custom_role_profile:
+        home = str(frappe.db.get_value("Role Profile", emp.custom_role_profile, "custom_territory") or "").strip()
+    if home.upper().startswith("HQ"):
+        home = home[2:].lstrip("-· ").strip()
+    if home:
+        stops = []
+        for st in places.split("→"):
+            st = st.strip()
+            if st.upper() == "HQ":
+                st = home + " (HQ)"
+            stops.append(st)
+        places = " → ".join(stops)[:500]
     fuel = str(fd.get("fuel") or "Petrol")
     if fuel not in ["Petrol", "Diesel", "EV"]:
         fuel = "Petrol"
@@ -70,7 +86,7 @@ elif action == "create":
         "trip": str(fd.get("trip") or "")[:40],
         "from_date": f,
         "to_date": t,
-        "places": str(fd.get("places") or "")[:500],
+        "places": places,
         "km": frappe.utils.flt(fd.get("km")),
         "fuel": fuel,
         "fuel_cost": frappe.utils.flt(fd.get("fuel_cost")),
@@ -118,7 +134,7 @@ elif action == "decide":
         frappe.db.set_value("Car Request", name, {"status": "Approved", "approved_amount": amount, "decided_by": me, "decided_on": frappe.utils.now(), "note": note})
     elif decision == "Reject":
         if not note:
-            frappe.throw("Say why it is rejected -- the rep sees this.")
+            frappe.throw("Say why it is rejected.")
         frappe.db.set_value("Car Request", name, {"status": "Rejected", "approved_amount": 0, "decided_by": me, "decided_on": frappe.utils.now(), "note": note})
     else:
         frappe.throw("Approve or Reject?")
