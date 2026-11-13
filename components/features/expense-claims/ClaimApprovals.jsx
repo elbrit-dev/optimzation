@@ -316,7 +316,7 @@ export default function ClaimApprovals({ url, token, mode = "auto", verifiers = 
         {lists.status === "ready" && !cars && (
           <>
             {current === "history" && claims.length > 0 && (
-              <Note tone="info">What you already decided, newest first (the last {HISTORY_MAX}). Approved claims go on to the final check and payroll; a claim sent back is with the rep until they send it again.</Note>
+              <Note tone="info">What you already decided, newest first (the last {HISTORY_MAX}). Approved claims go on to the final check and payroll; a claim sent back is with the employee until they send it again.</Note>
             )}
             {claims.length > 0 && current !== "history" && (
               <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
@@ -423,7 +423,7 @@ function statsOf(p) {
 /* where a decided claim is now, in words */
 function historyText(c) {
   const when = c.modified ? ` · ${shortDate(String(c.modified).slice(0, 10))}` : "";
-  const first = String(c.employeeName || "the rep").split(" ")[0];
+  const first = String(c.employeeName || "the employee").split(" ")[0];
   if (c.status === "Rejected") return `Sent back to ${first}${when} — with them until they fix it and send it again.`;
   if (c.status === "Approved") return `Approved${when} — waiting for the final check (Accounts / the CEO), then payroll.`;
   if (c.status === "In Review") return `Approved${when} — Accounts are checking it.`;
@@ -557,7 +557,7 @@ function FieldClaimPanel({ conn, claim: c, canAct, history, desk, picked, canPic
   const days = new Set(c.lines.map((l) => l.date)).size;
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
-  const first = String(c.employeeName || "the rep").split(" ")[0];
+  const first = String(c.employeeName || "the employee").split(" ")[0];
   const finish = async () => {
     setError("");
     setBusy(true);
@@ -681,7 +681,7 @@ function TripRow({ conn, trip: t, claim: c, canAct, desk, open, onToggle, onDeci
   const [confirmHand, setConfirmHand] = useState(false);
   const go = async (decision, note = "") => {
     setError("");
-    if (decision === "rejected" && !note.trim()) return setError("Say why this trip is rejected — the rep sees this.");
+    if (decision === "rejected" && !note.trim()) return setError("Say why this trip is rejected.");
     setBusy(decision);
     try {
       await onDecide(c, t, decision, note.trim());
@@ -766,7 +766,7 @@ function TripRow({ conn, trip: t, claim: c, canAct, desk, open, onToggle, onDeci
       )}
       {rejecting && (
         <div style={{ margin: "0 10px 10px 13px", display: "flex", flexDirection: "column", gap: 6 }}>
-          <textarea autoFocus rows={2} value={reason} onChange={(e) => setReason(e.target.value)} placeholder="Why is this trip rejected? The rep sees this — e.g. 22 Oct: no visit that day" style={{ width: "100%", borderRadius: 10, border: "1px solid #fda29b", padding: 10, fontSize: 13.5, resize: "vertical" }} />
+          <textarea autoFocus rows={2} value={reason} onChange={(e) => setReason(e.target.value)} placeholder="Why? e.g. 22 Oct: no visit that day" style={{ width: "100%", borderRadius: 10, border: "1px solid #fda29b", padding: 10, fontSize: 13.5, resize: "vertical" }} />
           <span style={{ display: "flex", gap: 6, justifyContent: "flex-end" }}>
             <button type="button" disabled={!!busy} onClick={() => { setRejecting(false); setError(""); }} style={{ ...small, border: "1px solid #d0d5dd", background: "#fff", color: "#344054" }}>Cancel</button>
             <button type="button" disabled={!!busy} onClick={() => go("rejected", reason)} style={{ ...small, border: 0, background: "#d92d20", color: "#fff" }}>{busy === "rejected" ? <Spinner /> : null}Reject trip</button>
@@ -922,7 +922,7 @@ function CarSheet({ conn, req: r, desk, onClose, onDone }) {
   const go = async (decision) => {
     setError("");
     if (decision === "Approve" && !(amt > 0)) return setError("Enter the amount you approve.");
-    if (decision === "Reject" && !note.trim()) return setError("Say why it is rejected -- the rep sees this.");
+    if (decision === "Reject" && !note.trim()) return setError("Say why it is rejected.");
     try {
       setBusy(decision === "Approve" ? "Approving…" : "Rejecting…");
       await decideCarRequest(conn, r.id, decision, decision === "Approve" ? amt : "", note.trim());
@@ -972,11 +972,11 @@ function CarSheet({ conn, req: r, desk, onClose, onDone }) {
               <span style={{ color: "#8a93a3" }}>₹</span>
               <input inputMode="numeric" value={amount} onChange={(e) => setAmount(e.target.value.replace(/[^\d]/g, ""))} aria-label="Amount approved" style={{ flex: 1, minWidth: 0, border: 0, outline: 0, background: "transparent", fontSize: 16, fontWeight: 700, ...tabNum }} />
             </span>
-            <span style={{ fontSize: 12, color: "#5b6576" }}>The rep&rsquo;s fuel and toll bills are paid as billed up to this amount; with no bills the normal fare is paid.</span>
+            <span style={{ fontSize: 12, color: "#5b6576" }}>Fuel and toll bills are paid as billed up to this amount; with no bills the normal fare is paid.</span>
           </label>
         )}
         <label style={{ ...card, padding: 14, display: "flex", flexDirection: "column", gap: 6 }}>
-          <span style={label}>{rejecting ? "Why is it rejected? · the rep sees this" : "Note to the rep · optional"}</span>
+          <span style={label}>{rejecting ? "Why" : "Remarks · optional"}</span>
           <textarea rows={2} value={note} onChange={(e) => setNote(e.target.value)} placeholder={rejecting ? "e.g. Train is available on this route -- go by train" : "e.g. Approved for the multi-town tour"} style={{ width: "100%", borderRadius: 10, border: "1px solid #d0d5dd", padding: 10, fontSize: 14, resize: "vertical" }} />
         </label>
         {error && <Note>{error}</Note>}
