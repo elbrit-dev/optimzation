@@ -350,6 +350,33 @@ export async function addTripToMonth({ employee, month, trip, claim, calc, data 
   }
 }
 
+/* Several HQ / EQ trips (no bills) into the month's claim in ONE save, then
+   one risk score and one send -- the "claim all" of the HQ & EQ days card
+   (13 Nov 2026). -> { name, sent, warning } */
+export async function addTripsToMonth({ employee, month, items, data }) {
+  const m = await api();
+  const conn = connOf(m);
+  const rows = items.flatMap(({ trip, claim, calc }) => tripClaimRows(trip, claim, calc, data));
+  if (!rows.length) throw new Error("Nothing to claim on these days.");
+  if (rows.some((r) => r.bill)) throw new Error("A day with bills is claimed from its own card.");
+  const inAny = (date) => items.some(({ trip }) => inTrip(trip)(date));
+  const name = await m.retryOnConflict(async () => {
+    const { current } = await openForChange(m, conn, employee, month);
+    const others = (current?.lines || []).filter((l) => !inAny(l.date)).map(keep);
+    // eslint-disable-next-line no-unused-vars
+    const mine = rows.map(({ signed, file, proofFile, ...r }) => ({ ...r, bill: "" }));
+    return writeMonth(m, conn, employee, month, current, [...others, ...mine]);
+  });
+  if (!name) throw new Error("The claim could not be saved.");
+  await rescore(m, conn, name);
+  try {
+    await m.applyAction(conn, name, "Send for Approval");
+    return { name, sent: true, warning: null };
+  } catch (e) {
+    return { name, sent: false, warning: `Added to your ${monthWord(month)} claim, but it could not be sent (${e?.message || e}). Send it from the ${monthWord(month)} card.` };
+  }
+}
+
 /* Take a trip's lines back out of the month's claim. A claim waiting with the
    officer is taken back, the trip removed, and what is left sent again; one
    already approved can't change. -> name | null */

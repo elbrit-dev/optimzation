@@ -49,7 +49,7 @@ import {
 import { FUEL_PRICE, MILEAGE_KM_PER_L, fuelCost, routeText, tollEstimate } from "@calendar/lib/field-expenses/claim-rules";
 import { PREVIEW, STATUS_LABEL, canRecall, isLocked, statusKey } from "@calendar/lib/field-expenses/trip-claims-store";
 import { readTripBill } from "@calendar/lib/field-expenses/bill-reader";
-import { addTripToMonth, monthWord, removeTripFromMonth, tripClaimRows } from "@calendar/lib/field-expenses/erp-claim";
+import { addTripToMonth, addTripsToMonth, monthWord, removeTripFromMonth, tripClaimRows } from "@calendar/lib/field-expenses/erp-claim";
 import { CarRequestSheet, KpiSheet, RequestSheet } from "@calendar/components/calendar/field/field-sheets";
 import { BILL_NAME, BillChip, BillEditor, ChipButton, ManualBill, useBillPicker } from "@calendar/components/calendar/field/field-bills";
 import { useTripBillViewer } from "@calendar/components/calendar/field/field-bill-view";
@@ -159,7 +159,12 @@ export function FieldStrip() {
       {canOpen && f.stripOpen && (
         <>
           <div className="-mx-3 mt-2 flex gap-2 overflow-x-auto px-3 pb-1 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden" aria-label="Trips">
-            {[...f.claimed]
+            {/* HQ and EQ days with nothing to upload: ONE card, a date-wise list
+                inside (13 Nov 2026); outstation trips, and an EQ day once its
+                own car is approved (bills may follow), keep cards of their own */}
+            {f.claimed.some(isLocalTrip) && <LocalCard items={f.claimed.filter(isLocalTrip)} onOpen={f.openLocal} />}
+            {f.claimed
+              .filter((x) => !isLocalTrip(x))
               .sort((a, b) => rank(a.claim) - rank(b.claim) || b.trip.from.localeCompare(a.trip.from))
               .map((x) => (
                 <TripCard key={x.trip.id} item={x} canCar={f.canCar} onOpen={() => f.openTrip(x.trip.id)} onRequestOpen={(id) => f.openRequest(id)} />
@@ -175,6 +180,182 @@ export function FieldStrip() {
         </>
       )}
       <FieldSheets />
+    </div>
+  );
+}
+
+/* An HQ or EQ (same-day) trip with nothing to upload: no own car approved
+   for it and no fuel / toll bills. These sit together in one card. */
+export const isLocalTrip = (x) => x.trip.kind !== "tour" && x.calc.request?.status !== "approved" && !x.calc.carBilled;
+
+/* The HQ & EQ days, as one card: how many, what they come to, what is left
+   to claim -- tap for the date-wise list. */
+function LocalCard({ items, onOpen }) {
+  const open = items.filter((x) => x.claim.status === "unclaimed");
+  const hq = items.filter((x) => x.trip.kind === "hq").reduce((n, x) => n + x.trip.days.filter((d) => d.payable).length, 0);
+  const eq = items.filter((x) => x.trip.kind !== "hq").length;
+  const ta = items.reduce((a, x) => a + x.calc.ta, 0);
+  const da = items.reduce((a, x) => a + x.calc.da, 0);
+  const total = items.reduce((a, x) => a + x.calc.total, 0);
+  const asking = items.filter((x) => x.calc.request?.status === "pending").length;
+  const worst = [...items].sort((a, b) => rank(a.claim) - rank(b.claim))[0];
+  const kinds = [hq ? `${hq} HQ day${hq > 1 ? "s" : ""}` : null, eq ? `${eq} EQ day${eq > 1 ? "s" : ""}` : null].filter(Boolean).join(" · ");
+  return (
+    <div className={cn(CARD, "w-52 bg-white p-0", open.length ? "border-l-blue-500" : "border-l-gray-300")}>
+      <button type="button" onClick={onOpen} className="flex min-w-0 flex-col gap-0.5 px-2.5 pb-1.5 pt-2 text-left">
+        <span className="flex min-w-0 items-center gap-1.5">
+          <b className="min-w-0 flex-1 truncate text-[13px] font-bold text-gray-900">HQ &amp; EQ days</b>
+          {open.length ? (
+            <Pill tone="unclaimed" className="px-1.5 text-[9.5px]">{open.length} to claim</Pill>
+          ) : (
+            <StatusPill claim={worst.claim} className="px-1.5 text-[9.5px]" />
+          )}
+        </span>
+        <span className="block truncate text-[11px] text-gray-500">{kinds} · no bills</span>
+        <span className="mt-1 grid min-w-0 grid-cols-[minmax(0,1fr)_minmax(0,1fr)_minmax(0,1.3fr)] items-end gap-1.5 border-t border-dashed pt-1">
+          <Amount label="TA" value={ta} />
+          <Amount label="DA" value={da} />
+          <span className="flex min-w-0 flex-col items-end leading-tight">
+            <small className="max-w-full truncate text-[8.5px] font-bold uppercase tracking-wide text-gray-400">{open.length ? "to claim" : "total"}</small>
+            <b className={cn("flex max-w-full items-center gap-0.5 text-[13px] font-extrabold", open.length ? "text-blue-600" : "text-gray-900")}>
+              <span className="min-w-0 truncate">{inr(open.length ? open.reduce((a, x) => a + x.calc.total, 0) : total)}</span>
+              <ChevronRight className="h-3 w-3 shrink-0" aria-hidden />
+            </b>
+          </span>
+        </span>
+      </button>
+      {asking > 0 && (
+        <div className="border-t border-gray-100 px-2 py-1">
+          <span className="flex w-full items-center gap-1 rounded-md bg-amber-50 px-1.5 py-0.5 text-[10.5px] font-extrabold text-amber-800">
+            <Car className="h-3.5 w-3.5 shrink-0" aria-hidden />
+            <span className="truncate">Car requested · {asking} EQ day{asking > 1 ? "s" : ""} · awaiting GM</span>
+          </span>
+        </div>
+      )}
+    </div>
+  );
+}
+
+/* The HQ & EQ days, date by date: tap a day for its own sheet (an EQ day asks
+   for the car there); "Claim all" puts every day still to claim into the
+   month's claim at once. */
+function LocalDaysSheet() {
+  const f = useFieldExpenses();
+  const items = f.claimed.filter(isLocalTrip).sort((a, b) => a.trip.from.localeCompare(b.trip.from));
+  const open = items.filter((x) => x.claim.status === "unclaimed" && x.calc.total > 0 && !x.calc.carBlock);
+  const openTotal = open.reduce((a, x) => a + x.calc.total, 0);
+  const allTotal = items.reduce((a, x) => a + x.calc.total, 0);
+  const [confirming, setConfirming] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const mon = monthWord(f.month);
+  const nDays = `${open.length} day${open.length > 1 ? "s" : ""}`;
+  const claimAll = async () => {
+    setBusy(true);
+    try {
+      const added = await addTripsToMonth({ employee: f.emp, month: f.month, items: open, data: f.data });
+      for (const x of open) {
+        await f.actions.submitTrip(x.trip.id, {
+          total: x.calc.total,
+          ta: x.calc.ta,
+          da: x.calc.da,
+          review: x.checks.some((c) => c.level === "review"),
+          erpClaim: added.name,
+        });
+      }
+      setConfirming(false);
+      f.actions.refreshMonthClaim();
+      if (added.sent) toast.success(`${nDays} sent to ${f.manager} — in your ${mon} claim`);
+      if (added.warning) {
+        if (added.sent) toast.message(added.warning);
+        else toast.error(added.warning, { duration: Infinity, closeButton: true });
+      }
+    } catch (e) {
+      toast.error(errText(e));
+    } finally {
+      setBusy(false);
+    }
+  };
+  return (
+    <div className="-mx-4 flex min-h-0 flex-1 flex-col overflow-y-auto overscroll-contain px-4 [&>*]:shrink-0 gap-3">
+      <div className="pr-10">
+        <ModalTitle className="text-[22px] font-extrabold leading-tight tracking-tight text-gray-900">HQ &amp; EQ days</ModalTitle>
+        <p className="mt-0.5 text-[14px] font-semibold text-gray-500">
+          {monthName(f.month)} · {items.length} day{items.length === 1 ? "" : "s"} · no bills needed
+        </p>
+      </div>
+      <ol className="flex flex-col divide-y divide-gray-100 rounded-2xl border border-gray-200 bg-white">
+        {items.map((x) => {
+          const { trip, claim, calc } = x;
+          const req = calc.request;
+          const d = new Date(`${trip.from}T00:00:00`);
+          const isHq = trip.kind === "hq";
+          return (
+            <li key={trip.id}>
+              <button type="button" onClick={() => f.openTrip(trip.id, "local")} className="flex w-full items-center gap-3 px-3 py-2.5 text-left active:bg-gray-50">
+                <span className="flex w-10 shrink-0 flex-col items-center leading-none">
+                  <b className="text-[17px] font-extrabold text-gray-900">{d.getDate()}</b>
+                  <small className="mt-0.5 text-[10px] font-bold uppercase text-gray-500">{d.toLocaleDateString("en-IN", { weekday: "short" })}</small>
+                </span>
+                <span className="flex min-w-0 flex-1 flex-col gap-0.5">
+                  <span className="flex min-w-0 items-center gap-1.5">
+                    <span className={cn("shrink-0 rounded px-1 text-[9.5px] font-extrabold", isHq ? "bg-gray-100 text-gray-700" : "bg-blue-50 text-blue-800")}>{isHq ? "HQ" : "EQ"}</span>
+                    <b className="min-w-0 truncate text-[13.5px] font-bold text-gray-900">{trip.name}</b>
+                  </span>
+                  <span className="truncate text-[11.5px] text-gray-500">
+                    {trip.days.length > 1 ? `${rangeLabel(trip.from, trip.to)} · ` : ""}
+                    {trip.km} km · TA {inr(calc.ta)} · DA {inr(calc.da)}
+                  </span>
+                  {req && ["pending", "rejected"].includes(req.status) && (
+                    <span className={cn("w-fit rounded px-1.5 text-[10.5px] font-bold", req.status === "pending" ? "bg-amber-50 text-amber-800" : "bg-rose-50 text-rose-700")}>
+                      {req.status === "pending" ? `Car requested · ${inr(req.asked || req.ask)} · awaiting GM` : "Car not approved · fare paid"}
+                    </span>
+                  )}
+                </span>
+                <span className="flex shrink-0 flex-col items-end gap-1">
+                  <b className="text-[14px] font-extrabold text-gray-900">{inr(calc.total)}</b>
+                  <StatusPill claim={claim} className="px-1.5 text-[9.5px]" />
+                </span>
+                <ChevronRight className="h-4 w-4 shrink-0 text-gray-300" aria-hidden />
+              </button>
+            </li>
+          );
+        })}
+      </ol>
+      <div className="sticky bottom-0 -mx-4 mt-auto border-t border-gray-100 bg-white/95 px-4 pb-4 pt-3 backdrop-blur">
+        {confirming ? (
+          <div className="flex flex-col gap-2 rounded-2xl border border-blue-200 bg-blue-50/60 p-3">
+            <b className="text-[14px] text-gray-900">
+              Send {nDays} · {inr(openTotal)}?
+            </b>
+            <span className="text-[12.5px] leading-snug text-gray-600">Into your {mon} claim and to {f.manager} · each day can still be recalled before approval.</span>
+            <span className="flex gap-2">
+              <button type="button" disabled={busy} onClick={() => setConfirming(false)} className="min-h-11 flex-1 rounded-xl border border-gray-300 bg-white text-[14px] font-bold text-gray-800">
+                Cancel
+              </button>
+              <button type="button" disabled={busy} onClick={claimAll} className="flex min-h-11 flex-1 items-center justify-center gap-2 rounded-xl bg-blue-600 text-[14px] font-bold text-white disabled:opacity-60">
+                {busy && <Loader2 className="h-4 w-4 animate-spin" aria-hidden />}
+                Yes, send
+              </button>
+            </span>
+          </div>
+        ) : (
+          <div className="flex items-center justify-between gap-3">
+            <div className="min-w-0">
+              <span className="block text-[13px] text-gray-500">{open.length ? `To claim · ${nDays}` : "Nothing left to claim"}</span>
+              <b className="block text-[22px] font-extrabold tracking-tight text-gray-900">{inr(open.length ? openTotal : allTotal)}</b>
+            </div>
+            {open.length ? (
+              <button type="button" onClick={() => setConfirming(true)} className="flex min-h-[52px] shrink-0 items-center justify-center rounded-2xl bg-blue-600 px-6 text-[16px] font-bold text-white active:scale-[.98]">
+                Claim all
+              </button>
+            ) : (
+              <button type="button" onClick={f.closeSheet} className="flex min-h-[52px] shrink-0 items-center rounded-2xl bg-gray-100 px-6 text-[15px] font-bold text-gray-900">
+                Close
+              </button>
+            )}
+          </div>
+        )}
+      </div>
     </div>
   );
 }
@@ -426,6 +607,9 @@ function FieldSheets() {
       </Modal>
       <Modal side={side} open={!!req} onOpenChange={close}>
         <ModalContent className={cls}>{req && <RequestSheet req={req} />}</ModalContent>
+      </Modal>
+      <Modal side={side} open={kind === "local"} onOpenChange={close}>
+        <ModalContent className={cls}>{kind === "local" && <LocalDaysSheet />}</ModalContent>
       </Modal>
       <Modal side={side} open={kind === "kpi"} onOpenChange={close}>
         <ModalContent className={cls}>{kind === "kpi" && <KpiSheet />}</ModalContent>

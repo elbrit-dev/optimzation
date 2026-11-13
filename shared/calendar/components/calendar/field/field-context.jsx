@@ -212,12 +212,14 @@ export function FieldExpensesProvider({ children }) {
     };
   }, [month, viewed, current, setSelectedDate, state, viewingSelf, sheet, stripOpen, claims, emp, allEvents, users, monthClaim, carRequests]);
 
-  const openTrip = useCallback((id) => setSheet({ kind: "trip", id }), []);
+  // from: "local" -- opened from the HQ & EQ days list, closing goes back there
+  const openTrip = useCallback((id, from) => setSheet({ kind: "trip", id, ...(from ? { from } : {}) }), []);
+  const openLocal = useCallback(() => setSheet({ kind: "local" }), []);
   /* opts: { tripId } a travelled trip, { planId } a planned one, { draft } a recalled request's values */
   const openCarRequest = useCallback((opts = {}) => setSheet({ kind: "car", ...(typeof opts === "string" ? { tripId: opts } : opts || {}) }), []);
   const openRequest = useCallback((id) => setSheet({ kind: "request", id }), []);
   const openKpi = useCallback(() => setSheet({ kind: "kpi" }), []);
-  const closeSheet = useCallback(() => setSheet(null), []);
+  const closeSheet = useCallback(() => setSheet((s) => (s?.from === "local" ? { kind: "local" } : null)), []);
   const toggleStrip = useCallback(() => setStripOpen((v) => !v), []);
 
   // actions, bound to this rep; each returns a promise (the ERP later)
@@ -242,7 +244,7 @@ export function FieldExpensesProvider({ children }) {
   );
 
   return (
-    <FieldContext.Provider value={{ ...value, actions, openTrip, openCarRequest, openRequest, openKpi, closeSheet, toggleStrip }}>
+    <FieldContext.Provider value={{ ...value, actions, openTrip, openLocal, openCarRequest, openRequest, openKpi, closeSheet, toggleStrip }}>
       {children}
     </FieldContext.Provider>
   );
