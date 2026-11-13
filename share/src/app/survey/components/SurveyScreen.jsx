@@ -73,7 +73,7 @@ export function SurveyScreen({ survey, today, me, drafts, api, onOpenRow, onChan
     { key: 'all', label: 'All', count: counts.all },
     ...(['new', 'draft', 'done', 'missed']
       .filter((k) => counts[k])
-      .map((k) => ({ key: k, label: { new: 'Not started', draft: 'Draft', done: 'Submitted', missed: 'Missed' }[k], count: counts[k] }))),
+      .map((k) => ({ key: k, label: { new: 'Not started', draft: 'Saved', done: 'Submitted', missed: 'Missed' }[k], count: counts[k] }))),
   ];
 
   return (

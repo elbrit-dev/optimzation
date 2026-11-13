@@ -36,7 +36,7 @@ components/
   parts             PageHeader, drafts on the device, the "Discard changes?" sheet — shared by both
   SurveyScreen      one survey: header, tags, progress, rows, Add (Self-tag)
   AddSubjectsSheet  search + multi-select of the rep's doctors / distributors
-  SubjectForm       "S2 › D1": questions, Save draft (on device), Submit, success
+  SubjectForm       "S2 › D1": questions, Save for later (on device), Submit, success
   QuestionCard      all 10 question types, file upload with progress
   SubjectCard       one row — StockistCard's layout
 ```

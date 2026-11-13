@@ -58,26 +58,30 @@ export function writeDrafts(user, drafts) {
   }
 }
 
-/* "Discard changes?" — asked before leaving a form with unsaved answers
-   (Secondary's useUnsavedGuard drives it). */
-export function DiscardChangesSheet({ open, onCancel, onConfirm }) {
+/* "Leave this form?" — asked before leaving a form with unsaved answers.
+   Save for later keeps them on this device (as the form's Save for later
+   does) and leaves; Discard leaves without them; Keep editing stays. */
+export function DiscardChangesSheet({ open, onCancel, onConfirm, onSave }) {
   return (
     <Sheet.Root open={open} onOpenChange={(o) => !o && onCancel()} desktop="dialog">
       <Sheet.Popup surface="app">
         <Sheet.Header>
-          <Sheet.Title>Discard changes?</Sheet.Title>
+          <Sheet.Title>Leave this form?</Sheet.Title>
           <Sheet.Close />
         </Sheet.Header>
         <Sheet.Body>
-          <p className="text-sm text-ds-secondary">Your answers are not saved. Save a draft to keep them, or leave without saving.</p>
+          <p className="text-sm text-ds-secondary">Your answers aren’t sent yet.</p>
         </Sheet.Body>
         <Sheet.Footer>
-          <div className="flex justify-end gap-2">
-            <Button type="default" size="app" onClick={onCancel}>
-              Keep editing
+          <div className="flex flex-col gap-2">
+            <Button type="primary" size="app" block onClick={onSave}>
+              Save for later
             </Button>
-            <Button type="primary" size="app" danger onClick={onConfirm}>
+            <Button type="default" size="app" block danger onClick={onConfirm}>
               Discard
+            </Button>
+            <Button type="default" size="app" block onClick={onCancel}>
+              Keep editing
             </Button>
           </div>
         </Sheet.Footer>

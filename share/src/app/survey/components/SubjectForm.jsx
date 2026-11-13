@@ -14,19 +14,21 @@ import { QuestionCard } from './QuestionCard';
  * TODO rows are answered; DONE and MISSED rows are read-only (the answers
  * sent, or what was never sent).
  *
- * Save draft keeps the answers ON THIS DEVICE (`onDraft`) — the ERP has no
+ * Save for later keeps the answers ON THIS DEVICE (`onDraft`) — the ERP has no
  * draft; its own my-surveys page keeps them locally too. Submit checks every
  * question first (shape.formProblems — the server checks again) and shows
  * each problem under its question, scrolling to the first. It waits for any
  * file still uploading. The server's refusal, if any, is shown as it says it
- * (SURVEYS_CONTEXT.md §4). */
-export function SubjectForm({ survey, row, me, draft, api, onBack, onDraft, onSubmitted, onDirtyChange, bottomGap = 'var(--space-12)' }) {
+ * (SURVEYS_CONTEXT.md §4). `onAnswersChange` hears the answers as they are
+ * now, so the page's "Leave this form?" can save them for later. */
+export function SubjectForm({ survey, row, me, draft, api, onBack, onDraft, onSubmitted, onDirtyChange, onAnswersChange, bottomGap = 'var(--space-12)' }) {
   const rootRef = useRef(null);
   const [barHeight, setBarHeight] = useState(0);
   const editable = row.state === 'todo';
   const start = useMemo(() => (editable ? (draft ?? {}) : (row.answers ?? {})), [editable, draft, row.answers]);
   const [answers, setAnswers] = useState(start);
-  const [baseline] = useState(() => JSON.stringify(start));
+  /* What is kept: the opening answers, then the last ones saved for later. */
+  const [baseline, setBaseline] = useState(() => JSON.stringify(start));
   const dirty = editable && JSON.stringify(answers) !== baseline;
   const [tried, setTried] = useState(false);
   const [uploading, setUploading] = useState(0);
@@ -39,6 +41,11 @@ export function SubjectForm({ survey, row, me, draft, api, onBack, onDraft, onSu
   onDirtyRef.current = onDirtyChange;
   useEffect(() => onDirtyRef.current?.(dirty && !sent), [dirty, sent]);
   useEffect(() => () => onDirtyRef.current?.(false), []);
+  const onAnswersRef = useRef(onAnswersChange);
+  onAnswersRef.current = onAnswersChange;
+  useEffect(() => {
+    if (editable) onAnswersRef.current?.(answers);
+  }, [editable, answers]);
 
   const problems = useMemo(() => formProblems(survey.questions, answers), [survey.questions, answers]);
   const answered = survey.questions.filter((q) => !isEmpty(answers[q.id])).length;
@@ -53,7 +60,8 @@ export function SubjectForm({ survey, row, me, draft, api, onBack, onDraft, onSu
 
   const saveDraft = () => {
     onDraft(answers);
-    setNotice('Draft saved on this device.');
+    setBaseline(JSON.stringify(answers));
+    setNotice('Saved on this device — tap Submit when you’re ready to send.');
     setTimeout(() => setNotice(null), 2500);
   };
 
@@ -161,7 +169,7 @@ export function SubjectForm({ survey, row, me, draft, api, onBack, onDraft, onSu
               ) : null}
               <div className="grid grid-cols-2 gap-2">
                 <Button type="default" size="lg" block disabled={Boolean(busy) || !dirty} onClick={saveDraft}>
-                  Save draft
+                  Save for later
                 </Button>
                 <Button type="primary" size="lg" block loading={busy === 'submit'} disabled={Boolean(busy) || uploading > 0} onClick={submit}>
                   {uploading ? 'Uploading…' : 'Submit'}

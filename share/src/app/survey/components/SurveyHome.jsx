@@ -154,6 +154,13 @@ export function SurveyHome({
     if (strip) strip.scrollLeft = at.left;
   }, [onHome]);
   const guard = useUnsavedGuard({ dirty: dirty && view.response != null, onBack: toSurvey });
+  /* The open form's answers as they are now: "Leave this form?" → Save for
+     later keeps them on this device, then leaves as Discard does. */
+  const answersRef = useRef(null);
+  const saveForLater = () => {
+    if (view.response && answersRef.current) setDraft(view.response, answersRef.current);
+    guard.confirm();
+  };
 
   /* A survey's circle opens that survey, wherever the person is — or, with
      openInPlace off, is left to navigate to its own page like any tile. */
@@ -199,6 +206,9 @@ export function SurveyHome({
               onBack={() => guard.request(toSurvey)}
               onDraft={(answers) => setDraft(row.response, answers)}
               onDirtyChange={setDirty}
+              onAnswersChange={(answers) => {
+                answersRef.current = answers;
+              }}
               onSubmitted={load}
             />
           ) : (
@@ -243,7 +253,7 @@ export function SurveyHome({
         </>
       )}
 
-      <DiscardChangesSheet open={guard.confirmOpen} onCancel={guard.cancel} onConfirm={guard.confirm} />
+      <DiscardChangesSheet open={guard.confirmOpen} onCancel={guard.cancel} onConfirm={guard.confirm} onSave={saveForLater} />
     </section>
   );
 }

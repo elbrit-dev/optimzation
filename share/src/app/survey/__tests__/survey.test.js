@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { answerProblem, fileProblem, formProblems, rowState, shortName, surveysFromMyList, toPayload } from '../data/shape';
+import { answerProblem, fileProblem, formProblems, ROW_LABEL, rowState, shortName, surveysFromMyList, toPayload } from '../data/shape';
 import { surveyTiles, withSurveyTiles } from '../data/tiles';
 import { DEFAULT_RING_NAV_ITEMS } from '@/app/ring-nav/data/defaultRingNavItems';
 import { createSurveyApi } from '../api';
@@ -107,8 +107,9 @@ describe('surveys and circles', () => {
     expect(ids).not.toContain('survey');
   });
 
-  it('shows a todo with a draft on this device as Draft', () => {
+  it('shows a todo with answers saved on this device as Saved', () => {
     expect(rowState({ state: 'todo', response: 'R1' }, { R1: { q: 1 } })).toBe('draft');
+    expect(ROW_LABEL.draft).toBe('Saved');
     expect(rowState({ state: 'todo', response: 'R2' }, { R1: {} })).toBe('new');
   });
 });

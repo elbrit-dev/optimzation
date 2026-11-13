@@ -6,7 +6,7 @@
  *   - a SURVEY per campaign (`surveysFromMyList`): `survey_my_list` sends one
  *     row per response plus `selftag` campaigns; the circles, the survey
  *     screen and its list are all per campaign;
- *   - a row's DISPLAY state: the ERP knows todo / done / missed; "Draft" is
+ *   - a row's DISPLAY state: the ERP knows todo / done / missed; "Saved" is
  *     a todo with answers kept on this device (the ERP's own my-surveys page
  *     keeps drafts the same way — never on the server). */
 
@@ -128,8 +128,8 @@ export const TARGET = {
 export const targetOf = (t) => TARGET[t] ?? TARGET.Employees;
 
 /* A row's state on screen: the ERP's state, with a todo that has a draft on
-   this device shown as "Draft". */
-export const ROW_LABEL = { new: 'Not started', draft: 'Draft', done: 'Submitted', missed: 'Missed' };
+   this device shown as "Saved". */
+export const ROW_LABEL = { new: 'Not started', draft: 'Saved', done: 'Submitted', missed: 'Missed' };
 export const ROW_TONE = { new: 'neutral', draft: 'warning', done: 'success', missed: 'neutral' };
 
 export function rowState(r, drafts) {

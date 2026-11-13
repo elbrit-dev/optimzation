@@ -24,7 +24,7 @@ export const surveyHomeMeta = {
     hrefBase: { type: 'string', defaultValue: '/survey', helpText: 'A survey circle links to <hrefBase>/<campaign>.' },
     bottomGap: {
       type: 'string',
-      helpText: "Space under the form's pinned Save draft / Submit bar. Any CSS length; e.g. calc(4rem + 12px) to clear the app's bottom navigation.",
+      helpText: "Space under the form's pinned Save for later / Submit bar. Any CSS length; e.g. calc(4rem + 12px) to clear the app's bottom navigation.",
     },
     homeContent: {
       type: 'slot',
@@ -78,7 +78,7 @@ export const surveyPageMeta = {
     },
     bottomGap: {
       type: 'string',
-      helpText: "Space under the form's pinned Save draft / Submit bar. Any CSS length; e.g. calc(4rem + 12px) to clear the app's bottom navigation.",
+      helpText: "Space under the form's pinned Save for later / Submit bar. Any CSS length; e.g. calc(4rem + 12px) to clear the app's bottom navigation.",
     },
     onBack: {
       type: 'eventHandler',

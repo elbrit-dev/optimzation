@@ -58,7 +58,22 @@ describe('SurveyHome — a circle per survey, home first', () => {
     await user.click(await screen.findByRole('button', { name: /^Dr\. Joseph Prabhu/ }));
     await user.click(await screen.findByRole('radio', { name: 'Ticagrelor' }));
     await user.click(screen.getByRole('button', { name: 'Back to Rx audit — vascular range' }));
-    expect(await screen.findByText('Discard changes?')).toBeTruthy();
+    expect(await screen.findByText('Leave this form?')).toBeTruthy();
+  });
+
+  it('"Leave this form?" → Save for later keeps the answers on the device and returns to the survey', async () => {
+    window.localStorage.clear();
+    const user = userEvent.setup();
+    setup();
+    await user.click(await screen.findByRole('link', { name: /^Rx audit/ }));
+    await user.click(await screen.findByRole('button', { name: /^Dr\. Joseph Prabhu/ }));
+    await user.click(await screen.findByRole('radio', { name: 'Ticagrelor' }));
+    await user.click(screen.getByRole('button', { name: 'Back to Rx audit — vascular range' }));
+    await user.click(await screen.findByRole('button', { name: 'Save for later' }));
+    expect(await screen.findByRole('button', { name: /^Dr\. Joseph Prabhu.*Saved$/ })).toBeTruthy();
+    await user.click(screen.getByRole('button', { name: /^Dr\. Joseph Prabhu/ }));
+    expect(await screen.findByRole('radio', { name: 'Ticagrelor', checked: true })).toBeTruthy();
+    window.localStorage.clear();
   });
 
   it('shows no survey circle to someone with no survey', async () => {

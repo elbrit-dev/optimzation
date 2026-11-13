@@ -378,6 +378,8 @@ export function SurveyPage({
     };
   }, [unsaved]);
 
+  /* The open form's answers as they are now, for Save for later. */
+  const answersRef = useRef(null);
   const keepEditing = useCallback(() => setConfirm(null), []);
   const discard = useCallback(() => {
     const pending = confirm;
@@ -393,6 +395,11 @@ export function SurveyPage({
     allowLeave.current = true;
     afterOverlayEntries(goBackFromForm);
   }, [confirm, goBackFromForm]);
+  /* Save for later: keep the answers on this device, then leave as Discard does. */
+  const saveForLater = () => {
+    if (response && answersRef.current) setDraft(response, answersRef.current);
+    discard();
+  };
 
   const offline = typeof navigator !== 'undefined' && navigator.onLine === false;
   const title = survey?.title ?? 'Survey';
@@ -450,6 +457,9 @@ export function SurveyPage({
         onBack={backFromForm}
         onDraft={(answers) => setDraft(row.response, answers)}
         onDirtyChange={setDirty}
+        onAnswersChange={(answers) => {
+          answersRef.current = answers;
+        }}
         onSubmitted={load}
       />
     );
@@ -477,7 +487,7 @@ export function SurveyPage({
         )}
         {body}
       </div>
-      <DiscardChangesSheet open={Boolean(confirm)} onCancel={keepEditing} onConfirm={discard} />
+      <DiscardChangesSheet open={Boolean(confirm)} onCancel={keepEditing} onConfirm={discard} onSave={saveForLater} />
     </section>
   );
 }
