@@ -74,7 +74,7 @@ export function FieldExpensesProvider({ children }) {
     return monthErp
       .loadMonthClaim(emp, month)
       .then((claim) => {
-        setMonthClaim({ month, status: "ready", claim, error: null });
+        setMonthClaim({ month, status: "ready", claim, error: null, at: Date.now() });
         return claim;
       })
       .catch((error) => setMonthClaim({ month, status: "error", claim: null, error }));
@@ -82,6 +82,25 @@ export function FieldExpensesProvider({ children }) {
   useEffect(() => {
     refreshMonthClaim();
   }, [refreshMonthClaim]);
+
+  // a trip this device has as sent, with no lines in any of the month's ERP
+  // claims any more (the claim was deleted): forget it here, so it reads "to
+  // claim" again. Only after a load that finished AFTER the trip was sent --
+  // right after a submit the old answer is still on screen for a moment.
+  useEffect(() => {
+    if (!emp || monthClaim.status !== "ready" || monthClaim.month !== month || !monthClaim.at) return;
+    const rows = state.data?.rows || [];
+    if (!rows.length) return;
+    const all = monthClaim.claim ? monthClaim.claim.all || [{ lines: monthClaim.claim.lines }] : [];
+    for (const t of buildTrips(rows, state.data?.employee?.hq)) {
+      const c = store.claimOf(claims, t.id);
+      if (c.status !== "submitted" && c.status !== "review") continue;
+      const sent = Date.parse(c.submittedAt || "") || 0;
+      if (sent && sent > monthClaim.at - 5000) continue;
+      if (all.some((x) => monthErp.tripLinesOf(x.lines, t).length)) continue;
+      store.resetTrip(emp, t.id);
+    }
+  }, [emp, month, monthClaim, claims, state.data]);
 
   // own-car requests: in the ERP (Car Request, decided by the GM) -- read
   // fresh, and again after each change

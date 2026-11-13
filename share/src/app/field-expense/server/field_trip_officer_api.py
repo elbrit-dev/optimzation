@@ -5,7 +5,8 @@
 #
 #   POST action=adjust  claim, lines (JSON [{row, amount}]), reason
 #        The officer changes the amount of a TA (Travel) line while the claim
-#        waits with them -- with a reason, which the employee sees. Stored the
+#        waits with them -- with a reason, which the employee sees. Only DOWN:
+#        never above the amount claimed (13 Nov 2026). Stored the
 #        same way as the final check's adjustments (custom_adjusted /
 #        _adjusted_amount / _adjust_reason / _adjusted_by / _adjusted_on, and
 #        sanctioned_amount): the planner, the dashboard and payroll all read
@@ -58,6 +59,8 @@ if action == "adjust":
         amt = frappe.utils.flt(w.get("amount"))
         if amt < 0:
             frappe.throw("An amount cannot be below 0.")
+        if amt > frappe.utils.flt(r.amount) + 0.5:
+            frappe.throw("The TA can only be reduced -- at most Rs " + str(frappe.utils.flt(r.amount)) + ", the amount claimed.")
         was = frappe.utils.flt(r.custom_adjusted_amount) if r.custom_adjusted else frappe.utils.flt(r.amount)
         if abs(amt - was) < 0.5:
             continue

@@ -739,6 +739,8 @@ function TripRow({ conn, trip: t, claim: c, canAct, desk, open, onToggle, onDeci
     setError("");
     const amount = Math.round(Number(editTa.amount));
     if (!(amount >= 0)) return setError("Enter the TA amount.");
+    // only down: never above what was claimed (13 Nov 2026)
+    if (amount > l.amount) return setError(`The TA can only be reduced — at most ${inr(l.amount)}, the amount claimed.`);
     if (Math.abs(amount - l.amount) >= 0.5 && editTa.reason.trim().length < 3) return setError("Say why the TA is changed — the employee sees this.");
     setBusy(`ta-${l.id}`);
     try {
@@ -963,9 +965,13 @@ function TripRow({ conn, trip: t, claim: c, canAct, desk, open, onToggle, onDeci
                                 <span style={{ fontSize: 12, fontWeight: 700, color: "#475467" }}>TA to pay</span>
                                 <span style={{ display: "inline-flex", alignItems: "center", gap: 4, height: 34, padding: "0 10px", borderRadius: 8, border: "1px solid #d0d5dd", background: "#fff" }}>
                                   <span style={{ color: "#8a93a3" }}>₹</span>
-                                  <input autoFocus inputMode="numeric" value={editTa.amount} onChange={(e) => setEditTa({ ...editTa, amount: e.target.value.replace(/[^\d]/g, "") })} aria-label="TA amount" style={{ width: 90, border: 0, outline: 0, background: "transparent", fontSize: 14, fontWeight: 700, ...tabNum }} />
+                                  <input autoFocus inputMode="numeric" value={editTa.amount} onChange={(e) => {
+                                      const v = e.target.value.replace(/[^\d]/g, "");
+                                      // typing above the claimed amount stops at it
+                                      setEditTa({ ...editTa, amount: v && Number(v) > l.amount ? String(Math.round(l.amount)) : v });
+                                    }} aria-label="TA amount" style={{ width: 90, border: 0, outline: 0, background: "transparent", fontSize: 14, fontWeight: 700, ...tabNum }} />
                                 </span>
-                                <span style={{ fontSize: 11.5, color: "#667085" }}>claimed {inr(l.amount)}</span>
+                                <span style={{ fontSize: 11.5, color: "#667085" }}>claimed {inr(l.amount)} · can only be reduced</span>
                               </span>
                               <input value={editTa.reason} onChange={(e) => setEditTa({ ...editTa, reason: e.target.value })} placeholder="Why? e.g. bus fare is ₹150 on this route" aria-label="Why the TA is changed" style={{ height: 34, borderRadius: 8, border: "1px solid #d0d5dd", padding: "0 10px", fontSize: 13 }} />
                               <span style={{ display: "flex", gap: 6, justifyContent: "flex-end" }}>

@@ -127,6 +127,17 @@ export async function recallTrip(emp, tripId) {
   return write(emp, { ...state, trips: { ...state.trips, [tripId]: next } });
 }
 
+/* The ERP no longer has this trip's lines (the claim was deleted, e.g. test
+   data cleared on 13 Nov 2026): this device forgets the trip -- it is to
+   claim again, from scratch (its bill files are gone with the claim). */
+export async function resetTrip(emp, tripId) {
+  const state = read(emp);
+  if (!state.trips?.[tripId]) return state;
+  const trips = { ...state.trips };
+  delete trips[tripId];
+  return write(emp, { ...state, trips });
+}
+
 /* Own-car requests are not kept here any more (12 Nov 2026): they are the
    ERP's Car Request, decided by the GM (erp-claim.js loadCarRequests /
    requestCar / withdrawCar). */
