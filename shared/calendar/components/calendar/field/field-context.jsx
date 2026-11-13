@@ -118,11 +118,25 @@ export function FieldExpensesProvider({ children }) {
     // approved, rejected is sent back with the reason
     const mcl = monthClaim.month === month ? monthClaim.claim : null;
     const ERP_STATUS = { "Waiting for Approval": "sent", Rejected: "rejected", Approved: "approved", Verified: "paid", Paid: "paid", "In Review": "review" };
-    const live = (claim, t) => {
+    // a month can hold several claims (a new one once one is approved): the
+    // trip's lines and status come from the claim that holds them
+    const monthClaims = mcl ? mcl.all || [{ name: mcl.name, status: mcl.status, open: mcl.open, lines: mcl.lines }] : [];
+    const live = (local, t) => {
+      let holder = null;
+      let mine = [];
+      for (const c of monthClaims) {
+        mine = monthErp.tripLinesOf(c.lines, t);
+        if (mine.length) {
+          holder = c;
+          break;
+        }
+      }
+      // this browser has no record of the trip but the ERP has its lines: it
+      // was claimed elsewhere (another phone or site) -- the ERP's word stands
+      const claim = local.status === "unclaimed" && mine.length ? monthErp.claimFromErp(mine) : local;
       if (claim.status !== "submitted" && claim.status !== "review") return claim;
-      const mine = (mcl?.lines || []).filter((l) => l.date >= t.from && l.date <= t.to);
-      if (!mine.length) return claim;
-      let s = ERP_STATUS[mcl.status];
+      if (!holder) return claim;
+      let s = ERP_STATUS[holder.status];
       const rej = mine.find((l) => l.decision === "Rejected");
       const ok = mine.every((l) => l.decision === "Approved");
       if (s === "sent" || s === "rejected") s = rej ? "rejected" : ok ? "okd" : s;
@@ -131,7 +145,8 @@ export function FieldExpensesProvider({ children }) {
         : ok
           ? { decision: "approved", by: mine[0].decidedBy, on: mine[0].decidedOn }
           : null;
-      return { ...claim, ...(s ? { status: s } : {}), officer };
+      // the claim it is in (the trip sheet shows where THAT claim is)
+      return { ...claim, ...(s ? { status: s } : {}), officer, holder: { name: holder.name, status: holder.status, open: holder.open } };
     };
     const claimed = trips.map((t) => {
       const claim = live(store.claimOf(claims, t.id), t);

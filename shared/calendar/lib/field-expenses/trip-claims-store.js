@@ -119,6 +119,9 @@ export async function submitTrip(emp, tripId, { total, ta, da, review, erpClaim 
 export async function recallTrip(emp, tripId) {
   const state = read(emp);
   const cur = claimOf(state, tripId);
+  // claimed on another device: this one never held it, so there is nothing
+  // to undo here (its lines are already out of the month's claim)
+  if (cur.status === "unclaimed") return state;
   if (cur.status !== "submitted" && cur.status !== "review") throw new Error("Only a submitted trip can be recalled — this one is past approval.");
   const next = { ...cur, status: "unclaimed", recalled: true, submittedAt: null };
   return write(emp, { ...state, trips: { ...state.trips, [tripId]: next } });

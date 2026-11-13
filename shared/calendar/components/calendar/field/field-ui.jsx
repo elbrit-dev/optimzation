@@ -740,7 +740,8 @@ function TripSheet({ item }) {
   const daysLabel = nDays > 1 ? `${nDays} days` : dayLabel(trip.from);
   // where a submitted trip really is: in the month's claim, which is sent to
   // the officer as one (from the month card) -- not on its own
-  const mc = f.monthClaim?.claim || null;
+  // the claim this trip's lines are in (a month can have more than one)
+  const mc = claim.holder || f.monthClaim?.claim || null;
   const monthState = !mc
     ? null
     : mc.open

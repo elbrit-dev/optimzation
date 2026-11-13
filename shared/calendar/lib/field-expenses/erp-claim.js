@@ -26,7 +26,7 @@
 import { AUTH_CONFIG } from "@calendar/components/auth/calendar-users";
 import { DAY_TYPE_LABEL, dayLabel, fareBasis } from "@calendar/lib/field-expenses/field-days";
 import { stayShares } from "@calendar/lib/field-expenses/claim-rules";
-import { tripTag } from "../../../../components/features/expense-claims/fieldTrips";
+import { parseTripTag, tripTag } from "../../../../components/features/expense-claims/fieldTrips";
 
 const api = () => import("../../../../components/features/expense-claims/data/claimsApi");
 const connOf = (m) => m.makeConn({ url: AUTH_CONFIG.erpUrl, token: AUTH_CONFIG.authToken });
@@ -149,10 +149,14 @@ export async function loadMonthClaim(employee, month) {
   if (!employee) return null;
   const m = await api();
   const conn = connOf(m);
-  const found = await m.fetchClaimByRemark(conn, employee, monthRemark(month));
-  if (!found) return null;
+  // every claim of the month, newest first: once one is approved, trips added
+  // later go into a new one (13 Nov 2026) -- each trip's status is the status
+  // of the claim its lines are in
+  const found = await m.fetchClaimsByRemark(conn, employee, monthRemark(month));
+  if (!found.length) return null;
   // each line's trip and the officer's decision on that trip
-  const c = await m.withTripMarks(conn, found);
+  const marked = await Promise.all(found.map((x) => m.withTripMarks(conn, x)));
+  const c = marked[0];
   // after the officer: the final check on the field-expenses dashboard --
   // adjustments (who, why) and the finalised amount
   const fin = ["Approved", "Verified", "Paid"].includes(c.status) ? await m.fetchMyFieldClaim(conn, month).catch(() => null) : null;
@@ -162,12 +166,76 @@ export async function loadMonthClaim(employee, month) {
     open: isOpen(c),
     total: c.claimed,
     lines: c.lines,
+    // all the month's claims, newest first (the first is this one)
+    all: marked.map((x) => ({ name: x.id, status: x.status, open: isOpen(x), lines: x.lines })),
     posting: c.posting,
     raw: c,
     final: fin ? fin.final : null,
     adjustments: fin ? fin.adjustments : [],
     finalisedBy: fin ? fin.finalisedBy : null,
     additionalSalary: fin ? fin.additionalSalary : null,
+  };
+}
+
+/* The trip's own lines in the month's claim: tagged with this trip's dates,
+   or (saved before the tag) untagged inside them. */
+export function tripLinesOf(lines, trip) {
+  return (lines || []).filter((l) => {
+    const t = parseTripTag(l.trip);
+    return t ? t.from === trip.from && t.to === trip.to : l.date >= trip.from && l.date <= trip.to;
+  });
+}
+
+/* A submitted trip as the ERP has it (13 Nov 2026), for a browser that has no
+   record of it -- another phone, another site (app-uat), cleared storage:
+   the planner kept the trip's state only on the device it was claimed from,
+   so everything there read "To claim". The bills come back from their lines
+   (a hotel bill's nights from its per-night lines), the totals from the
+   lines' amounts. Not signed: to change the trip it is recalled and its
+   bills scanned again, as on any device. */
+const HAND = / · handwritten: ([^·]*?)(?: · proof: (\S+))?$/;
+export function claimFromErp(lines) {
+  const byUrl = new Map();
+  const bills = { stays: [], foods: [], fuels: [], tolls: [] };
+  const KIND = { Stay: "stays", Food: "foods", Fuel: "fuels", Toll: "tolls" };
+  let ta = 0;
+  let da = 0;
+  for (const l of lines) {
+    const amount = Math.round(Number(l.amount) || 0);
+    if (["Travel", "Fuel", "Toll"].includes(l.type)) ta += amount;
+    else da += amount;
+    const kind = KIND[l.type];
+    if (!kind || !l.bill) continue;
+    const hand = HAND.exec(l.note || "");
+    const seen = byUrl.get(l.bill);
+    if (seen) {
+      seen.amount += amount;
+      seen.billed = seen.amount;
+      if (kind === "stays" && !seen.nights.includes(l.date)) seen.nights.push(l.date);
+      continue;
+    }
+    const b = {
+      id: `erp-${l.id}`,
+      url: l.bill,
+      date: l.date,
+      amount,
+      billed: amount,
+      nights: kind === "stays" ? [l.date] : [],
+      vendor: "",
+      fromErp: true,
+      ...(hand ? { manual: true, why: hand[1].trim(), proof: hand[2] || null } : {}),
+    };
+    byUrl.set(l.bill, b);
+    bills[kind].push(b);
+  }
+  for (const b of bills.stays) b.nights.sort();
+  return {
+    status: "submitted",
+    recalled: false,
+    car: bills.fuels.length + bills.tolls.length > 0,
+    ...bills,
+    claimed: { total: ta + da, ta, da },
+    fromErp: true,
   };
 }
 

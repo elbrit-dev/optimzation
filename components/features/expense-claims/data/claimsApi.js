@@ -499,6 +499,20 @@ export async function fetchClaimByRemark(conn, employee, remark) {
   return name ? fetchClaim(conn, name) : null;
 }
 
+/* Every claim with this remark, newest first (13 Nov 2026): a month can hold
+   more than one -- once a month's claim is approved, trips added later go into
+   a new one. -> [claim] */
+export async function fetchClaimsByRemark(conn, employee, remark, max = 10) {
+  const q = new URLSearchParams({
+    filters: JSON.stringify([["employee", "=", employee], ["remark", "=", remark], ["docstatus", "<", 2]]),
+    fields: JSON.stringify(["name"]),
+    order_by: "creation desc",
+    limit_page_length: String(max),
+  });
+  const names = ((await rest(conn, `/api/resource/Expense%20Claim?${q}`)).data || []).map((r) => r.name);
+  return Promise.all(names.map((n) => fetchClaim(conn, n)));
+}
+
 /* A draft claim left with nothing on it. */
 export async function deleteClaim(conn, name) {
   await rest(conn, `/api/resource/Expense%20Claim/${encodeURIComponent(name)}`, { method: "DELETE" });
