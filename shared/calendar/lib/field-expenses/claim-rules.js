@@ -43,11 +43,31 @@ export const canUseCar = (role) => CAR_ROLES.includes(roleKey(role));
 export const carPreapproved = (role) => CAR_PREAPPROVED_ROLES.includes(roleKey(role));
 export const claimsStays = (role) => SENIOR_ROLES.includes(roleKey(role));
 
-export const tollEstimate = (km) => Math.round((km * TOLL_PER_KM) / 10) * 10;
+// 13 Nov 2026: tolls are not paid -- the own car is paid its fuel only
+export const tollEstimate = () => 0;
 export const fuelCost = (km, fuel = "Petrol") => Math.round((km / MILEAGE_KM_PER_L) * (FUEL_PRICE[fuel] ?? FUEL_PRICE.Petrol));
-export const carCap = (km, fuel, tolls) => fuelCost(km, fuel) + (tolls ?? tollEstimate(km));
+export const carCap = (km, fuel) => fuelCost(km, fuel);
 
 const sum = (arr) => (arr || []).reduce((s, x) => s + (Number(x.amount) || 0), 0);
+
+/* The own car's TA spread over the trip's days by the km driven each day
+   (13 Nov 2026): each day's road legs (a both-ways local run counts twice;
+   a flown leg not at all); the last day takes the rounding. -> { date: ₹ } */
+export function carDayShares(trip, amount) {
+  const days = (trip.days || []).filter((d) => d.payable);
+  const kmOf = (d) =>
+    (d.legs || []).reduce((s, l) => s + (l.flown ? 0 : (Number(l.rounded_km ?? l.km) || 0) * (l.both_ways ? 2 : 1)), 0);
+  const w = days.map(kmOf);
+  const all = w.reduce((s, x) => s + x, 0);
+  const out = {};
+  let left = Math.round(amount || 0);
+  days.forEach((d, i) => {
+    const share = i === days.length - 1 ? left : all > 0 ? Math.round((amount * w[i]) / all) : Math.round(amount / days.length);
+    out[d.date] = { amount: share, km: Math.round(w[i] * 10) / 10 };
+    left -= share;
+  });
+  return out;
+}
 
 /* The away days of a trip that a stay / food bill counts for: the worked
    outstation days the ERP gave an outstation rate (osDaFull) -- exactly the
@@ -174,11 +194,11 @@ export function tripClaim(trip, claim, { role, requests } = {}) {
   const carPending = carAllowed && req?.status === "pending";
   const car = carApproved;
   const fuel = sum(c.fuels);
-  const tolls = sum(c.tolls);
+  const tolls = 0; // not paid (13 Nov 2026); old toll scans are ignored
   const fare = trip.ta; // the console's TA for the trip: the fare by rail or per km
   const cap = req?.status === "approved" && req.ask
     ? req.ask
-    : carCap(req?.km || trip.km, req?.fuel || "Petrol", req?.tolls);
+    : carCap(req?.km || trip.km, req?.fuel || "Petrol");
 
   // 12 Nov 2026: the bills replace the fare only once there are some; an
   // approved car with no fuel / toll bill is paid the ERP's fare as it is.
@@ -194,7 +214,7 @@ export function tripClaim(trip, claim, { role, requests } = {}) {
   // with the car billed, the pump bill too (a toll-only claim would pay less
   // than the fare by mistake); every bill here was checked when scanned
   const fuelBills = car ? (c.fuels || []).length : 0;
-  const carBlock = !carBilled ? null : !fuelBills ? "Scan the fuel bill too — or remove the toll bills to be paid the fare" : null;
+  const carBlock = null; // fuel only: no toll-without-fuel case any more
   return {
     nights: nightRows,
     nightDA,

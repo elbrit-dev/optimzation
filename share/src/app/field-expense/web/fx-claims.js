@@ -85,6 +85,41 @@
         var k = c.employee + '|' + String(l.expense_date).slice(0, 10);
         (M.byDay[k] = M.byDay[k] || { claim: c, lines: [] }).lines.push(l);
       });
+      // 13 Nov 2026: a trip's own-car fuel (and any old toll) lines spread over
+      // its days by each day's road km (m.km, from Field Expense Day) -- the
+      // same split the planner shows the rep; the last day takes the rounding
+      M.km = m.km || {}; M.carShare = {}; M.carSplit = {}; M.carTrip = {};
+      Object.keys(M.claims).forEach(function (n) {
+        var c = M.claims[n], trips = {};
+        c.lines.forEach(function (l) {
+          if (l.expense_type !== 'Fuel' && l.expense_type !== 'Toll') return;
+          var t = /^(\d{4}-\d{2}-\d{2})\.\.(\d{4}-\d{2}-\d{2})/.exec(String(l.custom_trip || ''));
+          if (!t) return;
+          var k = t[1] + '..' + t[2];
+          (trips[k] = trips[k] || { from: t[1], to: t[2], lines: [] }).lines.push(l);
+        });
+        Object.keys(trips).forEach(function (k) {
+          var t = trips[k], total = 0, days = [], all = 0;
+          t.lines.forEach(function (l) { total += eff(l); });
+          for (var dt = new Date(t.from + 'T00:00:00Z'); ; dt.setUTCDate(dt.getUTCDate() + 1)) {
+            var iso = dt.toISOString().slice(0, 10);
+            if (iso > t.to) break;
+            if (Object.prototype.hasOwnProperty.call(M.km, c.employee + '|' + iso)) days.push(iso);
+          }
+          if (!days.length) return;   // no day km: the bills stay on their own dates
+          t.lines.forEach(function (l) { M.carSplit[l.name] = 1; });
+          days.forEach(function (iso) { all += M.km[c.employee + '|' + iso] || 0; });
+          var left = Math.round(total);
+          days.forEach(function (iso, i) {
+            var w = M.km[c.employee + '|' + iso] || 0;
+            var share = i === days.length - 1 ? left : all > 0 ? Math.round((total * w) / all) : Math.round(total / days.length);
+            left -= share;
+            var key = c.employee + '|' + iso;
+            M.carShare[key] = (M.carShare[key] || 0) + share;
+            M.carTrip[key] = { total: Math.round(total), days: days.length, km: Math.round(w * 10) / 10 };
+          });
+        });
+      });
       M.on = true;
       M.rev++;
       M.worked = {};
@@ -153,9 +188,21 @@
   };
   /* the day's claim lines, summed: claimed, final (after adjustments), TA / DA
      parts, bills -- against what the dashboard worked out for the day */
-  function sums(lines) {
+  function sums(lines, key) {
     var o = { claimed: 0, fin: 0, ta: 0, da: 0, adj: 0, bills: 0, stayFood: 0, car: 0, hand: 0, flag: 0, unchecked: 0 };
+    // the day's share of the trip's fuel, in place of the bills on their own dates
+    var share = key && M.carShare ? M.carShare[key] || 0 : 0;
+    if (share) { o.claimed += share; o.fin += share; o.ta += share; o.car += share; }
     lines.forEach(function (l) {
+      // a whole claim (no day) keeps every line; one day swaps the fuel bills for its share
+      if (key && M.carSplit && M.carSplit[l.name]) {
+        // its bill and check still count on the day it is dated
+        if (l.custom_bill) o.bills++;
+        if (isHand(l)) o.hand++;
+        else if (l.custom_bill && !l.custom_ai_reason) o.unchecked++;
+        else if (l.custom_bill && Number(l.custom_ai_score) < 90) o.flag++;
+        return;
+      }
       var a = Number(l.amount) || 0;
       o.claimed += a; o.fin += eff(l);
       if (TA_TYPES[l.expense_type]) o.ta += a; else o.da += a;
@@ -178,9 +225,12 @@
      finalised claims are in M.byDay. -> { ta, da, bills } | null */
   M.dayPaid = function (emp, date, ta, da) {
     var d = M.byDay[emp + '|' + date];
-    if (!d || !d.lines.length) return null;
-    var o = { ta: 0, da: 0, bills: 0 };
-    d.lines.forEach(function (l) {
+    var share = M.carShare ? M.carShare[emp + '|' + date] || 0 : 0;
+    if ((!d || !d.lines.length) && !share) return null;
+    // a day with only its fuel share keeps its own worked-out DA
+    var o = { ta: share, da: d && d.lines.length ? 0 : Number(da) || 0, bills: 0 };
+    (d ? d.lines : []).forEach(function (l) {
+      if (M.carSplit && M.carSplit[l.name]) return;
       var a = eff(l);
       if (TA_TYPES[l.expense_type]) o.ta += a; else o.da += a;
       if (l.expense_type === 'Stay' || l.expense_type === 'Food') o.bills += a;
@@ -193,6 +243,23 @@
   var workedOf = function (r) {
     var w = M.worked[r.emp + '|' + r.date];
     return w ? { ta: w.ta, da: w.da } : { ta: Number(r.taA) || 0, da: Number(r.daA) || 0 };
+  };
+
+  /* who changed a line: the reporting officer on the approvals page (the
+     claim's own approver), or the final check here (13 Nov 2026) */
+  var adjWho = function (l, c) {
+    var name = esc(M.names[l.custom_adjusted_by] || l.custom_adjusted_by || '');
+    return c && l.custom_adjusted_by && l.custom_adjusted_by === c.expense_approver
+      ? 'Changed by the reporting officer' + (name ? ' (' + name + ')' : '')
+      : 'Adjusted on the final check' + (name ? ' by ' + name : '');
+  };
+  // the employee's claim that holds own-car lines, for a day with only its fuel share
+  var carClaimOf = function (emp) {
+    var cs = M.byEmp[emp] || [];
+    for (var i = 0; i < cs.length; i++) {
+      if (cs[i].lines.some(function (l) { return M.carSplit && M.carSplit[l.name]; })) return cs[i];
+    }
+    return cs[0] || null;
   };
 
   /* why the claim differs from the worked-out day, in words */
@@ -246,9 +313,10 @@
      risk, ONE Check button, and one short line under it */
   M.cell = function (r) {
     var td = '<td style="padding:6px 10px;border-bottom:1px solid var(--surface-2);text-align:right;white-space:nowrap;vertical-align:middle">';
-    var d = M.byDay[r.emp + '|' + r.date];
-    if (!d) return td + '<span style="color:var(--ink-4)">—</span></td>';
-    var x = sums(d.lines);
+    var key = r.emp + '|' + r.date;
+    var d = M.byDay[key] || (M.carShare && M.carShare[key] ? { claim: carClaimOf(r.emp), lines: [] } : null);
+    if (!d || !d.claim) return td + '<span style="color:var(--ink-4)">—</span></td>';
+    var x = sums(d.lines, key);
     var amount = x.adj
       ? '<s style="color:var(--ink-3);font-weight:400">' + inr(x.claimed) + '</s> <b style="color:var(--warn, #b45309)">' + inr(x.fin) + '</b>'
       : '<b style="font-size:13.5px">' + inr(x.claimed) + '</b>';
@@ -274,9 +342,11 @@
   /* the claim, inside the opened day: a clear header, three figures, then
      every line -- what it is, its detail, its bill and check, any adjustment */
   M.panel = function (r) {
-    var d = M.byDay[r.emp + '|' + r.date];
-    if (!d) return '';
-    var c = d.claim, x = sums(d.lines);
+    var key = r.emp + '|' + r.date;
+    var d = M.byDay[key] || (M.carShare && M.carShare[key] ? { claim: carClaimOf(r.emp), lines: [] } : null);
+    if (!d || !d.claim) return '';
+    var c = d.claim, x = sums(d.lines, key);
+    var ct = M.carTrip && M.carTrip[key];
     var st = STATE[c.workflow_state] || [c.workflow_state, 'var(--ink-3)'];
     var w0 = workedOf(r);
     var cal = w0.ta + w0.da;
@@ -307,12 +377,21 @@
             (hand ? (hand.proof ? '<a href="' + esc(hand.proof) + '" target="_blank" rel="noopener" style="font-weight:700">Payment proof</a>' : '<b style="color:#b42318">no payment proof</b>') : '') +
           '</div>' +
           (hand ? '<div style="font-size:11.5px;margin-top:3px;color:#d97706">Rep&rsquo;s reason: <i>&ldquo;' + esc(hand.why || 'none given') + '&rdquo;</i></div>' : '') +
-          (l.custom_adjusted ? '<div style="font-size:11.5px;margin-top:3px;color:var(--warn, #b45309)">Adjusted ' + inr(l.amount) + ' → ' + inr(l.custom_adjusted_amount) + ' by ' + esc(M.names[l.custom_adjusted_by] || l.custom_adjusted_by || '') + ' — “' + esc(l.custom_adjust_reason || '') + '”</div>' : '') +
+          (l.custom_adjusted ? '<div style="font-size:11.5px;margin-top:3px;color:var(--warn, #b45309)">' + adjWho(l, c) + ' ' + inr(l.amount) + ' → ' + inr(l.custom_adjusted_amount) + ' — “' + esc(l.custom_adjust_reason || '') + '”</div>' : '') +
+          (M.carSplit && M.carSplit[l.name] ? '<div style="font-size:11.5px;margin-top:3px;color:var(--ink-3)">Spread over the trip&rsquo;s days by km — see each day&rsquo;s own-car share</div>' : '') +
         '</div>' +
         '<div style="text-align:right;white-space:nowrap;font-size:13.5px;font-weight:700">' +
           (l.custom_adjusted ? '<s style="color:var(--ink-3);font-weight:400;font-size:12px">' + inr(l.amount) + '</s> ' + inr(l.custom_adjusted_amount) : inr(l.amount)) + '</div>' +
         '</div>';
     }).join('');
+    // the day's share of the trip's own-car fuel, as one line
+    if (ct && M.carShare[key]) {
+      rows = '<div style="display:grid;grid-template-columns:64px minmax(0,1fr) auto;gap:12px;align-items:start;padding:10px 0;' + (rows ? 'border-bottom:1px solid var(--line);' : '') + '">' +
+        '<span style="text-align:center;font-size:11px;font-weight:700;padding:2px 0;border-radius:5px;color:#fff;background:' + TYPE_C.Fuel + '">Car</span>' +
+        '<div style="min-width:0"><div style="font-size:13px;font-weight:600">Own car · this day&rsquo;s share of the fuel</div>' +
+        '<div style="font-size:11.5px;color:var(--ink-3);margin-top:2px">' + ct.km + ' km by road today · ' + inr(ct.total) + ' fuel for the trip, split over ' + ct.days + ' day' + (ct.days > 1 ? 's' : '') + ' by km</div></div>' +
+        '<div style="text-align:right;white-space:nowrap;font-size:13.5px;font-weight:700">' + inr(M.carShare[key]) + '</div></div>' + rows;
+    }
     return '<div style="margin-top:12px;border:1px solid var(--line);border-left:3px solid var(--accent);border-radius:10px;padding:12px 14px;background:var(--surface)">' +
       '<div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">' +
         '<span style="font-size:10.5px;letter-spacing:.06em;text-transform:uppercase;color:var(--ink-3)">Planner claim</span>' +
@@ -397,7 +476,7 @@
         '</tr>';
     }).join('');
     var prev = d.lines.filter(function (l) { return l.custom_adjusted; }).map(function (l) {
-      return esc(l.expense_type) + ': ' + inr(l.amount) + ' → ' + inr(l.custom_adjusted_amount) + ' — ' + esc(l.custom_adjust_reason || '') + ' (' + esc(M.names[l.custom_adjusted_by] || l.custom_adjusted_by || '') + ')';
+      return esc(l.expense_type) + ': ' + inr(l.amount) + ' → ' + inr(l.custom_adjusted_amount) + ' — ' + esc(l.custom_adjust_reason || '') + ' (' + adjWho(l, c) + ')';
     }).join('<br>');
     var o = overlay(
       '<div style="display:flex;align-items:baseline;gap:8px;margin-bottom:8px"><b style="font-size:15px">' + esc(c.employee_name) + ' · ' + esc(key.split('|')[1]) + '</b>' +

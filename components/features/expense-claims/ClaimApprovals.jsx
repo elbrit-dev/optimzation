@@ -625,7 +625,8 @@ function FieldClaimPanel({ conn, claim: c, canAct, history, desk, picked, canPic
             claim={c}
             canAct={canAct && !busy}
             desk={desk}
-            open={openOf(`r:${c.id}:${t.key}`, trips.length === 1)}
+            // every trip opens by itself, so its days are read without a click (13 Nov 2026)
+            open={openOf(`r:${c.id}:${t.key}`, true)}
             onToggle={() => toggle(`r:${c.id}:${t.key}`)}
             onDecide={onDecide}
             onAdjust={onAdjust}
@@ -643,7 +644,7 @@ function FieldClaimPanel({ conn, claim: c, canAct, history, desk, picked, canPic
             ? `Waiting on ${c.approver || "the reporting officer"}.`
             : n.rejected
               ? `${first} gets the claim back with your reasons; the approved trips stay approved, so next time you only check what changed.`
-              : `After you approve, it goes for the final check (Accounts / the CEO), then into the ${payrollMonth()} payroll.`}
+              : ""}
         </span>
         <button type="button" className="ec-ghost" onClick={onFull} style={{ ...btn.ghost, height: 38, fontSize: 13 }}>Full view</button>
         {canAct && !confirming && (
@@ -1092,7 +1093,7 @@ function CarSheet({ conn, req: r, desk, onClose, onDone }) {
           {row("Distance", `${r.km} km`)}
           {row("Fuel price", r.km > 0 && r.fuelCost > 0 ? `₹${Math.round((r.fuelCost * 15) / r.km)}/l` : "—")}
           {row("Fuel estimate", `${inr(r.fuelCost)} · ${r.km} km ÷ 15 km/l`)}
-          {row("Toll estimate", inr(r.tolls))}
+          {r.tolls > 0 && row("Toll estimate (asked before)", inr(r.tolls))}
           {row("Suggested", inr(r.suggested))}
           {row("Asked", inr(r.asked))}
         </div>
@@ -1103,7 +1104,7 @@ function CarSheet({ conn, req: r, desk, onClose, onDone }) {
               <span style={{ color: "#8a93a3" }}>₹</span>
               <input inputMode="numeric" value={amount} onChange={(e) => setAmount(e.target.value.replace(/[^\d]/g, ""))} aria-label="Amount approved" style={{ flex: 1, minWidth: 0, border: 0, outline: 0, background: "transparent", fontSize: 16, fontWeight: 700, ...tabNum }} />
             </span>
-            <span style={{ fontSize: 12, color: "#5b6576" }}>Fuel and toll bills are paid as billed up to this amount; with no bills the normal fare is paid.</span>
+            <span style={{ fontSize: 12, color: "#5b6576" }}>Fuel bills are paid as billed up to this amount (tolls are not paid); with no bill the normal fare is paid.</span>
           </label>
         )}
         <label style={{ ...card, padding: 14, display: "flex", flexDirection: "column", gap: 6 }}>

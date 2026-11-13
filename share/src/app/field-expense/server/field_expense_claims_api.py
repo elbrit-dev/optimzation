@@ -66,7 +66,36 @@ if action == "month" or action == "mine":
     for c in claims:
         if c.custom_finalised_by and not who.get(c.custom_finalised_by):
             who[c.custom_finalised_by] = frappe.db.get_value("User", c.custom_finalised_by, "full_name") or c.custom_finalised_by
-    frappe.response["message"] = {"month": month, "verifier": verifier, "claims": claims, "lines": lines, "names": who}
+    # 13 Nov 2026: each payable day's road km (its Field Expense Day legs: a
+    # both-ways run twice, a flown leg not at all) for the employees with
+    # own-car lines -- the dashboard spreads a trip's fuel over its days by
+    # it, exactly as the planner shows the rep
+    km = {}
+    car_emps = []
+    for l in lines:
+        if l.expense_type in ["Fuel", "Toll"]:
+            for c in claims:
+                if c.name == l.parent and c.employee not in car_emps:
+                    car_emps.append(c.employee)
+    if car_emps:
+        first = month + "-01"
+        last = str(frappe.utils.get_last_day(first))
+        for d in frappe.get_all("Field Expense Day", filters={"employee": ["in", car_emps], "date": ["between", [first, last]]}, fields=["employee", "date", "detail_json"], limit_page_length=0):
+            det = {}
+            if d.detail_json:
+                det = json.loads(d.detail_json) or {}
+            if not det.get("payable"):
+                continue
+            w = 0
+            for g in det.get("legs") or []:
+                if g.get("flown"):
+                    continue
+                k = g.get("rounded_km")
+                if k is None:
+                    k = g.get("km")
+                w = w + frappe.utils.flt(k) * (2 if g.get("both_ways") else 1)
+            km[d.employee + "|" + str(d.date)[:10]] = w
+    frappe.response["message"] = {"month": month, "verifier": verifier, "claims": claims, "lines": lines, "names": who, "km": km}
 
 elif action == "adjust":
     if not verifier:
@@ -95,7 +124,7 @@ elif action == "adjust":
             continue
         changes.append({"r": r, "amt": amt, "was": was})
     if changes and not reason:
-        frappe.throw("Say why the amount is changed -- the rep sees this.")
+        frappe.throw("Say why the amount is changed -- the employee sees this.")
     now = frappe.utils.now()
     text = []
     for ch in changes:

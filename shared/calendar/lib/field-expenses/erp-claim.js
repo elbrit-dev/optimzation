@@ -136,7 +136,6 @@ export function tripClaimRows(trip, claim, calc, data) {
   if (calc.carBilled) {
     const bills = [
       ...(claim.fuels || []).map((b) => ({ b, type: "Fuel", note: `Own car · fuel · ${trip.name}` })),
-      ...(claim.tolls || []).map((b) => ({ b, type: "Toll", note: `Own car · toll · ${trip.name}` })),
     ];
     rows.push(...billRows(bills, calc.ta, `capped at the approved ₹${calc.cap}`));
   }

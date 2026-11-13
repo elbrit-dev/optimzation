@@ -14,7 +14,7 @@ import { cn } from "@calendar/lib/utils";
 import { ModalTitle } from "@calendar/components/ui/responsive-modal";
 import { useFieldExpenses } from "@calendar/components/calendar/field/field-context";
 import { inr, rangeLabel } from "@calendar/lib/field-expenses/field-days";
-import { FUEL_PRICE, MILEAGE_KM_PER_L, fuelCost, tollEstimate, tripRoute } from "@calendar/lib/field-expenses/claim-rules";
+import { FUEL_PRICE, MILEAGE_KM_PER_L, fuelCost, tripRoute } from "@calendar/lib/field-expenses/claim-rules";
 
 const MONTH_LONG = ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"];
 const monthName = (ym) => MONTH_LONG[Number(ym.slice(5, 7)) - 1];
@@ -368,7 +368,7 @@ export function CarRequestSheet({ opts }) {
     km: t.km,
     kmKnown: true,
     nights: t.nights,
-    tolls: tollEstimate(t.km),
+    tolls: 0,
     travelled: true,
     // a trip already asked for, or already claimed, is listed but not pickable
     blocked: request
@@ -408,9 +408,9 @@ export function CarRequestSheet({ opts }) {
 
   const planKm = plan && plan.kmKnown && plan.km ? plan.km : null;
   const km = plan ? planKm || Math.max(0, Math.round(Number(kmIn) || 0)) : 0;
-  const tolls = plan ? (planKm && plan.tolls != null ? plan.tolls : tollEstimate(km)) : 0;
+  const tolls = 0; // not paid (13 Nov 2026)
   const fuelAmt = fuelCost(km, fuel);
-  const sugg = fuelAmt + tolls;
+  const sugg = fuelAmt;
   const ask = askIn != null ? Math.max(0, Math.round(Number(askIn) || 0)) : sugg;
   const ok = !!plan && km > 0 && ask > 0;
 
@@ -447,7 +447,7 @@ export function CarRequestSheet({ opts }) {
         {travelled ? `Request car · ${travelled.name}` : picking ? "Request car · pick a trip" : "Own car for a planned trip"}
       </ModalTitle>
       <Note>
-        {`Until ${f.carApprover} approves, the trip is paid the normal allowance. Once approved, fuel and tolls replace the fare — scan them in the claim.`}
+        {`Until ${f.carApprover} approves, the trip is paid the normal allowance. Once approved, the fuel bills replace the fare — scan them in the claim. Tolls are not paid.`}
       </Note>
 
       <div className="flex flex-col gap-1.5">
@@ -457,7 +457,6 @@ export function CarRequestSheet({ opts }) {
             const b = dateBlock(p.from);
             const on = p.id === planId;
             const pKm = (p.kmKnown && p.km) || (on ? km : 0);
-            const pTolls = p.kmKnown && p.tolls != null ? p.tolls : tollEstimate(pKm);
             return (
               <button
                 key={p.id}
@@ -478,7 +477,7 @@ export function CarRequestSheet({ opts }) {
                 <span className="min-w-0">
                   <b className="block truncate text-[13.5px] font-bold text-gray-900">{p.travelled ? (travelled ? `${p.name} · this trip` : p.name) : p.places}</b>
                   <small className="block text-[11.5px] leading-snug text-gray-500">
-                    {rangeLabel(p.from, p.to)} · {pKm ? `~${pKm} km · tolls ${inr(pTolls)}` : "km to enter"}
+                    {rangeLabel(p.from, p.to)} · {pKm ? `~${pKm} km` : "km to enter"}
                     {p.nights ? ` · ${p.nights} night${p.nights > 1 ? "s" : ""}` : ""}
                     {p.travelled ? " · already travelled" : ""}
                   </small>
@@ -489,7 +488,7 @@ export function CarRequestSheet({ opts }) {
                     p.blocked ? "bg-gray-100 text-gray-600" : "bg-blue-50 text-blue-800"
                   )}
                 >
-                  {p.blocked || (pKm ? `up to ${inr(fuelCost(pKm, fuel) + pTolls)}` : "—")}
+                  {p.blocked || (pKm ? `up to ${inr(fuelCost(pKm, fuel))}` : "—")}
                 </span>
               </button>
             );
@@ -502,7 +501,7 @@ export function CarRequestSheet({ opts }) {
           </p>
         )}
         <Note icon={Route}>
-          Suggested = km ÷ {MILEAGE_KM_PER_L} km/l × fuel price (fixed) + tolls for the route. Edit the ask before you send; the manager approves the asked amount.
+          Suggested = km ÷ {MILEAGE_KM_PER_L} km/l × fuel price (fixed) — fuel only, tolls are not paid. Edit the ask before you send; the manager approves the asked amount.
         </Note>
       </div>
 
@@ -525,10 +524,6 @@ export function CarRequestSheet({ opts }) {
               Fuel · {km} km ÷ {MILEAGE_KM_PER_L} km/l × ₹{FUEL_PRICE[fuel]}
             </span>
             <b className="text-gray-900">{inr(fuelAmt)}</b>
-          </div>
-          <div className="flex justify-between gap-2 py-0.5">
-            <span>Tolls on this route</span>
-            <b className="text-gray-900">{inr(tolls)}</b>
           </div>
           <div className="mt-1 flex justify-between gap-2 border-t border-dashed border-gray-300 pt-1.5 font-bold text-gray-900">
             <span>Suggested</span>
@@ -604,7 +599,7 @@ export function RequestSheet({ req }) {
         {row("Estimated", `~${req.km} km`)}
         {row("Fuel price", `₹${FUEL_PRICE.Petrol}/l`)}
         {row("Fuel", `${inr(req.fuelCost ?? fuelCost(req.km))} · ${req.km} km ÷ ${MILEAGE_KM_PER_L} km/l × ₹${FUEL_PRICE.Petrol}`)}
-        {row("Tolls", inr(req.tolls || 0))}
+        {req.tolls > 0 && row("Tolls (asked before)", inr(req.tolls))}
         {row("Suggested", inr((req.fuelCost ?? fuelCost(req.km)) + (req.tolls || 0)))}
         <div className="flex justify-between gap-3 py-2 text-[14px] font-bold text-gray-900">
           <span>{ok ? "Approved up to" : req.status === "rejected" ? "Not approved · asked" : "Asked"}</span>
@@ -615,7 +610,7 @@ export function RequestSheet({ req }) {
       </div>
       <Note>
         {ok
-          ? "After the trip, scan the fuel and toll bills on the trip itself — they replace the fare for all its days. No bills: the fare is paid."
+          ? "After the trip, scan the fuel bills on the trip itself — they replace the fare for all its days (split by km). No bill: the fare is paid. Tolls are not paid."
           : no
             ? "The trip is paid the normal fare. You can ask again from the trip."
             : `Until ${f.carApprover} approves, the trip is paid the normal allowance.`}

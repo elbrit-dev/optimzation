@@ -46,7 +46,7 @@ import {
   inr,
   rangeLabel,
 } from "@calendar/lib/field-expenses/field-days";
-import { FUEL_PRICE, MILEAGE_KM_PER_L, fuelCost, tollEstimate, tripRoute } from "@calendar/lib/field-expenses/claim-rules";
+import { FUEL_PRICE, MILEAGE_KM_PER_L, carDayShares, fuelCost, tripRoute } from "@calendar/lib/field-expenses/claim-rules";
 import { PREVIEW, STATUS_LABEL, canRecall, isLocked, statusKey } from "@calendar/lib/field-expenses/trip-claims-store";
 import { readTripBill } from "@calendar/lib/field-expenses/bill-reader";
 import { addTripToMonth, addTripsToMonth, monthWord, removeTripFromMonth, tripClaimRows } from "@calendar/lib/field-expenses/erp-claim";
@@ -159,16 +159,16 @@ export function FieldStrip() {
       {canOpen && f.stripOpen && (
         <>
           <div className="-mx-3 mt-2 flex gap-2 overflow-x-auto px-3 pb-1 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden" aria-label="Trips">
-            {/* HQ and EQ days with nothing to upload: ONE card, a date-wise list
-                inside (13 Nov 2026); outstation trips, and an EQ day once its
-                own car is approved (bills may follow), keep cards of their own */}
+            {/* HQ / EQ first, then the outstation trips by date (earliest first),
+                an EQ day with its own car after them, the month's summary last
+                (13 Nov 2026); each trip card says OS / EQ in its title */}
             {f.claimed.some(isLocalTrip) && <LocalCard items={f.claimed.filter(isLocalTrip)} onOpen={f.openLocal} />}
-            {f.claimed
-              .filter((x) => !isLocalTrip(x))
-              .sort((a, b) => rank(a.claim) - rank(b.claim) || b.trip.from.localeCompare(a.trip.from))
-              .map((x) => (
-                <TripCard key={x.trip.id} item={x} canCar={f.canCar} onOpen={() => f.openTrip(x.trip.id)} onRequestOpen={(id) => f.openRequest(id)} />
-              ))}
+            {[(x) => x.trip.kind === "tour", (x) => x.trip.kind !== "tour"].flatMap((pick) =>
+              f.claimed
+                .filter((x) => !isLocalTrip(x) && pick(x))
+                .sort((p, q) => p.trip.from.localeCompare(q.trip.from))
+                .map((x) => <TripCard key={x.trip.id} item={x} canCar={f.canCar} onOpen={() => f.openTrip(x.trip.id)} onRequestOpen={(id) => f.openRequest(id)} />)
+            )}
             <MonthCard month={m} stats={f.stats} claimed={f.claimed} pulledAt={f.data?.pulledAt} onOpen={f.openKpi} />
           </div>
           {PREVIEW && (
@@ -387,7 +387,12 @@ function TripCard({ item, canCar, onOpen, onRequestOpen }) {
     >
     <button type="button" onClick={onOpen} title={`${trip.name} · ${meta}`} className="flex min-w-0 flex-col gap-0.5 px-2.5 pb-1.5 pt-2 text-left">
       <span className="flex min-w-0 items-center gap-1.5">
-        <b className="min-w-0 flex-1 truncate text-[13px] font-bold text-gray-900">{trip.name}</b>
+        <span className="flex min-w-0 flex-1 items-center gap-1">
+          <span className={cn("shrink-0 rounded px-1 text-[9.5px] font-extrabold", trip.kind === "tour" ? "bg-indigo-50 text-indigo-800" : "bg-blue-50 text-blue-800")}>
+            {trip.kind === "tour" ? "OS" : trip.kind === "hq" ? "HQ" : "EQ"}
+          </span>
+          <b className="min-w-0 truncate text-[13px] font-bold text-gray-900">{trip.name}</b>
+        </span>
         <StatusPill claim={claim} className="px-1.5 text-[9.5px]" />
       </span>
       <span className="block truncate text-[11px] text-gray-500">{meta}</span>
@@ -652,8 +657,8 @@ function CarMode({ trip, calc, editable, tab, setTab }) {
   const [askIn, setAskIn] = useState(null);
   const [busy, setBusy] = useState(false);
   const km = trip.km || 0;
-  const tolls = tollEstimate(km);
-  const sugg = fuelCost(km, fuel) + tolls;
+  const tolls = 0; // not paid (13 Nov 2026)
+  const sugg = fuelCost(km, fuel);
   const ask = askIn != null ? Math.max(0, Math.round(Number(askIn) || 0)) : sugg;
 
   const act = async (fn, ok) => {
@@ -699,7 +704,7 @@ function CarMode({ trip, calc, editable, tab, setTab }) {
             : `Own car requested · ${inr(req.ask)} · waiting for ${f.carApprover}`}
         </span>
         <span className="text-[12.5px] leading-snug text-gray-600">
-          {ok ? "Fuel / toll bills replace the fare · no bills, the fare is paid." : "Fare until approved · then upload fuel / toll bills."}
+          {ok ? "Fuel bills replace the fare · no bill, the fare is paid." : "Fare until approved · then upload the fuel bills."}
           {ok && req.note ? <span className="mt-0.5 block italic text-gray-500">{f.carApprover.replace(/^the /, "")}: &ldquo;{req.note}&rdquo;</span> : null}
         </span>
         {editable && (
@@ -735,7 +740,7 @@ function CarMode({ trip, calc, editable, tab, setTab }) {
       <span role="radiogroup" aria-label="How did you travel" className="grid grid-cols-2 gap-1 rounded-2xl bg-gray-100 p-1">
         {[
           [false, "Normal TA · fare"],
-          [true, "Own car · fuel + toll"],
+          [true, "Own car · fuel"],
         ].map(([v, label]) => (
           <button
             key={label}
@@ -753,7 +758,7 @@ function CarMode({ trip, calc, editable, tab, setTab }) {
       {on && !live && rejected}
       {!on && live && (
         <span className="text-[12px] leading-snug text-gray-500">
-          {ok ? "Own car approved for this trip — open Own car to upload the fuel and toll bills." : "Own car requested — open Own car to see it."}
+          {ok ? "Own car approved for this trip — open Own car to upload the fuel bills." : "Own car requested — open Own car to see it."}
         </span>
       )}
       {on && !live && (
@@ -765,10 +770,6 @@ function CarMode({ trip, calc, editable, tab, setTab }) {
           <span className="flex justify-between gap-2 text-[12.5px] text-gray-600">
             <span>Fuel · {km} km ÷ {MILEAGE_KM_PER_L} km/l × ₹{FUEL_PRICE[fuel]}</span>
             <b className="text-gray-900">{inr(fuelCost(km, fuel))}</b>
-          </span>
-          <span className="flex justify-between gap-2 text-[12.5px] text-gray-600">
-            <span>Tolls on this route</span>
-            <b className="text-gray-900">{inr(tolls)}</b>
           </span>
           <span className="flex justify-between gap-2 border-t border-dashed border-gray-300 pt-1.5 text-[12.5px] font-bold text-gray-900">
             <span>Suggested</span>
@@ -857,7 +858,12 @@ function TripSheet({ item }) {
           return;
         }
         // the one stay-and-food upload: the bill says which it is
-        const slot = kind === "da" ? (r.bill.kind === "Stay" ? "stays" : "foods") : kind === "car" ? (r.bill.kind === "Toll" ? "tolls" : "fuels") : kind;
+        // tolls are not paid (13 Nov 2026): a toll receipt is refused
+        if (kind === "car" && r.bill.kind === "Toll") {
+          toast.error("Tolls are not paid — upload the fuel bill only.", { id: tid, duration: 6000 });
+          return;
+        }
+        const slot = kind === "da" ? (r.bill.kind === "Stay" ? "stays" : "foods") : kind === "car" ? "fuels" : kind;
         const id = await f.actions.addBill(trip.id, slot, r.bill);
         if (alive.current) setEditing({ kind: slot, id });
         const b = r.bill;
@@ -961,11 +967,13 @@ function TripSheet({ item }) {
                     ? `In ${mon} claim`
                     : "Claimed · in payroll";
   const sectionLabel = "text-[13px] font-bold text-gray-500";
+  // the own car's TA, split over the days by the km driven (13 Nov 2026)
+  const carShares = calc.carBilled ? carDayShares(trip, calc.taClaimed ?? calc.ta) : null;
   // Trip cost's words: why the TA and the DA are what they are
   const paidDays = trip.days.filter((d) => d.payable).length;
   const taBasis = calc.car
     ? calc.carBilled
-      ? `own car · fuel ${inr(calc.fuel)} + toll ${inr(calc.tolls)}${calc.capped ? ` · capped at ${inr(calc.cap)}` : ""}`
+      ? `own car · fuel bills ${inr(calc.fuel)}${calc.capped ? ` · capped at ${inr(calc.cap)}` : ""} · split by km`
       : "own car · fare until the bills are in"
     : trip.kind === "hq"
       ? "no travel on an HQ day"
@@ -982,7 +990,7 @@ function TripSheet({ item }) {
         : `ex-HQ day${paidDays > 1 ? `s · ${paidDays}` : ""} · return to HQ`;
   const taNote = calc.car
     ? !calc.carBilled
-      ? `No fuel / toll bill yet · paid the fare ${inr(calc.fare)} · bills pay up to ${inr(calc.cap)}.`
+      ? `No fuel bill yet · paid the fare ${inr(calc.fare)} · fuel bills pay up to ${inr(calc.cap)}.`
       : null
     : calc.carPending
       ? "Car requested · paid the fare until the GM approves."
@@ -1030,7 +1038,7 @@ function TripSheet({ item }) {
                 <ShieldCheck className="mt-0.5 h-4 w-4 shrink-0 text-gray-500" aria-hidden />
                 <span>
                   {calc.carApproved ? "approved up to" : "allowed up to"} <b className="text-gray-900">{inr(calc.cap)}</b>
-                  {!req?.ask && ` · ${trip.km} km ÷ ${MILEAGE_KM_PER_L} km/l × ₹${FUEL_PRICE.Petrol} + tolls ${inr(calc.cap - Math.round((trip.km / MILEAGE_KM_PER_L) * FUEL_PRICE.Petrol))}`}
+                  {!req?.ask && ` · ${trip.km} km ÷ ${MILEAGE_KM_PER_L} km/l × ₹${FUEL_PRICE.Petrol}`}
                 </span>
               </span>
               <span className="mt-2 flex items-center gap-3">
@@ -1091,6 +1099,7 @@ function TripSheet({ item }) {
             last={i === trip.days.length - 1}
             multi={trip.days.length > 1}
             night={calc.nights.find((n) => n.date === d.date)}
+            carShare={carShares?.[d.date] || null}
             bills={calc.billsByDate?.[d.date] || null}
             stayOff={!!calc.stayOff?.[d.date]}
             billStrip={billView.strip(d.date)}
@@ -1274,11 +1283,11 @@ function TripSheet({ item }) {
             className="flex min-h-11 w-full items-center justify-center gap-2 rounded-2xl border-[1.5px] border-dashed border-blue-300 bg-blue-50 px-4 text-[14px] font-bold text-blue-700 active:bg-blue-100 disabled:border-gray-200 disabled:bg-gray-50 disabled:text-gray-400"
           >
             {reading.car ? <Loader2 className="h-4 w-4 animate-spin" aria-hidden /> : <Fuel className={cn("h-4 w-4", calc.carApproved ? "text-green-600" : "text-gray-400")} aria-hidden />}
-            {reading.car ? `Reading ${reading.car} bill${reading.car > 1 ? "s" : ""}… · add another` : "Upload fuel / toll bill"}
+            {reading.car ? `Reading ${reading.car} bill${reading.car > 1 ? "s" : ""}… · add another` : "Upload fuel bill"}
             {!calc.carApproved && <span className="text-[12px] font-semibold">· {calc.carPending ? `after ${f.carApprover.replace(/^the /, "")} approves` : "ask for the car first"}</span>}
             {calc.carApproved && calc.fuel + calc.tolls > 0 && !reading.car && (
               <span className="text-[12px] font-semibold text-blue-600">
-                · {(claim.fuels || []).length + (claim.tolls || []).length} added · {inr(calc.fuel + calc.tolls)}
+                · {(claim.fuels || []).length} added · {inr(calc.fuel)}
               </span>
             )}
           </button>
@@ -1395,7 +1404,7 @@ function MoneyRow({ label, amount, note, children }) {
   );
 }
 
-function TripDay({ row, data, car, last, multi, night, bills, stayOff, billStrip }) {
+function TripDay({ row, data, car, last, multi, night, bills, stayOff, billStrip, carShare }) {
   const d = new Date(row.date + "T00:00:00");
   const dow = ["SUN", "MON", "TUE", "WED", "THU", "FRI", "SAT"][d.getDay()];
   const stops = (row.route || []).map((s) => s.place).filter(Boolean);
@@ -1448,12 +1457,21 @@ function TripDay({ row, data, car, last, multi, night, bills, stayOff, billStrip
             ↓ back), then DA */}
         {row.payable ? (
           <div className="mt-1.5 flex flex-col gap-1 rounded-xl bg-gray-50 px-2.5 py-2">
-            {jr && (
-              <MoneyRow label="TA" amount={car ? null : row.journey.fare} note={car ? "by car" : null}>
-                {car ? <Car className="mr-1 inline h-3.5 w-3.5 align-[-2px]" aria-hidden /> : <TrainFront className="mr-1 inline h-3.5 w-3.5 align-[-2px]" aria-hidden />}
-                {jr.from} → {jr.to}
-                {jr.km != null ? ` · ${Math.round(jr.km)} km` : ""}
+            {car ? (
+              // the own car: one TA line, this day's share of the fuel by km
+              <MoneyRow label="TA" amount={carShare ? carShare.amount : null} note="fuel">
+                <Car className="mr-1 inline h-3.5 w-3.5 align-[-2px]" aria-hidden />
+                {jr ? `${jr.from} → ${jr.to} + local` : "Local"}
+                {carShare ? ` · ${carShare.km} km by car` : ""}
               </MoneyRow>
+            ) : (
+              jr && (
+                <MoneyRow label="TA" amount={row.journey.fare}>
+                  <TrainFront className="mr-1 inline h-3.5 w-3.5 align-[-2px]" aria-hidden />
+                  {jr.from} → {jr.to}
+                  {jr.km != null ? ` · ${Math.round(jr.km)} km` : ""}
+                </MoneyRow>
+              )
             )}
             {flownOnly && (
               <MoneyRow label="TA" amount={0}>
@@ -1461,11 +1479,7 @@ function TripDay({ row, data, car, last, multi, night, bills, stayOff, billStrip
                 {row.journey.from} → {row.journey.to} · flight
               </MoneyRow>
             )}
-            {car ? (
-              <MoneyRow label={jr ? "" : "TA"} amount={null} note="fuel + toll bills">
-                Own car{row.km != null ? ` · ${row.km} km` : ""}
-              </MoneyRow>
-            ) : byKm ? (
+            {car ? null : byKm ? (
               <MoneyRow label={jr || flownOnly ? "" : "TA"} amount={local}>
                 {row.journey ? "Local · " : ""}
                 <b className="font-bold text-gray-800">↑ {legKm} km ↓ {legKm} km</b> × ₹{perKm}
