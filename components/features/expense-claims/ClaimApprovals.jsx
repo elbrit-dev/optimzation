@@ -529,7 +529,7 @@ const handOf = (l) => {
   const note = String(l.note || "");
   const why = (note.match(/· handwritten: ([^·]*)/) || [])[1];
   const proof = (note.match(/· proof: (\S+)/) || [])[1];
-  return { why: why ? why.trim() : "", proof: proof || "" };
+  return { why: why ? why.trim() : "", proof: proof || "", cash: /· paid in cash/.test(note) };
 };
 const isHand = (l) => !!(l.bill && (/· handwritten: /.test(l.note || "") || /entered by hand/i.test(l.ai?.reason || "")));
 
@@ -546,7 +546,7 @@ function billsOf(t) {
   for (const l of t.lines) {
     if (!l.bill) continue;
     const h = handOf(l);
-    if (!m.has(l.bill)) m.set(l.bill, { url: l.bill, file: billFile(l.bill), type: l.type, dates: [], amount: 0, ai: l.ai, hand: isHand(l), why: h.why, proof: h.proof ? billFile(h.proof) : null });
+    if (!m.has(l.bill)) m.set(l.bill, { url: l.bill, file: billFile(l.bill), type: l.type, dates: [], amount: 0, ai: l.ai, hand: isHand(l), why: h.why, proof: h.proof ? billFile(h.proof) : null, cash: h.cash });
     const b = m.get(l.bill);
     b.dates.push(l.date);
     b.amount += l.amount;
@@ -829,7 +829,7 @@ function TripRow({ conn, trip: t, claim: c, canAct, desk, open, onToggle, onDeci
             <span key={b.url}>
               {b.type} · {b.dates.length > 1 ? spanLabel([...b.dates].sort()[0], [...b.dates].sort()[b.dates.length - 1]) : shortDate(b.dates[0])} · {inr(b.amount)}
               {b.why ? <> — <i>&ldquo;{b.why}&rdquo;</i></> : null}
-              {!b.proof && <b style={{ color: "#b42318" }}> · no payment proof added</b>}
+              {!b.proof && (b.cash ? <b style={{ color: "#344054" }}> · 💵 paid in cash</b> : <b style={{ color: "#b42318" }}> · no payment proof added</b>)}
             </span>
           ))}
           {confirmHand && canAct && t.decision === "pending" && (
@@ -882,8 +882,8 @@ function TripRow({ conn, trip: t, claim: c, canAct, desk, open, onToggle, onDeci
                     (b.proof ? (
                       <BillThumb key={`${b.url}-proof`} conn={conn} file={b.proof} w={92} h={112} caption="Payment proof" sub={`for the ${b.type.toLowerCase()} bill`} tone="#b54708" onOpen={() => onBill(b.proof, files)} />
                     ) : (
-                      <span key={`${b.url}-noproof`} style={{ flex: "none", width: 92, height: 112, borderRadius: 10, border: "1.5px dashed #fda29b", display: "grid", placeItems: "center", textAlign: "center", padding: 6, fontSize: 11, fontWeight: 700, color: "#b42318", background: "#fffbfa" }}>
-                        No payment proof
+                      <span key={`${b.url}-noproof`} style={{ flex: "none", width: 92, height: 112, borderRadius: 10, border: `1.5px dashed ${b.cash ? "#d0d5dd" : "#fda29b"}`, display: "grid", placeItems: "center", textAlign: "center", padding: 6, fontSize: 11, fontWeight: 700, color: b.cash ? "#344054" : "#b42318", background: b.cash ? "#f9fafb" : "#fffbfa" }}>
+                        {b.cash ? "💵 Paid in cash" : "No payment proof"}
                       </span>
                     )),
                 ];

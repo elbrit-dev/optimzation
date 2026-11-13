@@ -186,7 +186,9 @@ export function manualBillVerdict(entry, slot, trip) {
   // itself is checked by the server: a second file must come with it)
   const why = String(e.why || "").replace(/\s+/g, " ").trim().slice(0, 500);
   if (why.length < 5) return { ok: false, reason: "Say why you only have a handwritten bill." };
-  const base = { ok: true, manual: true, kind: e.kind, billed, vendor: String(e.vendor || "").trim().slice(0, 140) || null, billNo: null, why };
+  // 13 Nov 2026: the payment proof is REQUIRED (the server checks a second
+  // file came) -- unless it was paid in cash, which has none
+  const base = { ok: true, manual: true, kind: e.kind, billed, vendor: String(e.vendor || "").trim().slice(0, 140) || null, billNo: null, why, cash: !!e.cash };
   if (e.kind === "Stay") {
     const checkIn = ISO.test(String(e.checkIn || "")) ? e.checkIn : null;
     let checkOut = ISO.test(String(e.checkOut || "")) ? e.checkOut : null;

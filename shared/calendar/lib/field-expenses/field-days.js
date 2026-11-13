@@ -130,10 +130,15 @@ export function shapeDay(d) {
   const payable = !!x.payable;
   // an HQ day that went ex-station (HQ-EQ), or a day in another HQ for a role
   // without outstation pay (EQ-HQ / EQ-EQ), is paid as an ex-HQ day out and back
-  const dayType = x.hqEq || raw === "EQ-HQ" || raw === "EQ-EQ" ? "EQ" : raw;
   const legs = x.legs || [];
   const local = legs.find((l) => l.leg === "Local") || null;
   const travel = legs.filter((l) => l.leg !== "Local");
+  // a meeting day in another HQ with no BE under him (the dashboard's meetEq,
+  // 12 Nov 2026) is stored as EQ-HQ but paid as an OUTSTATION trip: fare out
+  // and home, outstation DA. It is the EQ-HQ day that carries a journey (a
+  // plain EQ-HQ day is never charged one) and an outstation rate.
+  const meetAway = raw === "EQ-HQ" && !x.hqEq && travel.length > 0 && Number(d.os_da_full || x.osDaFull || 0) > 0;
+  const dayType = meetAway ? "OS-HQ" : x.hqEq || raw === "EQ-HQ" || raw === "EQ-EQ" ? "EQ" : raw;
   // each leg between towns, flown or not (13 Nov 2026): a flown leg is the
   // company's ticket -- no TA, and not part of the road km
   const travelLegs = travel.map((l) => ({
@@ -175,7 +180,8 @@ export function shapeDay(d) {
     ta: Math.round(d.ta || 0),
     da: Math.round(d.da || 0),
     journey,
-    awayHq: away && local ? strip(local.from_place) || null : null,
+    // the HQ he was away in; a meeting day away names the meeting's HQ
+    awayHq: away && local ? strip(local.from_place) || null : meetAway ? strip(x.osHq) || null : null,
     farthest: local && strip(local.to_place) !== strip(local.from_place) ? strip(local.to_place) : null,
     chart: local ? { town: strip(local.to_place) || null, km: local.rounded_km ?? local.km ?? null, hq: null } : null,
     route: routeStops(x.route_text || d.route),
@@ -193,6 +199,7 @@ export function shapeDay(d) {
     // the day's visits by town, and any other work (a meeting) -- 13 Nov 2026
     visitPlaces: placesOf(x.visitList),
     otherWork: (x.others || []).map((o) => [o?.[1], o?.[2]].filter(Boolean).join(" · ").trim()).filter(Boolean),
+    meetAway,
   };
 }
 

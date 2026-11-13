@@ -984,7 +984,9 @@ function TripSheet({ item }) {
   const daBasis = calc.pool?.on
     ? `${nN} outstation day${nN > 1 ? "s" : ""} · stay + food bills`
     : nN
-      ? `${nN} outstation day${nN > 1 ? "s" : ""} at 50 % · no bill`
+      ? calc.fullNoBill
+        ? `${nN} outstation day${nN > 1 ? "s" : ""} · 100 % (no bill needed)`
+        : `${nN} outstation day${nN > 1 ? "s" : ""}${calc.missingStayBills ? ` · ${calc.missingStayBills} at 50 % (no bill)` : ""}`
       : trip.kind === "hq"
         ? `${paidDays} HQ day${paidDays > 1 ? "s" : ""}`
         : `ex-HQ day${paidDays > 1 ? `s · ${paidDays}` : ""} · return to HQ`;
@@ -1174,10 +1176,10 @@ function TripSheet({ item }) {
         {(claim.changes || []).length > 0 && (
           <div className="mt-1.5 flex flex-col gap-1 rounded-2xl bg-amber-50 px-3.5 py-2.5 text-[12.5px] leading-snug text-amber-900">
             <b className="text-[11px] font-extrabold uppercase tracking-wider text-amber-700">
-              {claim.changes.every((a) => f.approverId && a.by.toLowerCase() === f.approverId) ? `Changed by ${f.manager}` : "Changed after you sent it"}
+              {claim.changes.every((a) => a.step === "officer" || (a.step !== "final" && f.approverId && a.by.toLowerCase() === f.approverId)) ? `Changed by ${f.manager}` : "Changed after you sent it"}
             </b>
             {claim.changes.map((a) => {
-              const officer = f.approverId && a.by.toLowerCase() === f.approverId;
+              const officer = a.step === "officer" || (a.step !== "final" && f.approverId && a.by.toLowerCase() === f.approverId);
               const named = (mc?.adjustments || []).find((x) => x.date === a.date && x.type === a.type)?.by;
               return (
                 <span key={a.id}>
@@ -1292,7 +1294,7 @@ function TripSheet({ item }) {
             )}
           </button>
         )}
-        {editable && !carTab && calc.billsAllowed && calc.nights.length > 0 && !confirming && (
+        {editable && !carTab && calc.billsAllowed && calc.nights.length > 0 && !calc.fullNoBill && !confirming && (
           <button
             type="button"
             disabled={false}
@@ -1500,7 +1502,9 @@ function TripDay({ row, data, car, last, multi, night, bills, stayOff, billStrip
                 {night
                   ? bills
                     ? "outstation · stay + food bills"
-                    : "outstation · 50 % (no bill yet)"
+                    : night.fullNoBill
+                      ? "outstation · 100 % (no bill needed)"
+                      : "outstation · 50 % (no bill yet)"
                   : row.dayType === "HQ"
                     ? "HQ day"
                     : AWAY_TYPES.has(row.dayType)

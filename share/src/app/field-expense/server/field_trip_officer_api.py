@@ -13,6 +13,9 @@
 #        the adjusted amount. The amount set back to the claimed one clears it.
 #        "Field Trip Decision Guard" keeps an adjustment on a line the rep did
 #        not change when they save again.
+#        13 Nov 2026: the officer's change is also kept on its own
+#        (custom_officer_amount / _reason / _by / _on), so a later change on
+#        the final check does not wipe who changed what first.
 #        -> {claim, changed}
 #
 #   GET  action=visits  claim
@@ -65,11 +68,13 @@ if action == "adjust":
         if abs(amt - was) < 0.5:
             continue
         if abs(amt - frappe.utils.flt(r.amount)) < 0.5:
-            frappe.db.set_value("Expense Claim Detail", r.name, {"custom_adjusted": 0, "custom_adjusted_amount": 0, "custom_adjust_reason": "", "custom_adjusted_by": None, "custom_adjusted_on": None, "sanctioned_amount": r.amount}, update_modified=False)
+            frappe.db.set_value("Expense Claim Detail", r.name, {"custom_adjusted": 0, "custom_adjusted_amount": 0, "custom_adjust_reason": "", "custom_adjusted_by": None, "custom_adjusted_on": None, "sanctioned_amount": r.amount,
+                                                                 "custom_officer_amount": 0, "custom_officer_reason": "", "custom_officer_by": None, "custom_officer_on": None}, update_modified=False)
         else:
             if len(reason) < 3:
                 frappe.throw("Say why the TA is changed -- the employee sees this.")
-            frappe.db.set_value("Expense Claim Detail", r.name, {"custom_adjusted": 1, "custom_adjusted_amount": amt, "custom_adjust_reason": reason, "custom_adjusted_by": me, "custom_adjusted_on": now, "sanctioned_amount": amt}, update_modified=False)
+            frappe.db.set_value("Expense Claim Detail", r.name, {"custom_adjusted": 1, "custom_adjusted_amount": amt, "custom_adjust_reason": reason, "custom_adjusted_by": me, "custom_adjusted_on": now, "sanctioned_amount": amt,
+                                                                 "custom_officer_amount": amt, "custom_officer_reason": reason, "custom_officer_by": me, "custom_officer_on": now}, update_modified=False)
         text.append("TA " + str(r.expense_date) + ": Rs " + str(was) + " -> Rs " + str(amt))
     if text:
         frappe.get_doc({

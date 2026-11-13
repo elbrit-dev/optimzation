@@ -72,6 +72,9 @@
       M.verifier = !!m.verifier;
       M.names = m.names || {};
       M.claims = {}; M.byDay = {}; M.byEmp = {}; M.notYet = {};
+      // 13 Nov 2026: every claim of the month (any state), everyone with paid
+      // field days (for "no claim yet"), and the approved own-car requests
+      M.all = m.claims || []; M.people = m.people || []; M.cars = m.cars || [];
       (m.claims || []).forEach(function (c) { if (!SHOWN[c.workflow_state]) (M.notYet[c.employee] = M.notYet[c.employee] || []).push(c); });
       // 13 Nov 2026: only what the reporting officer has APPROVED comes here
       // (and, as a record, what is already finalised) -- a claim still with
@@ -164,7 +167,11 @@
     var hand = 0;
     list.forEach(function (c) { hand += sums(c.lines).hand; });
     if (hand) out += ' <span title="handwritten bills on the approved claim" style="font-size:10.5px;font-weight:800;color:#b54708">✍ ' + hand + '</span>';
-    if (!list.length && wait.length) out += ' <span style="display:inline-block;font-size:10.5px;font-weight:700;line-height:16px;padding:0 7px;border-radius:9px;color:var(--ink-3);border:1px solid var(--line)">claim with officer</span>';
+    if (!list.length && wait.length) {
+      var w0 = wait[0].workflow_state;
+      var word = w0 === 'Rejected' ? ['sent back', '#b42318'] : w0 === 'Draft' ? ['claim not sent', 'var(--ink-3)'] : ['claim with approver', 'var(--ink-3)'];
+      out += ' <span style="display:inline-block;font-size:10.5px;font-weight:700;line-height:16px;padding:0 7px;border-radius:9px;color:' + word[1] + ';border:1px solid var(--line)">' + word[0] + '</span>';
+    }
     return out;
   };
   /* a handwritten bill (it could not be read, the rep typed it in): the line
@@ -173,11 +180,11 @@
   var handOf = function (l) {
     var d = String(l.description || '');
     var w = / · handwritten: ([^·]*)/.exec(d), p = / · proof: (\S+)/.exec(d);
-    return { why: w ? w[1].trim() : '', proof: p ? p[1] : '' };
+    return { why: w ? w[1].trim() : '', proof: p ? p[1] : '', cash: / · paid in cash/.test(d) };
   };
   // the description without the parts shown on their own
   // (the proof first: removing the reason takes the space before its " · ")
-  var plainNote = function (l) { return String(l.description || '').replace(/ · proof: \S+/, '').replace(/ · handwritten: [^·]*/, '').trim(); };
+  var plainNote = function (l) { return String(l.description || '').replace(/ · proof: \S+/, '').replace(/ · paid in cash/, '').replace(/ · handwritten: [^·]*/, '').trim(); };
   var HAND_TAG = '<span style="display:inline-block;font-size:10.5px;font-weight:800;line-height:16px;padding:0 7px;border-radius:9px;color:#b54708;background:#fffaeb;border:1px solid #fedf89">✍ Handwritten</span>';
 
   var TA_TYPES = { Travel: 1, Fuel: 1, Toll: 1 };
@@ -245,14 +252,25 @@
     return w ? { ta: w.ta, da: w.da } : { ta: Number(r.taA) || 0, da: Number(r.daA) || 0 };
   };
 
-  /* who changed a line: the reporting officer on the approvals page (the
-     claim's own approver), or the final check here (13 Nov 2026) */
-  var adjWho = function (l, c) {
-    var name = esc(M.names[l.custom_adjusted_by] || l.custom_adjusted_by || '');
-    return c && l.custom_adjusted_by && l.custom_adjusted_by === c.expense_approver
-      ? 'Changed by the reporting officer' + (name ? ' (' + name + ')' : '')
-      : 'Adjusted on the final check' + (name ? ' by ' + name : '');
+  /* the changes on a line, in order (13 Nov 2026): the reporting officer's on
+     the approvals page (kept on its own: custom_officer_*), then the final
+     check's here -- each with who, the amounts and why */
+  var nameOf = function (u) { return esc(M.names[u] || u || ''); };
+  var changesOf = function (l, c) {
+    var out = [];
+    var why = function (t) { return t ? ' — “' + esc(t) + '”' : ''; };
+    var officer = l.custom_officer_by
+      ? { by: l.custom_officer_by, to: Number(l.custom_officer_amount) || 0, why: l.custom_officer_reason }
+      // made before the officer's own record existed: the claim's approver's adjustment
+      : l.custom_adjusted && c && l.custom_adjusted_by === c.expense_approver
+        ? { by: l.custom_adjusted_by, to: Number(l.custom_adjusted_amount) || 0, why: l.custom_adjust_reason }
+        : null;
+    if (officer) out.push('Changed by the reporting officer (' + nameOf(officer.by) + ') ' + inr(l.amount) + ' → ' + inr(officer.to) + why(officer.why));
+    var finalChange = l.custom_adjusted && !(officer && l.custom_adjusted_by === officer.by && Math.abs((Number(l.custom_adjusted_amount) || 0) - officer.to) < 0.5);
+    if (finalChange) out.push('Adjusted on the final check by ' + nameOf(l.custom_adjusted_by) + ' ' + inr(officer ? officer.to : l.amount) + ' → ' + inr(l.custom_adjusted_amount) + why(l.custom_adjust_reason));
+    return out;
   };
+  var adjWho = function (l, c) { return changesOf(l, c).join(' · '); };
   // the employee's claim that holds own-car lines, for a day with only its fuel share
   var carClaimOf = function (emp) {
     var cs = M.byEmp[emp] || [];
@@ -260,6 +278,20 @@
       if (cs[i].lines.some(function (l) { return M.carSplit && M.carSplit[l.name]; })) return cs[i];
     }
     return cs[0] || null;
+  };
+
+  /* a claimed travel day (TA on it) with this many visits or fewer is flagged
+     (13 Nov 2026, as on the approvals page); a DA-only day never is */
+  var LOW_VISITS = 4;
+  var fewVisits = function (r, x) { return !!r && r.payable && x && x.ta > 0 && (Number(r.n) || 0) <= LOW_VISITS; };
+  // the GM-approved own car covering the day, if any
+  var carOf = function (emp, date) {
+    var cs = M.cars || [];
+    for (var i = 0; i < cs.length; i++) {
+      var k = cs[i];
+      if (k.employee === emp && String(k.from_date).slice(0, 10) <= date && String(k.to_date).slice(0, 10) >= date) return k;
+    }
+    return null;
   };
 
   /* why the claim differs from the worked-out day, in words */
@@ -328,6 +360,7 @@
     var notes = [];
     var dl = delta(r, x);
     if (dl) notes.push(dl);
+    if (fewVisits(r, x)) notes.push('<span style="color:#b54708;font-weight:700" title="A travel day with ' + LOW_VISITS + ' visits or fewer">⚠ ' + ((r.n || 0) ? 'only ' + r.n + ' visit' + (r.n > 1 ? 's' : '') : 'no visits') + '</span>');
     if (x.hand) notes.push('<span style="color:#b54708;font-weight:700">✍ ' + (x.hand > 1 ? x.hand + ' ' : '') + 'handwritten</span>');
     if (x.flag) notes.push('<span style="color:#b42318;font-weight:700">⚠ ' + x.flag + ' possible repeat</span>');
     if (x.unchecked) notes.push('<span style="color:#b54708">' + x.unchecked + ' bill' + (x.unchecked > 1 ? 's' : '') + ' not checked</span>');
@@ -374,10 +407,10 @@
           '<div style="font-size:11.5px;margin-top:4px;display:flex;gap:10px;flex-wrap:wrap">' +
             '<span style="color:' + ck[1] + ';font-weight:600">' + ck[0] + '</span>' +
             (l.custom_bill ? '<a href="' + esc(l.custom_bill) + '" target="_blank" rel="noopener">View bill</a>' : '') +
-            (hand ? (hand.proof ? '<a href="' + esc(hand.proof) + '" target="_blank" rel="noopener" style="font-weight:700">Payment proof</a>' : '<b style="color:#b42318">no payment proof</b>') : '') +
+            (hand ? (hand.proof ? '<a href="' + esc(hand.proof) + '" target="_blank" rel="noopener" style="font-weight:700">Payment proof</a>' : hand.cash ? '<b style="color:var(--ink-2)">💵 paid in cash</b>' : '<b style="color:#b42318">no payment proof</b>') : '') +
           '</div>' +
           (hand ? '<div style="font-size:11.5px;margin-top:3px;color:#d97706">Rep&rsquo;s reason: <i>&ldquo;' + esc(hand.why || 'none given') + '&rdquo;</i></div>' : '') +
-          (l.custom_adjusted ? '<div style="font-size:11.5px;margin-top:3px;color:var(--warn, #b45309)">' + adjWho(l, c) + ' ' + inr(l.amount) + ' → ' + inr(l.custom_adjusted_amount) + ' — “' + esc(l.custom_adjust_reason || '') + '”</div>' : '') +
+          changesOf(l, c).map(function (t) { return '<div style="font-size:11.5px;margin-top:3px;color:var(--warn, #b45309)">' + t + '</div>'; }).join('') +
           (M.carSplit && M.carSplit[l.name] ? '<div style="font-size:11.5px;margin-top:3px;color:var(--ink-3)">Spread over the trip&rsquo;s days by km — see each day&rsquo;s own-car share</div>' : '') +
         '</div>' +
         '<div style="text-align:right;white-space:nowrap;font-size:13.5px;font-weight:700">' +
@@ -389,9 +422,13 @@
       rows = '<div style="display:grid;grid-template-columns:64px minmax(0,1fr) auto;gap:12px;align-items:start;padding:10px 0;' + (rows ? 'border-bottom:1px solid var(--line);' : '') + '">' +
         '<span style="text-align:center;font-size:11px;font-weight:700;padding:2px 0;border-radius:5px;color:#fff;background:' + TYPE_C.Fuel + '">Car</span>' +
         '<div style="min-width:0"><div style="font-size:13px;font-weight:600">Own car · this day&rsquo;s share of the fuel</div>' +
-        '<div style="font-size:11.5px;color:var(--ink-3);margin-top:2px">' + ct.km + ' km by road today · ' + inr(ct.total) + ' fuel for the trip, split over ' + ct.days + ' day' + (ct.days > 1 ? 's' : '') + ' by km</div></div>' +
+        '<div style="font-size:11.5px;color:var(--ink-3);margin-top:2px">' + ct.km + ' km by road today · ' + inr(ct.total) + ' fuel for the trip, split over ' + ct.days + ' day' + (ct.days > 1 ? 's' : '') + ' by km' +
+          (carOf(r.emp, r.date) ? ' · <b style="color:var(--ink-2)">GM approved up to ' + inr(carOf(r.emp, r.date).approved_amount) + '</b>' : '') + '</div></div>' +
         '<div style="text-align:right;white-space:nowrap;font-size:13.5px;font-weight:700">' + inr(M.carShare[key]) + '</div></div>' + rows;
     }
+    // a travel day with few visits: said above the lines
+    if (fewVisits(r, x)) rows = '<div style="margin:2px 0 6px;padding:6px 10px;border-radius:8px;background:#fffaeb;color:#b54708;font-size:12px;font-weight:700">⚠ ' +
+      ((r.n || 0) ? 'Only ' + r.n + ' visit' + (r.n > 1 ? 's' : '') : 'No visits') + ' on a day with TA — fewer than expected (' + LOW_VISITS + ' or fewer)</div>' + rows;
     return '<div style="margin-top:12px;border:1px solid var(--line);border-left:3px solid var(--accent);border-radius:10px;padding:12px 14px;background:var(--surface)">' +
       '<div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">' +
         '<span style="font-size:10.5px;letter-spacing:.06em;text-transform:uppercase;color:var(--ink-3)">Planner claim</span>' +
@@ -467,7 +504,7 @@
         '<td style="padding:6px 4px;vertical-align:top"><b>' + esc(l.expense_type) + '</b><div style="color:var(--ink-3);font-size:11.5px;max-width:300px">' + esc(l.description || '') + '</div>' +
           (isHand(l) ? '<div style="margin-top:2px">' + HAND_TAG + ' <span style="font-size:11.5px;color:#7a2e0e">&ldquo;' + esc(handOf(l).why || 'no reason') + '&rdquo;</span></div>' : '') +
           (l.custom_bill ? '<a href="' + esc(l.custom_bill) + '" target="_blank" rel="noopener" style="font-size:11.5px">View bill</a>' : '') +
-          (isHand(l) ? (handOf(l).proof ? ' · <a href="' + esc(handOf(l).proof) + '" target="_blank" rel="noopener" style="font-size:11.5px;font-weight:700">Payment proof</a>' : ' · <b style="font-size:11.5px;color:#b42318">no payment proof</b>') : '') +
+          (isHand(l) ? (handOf(l).proof ? ' · <a href="' + esc(handOf(l).proof) + '" target="_blank" rel="noopener" style="font-size:11.5px;font-weight:700">Payment proof</a>' : handOf(l).cash ? ' · <b style="font-size:11.5px">💵 paid in cash</b>' : ' · <b style="font-size:11.5px;color:#b42318">no payment proof</b>') : '') +
           (l.custom_ai_reason ? '<div style="font-size:11px;color:' + (Number(l.custom_ai_score) >= 90 ? 'var(--ok, #16a34a)' : 'var(--warn, #b45309)') + '">' + esc(l.custom_ai_reason) + '</div>' : '') +
         '</td>' +
         '<td style="padding:6px 4px;text-align:right;vertical-align:top;white-space:nowrap">' + inr(l.amount) + '</td>' +
@@ -475,8 +512,8 @@
           'style="width:96px;text-align:right;padding:4px 6px;border:1px solid var(--line);border-radius:6px;background:var(--surface);color:inherit;font-weight:600"></td>' +
         '</tr>';
     }).join('');
-    var prev = d.lines.filter(function (l) { return l.custom_adjusted; }).map(function (l) {
-      return esc(l.expense_type) + ': ' + inr(l.amount) + ' → ' + inr(l.custom_adjusted_amount) + ' — ' + esc(l.custom_adjust_reason || '') + ' (' + adjWho(l, c) + ')';
+    var prev = d.lines.filter(function (l) { return l.custom_adjusted || l.custom_officer_by; }).map(function (l) {
+      return esc(l.expense_type) + ': ' + adjWho(l, c);
     }).join('<br>');
     var o = overlay(
       '<div style="display:flex;align-items:baseline;gap:8px;margin-bottom:8px"><b style="font-size:15px">' + esc(c.employee_name) + ' · ' + esc(key.split('|')[1]) + '</b>' +
@@ -528,6 +565,83 @@
     b.dataset.count = ready.length;
     b.dataset.total = total;
     riskBar(host, ready);
+    tracker(host);
+  }
+
+  /* ---------- the month's claims, by where they stand (13 Nov 2026) ----------
+     ready (approved, waiting for the final check) · finalised · with the
+     approver · sent back · not sent · no claim yet (paid field days, no claim)
+     -- each a chip; press one for the names. Finalise takes only the ready
+     ones; it can be run again as more are approved. */
+  var TRACK = [
+    ['ready', 'Ready to finalise', 'var(--brand, #2563eb)'],
+    ['final', 'Finalised', 'var(--ok, #16a34a)'],
+    ['officer', 'With approver', 'var(--ink-2)'],
+    ['back', 'Sent back', '#b42318'],
+    ['draft', 'Not sent', '#b54708'],
+    ['none', 'No claim yet', 'var(--ink-3)'],
+  ];
+  function trackOf() {
+    var t = { ready: [], final: [], officer: [], back: [], draft: [], none: [] };
+    var has = {};
+    (M.all || []).forEach(function (c) {
+      has[c.employee] = 1;
+      var st = c.workflow_state;
+      var k = st === 'Approved' ? 'ready' : st === 'Verified' || st === 'Paid' ? 'final' : st === 'Rejected' ? 'back' : st === 'Draft' || !st ? 'draft' : 'officer';
+      t[k].push(c);
+    });
+    (M.people || []).forEach(function (p) { if (!has[p.employee]) t.none.push(p); });
+    return t;
+  }
+  M.track = trackOf;
+  function tracker(host) {
+    var el = document.getElementById('fx-claims-track');
+    if (!el) {
+      el = document.createElement('div');
+      el.id = 'fx-claims-track';
+      el.style.cssText = 'display:flex;align-items:center;gap:6px;flex-wrap:wrap;font-size:12px;width:100%;margin-top:6px';
+      host.appendChild(el);
+    }
+    var t = trackOf();
+    el.innerHTML = '<span style="color:var(--ink-3)">' + esc(monthWord(M.month)) + ' claims:</span>' + TRACK.map(function (x) {
+      var n = t[x[0]].length;
+      return '<button type="button" data-fxtrack="' + x[0] + '" ' + (n ? '' : 'disabled ') +
+        'style="cursor:' + (n ? 'pointer' : 'default') + ';border:1px solid ' + (n ? x[2] : 'var(--line)') + ';background:var(--surface);color:' + (n ? x[2] : 'var(--ink-4, #98a2b3)') +
+        ';border-radius:9px;padding:1px 9px;font-size:12px;font-weight:700">' + n + ' ' + x[1] + '</button>';
+    }).join('');
+    Array.prototype.forEach.call(el.querySelectorAll('[data-fxtrack]'), function (b) {
+      b.onclick = function () { trackList(this.getAttribute('data-fxtrack')); };
+    });
+  }
+  var claimAmt = function (c) {
+    var full = M.claims[c.name];
+    if (full && full.lines) { var a = 0; full.lines.forEach(function (l) { if (l.expense_type !== 'Advance') a += eff(l); }); return a; }
+    return Number(c.total_claimed_amount) || 0;
+  };
+  function trackList(k) {
+    var t = trackOf()[k] || [];
+    var head = (TRACK.filter(function (x) { return x[0] === k; })[0] || [k, k])[1];
+    var TH = 'text-align:left;padding:5px 8px;font-size:10.5px;letter-spacing:.06em;text-transform:uppercase;color:var(--ink-3);border-bottom:1px solid var(--line)';
+    var TD = 'padding:6px 8px;border-bottom:1px solid var(--surface-2)';
+    var rows = t.slice().sort(function (a, b) { return String(a.employee_name).localeCompare(String(b.employee_name)); }).map(function (c) {
+      if (k === 'none') {
+        return '<tr><td style="' + TD + '"><b>' + esc(c.employee_name) + '</b> <span style="color:var(--ink-3)">' + esc(c.employee) + '</span></td><td style="' + TD + '">' + esc(c.days) + ' paid day' + (c.days > 1 ? 's' : '') + '</td><td style="' + TD + ';text-align:right">' + inr(c.total) + ' worked out</td></tr>';
+      }
+      return '<tr><td style="' + TD + '"><b>' + esc(c.employee_name) + '</b> <span style="color:var(--ink-3)">' + esc(c.name) + '</span></td><td style="' + TD + '">' +
+        esc((STATE[c.workflow_state] || [c.workflow_state || 'not sent'])[0]) + (c.expense_approver && k !== 'final' ? ' · ' + nameOf(c.expense_approver) : '') + '</td><td style="' + TD + ';text-align:right">' + inr(claimAmt(c)) + '</td></tr>';
+    }).join('');
+    var o = overlay('<b style="font-size:15px">' + esc(head) + ' · ' + esc(monthWord(M.month)) + ' · ' + t.length + '</b>' +
+      '<div style="margin:6px 0 10px;color:var(--ink-3)">' + ({
+        ready: 'Approved by the approver: in the next Finalise.',
+        final: 'In payroll already (one Additional Salary each).',
+        officer: 'Waiting on the approver — not in Finalise until approved.',
+        back: 'Sent back by the approver — the employee fixes it and sends it again.',
+        draft: 'Started in the planner but not sent to the approver.',
+        none: 'Paid field days this month (from Field Expense Day) but no claim yet.',
+      }[k] || '') + '</div>' +
+      '<div style="max-height:60vh;overflow:auto"><table style="width:100%;border-collapse:collapse;font-size:12.5px"><thead><tr><th style="' + TH + '">Employee</th><th style="' + TH + '">' + (k === 'none' ? 'Days' : 'Where it is') + '</th><th style="' + TH + ';text-align:right">' + (k === 'none' ? 'Worked out' : 'Amount') + '</th></tr></thead><tbody>' + rows + '</tbody></table></div>' +
+      '<div style="display:flex;justify-content:flex-end;margin-top:10px"><button type="button" data-fxcancel style="padding:6px 14px;border:1px solid var(--line);border-radius:8px;background:var(--surface);color:inherit;cursor:pointer">Close</button></div>');
+    o.querySelector('[data-fxcancel]').onclick = function () { o.remove(); };
   }
 
   /* the month's claims by risk, the High ones by name -- beside Finalise */
@@ -564,7 +678,20 @@
           (M.readyRisk.High ? '<b>' + M.readyRisk.High + ' High risk</b>' : '') + (M.readyRisk.High && M.readyRisk.Medium ? ' and ' : '') +
           (M.readyRisk.Medium ? '<b>' + M.readyRisk.Medium + ' Medium risk</b>' : '') + ' claim(s). Check them first (open the day, adjust if needed).</p>'
         : '') +
-      '<p style="margin:8px 0;color:var(--ink-3)">Claims still with an officer are not included; they can be finalised once approved.</p>' +
+      (function () {
+        // who is NOT in this finalise, by name -- they can be finalised later, once approved
+        var t = trackOf(), parts = [];
+        [['officer', 'with the approver'], ['back', 'sent back'], ['draft', 'not sent'], ['none', 'no claim yet']].forEach(function (x) {
+          var l = t[x[0]];
+          if (!l.length) return;
+          var names = l.map(function (c) { return c.employee_name; }).filter(function (v, i, a) { return a.indexOf(v) === i; });
+          parts.push('<b>' + l.length + ' ' + x[1] + '</b>: ' + esc(names.slice(0, 8).join(', ')) + (names.length > 8 ? ' and ' + (names.length - 8) + ' more' : ''));
+        });
+        return parts.length
+          ? '<div style="margin:8px 0;padding:8px 10px;border-radius:8px;background:var(--surface-2)"><div style="font-weight:700;margin-bottom:4px">Not in this finalise</div>' + parts.join('<br>') +
+            '<div style="margin-top:6px;color:var(--ink-3)">Only approved claims go now. Run Finalise again later for the ones approved after — they get their own Additional Salary then.</div></div>'
+          : '<p style="margin:8px 0;color:var(--ink-3)">Every field claim of the month is in this finalise.</p>';
+      })() +
       '<div data-fxerr style="color:var(--critical);margin-top:6px"></div>' +
       '<div style="display:flex;gap:8px;justify-content:flex-end;margin-top:10px">' +
         '<button type="button" data-fxcancel style="padding:6px 14px;border:1px solid var(--line);border-radius:8px;background:var(--surface);color:inherit;cursor:pointer">Cancel</button>' +

@@ -775,6 +775,9 @@ export async function withTripMarks(conn, claim) {
         ...(Number(r.custom_adjusted)
           ? { adjusted: true, final: num(r.custom_adjusted_amount), adjustReason: r.custom_adjust_reason || "", adjustedBy: r.custom_adjusted_by || "" }
           : { adjusted: false, final: l.amount }),
+        // the reporting officer's own record of a TA change (kept even if the
+        // final check changes the line again) -- 13 Nov 2026
+        ...(r.custom_officer_by ? { officerBy: r.custom_officer_by, officerAmount: num(r.custom_officer_amount), officerReason: r.custom_officer_reason || "" } : {}),
       };
     }),
   };

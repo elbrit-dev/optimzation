@@ -167,12 +167,20 @@ export function FieldExpensesProvider({ children }) {
       // amounts changed after it was sent (13 Nov 2026): by the reporting
       // officer while it waited, or on the final check -- who, why, and what
       // it does to the trip's TA / DA
-      const changes = mine
-        .filter((l) => l.adjusted)
-        .map((l) => ({ id: l.id, type: l.type, date: l.date, amount: l.amount, final: l.final, reason: l.adjustReason || "", by: l.adjustedBy || "" }));
+      // each change as a step: the officer's (kept on its own), then the final check's
+      const changes = mine.flatMap((l) => {
+        const steps = [];
+        if (l.officerBy) steps.push({ id: `${l.id}:o`, step: "officer", type: l.type, date: l.date, amount: l.amount, final: l.officerAmount, reason: l.officerReason || "", by: l.officerBy });
+        const sameAsOfficer = l.officerBy && l.adjustedBy === l.officerBy && Math.abs((l.final || 0) - (l.officerAmount || 0)) < 0.5;
+        if (l.adjusted && !sameAsOfficer)
+          steps.push({ id: `${l.id}:f`, step: l.officerBy ? "final" : "", type: l.type, date: l.date, amount: l.officerBy ? l.officerAmount : l.amount, final: l.final, reason: l.adjustReason || "", by: l.adjustedBy || "" });
+        return steps;
+      });
+      // what the changes do to the trip: each changed line at its amount now
       const TA_LINE = new Set(["Travel", "Fuel", "Toll"]);
-      const taDelta = changes.filter((x) => TA_LINE.has(x.type)).reduce((a, x) => a + (x.final - x.amount), 0);
-      const daDelta = changes.filter((x) => !TA_LINE.has(x.type)).reduce((a, x) => a + (x.final - x.amount), 0);
+      const moved = mine.filter((l) => l.adjusted);
+      const taDelta = moved.filter((l) => TA_LINE.has(l.type)).reduce((a, l) => a + (l.final - l.amount), 0);
+      const daDelta = moved.filter((l) => !TA_LINE.has(l.type)).reduce((a, l) => a + (l.final - l.amount), 0);
       // the claim it is in (the trip sheet shows where THAT claim is)
       return {
         ...claim,

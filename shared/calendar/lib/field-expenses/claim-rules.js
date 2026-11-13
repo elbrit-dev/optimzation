@@ -161,6 +161,9 @@ export function tripClaim(trip, claim, { role, requests } = {}) {
       paid,
       capped: billSum > full ? billSum - full : 0,
       topUp: billSum > 0 && billSum < amount ? amount - billSum : 0,
+      // already paid in full with no bill (BE / ABM since 13 Nov 2026: the
+      // ERP stores their outstation DA at 100 %) -- no bill is asked for
+      fullNoBill: full > 0 && amount >= full,
     };
   });
   // the ERP's DA already holds the stay: nothing on top of it
@@ -241,7 +244,9 @@ export function tripClaim(trip, claim, { role, requests } = {}) {
     da,
     total: ta + da,
     // outstation days paid at 50 % for want of any stay / food bill
-    missingStayBills: poolOn ? 0 : nightRows.length,
+    missingStayBills: poolOn ? 0 : nightRows.filter((n) => !n.fullNoBill).length,
+    // every outstation day already at 100 % without a bill: no bills to ask for
+    fullNoBill: nightRows.length > 0 && nightRows.every((n) => n.fullNoBill),
   };
 }
 

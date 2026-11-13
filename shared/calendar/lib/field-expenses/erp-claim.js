@@ -54,7 +54,7 @@ function billRows(bills, pay, capNote) {
     // proof's link ride in the line's own description (no extra ERP fields);
     // the approvals page reads them back from there
     const hand = b.manual
-      ? ` · handwritten: ${String(b.why || "no reason given").replace(/·/g, "-").trim()}${b.proof ? ` · proof: ${b.proof}` : ""}`
+      ? ` · handwritten: ${String(b.why || "no reason given").replace(/·/g, "-").trim()}${b.proof ? ` · proof: ${b.proof}` : b.cash ? " · paid in cash" : ""}`
       : "";
     out.push({
       date: b.date, type, sub: "", note: `${note}${amount < counted ? ` · ${capNote}` : ""}${hand}`, amount, bill: b.url, file: b.fileName, signed: b.signed,

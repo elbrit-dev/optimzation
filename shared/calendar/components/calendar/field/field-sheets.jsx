@@ -117,7 +117,8 @@ export function KpiSheet() {
   const carTrips = f.claimed.filter((x) => x.calc.car).length;
   const nights = f.claimed.reduce((s, x) => s + x.calc.nights.length, 0);
   const withBill = f.claimed.reduce((s, x) => s + x.calc.nights.filter((n) => n.bill).length, 0);
-  const noBill = nights - withBill;
+  // nights still at 50 % for want of a bill (BE / ABM days are at 100 % with none)
+  const noBill = f.claimed.reduce((s, x) => s + x.calc.nights.filter((n) => !n.bill && !n.fullNoBill).length, 0);
   // the whole month by kind of day: HQ, EQ (out and back) and outstation
   const kindRow = (k) => {
     const xs = f.claimed.filter((x) => (k === "hq" ? x.trip.kind === "hq" : k === "tour" ? x.trip.kind === "tour" : x.trip.kind !== "hq" && x.trip.kind !== "tour"));

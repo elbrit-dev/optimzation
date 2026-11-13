@@ -18,6 +18,8 @@
 PREFIX = "Field TA/DA · "
 KEEP = ["custom_trip_decision", "custom_trip_note", "custom_trip_decided_by", "custom_trip_decided_on"]
 ADJ = ["custom_adjusted", "custom_adjusted_amount", "custom_adjust_reason", "custom_adjusted_by", "custom_adjusted_on"]
+# the officer's own record of a TA change (13 Nov 2026), kept and cleared the same way
+OFF = ["custom_officer_amount", "custom_officer_reason", "custom_officer_by", "custom_officer_on"]
 
 if str(doc.remark or "").startswith(PREFIX):
     old = {}
@@ -26,7 +28,8 @@ if str(doc.remark or "").startswith(PREFIX):
             "Expense Claim Detail",
             filters={"parent": doc.name, "parenttype": "Expense Claim"},
             fields=["name", "expense_date", "expense_type", "amount", "sanctioned_amount", "custom_bill", "custom_trip", "custom_trip_decision", "custom_trip_note", "custom_trip_decided_by", "custom_trip_decided_on",
-                    "custom_adjusted", "custom_adjusted_amount", "custom_adjust_reason", "custom_adjusted_by", "custom_adjusted_on"],
+                    "custom_adjusted", "custom_adjusted_amount", "custom_adjust_reason", "custom_adjusted_by", "custom_adjusted_on",
+                    "custom_officer_amount", "custom_officer_reason", "custom_officer_by", "custom_officer_on"],
             limit_page_length=1000,
         ):
             old[r.name] = r
@@ -50,5 +53,10 @@ if str(doc.remark or "").startswith(PREFIX):
             for k in ADJ:
                 row.set(k, 0 if k in ["custom_adjusted", "custom_adjusted_amount"] else None)
             row.set("sanctioned_amount", row.amount)
+        for k in OFF:
+            if same and o.get("custom_officer_by"):
+                row.set(k, o.get(k))
+            elif row.get("custom_officer_by"):
+                row.set(k, 0 if k == "custom_officer_amount" else None)
         if o and not row.get("custom_trip") and o.get("custom_trip"):
             row.set("custom_trip", o.get("custom_trip"))

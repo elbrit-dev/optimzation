@@ -179,6 +179,8 @@ export function ManualBill({ file, slot, trip, prefill, reason, onCancel, onDone
   const [proof, setProof] = useState(null);
   const [proofUrl, setProofUrl] = useState(null);
   const [why, setWhy] = useState("");
+  // paid in cash: no online payment, so no proof to add (13 Nov 2026)
+  const [cash, setCash] = useState(false);
   const proofInput = useRef(null);
   useEffect(() => () => proofUrl && URL.revokeObjectURL(proofUrl), [proofUrl]);
   const pickProof = (f) => {
@@ -196,13 +198,13 @@ export function ManualBill({ file, slot, trip, prefill, reason, onCancel, onDone
 
   const stay = kind === "Stay";
   const nights = stay && checkIn && checkOut && checkOut > checkIn ? Math.round((new Date(checkOut) - new Date(checkIn)) / 86400000) : 0;
-  // the payment proof is asked for but not required while testing (12 Nov 2026)
-  const ready = kind && Number(amount) > 0 && (stay ? checkIn && checkOut > checkIn : date) && why.trim().length >= 5;
+  // 13 Nov 2026: the payment proof is required -- unless paid in cash; the reason always
+  const ready = kind && Number(amount) > 0 && (stay ? checkIn && checkOut > checkIn : date) && why.trim().length >= 5 && (cash || !!proof);
   const save = async () => {
     setError("");
     setBusy(true);
     try {
-      const r = await enterTripBill(file, slot, trip, { kind, date, checkIn, checkOut, amount: Number(amount), vendor, why: why.trim() }, proof);
+      const r = await enterTripBill(file, slot, trip, { kind, date, checkIn, checkOut, amount: Number(amount), vendor, why: why.trim(), cash }, cash ? null : proof);
       if (!r.ok) return setError(r.reason);
       onDone(KIND_SLOT[r.bill.kind] || KIND_SLOT[kind], r.bill);
     } finally {
@@ -282,9 +284,15 @@ export function ManualBill({ file, slot, trip, prefill, reason, onCancel, onDone
 
         {kind && (
           <div className={label}>
-            Payment proof <span className="font-normal text-gray-400">needed · GPay / UPI / bank screenshot of this payment</span>
+            Payment proof <span className="font-normal text-gray-400">{cash ? "not needed · paid in cash" : "required · GPay / UPI / bank screenshot of this payment"}</span>
             <input ref={proofInput} type="file" accept={BILL_ACCEPT} className="hidden" onChange={(e) => { pickProof(e.target.files?.[0]); e.target.value = ""; }} />
-            {proof ? (
+            {/* paid in cash: there is no online payment to show */}
+            <label className="flex items-center gap-2 rounded-xl border border-gray-200 bg-white px-3 py-2 text-[13.5px] font-bold text-gray-800">
+              <input type="checkbox" checked={cash} onChange={(e) => setCash(e.target.checked)} className="h-4 w-4 accent-blue-600" />
+              Paid in cash
+              <span className="font-normal text-gray-500">— no online payment</span>
+            </label>
+            {cash ? null : proof ? (
               <span className="flex items-center gap-3 rounded-xl border border-green-200 bg-green-50 p-2">
                 {proofUrl ? (
                   <img src={proofUrl} alt="Payment proof" className="h-16 w-12 shrink-0 rounded-lg border border-gray-200 bg-white object-cover" />
@@ -299,7 +307,7 @@ export function ManualBill({ file, slot, trip, prefill, reason, onCancel, onDone
                 <Upload className="h-4 w-4" aria-hidden /> Add payment proof
               </button>
             )}
-            {!proof && <span className="text-[11.5px] font-semibold text-amber-700">Please add it — your officer needs it to check a handwritten bill.</span>}
+            {!proof && !cash && <span className="text-[11.5px] font-semibold text-amber-700">Add it to save — or tick “Paid in cash” if it was paid in cash.</span>}
           </div>
         )}
         {kind && (
@@ -310,7 +318,7 @@ export function ManualBill({ file, slot, trip, prefill, reason, onCancel, onDone
         )}
 
         <span className="text-[11.5px] leading-snug text-gray-500">
-          Your officer sees the photo, the payment proof and your reason before approving.
+          Your officer sees the photo, {cash ? "that it was paid in cash" : "the payment proof"} and your reason before approving.
         </span>
         {error && <span className="rounded-xl bg-rose-50 px-3 py-2 text-[12.5px] font-semibold text-rose-800">{error}</span>}
         <span className="flex gap-2">

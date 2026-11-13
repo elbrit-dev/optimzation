@@ -27,7 +27,8 @@ PREFIX = "Field TA/DA · "
 LINE_COLS = ["name", "parent", "idx", "expense_date", "expense_type", "description", "amount", "sanctioned_amount",
              "custom_bill", "custom_ai_score", "custom_ai_reason", "custom_adjusted", "custom_adjusted_amount",
              "custom_adjust_reason", "custom_adjusted_by", "custom_adjusted_on",
-             "custom_trip", "custom_trip_decision", "custom_trip_note"]
+             "custom_trip", "custom_trip_decision", "custom_trip_note",
+             "custom_officer_amount", "custom_officer_reason", "custom_officer_by", "custom_officer_on"]
 CLAIM_COLS = ["name", "employee", "employee_name", "remark", "workflow_state", "expense_approver", "total_claimed_amount",
               "custom_additional_salary", "custom_finalised_by", "custom_finalised_on", "modified",
               "custom_ai_score", "custom_ai_risk", "custom_ai_summary"]
@@ -63,6 +64,11 @@ if action == "month" or action == "mine":
     for l in lines:
         if l.custom_adjusted_by and not who.get(l.custom_adjusted_by):
             who[l.custom_adjusted_by] = frappe.db.get_value("User", l.custom_adjusted_by, "full_name") or l.custom_adjusted_by
+        if l.custom_officer_by and not who.get(l.custom_officer_by):
+            who[l.custom_officer_by] = frappe.db.get_value("User", l.custom_officer_by, "full_name") or l.custom_officer_by
+    for c in claims:
+        if c.expense_approver and not who.get(c.expense_approver):
+            who[c.expense_approver] = frappe.db.get_value("User", c.expense_approver, "full_name") or c.expense_approver
     for c in claims:
         if c.custom_finalised_by and not who.get(c.custom_finalised_by):
             who[c.custom_finalised_by] = frappe.db.get_value("User", c.custom_finalised_by, "full_name") or c.custom_finalised_by
@@ -95,7 +101,22 @@ if action == "month" or action == "mine":
                     k = g.get("km")
                 w = w + frappe.utils.flt(k) * (2 if g.get("both_ways") else 1)
             km[d.employee + "|" + str(d.date)[:10]] = w
-    frappe.response["message"] = {"month": month, "verifier": verifier, "claims": claims, "lines": lines, "names": who, "km": km}
+    # 13 Nov 2026, for the final check's tracker: everyone with paid field days
+    # this month (Field Expense Day, as last saved by Pull & save) -- so the
+    # ones with no claim yet show too -- and the approved own-car requests
+    people = []
+    cars = []
+    if action == "month":
+        first = month + "-01"
+        last = str(frappe.utils.get_last_day(first))
+        people = frappe.get_all("Field Expense Day", filters={"date": ["between", [first, last]], "total": [">", 0]},
+                                fields=["employee", "employee_name", "count(name) as days", "sum(total) as total"],
+                                group_by="employee, employee_name", limit_page_length=0)
+        if frappe.db.exists("DocType", "Car Request"):
+            cars = frappe.get_all("Car Request", filters={"status": "Approved", "from_date": ["<=", last], "to_date": [">=", first]},
+                                  fields=["name", "employee", "from_date", "to_date", "approved_amount", "places"], limit_page_length=0)
+    frappe.response["message"] = {"month": month, "verifier": verifier, "claims": claims, "lines": lines, "names": who, "km": km,
+                                  "people": people, "cars": cars}
 
 elif action == "adjust":
     if not verifier:
@@ -129,7 +150,9 @@ elif action == "adjust":
     text = []
     for ch in changes:
         r = ch["r"]
-        back = abs(ch["amt"] - frappe.utils.flt(r.amount)) < 0.5
+        # back to the claimed amount clears the change -- unless the officer had
+        # changed it: then it is the final check's own change, kept with its reason
+        back = abs(ch["amt"] - frappe.utils.flt(r.amount)) < 0.5 and not r.custom_officer_by
         if back:
             frappe.db.set_value("Expense Claim Detail", r.name, {"custom_adjusted": 0, "custom_adjusted_amount": 0, "custom_adjust_reason": "", "custom_adjusted_by": None, "custom_adjusted_on": None, "sanctioned_amount": r.amount}, update_modified=False)
         else:

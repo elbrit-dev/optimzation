@@ -141,6 +141,7 @@ function toBill(json) {
       // a handwritten bill: its payment proof and the rep's reason
       proof: json.proof?.url || null,
       proofName: json.proof?.name || null,
+      cash: !!v.cash,
       why: v.why || null,
       signed: { read: json.read, sig: json.sig },
     },

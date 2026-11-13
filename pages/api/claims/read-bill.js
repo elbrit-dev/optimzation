@@ -198,6 +198,8 @@ export default async function handler(req, res) {
       // person to look at; no AI reads it
       const proof = form.get("proof");
       const hasProof = !!proof && typeof proof.arrayBuffer === "function" && proof.size > 0;
+      // 13 Nov 2026: required -- unless the rep ticked "Paid in cash"
+      if (!hasProof && !given.cash) return res.status(200).json({ verdict: { ok: false, reason: "Add the payment proof (GPay / UPI / bank screenshot) — or tick “Paid in cash” if it was paid in cash." } });
       if (hasProof && proof.size > 10 * 1024 * 1024) return res.status(200).json({ verdict: { ok: false, reason: "The payment proof is over 10 MB." } });
       let proofFile = null;
       if (hasProof) {
