@@ -1,8 +1,9 @@
-import { afterEach, describe, expect, it, vi } from 'vitest';
-import { render, screen, waitFor } from '@testing-library/react';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { act, render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { SurveyPage } from '../components/SurveyPage';
 import { createSurveyApi } from '../api';
+import { surveysFromMyList } from '../data/shape';
 import { getEndpointConfigFromUrlKeyAsync } from '@/app/graphql-playground/constants';
 
 /* SurveyPage — one survey on its own page (/survey/<campaign>). */
@@ -16,6 +17,10 @@ function setup(props = {}, options = {}) {
   const utils = render(<SurveyPage api={api} campaign={RX} today="2026-11-11" onBack={onBack} {...props} />);
   return { ...utils, onBack };
 }
+
+beforeEach(() => {
+  window.history.replaceState(null, '', `/survey/${RX}`);
+});
 
 afterEach(() => {
   vi.unstubAllGlobals();
@@ -112,5 +117,125 @@ describe('SurveyPage — the ERP it calls', () => {
     const [url, init] = fetchMock.mock.calls[0];
     expect(url).toBe('https://erp-uat.example.org/api/method/survey_my_list');
     expect(init.headers.Authorization).toBe('token k:s');
+  });
+});
+
+describe('SurveyPage — the phone’s / browser’s back works like the in-page ←', () => {
+  const PRABHU = /^Dr\. Joseph Prabhu/;
+  const FORM = { name: /Rx audit.*Dr\. Joseph Prabhu/ };
+  const SURVEY = { name: 'Rx audit — vascular range' };
+
+  async function responseOf(label) {
+    const list = await createSurveyApi({ source: 'mock', role: 'BE', delay: 0 }).getMyList();
+    const survey = surveysFromMyList(list).find((s) => s.campaign === RX);
+    return survey.rows.find((r) => r.subject?.label === label).response;
+  }
+  const browserBack = () => act(() => window.history.back());
+  const row = () => new URLSearchParams(window.location.search).get('r');
+
+  it('opening a form adds ?r=; the browser’s back closes it and shows the survey', async () => {
+    const user = userEvent.setup();
+    const prabhu = await responseOf('Dr. Joseph Prabhu');
+    const { onBack } = setup();
+    const before = window.history.length;
+    await user.click(await screen.findByRole('button', { name: PRABHU }));
+    expect(await screen.findByRole('heading', FORM)).toBeTruthy();
+    await waitFor(() => expect(row()).toBe(prabhu));
+    expect(window.history.length).toBe(before + 1);
+    await browserBack();
+    expect(await screen.findByRole('heading', SURVEY)).toBeTruthy();
+    expect(screen.queryByRole('heading', FORM)).toBeNull();
+    expect(row()).toBeNull();
+    expect(window.location.pathname).toBe(`/survey/${RX}`);
+    expect(onBack).not.toHaveBeenCalled();
+  });
+
+  it('the in-page ← on a form is the same history back — ?r= goes, nothing piles up', async () => {
+    const user = userEvent.setup();
+    setup();
+    const before = window.history.length;
+    await user.click(await screen.findByRole('button', { name: PRABHU }));
+    await waitFor(() => expect(row()).not.toBeNull());
+    await user.click(screen.getByRole('button', { name: 'Back to Rx audit — vascular range' }));
+    expect(await screen.findByRole('heading', SURVEY)).toBeTruthy();
+    await waitFor(() => expect(row()).toBeNull());
+    /* Open it again: the same single entry on top, not a second one. */
+    await user.click(await screen.findByRole('button', { name: PRABHU }));
+    await waitFor(() => expect(row()).not.toBeNull());
+    expect(window.history.length).toBe(before + 1);
+  });
+
+  it('unsaved answers: the browser’s back asks; Keep editing stays on the form, ?r= put back', async () => {
+    const user = userEvent.setup();
+    const prabhu = await responseOf('Dr. Joseph Prabhu');
+    setup();
+    await user.click(await screen.findByRole('button', { name: PRABHU }));
+    await user.click(await screen.findByRole('radio', { name: 'Ticagrelor' }));
+    await browserBack();
+    expect(await screen.findByText('Discard changes?')).toBeTruthy();
+    expect(screen.getByRole('heading', { ...FORM, hidden: true })).toBeTruthy(); // under the modal sheet
+    await waitFor(() => expect(row()).toBe(prabhu));
+    await user.click(screen.getByRole('button', { name: 'Keep editing' }));
+    await waitFor(() => expect(screen.queryByText('Discard changes?')).toBeNull());
+    expect(screen.getByRole('heading', FORM)).toBeTruthy();
+    expect(screen.getByRole('radio', { name: 'Ticagrelor', checked: true })).toBeTruthy(); // the answer kept
+    expect(row()).toBe(prabhu);
+  });
+
+  it('unsaved answers: the browser’s back, then Discard, goes to the survey', async () => {
+    const user = userEvent.setup();
+    setup();
+    await user.click(await screen.findByRole('button', { name: PRABHU }));
+    await user.click(await screen.findByRole('radio', { name: 'Ticagrelor' }));
+    await browserBack();
+    await user.click(await screen.findByRole('button', { name: 'Discard' }));
+    expect(await screen.findByRole('heading', SURVEY)).toBeTruthy();
+    await waitFor(() => expect(row()).toBeNull());
+  });
+
+  it('unsaved answers: the in-page ← asks too; Keep editing stays, Discard goes to the survey', async () => {
+    const user = userEvent.setup();
+    const prabhu = await responseOf('Dr. Joseph Prabhu');
+    setup();
+    await user.click(await screen.findByRole('button', { name: PRABHU }));
+    await user.click(await screen.findByRole('radio', { name: 'Ticagrelor' }));
+    await user.click(screen.getByRole('button', { name: 'Back to Rx audit — vascular range' }));
+    await user.click(await screen.findByRole('button', { name: 'Keep editing' }));
+    await waitFor(() => expect(screen.queryByText('Discard changes?')).toBeNull());
+    expect(screen.getByRole('heading', FORM)).toBeTruthy();
+    expect(row()).toBe(prabhu);
+    await user.click(screen.getByRole('button', { name: 'Back to Rx audit — vascular range' }));
+    await user.click(await screen.findByRole('button', { name: 'Discard' }));
+    expect(await screen.findByRole('heading', SURVEY)).toBeTruthy();
+    await waitFor(() => expect(row()).toBeNull());
+  });
+
+  it('a direct link with ?r= opens that form, with the survey behind it', async () => {
+    const user = userEvent.setup();
+    const prabhu = await responseOf('Dr. Joseph Prabhu');
+    window.history.replaceState(null, '', `/survey/${RX}?r=${encodeURIComponent(prabhu)}`);
+    setup();
+    expect(await screen.findByRole('heading', FORM)).toBeTruthy();
+    await user.click(screen.getByRole('button', { name: 'Back to Rx audit — vascular range' }));
+    expect(await screen.findByRole('heading', SURVEY)).toBeTruthy();
+    expect(row()).toBeNull();
+  });
+
+  it('a direct link with an unknown ?r= shows the survey, and drops it from the URL', async () => {
+    window.history.replaceState(null, '', `/survey/${RX}?r=SR-NOT-MINE`);
+    setup();
+    expect(await screen.findByRole('heading', SURVEY)).toBeTruthy();
+    expect(screen.getByRole('button', { name: PRABHU })).toBeTruthy();
+    await waitFor(() => expect(row()).toBeNull());
+  });
+
+  it('the survey’s ← still fires onBack', async () => {
+    const user = userEvent.setup();
+    const { onBack } = setup();
+    await user.click(await screen.findByRole('button', { name: PRABHU }));
+    await browserBack();
+    await screen.findByRole('heading', SURVEY);
+    await user.click(screen.getByRole('button', { name: 'Back' }));
+    expect(onBack).toHaveBeenCalledTimes(1);
   });
 });
