@@ -771,6 +771,10 @@ export async function withTripMarks(conn, claim) {
         decisionNote: r.custom_trip_note || "",
         decidedBy: r.custom_trip_decided_by || "",
         decidedOn: r.custom_trip_decided_on || "",
+        // a TA amount the officer (or the final check) changed, and why
+        ...(Number(r.custom_adjusted)
+          ? { adjusted: true, final: num(r.custom_adjusted_amount), adjustReason: r.custom_adjust_reason || "", adjustedBy: r.custom_adjusted_by || "" }
+          : { adjusted: false, final: l.amount }),
       };
     }),
   };
@@ -802,6 +806,31 @@ export async function decideTrip(conn, { claim, rows, decision, note, trip }) {
   } catch (e) {
     if (/field_trip_decide|not found|No module|Failed to get method/i.test(e.message)) throw new Error("Trip-by-trip approval is not set up on this ERP yet (Field Trip Decision API).");
     throw e;
+  }
+}
+
+/* The officer's own tools on a planner field claim (13 Nov 2026), through the
+   ERP's "Field Trip Officer API" (method field_trip_officer): change a TA line's
+   amount with a reason while it waits with them, and read each day's visits. */
+async function officerCall(conn, method, params) {
+  try {
+    if (method === "GET") return (await rest(conn, `/api/method/field_trip_officer?${new URLSearchParams(params)}`)).message || {};
+    return (await rest(conn, "/api/method/field_trip_officer", { method: "POST", headers: { "Content-Type": "application/x-www-form-urlencoded" }, body: new URLSearchParams(params) })).message || {};
+  } catch (e) {
+    if (/field_trip_officer|not found|No module|Failed to get method/i.test(e.message)) throw new Error("Changing TA is not set up on this ERP yet (Field Trip Officer API).");
+    throw e;
+  }
+}
+/* lines: [{ row, amount }] -> { changed } */
+export function adjustTripTA(conn, { claim, lines, reason }) {
+  return officerCall(conn, "POST", { action: "adjust", claim, lines: JSON.stringify(lines), reason: reason || "" });
+}
+/* -> { [date]: { visits, places: { town: n } } } ({} when not set up) */
+export async function fetchClaimVisits(conn, claim) {
+  try {
+    return (await officerCall(conn, "GET", { action: "visits", claim })).days || {};
+  } catch {
+    return {};
   }
 }
 

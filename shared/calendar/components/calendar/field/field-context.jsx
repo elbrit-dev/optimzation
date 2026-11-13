@@ -145,12 +145,32 @@ export function FieldExpensesProvider({ children }) {
         : ok
           ? { decision: "approved", by: mine[0].decidedBy, on: mine[0].decidedOn }
           : null;
+      // amounts changed after it was sent (13 Nov 2026): by the reporting
+      // officer while it waited, or on the final check -- who, why, and what
+      // it does to the trip's TA / DA
+      const changes = mine
+        .filter((l) => l.adjusted)
+        .map((l) => ({ id: l.id, type: l.type, date: l.date, amount: l.amount, final: l.final, reason: l.adjustReason || "", by: l.adjustedBy || "" }));
+      const TA_LINE = new Set(["Travel", "Fuel", "Toll"]);
+      const taDelta = changes.filter((x) => TA_LINE.has(x.type)).reduce((a, x) => a + (x.final - x.amount), 0);
+      const daDelta = changes.filter((x) => !TA_LINE.has(x.type)).reduce((a, x) => a + (x.final - x.amount), 0);
       // the claim it is in (the trip sheet shows where THAT claim is)
-      return { ...claim, ...(s ? { status: s } : {}), officer, holder: { name: holder.name, status: holder.status, open: holder.open } };
+      return {
+        ...claim,
+        ...(s ? { status: s } : {}),
+        officer,
+        changes,
+        taDelta,
+        daDelta,
+        holder: { name: holder.name, status: holder.status, open: holder.open },
+      };
     };
     const claimed = trips.map((t) => {
       const claim = live(store.claimOf(claims, t.id), t);
-      const calc = tripClaim(t, claim, ctx);
+      const base = tripClaim(t, claim, ctx);
+      const dTa = Math.round(claim.taDelta || 0);
+      const dDa = Math.round(claim.daDelta || 0);
+      const calc = dTa || dDa ? { ...base, taClaimed: base.ta, daClaimed: base.da, ta: base.ta + dTa, da: base.da + dDa, total: base.total + dTa + dDa } : base;
       return { trip: t, claim, calc, checks: tripChecks(t, claim, calc) };
     });
     const byTrip = new Map(claimed.map((x) => [x.trip.id, x]));
@@ -197,6 +217,7 @@ export function FieldExpensesProvider({ children }) {
       requests: liveRequests,
       plans,
       manager,
+      approverId: approverEmail || null,
       payroll: payrollOf(month),
       stats: monthStats(rows, trips),
       // the month on screen is not where this TA/DA lives: the strip says

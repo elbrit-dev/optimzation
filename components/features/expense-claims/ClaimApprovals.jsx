@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { addClaimComment, applyAction, decideCarRequest, decideTrip, fetchCarQueue, fetchClaimDepartments, fetchMe, fetchQueue, makeConn, saveSanctioned, withTripMarks } from "./data/claimsApi";
+import { addClaimComment, adjustTripTA, applyAction, decideCarRequest, decideTrip, fetchCarQueue, fetchClaimDepartments, fetchClaimVisits, fetchMe, fetchQueue, makeConn, saveSanctioned, withTripMarks } from "./data/claimsApi";
 import { tripsOf } from "./fieldTrips";
 import { loggedUser } from "../support-report/data/erpClient";
 import { effectiveSeat, loadSeatTemplates } from "@calendar/lib/boSeat";
@@ -253,6 +253,15 @@ export default function ClaimApprovals({ url, token, mode = "auto", verifiers = 
       lines: cl.lines.map((l) => (ids.has(l.id) ? { ...l, decision: WORD[decision], decisionNote: note, decidedBy: decision === "pending" ? "" : lists.me, decidedOn: decision === "pending" ? "" : at } : l)),
     }));
   };
+  // the officer changes a TA line's amount, with a reason (13 Nov 2026)
+  const adjust = async (c, line, amount, reason) => {
+    await adjustTripTA(conn, { claim: c.id, lines: [{ row: line.id, amount }], reason });
+    const back = Math.abs(amount - line.amount) < 0.5;
+    patchClaim(c.id, (cl) => ({
+      ...cl,
+      lines: cl.lines.map((l) => (l.id === line.id ? { ...l, adjusted: !back, final: back ? l.amount : amount, adjustReason: back ? "" : reason, adjustedBy: back ? "" : lists.me } : l)),
+    }));
+  };
   // Approve (pending trips approved first) or, with a trip rejected, send it back
   const finish = async (c) => {
     const trips = tripsOf(c.lines);
@@ -367,6 +376,7 @@ export default function ClaimApprovals({ url, token, mode = "auto", verifiers = 
                           openOf={openOf}
                           toggle={toggle}
                           onDecide={decide}
+                          onAdjust={adjust}
                           onFinish={async () => { const m = await finish(c); done(m); }}
                           onBill={(file, files) => setPreview({ file, files })}
                           onFull={() => setOpen(c)}
@@ -546,8 +556,20 @@ function billsOf(t) {
 
 /* One planner field claim (the rep's month): its trips, each decided on its
    own, then one button to finish the claim. */
-function FieldClaimPanel({ conn, claim: c, canAct, history, desk, picked, canPick, onPick, openOf, toggle, onDecide, onFinish, onBill, onFull }) {
+function FieldClaimPanel({ conn, claim: c, canAct, history, desk, picked, canPick, onPick, openOf, toggle, onDecide, onAdjust, onFinish, onBill, onFull }) {
   const trips = tripsOf(c.lines).map((t) => (history ? { ...t, decision: tripDecision(c, t) } : t));
+  // each day's visits, per town (the rep's Field Expense Day, through the ERP)
+  const [visits, setVisits] = useState({});
+  useEffect(() => {
+    let alive = true;
+    fetchClaimVisits(conn, c.id).then((v) => alive && setVisits(v || {}));
+    return () => {
+      alive = false;
+    };
+  }, [conn, c.id]);
+  // the claim after the officer's TA changes
+  const total = c.lines.reduce((s, l) => s + (Number(l.adjusted ? l.final : l.amount) || 0), 0);
+  const changed = Math.abs(total - c.claimed) >= 0.5;
   const handBills = new Set(c.lines.filter(isHand).map((l) => l.bill)).size;
   // a pending trip with a handwritten bill is approved on its own, after its confirm
   const handPending = trips.filter((t) => t.decision === "pending" && t.lines.some(isHand)).length;
@@ -557,9 +579,14 @@ function FieldClaimPanel({ conn, claim: c, canAct, history, desk, picked, canPic
   const days = new Set(c.lines.map((l) => l.date)).size;
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
+  // Approve / Send back asks first (13 Nov 2026): nothing moves until "Yes"
+  const [confirming, setConfirming] = useState(false);
   const first = String(c.employeeName || "the employee").split(" ")[0];
+  // travel days with few visits, to name in the confirm
+  const lowDays = [...new Set(c.lines.map((l) => l.date))].filter((d) => lowVisitDay(visits, d, c.lines.filter((l) => l.date === d))).length;
   const finish = async () => {
     setError("");
+    setConfirming(false);
     setBusy(true);
     try {
       await onFinish();
@@ -573,10 +600,10 @@ function FieldClaimPanel({ conn, claim: c, canAct, history, desk, picked, canPic
     : handPending
       ? `Approve the handwritten ${handPending === 1 ? "trip" : "trips"} first`
     : n.pending === trips.length
-      ? `Approve all ${plural(trips.length, "trip")} · ${inr(c.claimed)}`
+      ? `Approve all ${plural(trips.length, "trip")} · ${inr(total)}`
       : n.pending
-        ? `Approve the other ${plural(n.pending, "trip")} · ${inr(c.claimed)}`
-        : `Approve claim · ${inr(c.claimed)}`;
+        ? `Approve the other ${plural(n.pending, "trip")} · ${inr(total)}`
+        : `Approve claim · ${inr(total)}`;
   return (
     <div style={{ borderRadius: 12, background: picked ? "#f5f8ff" : "#fcfcfd", boxShadow: picked ? "0 0 0 1px #b2c8f7" : "0 0 0 1px #eaecf0", display: "flex", flexDirection: "column" }}>
       <div style={{ display: "flex", alignItems: "center", gap: 10, padding: desk ? "10px 14px" : "10px 10px", flexWrap: "wrap" }}>
@@ -584,9 +611,10 @@ function FieldClaimPanel({ conn, claim: c, canAct, history, desk, picked, canPic
         <span style={{ fontSize: 11, fontWeight: 700, padding: "2px 8px", borderRadius: 99, background: "#eef3fe", color: "#1d4ed8" }}>Field TA/DA · {fieldMonth(c)}</span>
         {history ? <Chip claim={c} /> : <FieldCheckBadge fc={fc} />}
         {handBills > 0 && <span style={{ fontSize: 11, fontWeight: 700, padding: "2px 8px", borderRadius: 99, background: "#fffaeb", color: "#b54708", boxShadow: "inset 0 0 0 1px #fedf89" }}>✍ {handBills} handwritten</span>}
-        <span style={{ fontSize: 12, color: "#5b6576", ...ell }}>{plural(trips.length, "trip")} · {plural(days, "day")} · {c.id}</span>
+        <span style={{ fontSize: 12, color: "#5b6576", ...ell }}>{plural(trips.length, "trip")} · {plural(days, "day")}</span>
         <span style={{ flex: 1 }} />
-        <b style={{ fontSize: 16, ...tabNum }}>{inr(c.claimed)}</b>
+        {changed && <s style={{ fontSize: 13, color: "#98a2b3", ...tabNum }}>{inr(c.claimed)}</s>}
+        <b style={{ fontSize: 16, ...tabNum }}>{inr(total)}</b>
       </div>
       <div style={{ display: "flex", flexDirection: "column", gap: 6, padding: desk ? "0 14px 12px" : "0 8px 10px" }}>
         {trips.map((t) => (
@@ -600,6 +628,8 @@ function FieldClaimPanel({ conn, claim: c, canAct, history, desk, picked, canPic
             open={openOf(`r:${c.id}:${t.key}`, trips.length === 1)}
             onToggle={() => toggle(`r:${c.id}:${t.key}`)}
             onDecide={onDecide}
+            onAdjust={onAdjust}
+            visits={visits}
             onBill={onBill}
           />
         ))}
@@ -616,19 +646,42 @@ function FieldClaimPanel({ conn, claim: c, canAct, history, desk, picked, canPic
               : `After you approve, it goes for the final check (Accounts / the CEO), then into the ${payrollMonth()} payroll.`}
         </span>
         <button type="button" className="ec-ghost" onClick={onFull} style={{ ...btn.ghost, height: 38, fontSize: 13 }}>Full view</button>
-        {canAct && (
+        {canAct && !confirming && (
           <button
             type="button"
             className="ec-cta"
             disabled={busy || (!n.rejected && handPending > 0)}
             title={!n.rejected && handPending > 0 ? "Approve the trip with the handwritten bill first — it asks you to confirm you checked it" : undefined}
-            onClick={finish}
+            onClick={() => setConfirming(true)}
             style={{ ...btn.primary, height: 38, fontSize: 13, display: "inline-flex", alignItems: "center", gap: 8, ...(n.rejected ? { background: "#d92d20" } : {}) }}
           >
             {busy ? <><Spinner />{n.rejected ? "Sending back…" : "Approving…"}</> : finishText}
           </button>
         )}
       </div>
+      {/* the confirm: what happens, then Cancel / Yes */}
+      {canAct && confirming && (
+        <div style={{ margin: desk ? "0 14px 12px" : "0 10px 10px", padding: 12, borderRadius: 10, background: n.rejected ? "#fef3f2" : "#eff4ff", boxShadow: `inset 0 0 0 1px ${n.rejected ? "#fecdca" : "#c7d7fe"}`, display: "flex", flexDirection: "column", gap: 8 }}>
+          <b style={{ fontSize: 14, color: "#101828" }}>
+            {n.rejected
+              ? `Send ${first}'s claim back? ${plural(n.rejected, "trip")} to fix.`
+              : `Approve ${first}'s ${fieldMonth(c)} claim · ${inr(total)}?`}
+          </b>
+          <span style={{ fontSize: 12.5, color: "#475467", lineHeight: 1.45 }}>
+            {n.rejected
+              ? `${first} sees your reasons and fixes the rejected ${n.rejected === 1 ? "trip" : "trips"}; the approved trips stay approved.`
+              : `${n.pending ? `${plural(n.pending, "trip")} not decided yet will be approved with it. ` : ""}It then goes for the final check (Accounts / the CEO) and into the ${payrollMonth()} payroll.`}
+            {!n.rejected && lowDays > 0 && <b style={{ color: "#b54708" }}> ⚠ {plural(lowDays, "travel day")} with {LOW_VISITS} visits or fewer.</b>}
+            {!n.rejected && changed && <> TA changed by you: {inr(c.claimed)} → {inr(total)}.</>}
+          </span>
+          <span style={{ display: "flex", gap: 8, justifyContent: "flex-end", flexWrap: "wrap" }}>
+            <button type="button" className="ec-ghost" onClick={() => setConfirming(false)} style={{ ...btn.ghost, height: 36, fontSize: 13 }}>Cancel</button>
+            <button type="button" className="ec-cta" onClick={finish} style={{ ...btn.primary, height: 36, fontSize: 13, ...(n.rejected ? { background: "#d92d20" } : {}) }}>
+              {n.rejected ? "Yes, send back" : `Yes, approve · ${inr(total)}`}
+            </button>
+          </span>
+        </div>
+      )}
     </div>
   );
 }
@@ -667,10 +720,35 @@ function lineText(l) {
   return { main: rest[0] || l.type, sub: rest.slice(1).join(" · ") };
 }
 const TA_TYPES = ["Travel", "Fuel", "Toll"];
+/* A day with travel and this many visits or fewer is flagged to the officer
+   (13 Nov 2026): the travel was paid for fewer calls than expected. */
+const LOW_VISITS = 4;
+const lowVisitDay = (visits, date, ls) => {
+  const v = visits[date];
+  return !!v && ls.some((l) => TA_TYPES.includes(l.type)) && (v.visits || 0) <= LOW_VISITS;
+};
 const ORDER = { Travel: 0, Fuel: 1, Toll: 2, "Daily Allowance": 3, Stay: 4, Food: 5 };
 
-function TripRow({ conn, trip: t, claim: c, canAct, desk, open, onToggle, onDecide, onBill }) {
+function TripRow({ conn, trip: t, claim: c, canAct, desk, open, onToggle, onDecide, onAdjust, visits = {}, onBill }) {
   const [rejecting, setRejecting] = useState(false);
+  // changing a TA line: { id, amount, reason }
+  const [editTa, setEditTa] = useState(null);
+  const canEditTa = canAct && t.decision === "pending" && !!onAdjust;
+  const saveTa = async (l) => {
+    setError("");
+    const amount = Math.round(Number(editTa.amount));
+    if (!(amount >= 0)) return setError("Enter the TA amount.");
+    if (Math.abs(amount - l.amount) >= 0.5 && editTa.reason.trim().length < 3) return setError("Say why the TA is changed — the employee sees this.");
+    setBusy(`ta-${l.id}`);
+    try {
+      await onAdjust(c, l, amount, editTa.reason.trim());
+      setEditTa(null);
+    } catch (e) {
+      setError(e.message);
+    } finally {
+      setBusy("");
+    }
+  };
   const [reason, setReason] = useState("");
   const [busy, setBusy] = useState("");
   const [error, setError] = useState("");
@@ -705,6 +783,7 @@ function TripRow({ conn, trip: t, claim: c, canAct, desk, open, onToggle, onDeci
     at.get(l.date).push(l);
   }
   const small = { height: 32, padding: "0 12px", borderRadius: 8, fontSize: 12.5, fontWeight: 700, cursor: "pointer", display: "inline-flex", alignItems: "center", gap: 6 };
+  const lowDays = days.filter(([date, ls]) => lowVisitDay(visits, date, ls)).length;
   return (
     <div style={{ background: "#fff", borderRadius: 10, boxShadow: `0 0 0 1px #e4e7ec, inset 3px 0 0 ${tone}`, overflow: "hidden" }}>
       <div style={{ display: "flex", alignItems: "center", gap: 10, padding: "8px 10px 8px 13px", flexWrap: desk ? "nowrap" : "wrap" }}>
@@ -717,6 +796,7 @@ function TripRow({ conn, trip: t, claim: c, canAct, desk, open, onToggle, onDeci
               {bills.length ? ` · ${plural(bills.length, "bill")}` : " · no bills"}
               {hand.length ? <span style={{ color: "#b54708", fontWeight: 700 }}> · ✍ {hand.length} handwritten</span> : null}
               {flagged ? <span style={{ color: "#b54708", fontWeight: 600 }}> · {flagged} to look at</span> : null}
+              {lowDays ? <span style={{ color: "#b54708", fontWeight: 700 }}> · ⚠ {plural(lowDays, "day")} with few visits</span> : null}
             </span>
           </span>
           <DecisionPill d={t.decision} />
@@ -817,8 +897,9 @@ function TripRow({ conn, trip: t, claim: c, canAct, desk, open, onToggle, onDeci
                     <span style={{ fontSize: 12, fontWeight: 800, letterSpacing: ".02em", color: "#475467", textTransform: "uppercase" }}>{DOW[dt.getDay()]} {dt.getDate()} {MON[dt.getMonth()]}</span>
                     <span style={{ flex: 1, height: 1, background: "#f2f4f7", alignSelf: "center" }} />
                     {(() => {
-                      const ta = ls.filter((l) => TA_TYPES.includes(l.type)).reduce((s, l) => s + l.amount, 0);
-                      const da = ls.reduce((s, l) => s + l.amount, 0) - ta;
+                      const eff = (l) => (l.adjusted ? l.final : l.amount);
+                      const ta = ls.filter((l) => TA_TYPES.includes(l.type)).reduce((s, l) => s + eff(l), 0);
+                      const da = ls.reduce((s, l) => s + eff(l), 0) - ta;
                       return (
                         <span style={{ fontSize: 12, color: "#667085", ...tabNum }}>
                           {ta > 0 && <>TA <b style={{ color: "#344054" }}>{inr(ta)}</b></>}
@@ -829,6 +910,25 @@ function TripRow({ conn, trip: t, claim: c, canAct, desk, open, onToggle, onDeci
                       );
                     })()}
                   </div>
+                  {/* the day's visits, town by town -- what the travel was for */}
+                  {visits[date] && (visits[date].visits > 0 || lowVisitDay(visits, date, ls)) && (
+                    <span style={{ fontSize: 12, color: "#475467", display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap" }}>
+                      {lowVisitDay(visits, date, ls) ? (
+                        <b style={{ color: "#b54708", background: "#fffaeb", boxShadow: "inset 0 0 0 1px #fedf89", padding: "1px 8px", borderRadius: 99 }} title={`A travel day with ${LOW_VISITS} visits or fewer`}>
+                          ⚠ {visits[date].visits ? `Only ${plural(visits[date].visits, "visit")}` : "No visits"} · fewer than expected
+                        </b>
+                      ) : (
+                        <b style={{ color: "#1d4ed8" }}>{plural(visits[date].visits, "visit")}</b>
+                      )}
+                      {Object.entries(visits[date].places || {})
+                        .sort((x, y) => y[1] - x[1])
+                        .map(([town, k]) => (
+                          <span key={town} style={{ padding: "1px 7px", borderRadius: 99, background: "#f2f4f7", fontWeight: 600 }}>
+                            {unshout(town).replace(/^\w/, (ch) => ch.toUpperCase())} {k}
+                          </span>
+                        ))}
+                    </span>
+                  )}
                   {/* TA first, then DA: stay, food, and the top-up made from them last */}
                   {[...ls].sort((x, y) => (isTopUp(x) ? 6 : ORDER[x.type] ?? 9) - (isTopUp(y) ? 6 : ORDER[y.type] ?? 9)).map((l) => {
                     const col = typeColor(l.type);
@@ -850,8 +950,39 @@ function TripRow({ conn, trip: t, claim: c, canAct, desk, open, onToggle, onDeci
                             {loud && <span style={{ flex: "none", fontSize: 11, fontWeight: 700, color }}>{word}</span>}
                           </span>
                           {sub && <span style={{ fontSize: 11.5, color: "#667085", ...ell }}>{sub}</span>}
+                          {l.adjusted && (
+                            <span style={{ fontSize: 11.5, color: "#b54708" }}>
+                              TA changed {inr(l.amount)} → {inr(l.final)}
+                              {l.adjustReason ? <> — <i>&ldquo;{l.adjustReason}&rdquo;</i></> : null}
+                            </span>
+                          )}
+                          {editTa?.id === l.id && (
+                            <span style={{ display: "flex", flexDirection: "column", gap: 6, marginTop: 6, padding: 8, borderRadius: 8, background: "#f9fafb", boxShadow: "inset 0 0 0 1px #eaecf0" }}>
+                              <span style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+                                <span style={{ fontSize: 12, fontWeight: 700, color: "#475467" }}>TA to pay</span>
+                                <span style={{ display: "inline-flex", alignItems: "center", gap: 4, height: 34, padding: "0 10px", borderRadius: 8, border: "1px solid #d0d5dd", background: "#fff" }}>
+                                  <span style={{ color: "#8a93a3" }}>₹</span>
+                                  <input autoFocus inputMode="numeric" value={editTa.amount} onChange={(e) => setEditTa({ ...editTa, amount: e.target.value.replace(/[^\d]/g, "") })} aria-label="TA amount" style={{ width: 90, border: 0, outline: 0, background: "transparent", fontSize: 14, fontWeight: 700, ...tabNum }} />
+                                </span>
+                                <span style={{ fontSize: 11.5, color: "#667085" }}>claimed {inr(l.amount)}</span>
+                              </span>
+                              <input value={editTa.reason} onChange={(e) => setEditTa({ ...editTa, reason: e.target.value })} placeholder="Why? e.g. bus fare is ₹150 on this route" aria-label="Why the TA is changed" style={{ height: 34, borderRadius: 8, border: "1px solid #d0d5dd", padding: "0 10px", fontSize: 13 }} />
+                              <span style={{ display: "flex", gap: 6, justifyContent: "flex-end" }}>
+                                <button type="button" disabled={!!busy} onClick={() => { setEditTa(null); setError(""); }} style={{ ...small, height: 30, border: "1px solid #d0d5dd", background: "#fff", color: "#344054" }}>Cancel</button>
+                                <button type="button" disabled={!!busy} onClick={() => saveTa(l)} style={{ ...small, height: 30, border: 0, background: "#2563eb", color: "#fff" }}>{busy === `ta-${l.id}` ? <Spinner /> : null}Save TA</button>
+                              </span>
+                            </span>
+                          )}
                         </span>
-                        <span style={{ fontSize: 13, fontWeight: 700, ...tabNum }}>{inr(l.amount)}</span>
+                        <span style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                          {l.adjusted && <s style={{ fontSize: 12, color: "#98a2b3", ...tabNum }}>{inr(l.amount)}</s>}
+                          <span style={{ fontSize: 13, fontWeight: 700, ...tabNum }}>{inr(l.adjusted ? l.final : l.amount)}</span>
+                          {canEditTa && l.type === "Travel" && editTa?.id !== l.id && (
+                            <button type="button" title="Change the TA" aria-label="Change the TA" onClick={() => setEditTa({ id: l.id, amount: String(Math.round(l.adjusted ? l.final : l.amount)), reason: l.adjustReason || "" })} style={{ width: 24, height: 24, borderRadius: 6, border: "1px solid #d0d5dd", background: "#fff", color: "#475467", display: "grid", placeItems: "center", cursor: "pointer", padding: 0, fontSize: 12 }}>
+                              ✎
+                            </button>
+                          )}
+                        </span>
                       </div>
                     );
                   })}

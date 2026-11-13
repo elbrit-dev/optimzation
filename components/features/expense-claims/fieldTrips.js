@@ -62,7 +62,8 @@ export function tripsOf(lines) {
       return {
         ...t,
         lines: ls,
-        amount: ls.reduce((s, l) => s + (Number(l.amount) || 0), 0),
+        // what the trip comes to now: a line the officer changed counts at its new amount
+        amount: ls.reduce((s, l) => s + (Number(l.adjusted ? l.final : l.amount) || 0), 0),
         bills: ls.filter((l) => l.bill).length,
         days: new Set(ls.map((l) => l.date)).size,
         decision: rej ? "rejected" : all ? "approved" : "pending",

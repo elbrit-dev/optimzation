@@ -10,9 +10,14 @@
 # So after a send-back the trips already approved stay approved, and the one
 # the rep fixed comes back to the officer. The line's trip tag (custom_trip)
 # is kept the same way when a save leaves it out.
+# 13 Nov 2026: so is a TA amount the officer changed ("Field Trip Officer
+# API": custom_adjusted / _adjusted_amount / _adjust_reason / _adjusted_by /
+# _adjusted_on and sanctioned_amount) -- kept on an unchanged line, cleared on
+# a changed one.
 
 PREFIX = "Field TA/DA · "
 KEEP = ["custom_trip_decision", "custom_trip_note", "custom_trip_decided_by", "custom_trip_decided_on"]
+ADJ = ["custom_adjusted", "custom_adjusted_amount", "custom_adjust_reason", "custom_adjusted_by", "custom_adjusted_on"]
 
 if str(doc.remark or "").startswith(PREFIX):
     old = {}
@@ -20,7 +25,8 @@ if str(doc.remark or "").startswith(PREFIX):
         for r in frappe.get_all(
             "Expense Claim Detail",
             filters={"parent": doc.name, "parenttype": "Expense Claim"},
-            fields=["name", "expense_date", "expense_type", "amount", "custom_bill", "custom_trip", "custom_trip_decision", "custom_trip_note", "custom_trip_decided_by", "custom_trip_decided_on"],
+            fields=["name", "expense_date", "expense_type", "amount", "sanctioned_amount", "custom_bill", "custom_trip", "custom_trip_decision", "custom_trip_note", "custom_trip_decided_by", "custom_trip_decided_on",
+                    "custom_adjusted", "custom_adjusted_amount", "custom_adjust_reason", "custom_adjusted_by", "custom_adjusted_on"],
             limit_page_length=1000,
         ):
             old[r.name] = r
@@ -36,5 +42,13 @@ if str(doc.remark or "").startswith(PREFIX):
             )
         for k in KEEP:
             row.set(k, o.get(k) if same else None)
+        if same and o.get("custom_adjusted"):
+            for k in ADJ:
+                row.set(k, o.get(k))
+            row.set("sanctioned_amount", o.get("sanctioned_amount"))
+        elif row.get("custom_adjusted"):
+            for k in ADJ:
+                row.set(k, 0 if k in ["custom_adjusted", "custom_adjusted_amount"] else None)
+            row.set("sanctioned_amount", row.amount)
         if o and not row.get("custom_trip") and o.get("custom_trip"):
             row.set("custom_trip", o.get("custom_trip"))

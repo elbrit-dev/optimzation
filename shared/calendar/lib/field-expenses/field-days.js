@@ -107,6 +107,22 @@ function flightOf(d, x) {
   };
 }
 
+/* visitList rows are [time, doctor, place, ...] -> [[town, n], ...] most first */
+function placesOf(list) {
+  const n = new Map();
+  for (const v of list || []) {
+    const p = String(v?.[2] || "").replace(/\s+/g, " ").trim();
+    if (!p) continue;
+    const key = p.toLowerCase();
+    // ALL CAPS and all-lower names read as Title Case
+    const nice = /[a-z]/.test(p) && /[A-Z]/.test(p) ? p : p.toLowerCase().replace(/\b\w/g, (c) => c.toUpperCase());
+    const cur = n.get(key) || [nice, 0];
+    cur[1] += 1;
+    n.set(key, cur);
+  }
+  return [...n.values()].sort((a, b) => b[1] - a[1]);
+}
+
 /* A Field Expense Day -> the row the planner's screens read. */
 export function shapeDay(d) {
   const x = d.detail || {};
@@ -174,6 +190,9 @@ export function shapeDay(d) {
     flags: x.flags || [],
     flight: flightOf(d, x),
     travelLegs,
+    // the day's visits by town, and any other work (a meeting) -- 13 Nov 2026
+    visitPlaces: placesOf(x.visitList),
+    otherWork: (x.others || []).map((o) => [o?.[1], o?.[2]].filter(Boolean).join(" · ").trim()).filter(Boolean),
   };
 }
 

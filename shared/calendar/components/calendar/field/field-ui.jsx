@@ -29,7 +29,6 @@ import {
   Loader2,
   MapPin,
   Plane,
-  Route,
   ShieldCheck,
   TrainFront,
   Undo2,
@@ -298,13 +297,18 @@ function LocalDaysSheet() {
                   </span>
                   <span className="truncate text-[11.5px] text-gray-500">
                     {trip.days.length > 1 ? `${rangeLabel(trip.from, trip.to)} · ` : ""}
-                    {trip.km} km · TA {inr(calc.ta)} · DA {inr(calc.da)}
+                    {trip.kind === "day" ? `${trip.km}+${trip.km} km` : `${trip.km} km`} · TA{" "}
+                    {calc.taClaimed != null && calc.taClaimed !== calc.ta && <s className="text-gray-400">{inr(calc.taClaimed)}</s>}{" "}
+                    <span className={calc.taClaimed != null && calc.taClaimed !== calc.ta ? "font-bold text-amber-700" : ""}>{inr(calc.ta)}</span> · DA {inr(calc.da)}
                     {trip.days.some((dd) => dd.flight) ? " · ✈ flight, TA by company" : ""}
                   </span>
                   {req?.status === "rejected" && <span className="w-fit rounded bg-rose-50 px-1.5 text-[10.5px] font-bold text-rose-700">Car not approved · fare paid</span>}
                 </span>
                 <span className="flex shrink-0 flex-col items-end gap-1">
-                  <b className="text-[14px] font-extrabold text-gray-900">{inr(calc.total)}</b>
+                  <span className="flex items-baseline gap-1">
+                    {calc.taClaimed != null && calc.taClaimed !== calc.ta && <s className="text-[11.5px] text-gray-400">{inr(calc.total - calc.ta + calc.taClaimed)}</s>}
+                    <b className="text-[14px] font-extrabold text-gray-900">{inr(calc.total)}</b>
+                  </span>
                   <StatusPill claim={claim} className="px-1.5 text-[9.5px]" />
                 </span>
                 <ChevronRight className="h-4 w-4 shrink-0 text-gray-300" aria-hidden />
@@ -401,12 +405,22 @@ function TripCard({ item, canCar, onOpen, onRequestOpen }) {
         </span>
       </span>
     </button>
+    {calc.taClaimed != null && calc.taClaimed !== calc.ta && (
+      <div className="border-t border-gray-100 px-2 py-1">
+        <span className="flex w-full items-center gap-1 rounded-md bg-amber-50 px-1.5 py-0.5 text-[10.5px] font-extrabold text-amber-800" title={(claim.changes || []).map((a) => a.reason).filter(Boolean).join(" · ")}>
+          <Info className="h-3.5 w-3.5 shrink-0" aria-hidden />
+          <span className="truncate">
+            TA changed <s className="font-semibold opacity-70">{inr(calc.taClaimed)}</s> → {inr(calc.ta)}
+          </span>
+        </span>
+      </div>
+    )}
     {trip.flownFare > 0 && !calc.carBilled && (
       <div className="border-t border-gray-100 px-2 py-1">
         <span className="flex w-full items-center gap-1 rounded-md bg-sky-50 px-1.5 py-0.5 text-[10.5px] font-extrabold text-sky-800" title={`Flown: ${trip.flights.map((l) => `${l.from} → ${l.to}`).join(", ")} -- company ticket`}>
           <Plane className="h-3.5 w-3.5 shrink-0" aria-hidden />
           <span className="truncate">
-            Flight · TA <s className="font-semibold opacity-70">{inr(calc.ta + trip.flownFare)}</s> → {inr(calc.ta)}
+            Flight · TA <s className="font-semibold opacity-70">{inr((calc.taClaimed ?? calc.ta) + trip.flownFare)}</s> → {inr(calc.taClaimed ?? calc.ta)}
           </span>
         </span>
       </div>
@@ -619,29 +633,6 @@ function FieldSheets() {
       </Modal>
     </>
   );
-}
-
-function tripStory(trip) {
-  const paid = trip.days.filter((d) => d.payable);
-  if (!paid.length) return rangeLabel(trip.from, trip.to);
-  if (trip.kind === "hq") {
-    const n = paid.length;
-    return `${n} day${n > 1 ? "s" : ""} worked at HQ · ${trip.visits} visit${trip.visits === 1 ? "" : "s"} · DA only, no travel`;
-  }
-  if (trip.kind === "day") {
-    const d = paid[0];
-    return `${dayLabel(d.date)} · out to ${dayPlace(d) || "the field"} and back the same day · ${d.km ?? "?"} km`;
-  }
-  const first = paid[0];
-  const last = paid[paid.length - 1];
-  const out = first.journey ? `Left ${first.journey.from || "HQ"} ${dayLabel(first.date)}` : `Out from ${dayLabel(first.date)}`;
-  const flewBack = (last.travelLegs || []).slice(-1)[0]?.flown ? last.travelLegs.slice(-1)[0] : null;
-  const back = last.journey && last !== first
-    ? flewBack
-      ? ` · flew ${flewBack.from} → ${flewBack.to} ${dayLabel(last.date)}`
-      : ` · back at ${last.journey.to || "HQ"} ${dayLabel(last.date)}`
-    : "";
-  return `${out} · ${trip.days.length} days away${back} · ${trip.km} km`;
 }
 
 /* How the trip was travelled, inside the trip itself (RBM, ZSM, SM): normal
@@ -970,6 +961,32 @@ function TripSheet({ item }) {
                     ? `In ${mon} claim`
                     : "Claimed · in payroll";
   const sectionLabel = "text-[13px] font-bold text-gray-500";
+  // Trip cost's words: why the TA and the DA are what they are
+  const paidDays = trip.days.filter((d) => d.payable).length;
+  const taBasis = calc.car
+    ? calc.carBilled
+      ? `own car · fuel ${inr(calc.fuel)} + toll ${inr(calc.tolls)}${calc.capped ? ` · capped at ${inr(calc.cap)}` : ""}`
+      : "own car · fare until the bills are in"
+    : trip.kind === "hq"
+      ? "no travel on an HQ day"
+      : trip.kind === "day"
+        ? `↑ ${trip.km} km ↓ ${trip.km} km`
+        : `fare · ${trip.km} km by road${trip.flownFare > 0 ? ` · flight ${inr(trip.flownFare)} off` : ""}`;
+  const nN = calc.nights.length;
+  const daBasis = calc.pool?.on
+    ? `${nN} outstation day${nN > 1 ? "s" : ""} · stay + food bills`
+    : nN
+      ? `${nN} outstation day${nN > 1 ? "s" : ""} at 50 % · no bill`
+      : trip.kind === "hq"
+        ? `${paidDays} HQ day${paidDays > 1 ? "s" : ""}`
+        : `ex-HQ day${paidDays > 1 ? `s · ${paidDays}` : ""} · return to HQ`;
+  const taNote = calc.car
+    ? !calc.carBilled
+      ? `No fuel / toll bill yet · paid the fare ${inr(calc.fare)} · bills pay up to ${inr(calc.cap)}.`
+      : null
+    : calc.carPending
+      ? "Car requested · paid the fare until the GM approves."
+      : null;
 
   return (
     <div className="-mx-4 flex min-h-0 flex-1 flex-col overflow-y-auto overscroll-contain px-4 [&>*]:shrink-0 gap-3">
@@ -1003,113 +1020,65 @@ function TripSheet({ item }) {
         </p>
       </div>
 
-      {/* justification: the route, then one TA line for the whole trip */}
-      <div>
-        <span className={sectionLabel}>Justification · this trip</span>
-        <p className="mt-1 flex items-start gap-1.5 text-[13.5px] leading-snug text-blue-800">
-          <Route className="mt-0.5 h-4 w-4 shrink-0" aria-hidden />
-          {tripStory(trip)}
-        </p>
-      </div>
-
-      <div className="grid grid-cols-[36px_minmax(0,1fr)_auto] items-center gap-x-2">
-        <span className="text-[13px] font-extrabold text-gray-500">TA</span>
-        <span className="flex min-w-0 flex-wrap items-center gap-x-1.5 gap-y-1 text-[15px] text-gray-600">
-          {calc.car ? (
-            <>
-              <b className="inline-flex items-center gap-1 font-extrabold text-gray-900">
-                <Car className="h-4 w-4 text-green-600" aria-hidden /> car
-              </b>
-              <span>·</span>
-              {calc.carBilled ? (
-                <>
-                  <span>
-                    fuel <b className="font-extrabold text-gray-900">{inr(calc.fuel)}</b> + toll <b className="font-extrabold text-gray-900">{inr(calc.tolls)}</b>
-                  </span>
-                </>
-              ) : (
-                <>
-                  <b className="font-extrabold text-gray-900">fare</b>
-                  <span>· no bills yet</span>
-                </>
-              )}
-            </>
-          ) : (
-            <>
-              <b className="font-extrabold text-gray-900">fare</b>
-              <span>· {trip.km} km</span>
-            </>
-          )}
-        </span>
-        <b className="text-[18px] font-extrabold text-gray-900">{inr(calc.ta)}</b>
-
-        {calc.car && (
-          <div className="col-start-2 col-end-4 mt-2 text-[12.5px] text-gray-600">
-            <span className="flex items-start gap-1.5">
-              <ShieldCheck className="mt-0.5 h-4 w-4 shrink-0 text-gray-500" aria-hidden />
-              <span>
-                {calc.carApproved ? "approved up to" : "allowed up to"} <b className="text-gray-900">{inr(calc.cap)}</b>
-                {!req?.ask && ` · ${trip.km} km ÷ ${MILEAGE_KM_PER_L} km/l × ₹${FUEL_PRICE.Petrol} + tolls ${inr(calc.cap - Math.round((trip.km / MILEAGE_KM_PER_L) * FUEL_PRICE.Petrol))}`}
+      {/* how it was travelled: the own car (asked for right here) with its
+          fuel / toll bills, and a flight -- the money itself is in Trip cost */}
+      {(calc.car || (trip.flownFare > 0 && !calc.carBilled) || (f.canCar && trip.kind !== "hq")) && (
+        <div className="flex flex-col gap-2">
+          {calc.car && (
+            <div className="rounded-2xl border border-gray-200 px-3 py-2.5 text-[12.5px] text-gray-600">
+              <span className="flex items-start gap-1.5">
+                <ShieldCheck className="mt-0.5 h-4 w-4 shrink-0 text-gray-500" aria-hidden />
+                <span>
+                  {calc.carApproved ? "approved up to" : "allowed up to"} <b className="text-gray-900">{inr(calc.cap)}</b>
+                  {!req?.ask && ` · ${trip.km} km ÷ ${MILEAGE_KM_PER_L} km/l × ₹${FUEL_PRICE.Petrol} + tolls ${inr(calc.cap - Math.round((trip.km / MILEAGE_KM_PER_L) * FUEL_PRICE.Petrol))}`}
+                </span>
               </span>
-            </span>
-            <span className="mt-2 flex items-center gap-3">
-              <span className="block h-1.5 flex-1 overflow-hidden rounded-full bg-gray-100">
-                <i
-                  className={cn("block h-full rounded-full", calc.capped ? "bg-amber-500" : "bg-green-600")}
-                  style={{ width: `${Math.min(100, Math.round(((calc.fuel + calc.tolls) / (calc.cap || 1)) * 100))}%` }}
+              <span className="mt-2 flex items-center gap-3">
+                <span className="block h-1.5 flex-1 overflow-hidden rounded-full bg-gray-100">
+                  <i
+                    className={cn("block h-full rounded-full", calc.capped ? "bg-amber-500" : "bg-green-600")}
+                    style={{ width: `${Math.min(100, Math.round(((calc.fuel + calc.tolls) / (calc.cap || 1)) * 100))}%` }}
+                  />
+                </span>
+                <b className={cn("shrink-0", calc.capped ? "text-amber-700" : "text-gray-900")}>
+                  {inr(calc.fuel + calc.tolls)} / {inr(calc.cap)}
+                </b>
+              </span>
+
+              <div className="mt-3 flex flex-wrap gap-2">
+                {["fuels", "tolls"].flatMap((kind) =>
+                  (claim[kind] || []).map((b) => (
+                    <BillChip key={b.id} kind={kind} bill={b} on={editing?.id === b.id} readOnly={!editable} onClick={() => setEditing(editing?.id === b.id ? null : { kind, id: b.id })} />
+                  ))
+                )}
+              </div>
+              {editable && (editing?.kind === "fuels" || editing?.kind === "tolls") && (
+                <BillEditor
+                  key={editing.id}
+                  bill={(claim[editing.kind] || []).find((b) => b.id === editing.id)}
+                  kind={editing.kind}
+                  onRemove={() => removeBill(editing.kind, editing.id)}
                 />
-              </span>
-              <b className={cn("shrink-0", calc.capped ? "text-amber-700" : "text-gray-900")}>
-                {inr(calc.fuel + calc.tolls)} / {inr(calc.cap)}
-              </b>
-            </span>
-
-            <div className="mt-3 flex flex-wrap gap-2">
-              {["fuels", "tolls"].flatMap((kind) =>
-                (claim[kind] || []).map((b) => (
-                  <BillChip key={b.id} kind={kind} bill={b} on={editing?.id === b.id} readOnly={!editable} onClick={() => setEditing(editing?.id === b.id ? null : { kind, id: b.id })} />
-                ))
               )}
             </div>
-            {editable && (editing?.kind === "fuels" || editing?.kind === "tolls") && (
-              <BillEditor
-                key={editing.id}
-                bill={(claim[editing.kind] || []).find((b) => b.id === editing.id)}
-                kind={editing.kind}
-                onRemove={() => removeBill(editing.kind, editing.id)}
-              />
-            )}
-          </div>
-        )}
+          )}
 
-        {/* a flown leg: the company's ticket -- the fare it would have paid
-            comes off the trip's TA (13 Nov 2026) */}
-        {trip.flownFare > 0 && !calc.carBilled && (
-          <div className="col-start-2 col-end-4 mt-2 flex items-start gap-1.5 rounded-xl bg-sky-50 px-2.5 py-2 text-[12.5px] leading-snug text-sky-900">
-            <Plane className="mt-0.5 h-4 w-4 shrink-0" aria-hidden />
-            <span className="min-w-0">
-              By road {inr(calc.ta + trip.flownFare)} − flight {trip.flights.map((l) => `${l.from} → ${l.to}`).join(", ")} {inr(trip.flownFare)} ={" "}
-              <b>TA {inr(calc.ta)}</b>
-              <span className="block text-[11.5px] text-sky-700">The flight is the company&rsquo;s ticket, so its leg pays no TA.</span>
-            </span>
-          </div>
-        )}
-        <p className="col-start-2 col-end-4 mt-2 flex items-start gap-1.5 text-[12.5px] leading-snug text-gray-500">
-          <Info className="mt-0.5 h-4 w-4 shrink-0" aria-hidden />
-          {calc.car
-            ? !calc.carBilled
-              ? `No fuel / toll bill yet · paid the fare ${inr(calc.fare)} · bills pay up to ${inr(calc.cap)}.`
-              : calc.capped
-                ? `Car bills ${inr(calc.fuel + calc.tolls)} → TA ${inr(calc.cap)} (approved max).`
-                : `Fuel + toll are the TA · up to ${inr(calc.cap)}.`
-            : calc.carPending
-              ? "Car requested · paid the fare until the GM approves."
-              : "TA · one fare for the whole trip."}
-        </p>
-
-        {/* normal fare or own car, asked for right here (RBM, ZSM, SM) */}
-        {f.canCar && trip.kind !== "hq" && <CarMode trip={trip} calc={calc} editable={editable} tab={tab} setTab={setTab} />}
-      </div>
+          {/* a flown leg: the company's ticket -- the fare it would have paid
+              comes off the trip's TA (13 Nov 2026) */}
+          {trip.flownFare > 0 && !calc.carBilled && (
+            <div className="flex items-start gap-1.5 rounded-xl bg-sky-50 px-2.5 py-2 text-[12.5px] leading-snug text-sky-900">
+              <Plane className="mt-0.5 h-4 w-4 shrink-0" aria-hidden />
+              <span className="min-w-0">
+                By road {inr((calc.taClaimed ?? calc.ta) + trip.flownFare)} − flight {trip.flights.map((l) => `${l.from} → ${l.to}`).join(", ")} {inr(trip.flownFare)} ={" "}
+                <b>TA {inr(calc.taClaimed ?? calc.ta)}</b>
+                <span className="block text-[11.5px] text-sky-700">The flight is the company&rsquo;s ticket, so its leg pays no TA.</span>
+              </span>
+            </div>
+          )}
+          {/* normal fare or own car, asked for right here (RBM, ZSM, SM) */}
+          {f.canCar && trip.kind !== "hq" && <CarMode trip={trip} calc={calc} editable={editable} tab={tab} setTab={setTab} />}
+        </div>
+      )}
 
       {/* day by day */}
       <ol className="mt-1 border-t border-dashed border-gray-300 pt-4">
@@ -1129,24 +1098,11 @@ function TripSheet({ item }) {
         ))}
       </ol>
 
-      {/* DA: the ERP's daily allowance -- an outstation day at 50 % of its
-          rate; with stay + food bills those days are paid what the bills come
-          to, pooled over the trip: at least 50 %, at most the full rate. */}
-      <div className="grid grid-cols-[36px_minmax(0,1fr)_auto] items-center gap-x-2 border-t border-dashed border-gray-300 pt-3">
-        <span className="text-[13px] font-extrabold text-gray-500">DA</span>
-        <span className="min-w-0 text-[15px] text-gray-600">
-          {calc.pool?.on
-            ? `${calc.nights.length} outstation day${calc.nights.length > 1 ? "s" : ""} · bills day by day`
-            : calc.nights.length
-              ? `${calc.nights.length} outstation day${calc.nights.length > 1 ? "s" : ""} at 50 %`
-              : ""}
-        </span>
-        <b className="text-[18px] font-extrabold text-gray-900">{inr(calc.da)}</b>
-      </div>
-
       {/* bills only for a night spent away: back at HQ the same day, no stay
           or food bill is asked for (one already added still shows) */}
-      {calc.billsAllowed && (calc.nights.length > 0 || calc.stayBills + calc.foodBills > 0) && (
+      {/* only once there are bills: with none, the upload button at the
+          bottom and each day's DA line already say it (13 Nov 2026) */}
+      {calc.billsAllowed && calc.stayBills + calc.foodBills > 0 && (
         <div>
           <span className={sectionLabel}>DA bills · stay &amp; food</span>
           <div className="mt-2 flex flex-wrap gap-2">
@@ -1155,7 +1111,6 @@ function TripSheet({ item }) {
                 <BillChip key={b.id} kind={kind} bill={b} on={editing?.id === b.id} readOnly={!editable} onClick={() => setEditing(editing?.id === b.id ? null : { kind, id: b.id })} />
               ))
             )}
-            {!calc.stayBills && !calc.foodBills && <span className="text-[12.5px] text-gray-500">No bill yet — upload them with the button at the bottom.</span>}
           </div>
           {editable && (editing?.kind === "stays" || editing?.kind === "foods") && (
             <BillEditor
@@ -1165,12 +1120,10 @@ function TripSheet({ item }) {
               onRemove={() => removeBill(editing.kind, editing.id)}
             />
           )}
-          {calc.nights.length > 0 && (
+          {calc.nights.length > 0 && calc.pool?.on && (
             <p className="mt-2 flex items-start gap-1.5 text-[12.5px] leading-snug text-gray-500">
               <Info className="mt-0.5 h-4 w-4 shrink-0" aria-hidden />
-              {calc.pool?.on
-                ? `Each day: stay + food, kept between 50 % and 100 % of its DA.${calc.pool.unpaid ? ` ${inr(calc.pool.unpaid)} on days with no outstation DA.` : ""}`
-                : `No bill yet · 50 % DA ${inr(calc.pool?.half || 0)} · add stay / food bills for up to 100 %.`}
+              {`Each day: stay + food, kept between 50 % and 100 % of its DA.${calc.pool.unpaid ? ` ${inr(calc.pool.unpaid)} on days with no outstation DA.` : ""}`}
               {nextNight && calc.stayBills > 0 ? ` No stay bill covers ${dayLabel(nextNight.date)}.` : ""}
             </p>
           )}
@@ -1207,49 +1160,78 @@ function TripSheet({ item }) {
             </span>
           </div>
         )}
-        {/* what the final check changed on this trip's days, who and why */}
-        {(mc?.adjustments || []).filter((a) => a.date >= trip.from && a.date <= trip.to).length > 0 && (
+        {/* amounts changed after it was sent: by the reporting officer, or on
+            the final check -- who, what and why (13 Nov 2026) */}
+        {(claim.changes || []).length > 0 && (
           <div className="mt-1.5 flex flex-col gap-1 rounded-2xl bg-amber-50 px-3.5 py-2.5 text-[12.5px] leading-snug text-amber-900">
-            <b className="text-[11px] font-extrabold uppercase tracking-wider text-amber-700">Changed on the final check</b>
-            {mc.adjustments
-              .filter((a) => a.date >= trip.from && a.date <= trip.to)
-              .map((a, i) => (
-                <span key={i}>
-                  {a.type} · {dayLabel(a.date)}: <s>{inr(a.amount)}</s> → <b>{inr(a.final)}</b>
-                  {a.by ? ` · by ${a.by}` : ""}
+            <b className="text-[11px] font-extrabold uppercase tracking-wider text-amber-700">
+              {claim.changes.every((a) => f.approverId && a.by.toLowerCase() === f.approverId) ? `Changed by ${f.manager}` : "Changed after you sent it"}
+            </b>
+            {claim.changes.map((a) => {
+              const officer = f.approverId && a.by.toLowerCase() === f.approverId;
+              const named = (mc?.adjustments || []).find((x) => x.date === a.date && x.type === a.type)?.by;
+              return (
+                <span key={a.id}>
+                  {a.type === "Travel" ? "TA" : a.type} · {dayLabel(a.date)}: <s>{inr(a.amount)}</s> → <b>{inr(a.final)}</b>
+                  {officer ? "" : ` · on the final check${named || a.by ? ` by ${named || a.by}` : ""}`}
                   {a.reason ? ` — “${a.reason}”` : ""}
                 </span>
-              ))}
+              );
+            })}
           </div>
         )}
-        <div className="mt-1.5 flex items-center justify-between gap-3 rounded-2xl border border-blue-100 bg-blue-50 px-3.5 py-3">
-          <div className="min-w-0">
-            <small className="block text-[11.5px] font-extrabold uppercase tracking-wider text-blue-700">Trip cost</small>
-            <b className="block text-[28px] font-extrabold leading-tight tracking-tight text-gray-900">{inr(calc.total)}</b>
-            <span className="block text-[13px] text-gray-500">
-              TA {inr(calc.ta)}
-              {calc.da || nightsAny(calc) ? ` + DA ${inr(calc.da)}${calc.missingStayBills ? " · no stay bill" : ""}` : ""}
-            </span>
+        <div className="mt-1.5 flex flex-col gap-2 rounded-2xl border border-blue-100 bg-blue-50 px-3.5 py-3">
+          <div className="flex items-start justify-between gap-3">
+            <small className="block pt-1 text-[11.5px] font-extrabold uppercase tracking-wider text-blue-700">Trip cost</small>
+            <div className="flex shrink-0 flex-col items-end gap-1.5 text-right">
+              <span
+                className={cn(
+                  "rounded-full px-2.5 py-0.5 text-[12px] font-bold",
+                  claim.status === "unclaimed" ? "bg-rose-100 text-rose-700" : claim.status === "review" ? "bg-amber-50 text-amber-700" : claim.status === "submitted" ? "bg-blue-100 text-blue-700" : "bg-green-50 text-green-700"
+                )}
+              >
+                {costStatus}
+              </span>
+              {calc.carApproved ? (
+                <small className="flex items-center gap-1 text-[12px] font-extrabold uppercase tracking-wide text-green-700">
+                  <Check className="h-3.5 w-3.5" aria-hidden /> Own car approved
+                </small>
+              ) : calc.carPending ? (
+                <button type="button" onClick={() => f.openRequest(req.id)} className="flex items-center gap-1 text-[12px] font-extrabold uppercase tracking-wide text-amber-700">
+                  <Car className="h-3.5 w-3.5" aria-hidden /> Car requested
+                </button>
+              ) : null}
+            </div>
           </div>
-          <div className="flex shrink-0 flex-col items-end gap-1.5 text-right">
-            <span
-              className={cn(
-                "rounded-full px-2.5 py-0.5 text-[12px] font-bold",
-                claim.status === "unclaimed" ? "bg-rose-100 text-rose-700" : claim.status === "review" ? "bg-amber-50 text-amber-700" : claim.status === "submitted" ? "bg-blue-100 text-blue-700" : "bg-green-50 text-green-700"
-              )}
-            >
-              {costStatus}
-            </span>
-            {calc.carApproved ? (
-              <small className="flex items-center gap-1 text-[12px] font-extrabold uppercase tracking-wide text-green-700">
-                <Check className="h-3.5 w-3.5" aria-hidden /> Own car approved
-              </small>
-            ) : calc.carPending ? (
-              <button type="button" onClick={() => f.openRequest(req.id)} className="flex items-center gap-1 text-[12px] font-extrabold uppercase tracking-wide text-amber-700">
-                <Car className="h-3.5 w-3.5" aria-hidden /> Car requested
-              </button>
-            ) : null}
+          {/* TA, DA and the total, one below the other, each with why */}
+          <div className="flex flex-col gap-1.5">
+            <div className="flex items-baseline gap-2">
+              <span className="w-8 shrink-0 text-[12.5px] font-extrabold text-gray-500">TA</span>
+              <span className="min-w-0 flex-1 text-[12.5px] leading-snug text-gray-600">{taBasis}</span>
+              <span className="flex shrink-0 items-baseline gap-1.5">
+                {calc.taClaimed != null && calc.taClaimed !== calc.ta && <s className="text-[12.5px] tabular-nums text-gray-400">{inr(calc.taClaimed)}</s>}
+                <b className="text-[16px] font-extrabold tabular-nums text-gray-900">{inr(calc.ta)}</b>
+              </span>
+            </div>
+            <div className="flex items-baseline gap-2">
+              <span className="w-8 shrink-0 text-[12.5px] font-extrabold text-gray-500">DA</span>
+              <span className="min-w-0 flex-1 text-[12.5px] leading-snug text-gray-600">{daBasis}</span>
+              <span className="flex shrink-0 items-baseline gap-1.5">
+                {calc.daClaimed != null && calc.daClaimed !== calc.da && <s className="text-[12.5px] tabular-nums text-gray-400">{inr(calc.daClaimed)}</s>}
+                <b className="text-[16px] font-extrabold tabular-nums text-gray-900">{inr(calc.da)}</b>
+              </span>
+            </div>
+            <div className="flex items-baseline gap-2 border-t border-blue-200 pt-1.5">
+              <span className="min-w-0 flex-1 text-[13.5px] font-extrabold text-gray-900">Total</span>
+              <b className="shrink-0 text-[22px] font-extrabold tabular-nums tracking-tight text-gray-900">{inr(calc.total)}</b>
+            </div>
           </div>
+          {taNote && (
+            <p className="flex items-start gap-1.5 text-[12px] leading-snug text-gray-500">
+              <Info className="mt-0.5 h-3.5 w-3.5 shrink-0" aria-hidden />
+              {taNote}
+            </p>
+          )}
         </div>
       </div>
 
@@ -1401,6 +1383,18 @@ function TripSheet({ item }) {
 
 const nightsAny = (calc) => calc.nights.length > 0;
 
+/* One line of money: a short label (TA / DA, or blank under the line above),
+   what it is, and the amount on the right. */
+function MoneyRow({ label, amount, note, children }) {
+  return (
+    <div className="flex items-baseline gap-2 text-[12.5px] leading-snug">
+      <span className="w-6 shrink-0 text-[11px] font-extrabold text-gray-400">{label}</span>
+      <span className="min-w-0 flex-1 text-gray-600">{children}</span>
+      <b className="shrink-0 text-[13px] font-extrabold tabular-nums text-gray-900">{amount == null ? note || "" : inr(amount)}</b>
+    </div>
+  );
+}
+
 function TripDay({ row, data, car, last, multi, night, bills, stayOff, billStrip }) {
   const d = new Date(row.date + "T00:00:00");
   const dow = ["SUN", "MON", "TUE", "WED", "THU", "FRI", "SAT"][d.getDay()];
@@ -1433,40 +1427,76 @@ function TripDay({ row, data, car, last, multi, night, bills, stayOff, billStrip
 
       <div className={cn("min-w-0", !last && "pb-5")}>
         <b className="block text-[15px] font-bold leading-snug text-gray-900">{route}</b>
-        <span className="mt-0.5 block text-[13px] text-gray-500">
-          {row.payable ? (
-            <>
-              {car
-                ? `${row.km != null ? `${row.km} km · ` : ""}fuel covers it`
-                : byKm
-                  ? `${legKm} km × ₹${perKm}, each way · ${inr(local)} both ways`
-                  : row.journey
-                    ? local > 0
-                      ? `${row.km != null ? `${row.km} km · ` : ""}local ${inr(local)}`
-                      : `${row.km != null ? `${row.km} km · ` : ""}no local fare`
-                    : `${row.km != null ? `${row.km} km · ` : ""}fare ${inr(row.ta)}`}
-              {/* with stay / food bills the day is paid what they add up to (50-100 %) */}
-              {row.da ? ` · DA ${inr(night && bills ? night.paid : row.da)}` : ""}
-            </>
-          ) : (
-            `${row.dayType || row.kind} · no TA`
-          )}
-        </span>
-        {/* the journey between HQs: by car it is just the drive, no train fare;
-            flown, the company's ticket */}
-        {row.payable && jr && (
-          <span className="mt-0.5 flex items-center gap-1 text-[12px] text-gray-400">
-            {car ? <Car className="h-3.5 w-3.5 shrink-0" aria-hidden /> : <TrainFront className="h-3.5 w-3.5 shrink-0" aria-hidden />}
-            {jr.from} → {jr.to}
-            {jr.km != null ? ` · ${Math.round(jr.km)} km` : ""}
-            {car ? " · by car" : ` · ${inr(row.journey.fare)}`}
+        {/* the day's visits by town, and other work (a meeting) */}
+        {(row.visits > 0 || (row.otherWork || []).length > 0) && (
+          <span className="mt-0.5 flex flex-wrap items-center gap-1 text-[11.5px] text-gray-500">
+            {row.visits > 0 && <b className="font-bold text-blue-700">{row.visits} visit{row.visits > 1 ? "s" : ""}</b>}
+            {(row.visitPlaces || []).slice(0, 4).map(([town, k]) => (
+              <span key={town} className="rounded-full bg-gray-100 px-1.5 font-semibold text-gray-600">
+                {town} {k}
+              </span>
+            ))}
+            {(row.otherWork || []).map((w) => (
+              <span key={w} className="rounded-full bg-violet-50 px-1.5 font-semibold text-violet-700">
+                {w}
+              </span>
+            ))}
           </span>
         )}
-        {row.payable && flownOnly && (
-          <span className="mt-0.5 flex items-center gap-1 text-[12px] text-gray-400">
-            <Plane className="h-3.5 w-3.5 shrink-0" aria-hidden />
-            {row.journey.from} → {row.journey.to} · by flight
-          </span>
+        {/* the day's money in plain rows (13 Nov 2026): what it is on the left,
+            the amount on the right -- TA (the journey, the local run ↑ there
+            ↓ back), then DA */}
+        {row.payable ? (
+          <div className="mt-1.5 flex flex-col gap-1 rounded-xl bg-gray-50 px-2.5 py-2">
+            {jr && (
+              <MoneyRow label="TA" amount={car ? null : row.journey.fare} note={car ? "by car" : null}>
+                {car ? <Car className="mr-1 inline h-3.5 w-3.5 align-[-2px]" aria-hidden /> : <TrainFront className="mr-1 inline h-3.5 w-3.5 align-[-2px]" aria-hidden />}
+                {jr.from} → {jr.to}
+                {jr.km != null ? ` · ${Math.round(jr.km)} km` : ""}
+              </MoneyRow>
+            )}
+            {flownOnly && (
+              <MoneyRow label="TA" amount={0}>
+                <Plane className="mr-1 inline h-3.5 w-3.5 align-[-2px]" aria-hidden />
+                {row.journey.from} → {row.journey.to} · flight
+              </MoneyRow>
+            )}
+            {car ? (
+              <MoneyRow label={jr ? "" : "TA"} amount={null} note="fuel + toll bills">
+                Own car{row.km != null ? ` · ${row.km} km` : ""}
+              </MoneyRow>
+            ) : byKm ? (
+              <MoneyRow label={jr || flownOnly ? "" : "TA"} amount={local}>
+                {row.journey ? "Local · " : ""}
+                <b className="font-bold text-gray-800">↑ {legKm} km ↓ {legKm} km</b> × ₹{perKm}
+              </MoneyRow>
+            ) : row.journey ? (
+              local > 0 && (
+                <MoneyRow label="" amount={local}>
+                  Local{row.km != null ? ` · ${row.km} km` : ""}
+                </MoneyRow>
+              )
+            ) : row.ta > 0 ? (
+              <MoneyRow label="TA" amount={row.ta}>
+                {basis || `Fare${row.km != null ? ` · ${row.km} km` : ""}`}
+              </MoneyRow>
+            ) : null}
+            {row.da > 0 && (
+              <MoneyRow label="DA" amount={night && bills ? night.paid : row.da}>
+                {night
+                  ? bills
+                    ? "outstation · stay + food bills"
+                    : "outstation · 50 % (no bill yet)"
+                  : row.dayType === "HQ"
+                    ? "HQ day"
+                    : AWAY_TYPES.has(row.dayType)
+                      ? "outstation · no night away"
+                      : "ex-HQ day · return to HQ"}
+              </MoneyRow>
+            )}
+          </div>
+        ) : (
+          <span className="mt-0.5 block text-[13px] text-gray-500">{`${row.dayType || row.kind} · no TA`}</span>
         )}
         {/* a flight (marked on the field-expenses dashboard): the flown legs pay
             no TA -- the company books the ticket -- the rest are paid */}
@@ -1479,14 +1509,11 @@ function TripDay({ row, data, car, last, multi, night, bills, stayOff, billStrip
             </span>
           </span>
         )}
-        {row.payable && !car && basis && !row.journey && !byKm && <span className="mt-0.5 block text-[11.5px] text-gray-400">{basis}</span>}
-        {/* both parts on one day: their total, the day's TA */}
-        {row.payable && !car && row.journey && local > 0 && (
-          <span className="mt-1 block text-[13px] font-bold text-gray-900">TA {inr(row.ta)}</span>
-        )}
 
         {/* the night's DA; the stay bill itself is scanned in "Stay & food bills" */}
+        {/* no bill yet: the DA row above says 50 %; the chip shows the bills once there are some */}
         {night ? (
+          !bills ? null : (
           <span
             className={cn(
               "mt-2 inline-flex items-center gap-1.5 rounded-xl px-2.5 py-1.5 text-[12px] font-semibold",
@@ -1519,7 +1546,7 @@ function TripDay({ row, data, car, last, multi, night, bills, stayOff, billStrip
               </span>
             )}
           </span>
-        ) : bills || stayOff ? (
+        )) : bills || stayOff ? (
           /* a holiday / weekly-off day inside the stay (13 Nov 2026): no DA, so
              no share of the hotel bill (it is split over the working nights)
              and its own food is not paid -- grey, not green */
@@ -1530,9 +1557,9 @@ function TripDay({ row, data, car, last, multi, night, bills, stayOff, billStrip
               .join(" · ")}
           </span>
         ) : (
-          row.payable && (
+          row.payable && multi && (
             <span className="mt-2 inline-flex rounded-xl bg-gray-100 px-2.5 py-1.5 text-[12.5px] font-semibold text-gray-600">
-              {last && multi ? "back at HQ" : multi ? "on tour" : "home the same day"} · no outstation DA
+              {last && multi ? "back at HQ" : multi ? "on tour" : "return to HQ"} · no outstation DA
             </span>
           )
         )}
