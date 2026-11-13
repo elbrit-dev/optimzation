@@ -14,9 +14,7 @@ import { cn } from "@calendar/lib/utils";
 import { ModalTitle } from "@calendar/components/ui/responsive-modal";
 import { useFieldExpenses } from "@calendar/components/calendar/field/field-context";
 import { inr, rangeLabel } from "@calendar/lib/field-expenses/field-days";
-import { FUEL_PRICE, FUEL_TYPES, MILEAGE_KM_PER_L, fuelCost, tollEstimate } from "@calendar/lib/field-expenses/claim-rules";
-import { PREVIEW } from "@calendar/lib/field-expenses/trip-claims-store";
-import { CarBills } from "@calendar/components/calendar/field/field-bills";
+import { FUEL_PRICE, MILEAGE_KM_PER_L, fuelCost, tollEstimate } from "@calendar/lib/field-expenses/claim-rules";
 
 const MONTH_LONG = ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"];
 const monthName = (ym) => MONTH_LONG[Number(ym.slice(5, 7)) - 1];
@@ -73,6 +71,36 @@ const dateBlock = (iso) => {
 export function KpiSheet() {
   const f = useFieldExpenses();
   const m = monthName(f.month);
+  // the month's ERP claim: the submitted trips' lines, sent to the reporting
+  // officer as ONE claim (erp-claim.js)
+  const mc = f.monthClaim?.claim || null;
+  const [confirm, setConfirm] = useState(false);
+  const [busy, setBusy] = useState(null);
+  const act = async (key, fn, ok) => {
+    setBusy(key);
+    try {
+      await fn();
+      setConfirm(false);
+      toast.success(ok);
+    } catch (e) {
+      // a refused send must be read: it stays until closed
+      toast.error(errText(e), { duration: Infinity, closeButton: true });
+    } finally {
+      setBusy(null);
+    }
+  };
+  const claimState = !mc
+    ? "none"
+    : mc.open
+      ? mc.status === "Rejected"
+        ? "rejected"
+        : "open"
+      : ["Verified", "Paid"].includes(mc.status)
+        ? "final"
+        : mc.status === "Approved"
+          ? "approved"
+          : "sent";
+  const notAdded = f.claimed.filter((x) => x.claim.status === "unclaimed" && x.calc.total > 0).length;
   const by = (pick) => {
     const sumOf = (pred) => f.claimed.filter((x) => pred(x.claim.status)).reduce((s, x) => s + pick(x), 0);
     return {
@@ -124,12 +152,12 @@ export function KpiSheet() {
           </span>
           <div className="flex flex-col gap-2">
             <Part icon={Route} dot="bg-blue-600" title="TA · travel" value={ta.total} sub={`${f.stats.km} km · ${carTrips ? `car on ${carTrips} trip${carTrips > 1 ? "s" : ""}` : "fare"}`} />
-            <Part icon={BedDouble} dot="bg-sky-300" title="DA" value={da.total} sub={`${nights} night${nights === 1 ? "" : "s"} away · ${withBill} with bill`} />
+            <Part icon={BedDouble} dot="bg-sky-300" title="DA" value={da.total} sub={`${nights} outstation day${nights === 1 ? "" : "s"} · ${withBill} with bill`} />
           </div>
           {noBill > 0 && (
             <span className="flex items-start gap-1 text-[11.5px] font-semibold leading-snug text-amber-700">
               <Zap className="mt-0.5 h-3 w-3 shrink-0" aria-hidden />
-              {noBill} night{noBill > 1 ? "s" : ""} at 50 % of DA — upload the hotel bill to be paid at its amount
+              {noBill} night{noBill > 1 ? "s" : ""} at 50 % of DA — upload the bill to be paid in full once approved
             </span>
           )}
           <div className="grid grid-cols-3 gap-2 border-t border-gray-100 pt-3">
@@ -139,6 +167,96 @@ export function KpiSheet() {
           </div>
         </div>
       </div>
+      {/* the month's claim: what is in it, and where it stands */}
+      <div className="flex flex-col gap-2 rounded-2xl border border-gray-200 bg-white px-3.5 py-3">
+        <span className="flex items-center justify-between gap-2">
+          <b className="text-[14.5px] font-extrabold text-gray-900">{m} claim</b>
+          <Pill ok={claimState === "approved" || claimState === "final"}>
+            {f.monthClaim?.status === "loading"
+              ? "loading…"
+              : claimState === "none"
+                ? "nothing added yet"
+                : claimState === "open"
+                  ? "not sent yet"
+                  : claimState === "rejected"
+                    ? "sent back · fix and send again"
+                    : claimState === "sent"
+                      ? `waiting for ${f.manager}`
+                      : claimState === "final"
+                        ? "finalised"
+                        : "approved · final check pending"}
+          </Pill>
+        </span>
+        {mc ? (
+          <span className="flex items-end justify-between gap-2">
+            <span className="text-[12.5px] text-gray-600">
+              {mc.lines.length} line{mc.lines.length === 1 ? "" : "s"} · {mc.name}
+            </span>
+            <b className="text-[18px] font-extrabold text-gray-900">
+              {mc.final != null && Math.round(mc.final) !== Math.round(mc.total) ? (
+                <>
+                  <s className="mr-1.5 text-[13px] font-semibold text-gray-400">{inr(mc.total)}</s>
+                  {inr(mc.final)}
+                </>
+              ) : (
+                inr(mc.total)
+              )}
+            </b>
+          </span>
+        ) : null}
+        {/* what the final check changed, who changed it and why */}
+        {mc?.adjustments?.length > 0 && (
+          <div className="flex flex-col gap-1.5 rounded-xl bg-amber-50 px-3 py-2 text-[12.5px] leading-snug text-amber-900">
+            <b className="text-[11px] font-extrabold uppercase tracking-wider text-amber-700">Changed on the final check</b>
+            {mc.adjustments.map((a, i) => (
+              <span key={i}>
+                {a.type} · {a.date.slice(8)}/{a.date.slice(5, 7)}: <s>{inr(a.amount)}</s> → <b>{inr(a.final)}</b>
+                {a.by ? ` · by ${a.by}` : ""}
+                {a.reason ? ` — “${a.reason}”` : ""}
+              </span>
+            ))}
+          </div>
+        )}
+        <Note>
+          {claimState === "sent"
+            ? `With ${f.manager} for approval — every ${m} trip you submit joins this one claim. Recall a trip to change it.`
+            : claimState === "approved"
+              ? `Approved by ${f.manager}. Accounts / the CEO do the final check — a line may be adjusted, with the reason shown here — then it goes into payroll.`
+              : claimState === "final"
+                ? `Finalised${mc?.finalisedBy ? ` by ${mc.finalisedBy}` : ""} — ${inr(mc?.final ?? mc?.total)} goes into payroll${mc?.additionalSalary ? ` (${mc.additionalSalary})` : ""}.`
+              : claimState === "open" && mc?.lines.length
+                ? `Saved but not sent — send it to ${f.manager}.${notAdded ? ` ${notAdded} trip${notAdded > 1 ? "s are" : " is"} not submitted yet.` : ""}`
+                : claimState === "rejected"
+                  ? `${f.manager} sent ${m} back — recall the trip to fix, submit it again, or send ${m} as it is.`
+                  : `Each trip you submit goes to ${f.manager} in one claim for ${m}.${notAdded ? ` ${notAdded} trip${notAdded > 1 ? "s are" : " is"} not submitted yet.` : ""}`}
+        </Note>
+        {confirm && (
+          <div role="alertdialog" aria-label={`Send ${m} for approval`} className="flex flex-col gap-2 rounded-xl border border-blue-200 bg-blue-50 px-3 py-2.5">
+            <b className="text-[13.5px] font-extrabold text-gray-900">
+              Send {m} ({inr(mc?.total)}) to {f.manager} for approval?
+            </b>
+            <span className="text-[12px] leading-snug text-gray-600">
+              {notAdded ? `${notAdded} trip${notAdded > 1 ? "s are" : " is"} not in it — add ${notAdded > 1 ? "them" : "it"} first if ${notAdded > 1 ? "they" : "it"} should be paid this month. ` : ""}
+              You can recall it until it is approved.
+            </span>
+            <span className="flex gap-2">
+              <button type="button" disabled={!!busy} onClick={() => setConfirm(false)} className="min-h-10 flex-1 rounded-xl border border-gray-300 bg-white text-[13.5px] font-bold text-gray-800">
+                Cancel
+              </button>
+              <button
+                type="button"
+                disabled={!!busy}
+                onClick={() => act("send", () => f.actions.sendMonth(), `${m} sent to ${f.manager} for approval`)}
+                className="flex min-h-10 flex-1 items-center justify-center gap-1.5 rounded-xl bg-blue-600 text-[13.5px] font-bold text-white disabled:opacity-60"
+              >
+                {busy === "send" && <Loader2 className="h-4 w-4 animate-spin" aria-hidden />}
+                Yes, send
+              </button>
+            </span>
+          </div>
+        )}
+      </div>
+
       {/* RBM, ZSM and SM: ask the GM for the car on one of the month's trips */}
       {f.canCar && (
         <button
@@ -154,9 +272,15 @@ export function KpiSheet() {
         </button>
       )}
       <SheetFoot label="Field claims go into" value={`${f.payroll.name} · by ${f.payroll.cutoff}`}>
-        <FootBtn ghost onClick={f.closeSheet}>
-          Close
-        </FootBtn>
+        {(claimState === "open" || claimState === "rejected") && mc?.lines.length ? (
+          <FootBtn disabled={confirm} busy={busy === "send"} onClick={() => setConfirm(true)}>
+            Send {m}
+          </FootBtn>
+        ) : (
+          <FootBtn ghost onClick={f.closeSheet}>
+            Close
+          </FootBtn>
+        )}
       </SheetFoot>
     </div>
   );
@@ -231,7 +355,8 @@ export function CarRequestSheet({ opts }) {
   const [planId, setPlanId] = useState(draft?.planId && options.some((o) => o.id === draft.planId && !o.blocked) ? draft.planId : firstOpen?.id || null);
   const plan = options.find((p) => p.id === planId) || null;
 
-  const [fuel, setFuel] = useState(draft?.fuel || "Petrol");
+  // one fuel price for every car: petrol (12 Nov 2026)
+  const fuel = "Petrol";
   const [kmIn, setKmIn] = useState(draft?.km ?? "");
   // null: not touched, the ask follows the suggestion; otherwise what was
   // typed, as typed ("" while the box is being cleared counts as ₹0)
@@ -246,8 +371,6 @@ export function CarRequestSheet({ opts }) {
   const ask = askIn != null ? Math.max(0, Math.round(Number(askIn) || 0)) : sugg;
   const ok = !!plan && km > 0 && ask > 0;
 
-  // fuel and toll bills sent with the request (name, size, amount)
-  const [bills, setBills] = useState({ fuels: draft?.bills?.fuels || [], tolls: draft?.bills?.tolls || [] });
 
   const send = async () => {
     setBusy(true);
@@ -264,7 +387,6 @@ export function CarRequestSheet({ opts }) {
         tolls,
         suggested: sugg,
         ask,
-        bills,
       });
       toast.success(`Car request sent to ${f.carApprover}`);
       f.closeSheet();
@@ -349,24 +471,15 @@ export function CarRequestSheet({ opts }) {
         </label>
       )}
 
-      <div>
-        <label className="flex flex-col gap-1">
-          <span className="text-[13px] font-bold text-gray-700">Fuel</span>
-          <select className={cn(input, "pr-8 text-[13px] font-semibold")} value={fuel} onChange={(e) => setFuel(e.target.value)}>
-            {FUEL_TYPES.map((t) => (
-              <option key={t} value={t}>
-                {t} · ₹{FUEL_PRICE[t]}/l
-              </option>
-            ))}
-          </select>
-        </label>
-      </div>
-
       {plan && km > 0 && (
         <div className="rounded-2xl bg-gray-100 px-3 py-2.5 text-[12.5px] text-gray-600">
           <div className="flex justify-between gap-2 py-0.5">
+            <span>Fuel price</span>
+            <b className="text-gray-900">₹{FUEL_PRICE[fuel]}/l</b>
+          </div>
+          <div className="flex justify-between gap-2 py-0.5">
             <span>
-              {km} km ÷ {MILEAGE_KM_PER_L} km/l × ₹{FUEL_PRICE[fuel]}
+              Fuel · {km} km ÷ {MILEAGE_KM_PER_L} km/l × ₹{FUEL_PRICE[fuel]}
             </span>
             <b className="text-gray-900">{inr(fuelAmt)}</b>
           </div>
@@ -399,9 +512,6 @@ export function CarRequestSheet({ opts }) {
         </div>
       )}
 
-      {plan && <CarBills value={bills} onChange={setBills} />}
-
-      {PREVIEW && <Note tone="warn">Preview — the request is kept on this device; it reaches {f.carApprover} once the ERP side is built.</Note>}
 
       <SheetFoot label={plan ? (ask === 0 ? "type the amount you ask for" : ask !== sugg ? `asking · suggested ${inr(sugg)}` : "asking · as suggested") : "Pick a trip"} value={plan && km ? inr(ask) : "—"}>
         <FootBtn disabled={!ok} busy={busy} onClick={send}>
@@ -417,6 +527,7 @@ export function CarRequestSheet({ opts }) {
 export function RequestSheet({ req }) {
   const f = useFieldExpenses();
   const ok = req.status === "approved";
+  const no = req.status === "rejected";
   const n = Math.round((new Date(req.to) - new Date(req.from)) / 86400000) + 1;
   const [busy, setBusy] = useState(false);
   const row = (k, v) => (
@@ -439,53 +550,35 @@ export function RequestSheet({ req }) {
   };
   return (
     <div className="-mx-4 flex min-h-0 flex-1 flex-col overflow-y-auto overscroll-contain px-4 [&>*]:shrink-0 gap-2">
-      <ModalTitle className="pr-10 text-lg font-extrabold text-gray-900">{ok ? "Car approved for this trip" : "Car requested"}</ModalTitle>
+      <ModalTitle className="pr-10 text-lg font-extrabold text-gray-900">{ok ? "Car approved for this trip" : no ? "Car not approved" : "Car requested"}</ModalTitle>
       <div className="flex flex-wrap items-center gap-2">
-        <Pill ok={ok}>{ok ? "approved" : "awaiting approval"}</Pill>
-        <span className="text-[12.5px] text-gray-500">{ok ? `by ${f.carApprover}` : `waiting for ${f.carApprover}`}</span>
+        <Pill ok={ok}>{ok ? "approved" : no ? "rejected" : "awaiting approval"}</Pill>
+        <span className="text-[12.5px] text-gray-500">{ok || no ? `by ${f.carApprover}` : `waiting for ${f.carApprover}`} · {req.id}</span>
       </div>
       <div className="mt-1">
         {row("Dates", `${rangeLabel(req.from, req.to)} · ${n} day${n > 1 ? "s" : ""}`)}
         {row("Route", req.places)}
         {row("Estimated", `~${req.km} km`)}
-        {row("Suggested", `fuel ${inr(req.fuelCost ?? fuelCost(req.km, req.fuel))} (${req.km} km ÷ ${MILEAGE_KM_PER_L} km/l) + tolls ${inr(req.tolls || 0)}`)}
+        {row("Fuel price", `₹${FUEL_PRICE.Petrol}/l`)}
+        {row("Fuel", `${inr(req.fuelCost ?? fuelCost(req.km))} · ${req.km} km ÷ ${MILEAGE_KM_PER_L} km/l × ₹${FUEL_PRICE.Petrol}`)}
+        {row("Tolls", inr(req.tolls || 0))}
+        {row("Suggested", inr((req.fuelCost ?? fuelCost(req.km)) + (req.tolls || 0)))}
         <div className="flex justify-between gap-3 py-2 text-[14px] font-bold text-gray-900">
-          <span>{ok ? "Approved up to" : "Asked"}</span>
-          <b className="text-[16px] font-extrabold">{inr(req.ask)}</b>
+          <span>{ok ? "Approved up to" : req.status === "rejected" ? "Not approved · asked" : "Asked"}</span>
+          <b className="text-[16px] font-extrabold">{inr(ok ? req.ask : req.asked || req.ask)}</b>
         </div>
+        {ok && req.asked && req.approvedAmount !== req.asked && row("You asked", inr(req.asked))}
+        {req.note && row(ok ? "GM's note" : "Reason", req.note)}
       </div>
-      <CarBills
-        value={{ fuels: req.bills?.fuels || [], tolls: req.bills?.tolls || [] }}
-        onChange={(next) => f.actions.setRequestBills(req.id, typeof next === "function" ? next({ fuels: req.bills?.fuels || [], tolls: req.bills?.tolls || [] }) : next)}
-      />
       <Note>
         {ok
-          ? "After the trip, scan fuel bills and tolls — they replace the fare for all its days."
-          : `Until ${f.carApprover} approves, the trip is paid the normal allowance.`}
+          ? "After the trip, scan the fuel and toll bills on the trip itself — they replace the fare for all its days. No bills: the fare is paid."
+          : no
+            ? "The trip is paid the normal fare. You can ask again from the trip."
+            : `Until ${f.carApprover} approves, the trip is paid the normal allowance.`}
       </Note>
-      {PREVIEW && !ok && (
-        <button
-          type="button"
-          disabled={busy}
-          onClick={async () => {
-            setBusy(true);
-            try {
-              await f.actions.approveRequest(req.id);
-              toast.success("Approved (preview) — the trip now pays fuel + tolls");
-              f.closeSheet();
-            } catch (e) {
-              toast.error(errText(e));
-            } finally {
-              setBusy(false);
-            }
-          }}
-          className="self-start rounded-xl border border-dashed border-amber-400 bg-amber-50 px-3 py-2 text-[12px] font-bold text-amber-800"
-        >
-          Preview only · approve as GM
-        </button>
-      )}
-      <SheetFoot label={ok ? "Car allowance on" : `Awaiting ${f.carApprover}`} value={rangeLabel(req.from, req.to)}>
-        {ok ? (
+      <SheetFoot label={ok ? "Car allowance on" : no ? "Not approved" : `Awaiting ${f.carApprover}`} value={rangeLabel(req.from, req.to)}>
+        {ok || no ? (
           <FootBtn ghost onClick={f.closeSheet}>
             Close
           </FootBtn>

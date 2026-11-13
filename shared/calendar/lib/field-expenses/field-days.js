@@ -1,10 +1,12 @@
-/* Field layer data — the signed-in rep's TA/DA per day, as priced by the Field
-   expenses console, read through /api/field-expenses/my-days (which confirms
-   who the caller is with the ERP and returns only their rows).
+/* Field layer data — the signed-in rep's TA/DA per day, as the ERP's Field
+   Expense build priced it (Field Expense Day, the same figures as the
+   /field-expenses dashboard), read straight from the ERP with the rep's own
+   token: field_expense_month answers with the caller's own days only.
 
-   Nothing here prices a day. The console owns the rules (day types from GPS
-   and the Standard Fare Chart, the zone rate card, IRCTC slabs above 100 km);
-   this file only fetches its answer and groups the days into trips. */
+   Nothing here prices a day. The ERP owns the rules (day types from GPS and
+   the fare chart, the TA DA Rate card, IRCTC above eqKm, outstation DA at 50 %
+   without a bill); this file maps its days onto the shape the screens use and
+   groups them into trips. */
 
 import { AUTH_CONFIG } from "@calendar/components/auth/calendar-users";
 
@@ -19,20 +21,35 @@ export class FieldDaysError extends Error {
   }
 }
 
+const erpBase = (url) => String(url || "").replace(/(\/api(?:\/method)?\/graphql|\/graphql)\/?$/i, "").replace(/\/$/, "");
+const authHeader = (t) => (/^(token|bearer)\s/i.test(t) ? t : `token ${t}`);
+
 /* One month for the signed-in user. Cached per month for the session; a
-   failure is not cached, so moving away and back asks again. */
+   failure is not cached, so moving away and back asks again.
+   -> { month, pulledAt, employee, bands, rows } -- employee null = the ERP
+      has no field days for this person (office staff). */
 export function fetchFieldMonth(month) {
   const hit = cache.get(month);
   if (hit && Date.now() - hit.at < TTL_MS) return hit.promise;
   const { erpUrl, authToken } = AUTH_CONFIG;
   if (!erpUrl || !authToken) return Promise.reject(new FieldDaysError("Not signed in", { status: 401 }));
 
-  const params = new URLSearchParams({ month, endpoint: erpUrl });
-  const promise = fetch(`/api/field-expenses/my-days?${params}`, { headers: { "x-erp-token": authToken } })
+  // no employee= : the ERP answers with the caller's own days, whoever they are
+  const promise = fetch(`${erpBase(erpUrl)}/api/method/field_expense_month?${new URLSearchParams({ month })}`, {
+    headers: { Authorization: authHeader(authToken) },
+  })
     .then(async (r) => {
       const body = await r.json().catch(() => ({}));
-      if (!r.ok) throw new FieldDaysError(body.error || `HTTP ${r.status}`, { status: r.status, code: body.code });
-      return body;
+      if (!r.ok) {
+        let msg = body.exception || `HTTP ${r.status}`;
+        try {
+          msg = JSON.parse(JSON.parse(body._server_messages)[0]).message || msg;
+        } catch {
+          /* keep msg */
+        }
+        throw new FieldDaysError(String(msg).replace(/<[^>]*>/g, "").replace(/^[\w.]+Error:\s*/, ""), { status: r.status });
+      }
+      return shapeMonth(month, body.message || {});
     })
     .catch((error) => {
       cache.delete(month);
@@ -40,6 +57,86 @@ export function fetchFieldMonth(month) {
     });
   cache.set(month, { at: Date.now(), promise });
   return promise;
+}
+
+function shapeMonth(month, m) {
+  const days = m.days || [];
+  // a month after the last one the ERP has built has no days for anyone yet
+  if (!days.length && m.built_month && month > m.built_month) {
+    throw new FieldDaysError(`TA/DA for ${month} is not built in the ERP yet.`, { status: 404, code: "no-month" });
+  }
+  return {
+    month,
+    pulledAt: m.built_on || null,
+    // nobody's days, nobody to show: the layer stays off
+    employee: days.length ? m.employee || { code: days[0].employee, name: days[0].employee_name } : null,
+    bands: { hqKm: m.hq_km ?? 25, eqKm: m.eq_km ?? 100 },
+    rows: days.map(shapeDay).sort((a, b) => a.date.localeCompare(b.date)),
+  };
+}
+
+/* The build's names for a day that was not worked -> the planner's kind. */
+const KIND_OF = { "Weekly off": "off", Holiday: "holiday", Leave: "leave", Absent: "absent", Unknown: "unknown", "—": "unknown" };
+const strip = (p) => String(p || "").replace(/^HQ[-\s]*/i, "").trim();
+
+/* "HQ Salem → Namakkal (60 km) → HQ Coimbatore" -> stops. */
+function routeStops(text) {
+  return String(text || "")
+    .split("→")
+    .map((s) => s.trim())
+    .filter(Boolean)
+    .map((s) => {
+      const m = /^(.*?)\s*\((\d+(?:\.\d+)?)\s*km\)$/.exec(s);
+      return { place: strip(m ? m[1] : s), km: m ? Number(m[2]) : null, visits: 1, from: null };
+    });
+}
+
+/* A Field Expense Day -> the row the planner's screens read. */
+export function shapeDay(d) {
+  const x = d.detail || {};
+  const raw = x.dayType || d.day_type || "";
+  const payable = !!x.payable;
+  // an HQ day that went ex-station (HQ-EQ), or a day in another HQ for a role
+  // without outstation pay (EQ-HQ / EQ-EQ), is paid as an ex-HQ day out and back
+  const dayType = x.hqEq || raw === "EQ-HQ" || raw === "EQ-EQ" ? "EQ" : raw;
+  const legs = x.legs || [];
+  const local = legs.find((l) => l.leg === "Local") || null;
+  const travel = legs.filter((l) => l.leg !== "Local");
+  const away = AWAY_TYPES.has(dayType);
+  const journey = travel.length
+    ? {
+        fare: Math.round(x.taOut ?? travel.reduce((s, l) => s + (Number(l.fare) || 0), 0)),
+        from: strip(travel[0].from_place) || null,
+        to: strip(travel[travel.length - 1].to_place) || null,
+        via: null,
+        km: travel.reduce((s, l) => s + (Number(l.km) || 0), 0) || null,
+      }
+    : null;
+  return {
+    date: String(d.date).slice(0, 10),
+    kind: KIND_OF[raw] || (payable || TRAVEL_TYPES.has(dayType) || dayType === "HQ" ? "working" : "unknown"),
+    label: KIND_OF[raw] ? raw : null,
+    visits: d.visits || 0,
+    dayType: dayType || null,
+    payable,
+    km: x.km ?? (d.reach_km || null),
+    ta: Math.round(d.ta || 0),
+    da: Math.round(d.da || 0),
+    journey,
+    awayHq: away && local ? strip(local.from_place) || null : null,
+    farthest: local && strip(local.to_place) !== strip(local.from_place) ? strip(local.to_place) : null,
+    chart: local ? { town: strip(local.to_place) || null, km: local.rounded_km ?? local.km ?? null, hq: null } : null,
+    route: routeStops(x.route_text || d.route),
+    routeKm: x.localKm ?? null,
+    fieldType: null,
+    // the ERP's own: outstation DA in full (paid at 50 % without a bill), the
+    // bill it holds, and whether the day is already claimed (never re-priced)
+    osDaFull: Math.round(d.os_da_full || x.osDaFull || 0),
+    bill: Math.round(d.bill || 0),
+    status: d.status || "Draft",
+    legs,
+    flags: x.flags || [],
+  };
 }
 
 /* ---------- labels ---------- */
@@ -72,22 +169,30 @@ export function dayPlace(row) {
   if (!row) return null;
   if (row.farthest) return row.farthest;
   if (row.awayHq) return row.awayHq;
+  // a travel day with no local run: where the journey went
+  if (row.journey?.to) return row.journey.to;
   const far = [...(row.route || [])].sort((a, b) => (b.km || 0) - (a.km || 0))[0];
   return far?.place || null;
 }
 
-/* How the TA on a day was reached, in words. The console's own rule: up to
-   eqKm the per-km rate, above it the IRCTC fare for the role's rail class; an
-   ex-HQ day is paid out and back. */
+/* How the TA on a day was reached, in words, from the ERP's own fare legs: a
+   local run up to eqKm at the per-km rate (the leg's fare over its km), above
+   it the IRCTC fare; a journey between HQs (Trip / Home / out-and-back legs)
+   is the rail fare whatever its km. A leg paid out and back says so. */
 export function fareBasis(row, data) {
-  if (!row || !data || !row.ta) return null;
-  const km = row.chart?.km ?? row.km;
-  if (km == null) return null;
-  const { perKm, railClass } = data.rates || {};
-  const eqKm = data.bands?.eqKm ?? 100;
-  const legs = row.dayType === "EQ" ? " × 2 legs" : "";
-  if (km <= eqKm) return `${km} km × ₹${perKm ?? "?"}${legs}`;
-  return `${km} km · IRCTC ${railClass || "3 TIER AC"}${legs}`;
+  if (!row || !row.ta) return null;
+  const eqKm = data?.bands?.eqKm ?? 100;
+  const paid = (row.legs || []).filter((l) => Number(l.fare) > 0);
+  if (!paid.length) return null;
+  return paid
+    .map((l) => {
+      const km = l.rounded_km ?? l.km;
+      const ways = l.both_ways ? 2 : 1;
+      const legs = ways > 1 ? " × 2 legs" : "";
+      if (l.leg === "Local" && km > 0 && km <= eqKm) return `${km} km × ₹${Math.round((l.fare / (km * ways)) * 100) / 100}${legs}`;
+      return `${km} km · rail fare${legs}`;
+    })
+    .join(" + ");
 }
 
 /* ---------- trips ---------- */
@@ -102,13 +207,21 @@ const nextDate = (iso) => {
 /* A trip is what the prototype calls a tour: leaving HQ until back at HQ.
    The console has no tour record, so it is read off the days:
      - an ex-HQ (EQ) day out and back is a trip of its own;
-     - outstation days (OS / OS-HQ / OS-EQ) on consecutive dates are one trip,
-       and the day the journey home is charged joins the trip it closes;
+     - outstation days (OS / OS-HQ / OS-EQ) on consecutive dates are one trip
+       while the rep stays in one town; a journey on to ANOTHER town starts a
+       new trip (12 Nov 2026: Chennai -> Bangalore -> Coimbatore -> Erode is
+       three stays, three trips), and the journey home to the rep's HQ joins
+       the trip it closes;
      - a weekly off or holiday between two outstation days stays in the trip
-       (the rep stayed away), and adds nothing to it;
+       of the town the rep was in (they stayed there), and adds nothing to it;
      - every HQ day is a card of its own ("hq"): no travel, its DA claimed
        on its own. */
-export function buildTrips(rows) {
+/* home: the rep's HQ town, only a fallback -- the town a tour LEFT FROM is
+   home for that tour (the ERP's build says so: "HQ Chennai -> HQ Bangalore"),
+   which tells the journey home from a move on to another town. */
+export function buildTrips(rows, home = null) {
+  const homeTown = strip(home).toLowerCase();
+  let origin = null; // the town the current run of stays left from
   const trips = [];
   const byDate = new Map((rows || []).map((r) => [r.date, r]));
   let cur = null;
@@ -121,7 +234,10 @@ export function buildTrips(rows) {
   };
 
   for (const r of rows || []) {
-    if (prevDate && nextDate(prevDate) !== r.date) close();
+    if (prevDate && nextDate(prevDate) !== r.date) {
+      close();
+      origin = null;
+    }
     prevDate = r.date;
 
     const away = r.payable && AWAY_TYPES.has(r.dayType);
@@ -131,22 +247,40 @@ export function buildTrips(rows) {
 
     if (hqDay) {
       close();
+      origin = null;
       trips.push(finish({ days: [r] }));
     } else if (away) {
-      // a journey charged mid-tour is a move between towns, not a new trip
-      if (!cur) cur = { days: [] };
+      const to = strip(r.journey?.to).toLowerCase();
+      // a run of stays starts: it left from its first journey's town
+      if (!cur) origin = origin || strip(r.journey?.from).toLowerCase() || homeTown || null;
+      const goingHome = !!r.journey && !!to && to === (origin || homeTown);
+      // a journey on to another town ends the stay before it: a new trip
+      // (the days off before it stay with the town the rep was in)
+      if (cur && r.journey && !goingHome && to && to !== cur.base) {
+        cur.days.push(...pending);
+        close();
+      }
+      if (!cur) cur = { days: [], base: to || strip(r.awayHq || dayPlace(r)).toLowerCase(), home: origin };
       cur.days.push(...pending, r);
       pending = [];
+      // the journey home closes the trip, and the run of stays
+      if (goingHome) {
+        close();
+        origin = null;
+      }
     } else if (homeLeg) {
       cur.days.push(...pending, r);
       close();
+      origin = null;
     } else if (eq) {
       close();
+      origin = null;
       trips.push(finish({ days: [r] }));
     } else if (cur && !r.payable && r.kind !== "working") {
       pending.push(r); // a day off in the middle of a tour
     } else {
       close();
+      origin = null;
     }
   }
   close();
@@ -155,9 +289,12 @@ export function buildTrips(rows) {
   function finish(t) {
     const days = t.days;
     const paid = days.filter((d) => d.payable);
+    // named by where the rep stayed and worked -- never the town the trip
+    // came from or home
+    const home = String(t.home || "").toLowerCase();
     const places = [];
     for (const d of paid) {
-      for (const p of [d.journey?.to, dayPlace(d)]) if (p && !places.includes(p)) places.push(p);
+      for (const p of [d.journey?.to, dayPlace(d)]) if (p && !places.includes(p) && p.toLowerCase() !== home) places.push(p);
     }
     const ta = paid.reduce((s, d) => s + d.ta, 0);
     const da = paid.reduce((s, d) => s + d.da, 0);

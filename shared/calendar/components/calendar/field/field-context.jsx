@@ -1,7 +1,7 @@
 "use client";
 
 /* Field layer state for the planner: the signed-in rep's TA/DA for the month on
-   screen (from the Field expenses console, see lib/field-expenses), grouped
+   screen (from the ERP's Field Expense Day, see lib/field-expenses), grouped
    into trips, each trip's claim (stay bills, car, fuel and toll bills, status)
    and the rep's own-car requests, plus which sheet is open. */
 
@@ -13,12 +13,30 @@ import { buildTrips, fetchFieldMonth, monthStats } from "@calendar/lib/field-exp
 import { CAR_APPROVER, canUseCar, claimsStays, payrollOf, plannedTrips, tripChecks, tripClaim } from "@calendar/lib/field-expenses/claim-rules";
 import { TAG_IDS } from "@calendar/components/calendar/constants";
 import * as store from "@calendar/lib/field-expenses/trip-claims-store";
+import * as monthErp from "@calendar/lib/field-expenses/erp-claim";
+import { releaseTripBill } from "@calendar/lib/field-expenses/bill-reader";
 
 const FieldContext = createContext(null);
 
+const MONTHS = ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"];
+const shiftMonth = (ym, n) => {
+  const d = new Date(Number(ym.slice(0, 4)), Number(ym.slice(5, 7)) - 1 + n, 1);
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
+};
+const monthWord = (ym) => MONTHS[Number(ym.slice(5, 7)) - 1] || ym;
+
 export function FieldExpensesProvider({ children }) {
-  const { selectedDate, selectedUserId, allEvents, users } = useCalendar();
-  const month = format(selectedDate || new Date(), "yyyy-MM");
+  const { selectedDate, setSelectedDate, selectedUserId, allEvents, users } = useCalendar();
+  /* Which month's TA/DA the layer works on (12 Nov 2026): a month is claimed
+     in the NEXT month, so the current month's view shows last month.
+       viewing the current month (Nov)   -> October (being claimed now)
+       viewing any past month (Oct ...)  -> that month itself
+       viewing a future month (Dec ...)  -> nothing yet
+     So in December: October shows October, November and December show November. */
+  const viewed = format(selectedDate || new Date(), "yyyy-MM");
+  const current = format(new Date(), "yyyy-MM");
+  const prev = shiftMonth(current, -1);
+  const month = viewed >= current ? prev : viewed;
   const [state, setState] = useState({ month: null, status: "idle", data: null, error: null });
   const [sheet, setSheet] = useState(null); // { kind: "trip", id } | { kind: "car", tripId? }
   const [stripOpen, setStripOpen] = useState(false);
@@ -39,7 +57,7 @@ export function FieldExpensesProvider({ children }) {
     };
   }, [month]);
 
-  // the claims belong to whoever the console says this is
+  // the claims belong to whoever the ERP says this is
   const emp = state.data?.employee?.code || null;
   const [claims, setClaims] = useState(() => store.loadClaims(null));
   useEffect(() => {
@@ -47,18 +65,76 @@ export function FieldExpensesProvider({ children }) {
     return store.subscribeClaims((who, next) => who === emp && setClaims(next));
   }, [emp]);
 
+  // the month's ERP Expense Claim (one per rep per month): what is in it and
+  // whether it is still open, sent, or approved -- read fresh after each change
+  const [monthClaim, setMonthClaim] = useState({ month: null, status: "idle", claim: null, error: null });
+  const refreshMonthClaim = useCallback(() => {
+    if (!emp) return Promise.resolve(null);
+    setMonthClaim((s) => (s.month === month ? { ...s, status: s.status === "ready" ? "ready" : "loading" } : { month, status: "loading", claim: null, error: null }));
+    return monthErp
+      .loadMonthClaim(emp, month)
+      .then((claim) => {
+        setMonthClaim({ month, status: "ready", claim, error: null });
+        return claim;
+      })
+      .catch((error) => setMonthClaim({ month, status: "error", claim: null, error }));
+  }, [emp, month]);
+  useEffect(() => {
+    refreshMonthClaim();
+  }, [refreshMonthClaim]);
+
+  // own-car requests: in the ERP (Car Request, decided by the GM) -- read
+  // fresh, and again after each change
+  const [carReqs, setCarReqs] = useState({ emp: null, list: [] });
+  const refreshCarRequests = useCallback(() => {
+    if (!emp) return Promise.resolve([]);
+    return monthErp
+      .loadCarRequests()
+      .then((list) => {
+        setCarReqs({ emp, list });
+        return list;
+      })
+      .catch(() => []);
+  }, [emp]);
+  useEffect(() => {
+    refreshCarRequests();
+  }, [refreshCarRequests]);
+  const carRequests = useMemo(() => (carReqs.emp === emp ? carReqs.list : []), [carReqs, emp]);
+
   const value = useMemo(() => {
     const rows = state.data?.rows || [];
-    const trips = buildTrips(rows);
+    const trips = buildTrips(rows, state.data?.employee?.hq);
     const byDate = new Map(rows.map((r) => [r.date, r]));
     const tripByDate = new Map();
     trips.forEach((t) => t.days.forEach((d) => tripByDate.set(d.date, t)));
     const role = state.data?.employee?.role || null;
-    const ctx = { rates: state.data?.rates, role, requests: claims.requests };
+    const ctx = { role, requests: carRequests };
 
     // each trip with its claim and what it is worth
+    // a submitted trip's status is the month's claim's in the ERP, once the
+    // trip's days are in that claim
+    // -- and, while the month is with the officer or sent back, the officer's
+    // own decision on THIS trip (they decide trip by trip): approved stays
+    // approved, rejected is sent back with the reason
+    const mcl = monthClaim.month === month ? monthClaim.claim : null;
+    const ERP_STATUS = { "Waiting for Approval": "sent", Rejected: "rejected", Approved: "approved", Verified: "paid", Paid: "paid", "In Review": "review" };
+    const live = (claim, t) => {
+      if (claim.status !== "submitted" && claim.status !== "review") return claim;
+      const mine = (mcl?.lines || []).filter((l) => l.date >= t.from && l.date <= t.to);
+      if (!mine.length) return claim;
+      let s = ERP_STATUS[mcl.status];
+      const rej = mine.find((l) => l.decision === "Rejected");
+      const ok = mine.every((l) => l.decision === "Approved");
+      if (s === "sent" || s === "rejected") s = rej ? "rejected" : ok ? "okd" : s;
+      const officer = rej
+        ? { decision: "rejected", note: rej.decisionNote, by: rej.decidedBy, on: rej.decidedOn }
+        : ok
+          ? { decision: "approved", by: mine[0].decidedBy, on: mine[0].decidedOn }
+          : null;
+      return { ...claim, ...(s ? { status: s } : {}), officer };
+    };
     const claimed = trips.map((t) => {
-      const claim = store.claimOf(claims, t.id);
+      const claim = live(store.claimOf(claims, t.id), t);
       const calc = tripClaim(t, claim, ctx);
       return { trip: t, claim, calc, checks: tripChecks(t, claim, calc) };
     });
@@ -66,7 +142,7 @@ export function FieldExpensesProvider({ children }) {
 
     // upcoming trips from the rep's own HQ Tour Plan, for an own-car request
     const today = format(new Date(), "yyyy-MM-dd");
-    const liveRequests = claims.requests.filter((r) => r.status !== "withdrawn");
+    const liveRequests = carRequests.filter((r) => r.status !== "withdrawn");
     const plans = plannedTrips({
       events: allEvents,
       me: LOGGED_IN_USER.id,
@@ -77,6 +153,9 @@ export function FieldExpensesProvider({ children }) {
     }).map((p) => ({ ...p, request: liveRequests.find((r) => r.planId === p.id || (r.from <= p.to && r.to >= p.from)) || null }));
 
     // who approves: the rep's leave approver, as the team list names them
+    // a future month: nothing to claim yet -- a short note and a jump back
+    const away = viewed > current ? { text: `${monthWord(viewed)} is claimed from ${monthWord(shiftMonth(viewed, 1))}`, to: current, toLabel: `Go to ${monthWord(current).slice(0, 3)}` } : null;
+
     const approverEmail = String(LOGGED_IN_USER.leave_approver || "").toLowerCase();
     const approver = approverEmail ? (users || []).find((u) => String(u.email || "").toLowerCase() === approverEmail) : null;
     const manager = approver ? `${approver.name || approver.id}${approver.roleId ? ` (${approver.roleId})` : ""}` : "your manager";
@@ -94,7 +173,7 @@ export function FieldExpensesProvider({ children }) {
       // stay and food bills start at RBM; the designation is the ERP's
       claimsBills: claimsStays(role),
       designation: state.data?.employee?.designation || null,
-      // nothing to show for someone the console does not cover (office staff)
+      // nothing to show for someone the ERP has no field days for (office staff)
       enabled: viewingSelf && !(state.status === "ready" && !state.data?.employee),
       rows,
       trips,
@@ -105,12 +184,18 @@ export function FieldExpensesProvider({ children }) {
       manager,
       payroll: payrollOf(month),
       stats: monthStats(rows, trips),
-      dayOf: (date) => byDate.get(typeof date === "string" ? date : format(date, "yyyy-MM-dd")) || null,
-      tripOf: (date) => tripByDate.get(typeof date === "string" ? date : format(date, "yyyy-MM-dd")) || null,
+      // the month on screen is not where this TA/DA lives: the strip says
+      // where it is, and the calendar's days carry none of it
+      away,
+      goToMonth: (ym) => setSelectedDate?.(new Date(Number(ym.slice(0, 4)), Number(ym.slice(5, 7)) - 1, 1)),
+      dayOf: (date) => (away ? null : byDate.get(typeof date === "string" ? date : format(date, "yyyy-MM-dd")) || null),
+      tripOf: (date) => (away ? null : tripByDate.get(typeof date === "string" ? date : format(date, "yyyy-MM-dd")) || null),
       sheet,
       stripOpen,
+      // the month's ERP claim: { status, claim: { name, status, open, total, lines } | null }
+      monthClaim: monthClaim.month === month ? monthClaim : { month, status: "loading", claim: null, error: null },
     };
-  }, [month, state, viewingSelf, sheet, stripOpen, claims, emp, allEvents, users]);
+  }, [month, viewed, current, setSelectedDate, state, viewingSelf, sheet, stripOpen, claims, emp, allEvents, users, monthClaim, carRequests]);
 
   const openTrip = useCallback((id) => setSheet({ kind: "trip", id }), []);
   /* opts: { tripId } a travelled trip, { planId } a planned one, { draft } a recalled request's values */
@@ -123,19 +208,22 @@ export function FieldExpensesProvider({ children }) {
   // actions, bound to this rep; each returns a promise (the ERP later)
   const actions = useMemo(
     () => ({
-      setStayBill: (tripId, date, file, amount) => store.setStayBill(emp, tripId, date, file, amount),
-      setStayAmount: (tripId, date, amount) => store.setStayAmount(emp, tripId, date, amount),
-      addCarBill: (tripId, kind, bill) => store.addCarBill(emp, tripId, kind, bill),
-      updateCarBill: (tripId, kind, id, patch) => store.updateCarBill(emp, tripId, kind, id, patch),
-      removeCarBill: (tripId, kind, id) => store.removeCarBill(emp, tripId, kind, id),
+      // a checked bill (bill-reader.js readTripBill) onto the trip, and off it
+      // again -- its fingerprint freed so the same bill can be scanned again
+      addBill: (tripId, kind, bill) => store.addBill(emp, tripId, kind, bill),
+      removeBill: (tripId, kind, id) => store.removeBill(emp, tripId, kind, id).then((gone) => releaseTripBill(gone)),
       submitTrip: (tripId, totals) => store.submitTrip(emp, tripId, totals),
+      // the whole month's claim to the reporting officer, and back
+      sendMonth: () => monthErp.sendMonth({ employee: emp, month }).finally(refreshMonthClaim),
+      recallMonth: () => monthErp.recallMonth({ employee: emp, month }).finally(refreshMonthClaim),
+      refreshMonthClaim,
       recallTrip: (tripId) => store.recallTrip(emp, tripId),
-      requestOwnCar: (req) => store.requestOwnCar(emp, req),
-      withdrawRequest: (id) => store.withdrawRequest(emp, id),
-      setRequestBills: (id, bills) => store.setRequestBills(emp, id, bills),
-      approveRequest: (id) => store.approveRequest(emp, id),
+      // own car: to the GM through the ERP, and back
+      requestOwnCar: (req) => monthErp.requestCar(req).finally(refreshCarRequests),
+      withdrawRequest: (id) => monthErp.withdrawCar(id).finally(refreshCarRequests),
+      refreshCarRequests,
     }),
-    [emp]
+    [emp, month, refreshMonthClaim, refreshCarRequests]
   );
 
   return (

@@ -7,13 +7,14 @@
      - the day's trip at the top of its agenda list
      - a sheet per trip: the story line, one TA line (fare, or own car = fuel +
        toll scans up to the approved cap), a day timeline with a stay-bill chip
-       per night (50 % → 100 %), the checks, and Submit / Recall & edit
+       per outstation day (paid at 50 % until its bill is approved), the
+       checks, and Submit / Recall & edit
      - the own-car request form
-   Day types, TA and DA per day are the Field expenses console's; the trip
+   Day types, TA and DA per day are the ERP's (Field Expense Day); the trip
    claim rules are in lib/field-expenses/claim-rules.js and every action goes
    through lib/field-expenses/trip-claims-store.js. */
 
-import { useState, useSyncExternalStore } from "react";
+import { useEffect, useRef, useState, useSyncExternalStore } from "react";
 import { toast } from "sonner";
 import {
   BedDouble,
@@ -45,11 +46,13 @@ import {
   inr,
   rangeLabel,
 } from "@calendar/lib/field-expenses/field-days";
-import { FUEL_PRICE, MILEAGE_KM_PER_L } from "@calendar/lib/field-expenses/claim-rules";
+import { FUEL_PRICE, MILEAGE_KM_PER_L, fuelCost, tollEstimate } from "@calendar/lib/field-expenses/claim-rules";
 import { PREVIEW, STATUS_LABEL, canRecall, isLocked, statusKey } from "@calendar/lib/field-expenses/trip-claims-store";
-import { readBill } from "@calendar/lib/field-expenses/bill-reader";
+import { readTripBill } from "@calendar/lib/field-expenses/bill-reader";
+import { addTripToMonth, monthWord, removeTripFromMonth, tripClaimRows } from "@calendar/lib/field-expenses/erp-claim";
 import { CarRequestSheet, KpiSheet, RequestSheet } from "@calendar/components/calendar/field/field-sheets";
-import { BILL_NAME, BillChip, BillEditor, ChipButton, useBillPicker } from "@calendar/components/calendar/field/field-bills";
+import { BILL_NAME, BillChip, BillEditor, ChipButton, ManualBill, useBillPicker } from "@calendar/components/calendar/field/field-bills";
+import { useTripBillViewer } from "@calendar/components/calendar/field/field-bill-view";
 
 const MONTH_LONG = ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"];
 const monthName = (ym) => MONTH_LONG[Number(ym.slice(5, 7)) - 1];
@@ -65,6 +68,9 @@ const PILL = {
   unclaimed: "bg-rose-100 text-rose-700",
   recalled: "bg-rose-100 text-rose-700",
   submitted: "bg-blue-50 text-blue-700",
+  sent: "bg-amber-50 text-amber-700",
+  okd: "bg-green-50 text-green-700",
+  rejected: "bg-rose-100 text-rose-700",
   review: "bg-amber-50 text-amber-700",
   approved: "bg-green-50 text-green-700",
   paid: "bg-green-50 text-green-700",
@@ -90,15 +96,36 @@ export function FieldStrip() {
   if (!f.enabled) return null;
 
   const m = monthName(f.month);
+  // the month on screen is not where this TA/DA lives (a month is claimed in
+  // the next one, and moves back to its own view once settled)
+  if (f.away) {
+    return (
+      <div className="shrink-0 bg-white px-3 pb-2 pt-1.5">
+        <div className="flex min-h-9 w-full items-center gap-1.5 rounded-xl border border-dashed border-gray-200 bg-gray-50 pl-2.5 pr-1.5 text-[12px]">
+          <Car className="h-3.5 w-3.5 shrink-0 text-gray-400" aria-hidden />
+          <span className="flex min-w-0 flex-1 items-center gap-1 truncate font-semibold text-gray-500">
+            <b className="font-extrabold text-gray-700">Field</b>
+            <span className="truncate">· {f.away.text}</span>
+          </span>
+          {f.away.to && (
+            <button type="button" onClick={() => f.goToMonth(f.away.to)} className="flex shrink-0 items-center gap-0.5 rounded-lg px-2 py-1 text-[12px] font-extrabold text-blue-700 active:bg-blue-50">
+              {f.away.toLabel} <ChevronRight className="h-3.5 w-3.5" aria-hidden />
+            </button>
+          )}
+        </div>
+        <FieldSheets />
+      </div>
+    );
+  }
   const toClaim = f.claimed.filter((x) => x.claim.status === "unclaimed");
-  const awaiting = f.claimed.filter((x) => x.claim.status === "submitted" || x.claim.status === "review").length;
+  const awaiting = f.claimed.filter((x) => ["submitted", "sent", "review"].includes(x.claim.status)).length;
   const canOpen = f.status === "ready";
 
   // the tile's two halves: what is left to claim, and what is waiting on someone else
   let left;
   let right = null;
   if (f.status === "loading" || f.status === "idle") left = "loading…";
-  else if (f.status === "error") left = f.error?.code === "no-month" ? `${m} not in the console yet` : f.error?.status === 401 ? "sign in again" : f.error?.status === 404 ? "no employee record" : "console unavailable";
+  else if (f.status === "error") left = f.error?.code === "no-month" ? `${m} not built yet` : f.error?.status === 401 || f.error?.status === 403 ? "sign in again" : "TA/DA unavailable";
   else {
     left = toClaim.length ? `${toClaim.length} to claim` : f.claimed.length ? "nothing to claim" : `nothing in ${m.slice(0, 3)}`;
     right = awaiting ? `${awaiting} awaiting` : f.claimed.length && !toClaim.length ? "all in" : toClaim.length ? inr(toClaim.reduce((a, x) => a + x.calc.total, 0)) : null;
@@ -121,6 +148,8 @@ export function FieldStrip() {
         <Car className="relative h-3.5 w-3.5 shrink-0 text-blue-600" aria-hidden />
         <span className="relative flex min-w-0 flex-1 items-center gap-1 truncate font-semibold text-gray-600">
           <b className="font-extrabold text-gray-900">Field</b>
+          {/* which month: in the current month's view it is last month's claim */}
+          <span className="shrink-0 rounded-md bg-blue-50 px-1.5 py-px text-[11px] font-extrabold text-blue-700">{m.slice(0, 3)}</span>
           <span className="truncate">· {left}</span>
         </span>
         {right && <b className="relative shrink-0 text-[12.5px] font-extrabold text-gray-900">{right}</b>}
@@ -151,7 +180,7 @@ export function FieldStrip() {
 }
 
 // to claim first, then waiting, then done
-const rank = (c) => ({ unclaimed: 0, review: 1, submitted: 2, approved: 3, paid: 4 })[c.status] ?? 5;
+const rank = (c) => ({ unclaimed: 0, rejected: 0, review: 1, submitted: 2, sent: 2, okd: 3, approved: 3, paid: 4 })[c.status] ?? 5;
 
 /* Every card is fixed-width and clips: each line has its own slot, long text
    ends in "…" instead of running into the next line or past the border. */
@@ -186,7 +215,7 @@ function TripCard({ item, canCar, onOpen, onRequestOpen }) {
       <span className="block truncate text-[11px] text-gray-500">{meta}</span>
       <span className="mt-1 grid min-w-0 grid-cols-[minmax(0,1fr)_minmax(0,1fr)_minmax(0,1.3fr)] items-end gap-1.5 border-t border-dashed pt-1">
         <Amount label="TA" value={calc.ta} />
-        {calc.da > 0 ? <Amount label={calc.missingStayBills ? "DA*" : "DA"} value={calc.da} hint={calc.missingStayBills ? "DA without a stay bill (50 %)" : undefined} /> : <span />}
+        {calc.da > 0 ? <Amount label={calc.missingStayBills ? "DA*" : "DA"} value={calc.da} hint={calc.missingStayBills ? "Outstation days without a bill are at 50 %" : undefined} /> : <span />}
         <span className="flex min-w-0 flex-col items-end leading-tight">
           <small className="max-w-full truncate text-[8.5px] font-bold uppercase tracking-wide text-gray-400">
             {claim.status === "unclaimed" ? "claim" : STATUS_LABEL[statusKey(claim)].toLowerCase()}
@@ -198,19 +227,27 @@ function TripCard({ item, canCar, onOpen, onRequestOpen }) {
         </span>
       </span>
     </button>
-    {/* a car is asked for from the month summary; the card only shows how a
-        request stands */}
-    {canCar && (calc.carApproved || calc.carPending) && (
-      <div className="border-t border-gray-100 px-2.5 py-1">
-        {calc.carApproved ? (
-          <button type="button" onClick={() => onRequestOpen(req.id)} className="flex w-full items-center gap-1 text-[11px] font-extrabold text-green-700">
-            <Check className="h-3.5 w-3.5 shrink-0" aria-hidden /> <span className="truncate">Car approved · {inr(req.ask)}</span>
-          </button>
-        ) : calc.carPending ? (
-          <button type="button" onClick={() => onRequestOpen(req.id)} className="flex w-full items-center gap-1 text-[11px] font-bold text-amber-700">
-            <Car className="h-3.5 w-3.5 shrink-0" aria-hidden /> <span className="truncate">Car requested · awaiting GM</span>
-          </button>
-        ) : null}
+    {/* where the trip's own-car request stands, on the card itself: waiting,
+        approved (and for how much) or not approved -- tap for the request */}
+    {canCar && req && ["pending", "approved", "rejected"].includes(req.status) && (
+      <div className="border-t border-gray-100 px-2 py-1">
+        <button
+          type="button"
+          onClick={() => onRequestOpen(req.id)}
+          className={cn(
+            "flex w-full items-center gap-1 rounded-md px-1.5 py-0.5 text-[10.5px] font-extrabold",
+            req.status === "approved" ? "bg-green-50 text-green-700" : req.status === "rejected" ? "bg-rose-50 text-rose-700" : "bg-amber-50 text-amber-800"
+          )}
+        >
+          {req.status === "approved" ? <Check className="h-3.5 w-3.5 shrink-0" aria-hidden /> : <Car className="h-3.5 w-3.5 shrink-0" aria-hidden />}
+          <span className="truncate">
+            {req.status === "approved"
+              ? `Car approved · up to ${inr(req.ask)}`
+              : req.status === "rejected"
+                ? "Car not approved · fare paid"
+                : `Car requested · ${inr(req.asked || req.ask)} · awaiting GM`}
+          </span>
+        </button>
       </div>
     )}
     </div>
@@ -227,6 +264,7 @@ const Amount = ({ label, value, hint }) => (
 function MonthCard({ month, stats, claimed, pulledAt, onOpen }) {
   const by = (pred) => claimed.filter((x) => pred(x.claim)).reduce((s, x) => s + x.calc.total, 0);
   const toClaim = by((c) => c.status === "unclaimed");
+  // approved by the officer (waiting for the final check) or finalised
   const payroll = by((c) => c.status === "approved" || c.status === "paid");
   // the prototype's k-grid: a small label, then its amount on the same line, never shortened
   const krow = (label, value, tone) => (
@@ -263,7 +301,7 @@ function MonthCard({ month, stats, claimed, pulledAt, onOpen }) {
       <span className="mt-1.5 grid grid-cols-2 gap-x-3 gap-y-0.5">
         {krow("TA", inr(claimed.reduce((s, x) => s + x.calc.ta, 0)))}
         {krow("DA", inr(claimed.reduce((s, x) => s + x.calc.da, 0)))}
-        {krow("In payroll", inr(payroll), "muted")}
+        {krow("Approved", inr(payroll), payroll ? undefined : "muted")}
         {krow("To claim", inr(toClaim), toClaim ? "hi" : "muted")}
       </span>
     </button>
@@ -414,13 +452,182 @@ function tripStory(trip) {
   return `${out} · ${trip.days.length} days away${back} · ${trip.km} km`;
 }
 
+/* How the trip was travelled, inside the trip itself (RBM, ZSM, SM): normal
+   TA (the fare), or own car -- ticked, it shows the ask (km ÷ mileage × fuel
+   price + tolls, editable) and sends the request to the approver from here.
+   Waiting, it says so (withdraw to change it); approved, the trip's TA turns
+   into fuel + tolls and the fuel / toll scans appear in the TA block above.
+   Until approval the trip is paid the normal fare. */
+function CarMode({ trip, calc, editable, tab, setTab }) {
+  const f = useFieldExpenses();
+  const req = calc.request;
+  // the tab is the trip sheet's: it also decides the pinned upload button
+  // (fare -> stay / food bills, own car -> fuel / toll bills)
+  const on = tab === "car";
+  // one fuel price for every car: petrol (12 Nov 2026)
+  const fuel = "Petrol";
+  const [askIn, setAskIn] = useState(null);
+  const [busy, setBusy] = useState(false);
+  const km = trip.km || 0;
+  const tolls = tollEstimate(km);
+  const sugg = fuelCost(km, fuel) + tolls;
+  const ask = askIn != null ? Math.max(0, Math.round(Number(askIn) || 0)) : sugg;
+
+  const act = async (fn, ok) => {
+    setBusy(true);
+    try {
+      await fn();
+      if (ok) toast.success(ok);
+    } catch (e) {
+      toast.error(errText(e));
+    } finally {
+      setBusy(false);
+    }
+  };
+  const send = () =>
+    act(async () => {
+      await f.actions.requestOwnCar({
+        planId: trip.id,
+        tripId: trip.id,
+        from: trip.from,
+        to: trip.to,
+        places: ["HQ", ...trip.places, "HQ"].join(" → "),
+        km,
+        fuel,
+        fuelCost: fuelCost(km, fuel),
+        tolls,
+        suggested: sugg,
+        ask,
+      });
+    }, `Car request sent to ${f.carApprover}`);
+
+  const box = "rounded-2xl border border-gray-200 bg-white px-3 py-2.5";
+  // already asked: its state, and what can be done with it (the GM decides in
+  // the ERP -- Car Request -- from the approvals page)
+  const live = req && req.status !== "rejected" ? req : null;
+  const ok = live?.status === "approved";
+  const changed = ok && live.asked && live.approvedAmount !== live.asked;
+  const status = live ? (
+      <div className={cn(box, "flex flex-col gap-2", ok ? "border-green-200 bg-green-50" : "border-amber-200 bg-amber-50")}>
+        <span className="flex items-center gap-2 text-[13px] font-bold text-gray-900">
+          <Car className={cn("h-4 w-4", ok ? "text-green-700" : "text-amber-700")} aria-hidden />
+          {ok
+            ? `Own car approved up to ${inr(req.ask)}${changed ? ` (you asked ${inr(req.asked)})` : ""}`
+            : `Own car requested · ${inr(req.ask)} · waiting for ${f.carApprover}`}
+        </span>
+        <span className="text-[12.5px] leading-snug text-gray-600">
+          {ok ? "Fuel / toll bills replace the fare · no bills, the fare is paid." : "Fare until approved · then upload fuel / toll bills."}
+          {ok && req.note ? <span className="mt-0.5 block italic text-gray-500">{f.carApprover.replace(/^the /, "")}: &ldquo;{req.note}&rdquo;</span> : null}
+        </span>
+        {editable && (
+          <span className="flex flex-wrap gap-2">
+            <button type="button" onClick={() => f.openRequest(req.id)} className="rounded-xl border border-gray-300 bg-white px-3 py-1.5 text-[12.5px] font-bold text-gray-800">
+              View request
+            </button>
+            {!ok && (
+              <button type="button" disabled={busy} onClick={() => act(() => f.actions.withdrawRequest(req.id), "Car request withdrawn — the trip is back to the normal fare")} className="rounded-xl border border-gray-300 bg-white px-3 py-1.5 text-[12.5px] font-bold text-gray-800">
+                Withdraw
+              </button>
+            )}
+          </span>
+        )}
+      </div>
+  ) : null;
+  // rejected: why, and the rep may ask again below
+  const rejected = req && req.status === "rejected" ? (
+    <div className={cn(box, "flex flex-col gap-1 border-rose-200 bg-rose-50")}>
+      <span className="flex items-center gap-2 text-[13px] font-bold text-rose-900">
+        <Car className="h-4 w-4 text-rose-700" aria-hidden />
+        Own car not approved · you asked {inr(req.asked)}
+      </span>
+      <span className="text-[12.5px] leading-snug text-rose-900">
+        {req.note ? `${f.carApprover.replace(/^the /, "")}: “${req.note}”` : "No reason given."} · fare paid{editable ? " · ask again below" : ""}
+      </span>
+    </div>
+  ) : null;
+  if (!editable) return status || rejected ? <div className="col-start-1 col-end-4 mt-2">{status || rejected}</div> : null;
+  return (
+    <div className="col-start-1 col-end-4 mt-2 flex flex-col gap-2">
+      <span className="text-[13px] font-bold text-gray-500">How did you travel?</span>
+      <span role="radiogroup" aria-label="How did you travel" className="grid grid-cols-2 gap-1 rounded-2xl bg-gray-100 p-1">
+        {[
+          [false, "Normal TA · fare"],
+          [true, "Own car · fuel + toll"],
+        ].map(([v, label]) => (
+          <button
+            key={label}
+            type="button"
+            role="radio"
+            aria-checked={on === v}
+            onClick={() => setTab(v ? "car" : "fare")}
+            className={cn("min-h-10 rounded-xl px-2 text-[13px] font-bold", on === v ? "bg-white text-gray-900 shadow-sm" : "text-gray-500")}
+          >
+            {label}
+          </button>
+        ))}
+      </span>
+      {on && status}
+      {on && !live && rejected}
+      {!on && live && (
+        <span className="text-[12px] leading-snug text-gray-500">
+          {ok ? "Own car approved for this trip — open Own car to upload the fuel and toll bills." : "Own car requested — open Own car to see it."}
+        </span>
+      )}
+      {on && !live && (
+        <div className={cn(box, "flex flex-col gap-2 bg-gray-50")}>
+          <span className="flex justify-between gap-2 text-[12.5px] text-gray-600">
+            <span>Fuel price</span>
+            <b className="text-gray-900">₹{FUEL_PRICE[fuel]}/l</b>
+          </span>
+          <span className="flex justify-between gap-2 text-[12.5px] text-gray-600">
+            <span>Fuel · {km} km ÷ {MILEAGE_KM_PER_L} km/l × ₹{FUEL_PRICE[fuel]}</span>
+            <b className="text-gray-900">{inr(fuelCost(km, fuel))}</b>
+          </span>
+          <span className="flex justify-between gap-2 text-[12.5px] text-gray-600">
+            <span>Tolls on this route</span>
+            <b className="text-gray-900">{inr(tolls)}</b>
+          </span>
+          <span className="flex justify-between gap-2 border-t border-dashed border-gray-300 pt-1.5 text-[12.5px] font-bold text-gray-900">
+            <span>Suggested</span>
+            <b>{inr(sugg)}</b>
+          </span>
+          <label className="flex items-center justify-between gap-2 text-[12.5px] font-bold text-gray-700">
+            Your ask
+            <span className="flex h-9 w-32 items-center gap-1 rounded-lg border border-gray-300 bg-white px-2">
+              <span className="text-gray-400">₹</span>
+              <input type="number" inputMode="numeric" min="0" step="10" value={askIn ?? String(sugg)} onChange={(e) => setAskIn(e.target.value)} className="w-full bg-transparent text-[13px] font-semibold outline-none" aria-label="Amount asked" />
+            </span>
+          </label>
+          <button type="button" disabled={busy || !(km > 0 && ask > 0)} onClick={send} className="flex min-h-10 items-center justify-center gap-2 rounded-xl bg-blue-600 px-4 text-[14px] font-bold text-white disabled:bg-gray-200 disabled:text-gray-500">
+            {busy && <Loader2 className="h-4 w-4 animate-spin" aria-hidden />}
+            Send to {f.carApprover} for approval
+          </button>
+          <span className="text-[11.5px] leading-snug text-gray-500">
+            {f.carApprover.replace(/^the /, "")} approves (may change the amount) or rejects · fare until then.
+          </span>
+        </div>
+      )}
+    </div>
+  );
+}
+
 function TripSheet({ item }) {
   const f = useFieldExpenses();
   const { trip, claim, calc, checks } = item;
   const editable = claim.status === "unclaimed";
   const [busy, setBusy] = useState(null);
   const [editing, setEditing] = useState(null); // { kind, id }
+  const [confirming, setConfirming] = useState(false); // Submit asks first
+  // a bill the reader could not read: the rep enters it by hand
+  const [manual, setManual] = useState(null); // { file, slot, prefill, reason }
+  // fare or own car: picks what the pinned upload takes (opens on own car when
+  // a car request is waiting or approved)
+  const [tab, setTab] = useState(() => (calc.request && calc.request.status !== "rejected" ? "car" : "fare"));
+  const carTab = f.canCar && trip.kind !== "hq" && tab === "car";
+  const [sendError, setSendError] = useState(null); // why the last send was refused
   const [billInput, pickBill] = useBillPicker();
+  // each day's bills as pictures, and the full-screen viewer (13 Nov 2026)
+  const billView = useTripBillViewer(claim);
 
   const run = async (key, fn, ok) => {
     setBusy(key);
@@ -434,62 +641,166 @@ function TripSheet({ item }) {
     }
   };
 
+  /* Scan a bill onto the trip: the server checks it (type, date inside the
+     trip, a readable photo, not already claimed) and stores it; a bill that
+     fails is refused with the reason, nothing is typed in. */
+  /* 13 Nov 2026: reading a bill takes a while (the reader is ~15-25 s), so it
+     runs in the background -- a "Reading the bill…" toast that turns into the
+     result, the button free for the next bill, the rep free to carry on. */
+  const [reading, setReading] = useState({ da: 0, car: 0 });
+  const alive = useRef(true);
+  // set on every mount: React's dev double-mount runs the cleanup once in between
+  useEffect(() => {
+    alive.current = true;
+    return () => {
+      alive.current = false;
+    };
+  }, []);
   const scan = (kind) =>
     pickBill(async (file) => {
-      setBusy(`scan-${kind}`);
+      const tid = toast.loading("Reading the bill… you can carry on", { duration: Infinity });
+      setReading((x) => ({ ...x, [kind]: (x[kind] || 0) + 1 }));
       try {
-        const read = await readBill(file, BILL_NAME[kind]);
-        const id = await f.actions.addCarBill(trip.id, kind, { amount: read?.amount ?? null, file, read });
-        setEditing({ kind, id });
-        toast[read ? "success" : "message"](read ? `Read ${inr(read.amount)} off the bill` : "Couldn't read the amount — type it in");
-      } catch (e) {
-        toast.error(errText(e));
-      } finally {
-        setBusy(null);
-      }
-    });
-
-  // "scan stay" fills the first night still without a hotel bill
-  const nextNight = calc.nights.find((n) => !n.bill) || null;
-  // a hotel bill is read for its amount; that amount is the night's DA
-  const stayBill = (date) =>
-    pickBill(async (file) => {
-      setBusy(`stay-${date}`);
-      try {
-        const read = await readBill(file, "Hotel bill");
-        await f.actions.setStayBill(trip.id, date, file, read?.amount ?? null);
-        if (read?.amount) toast.success(`Hotel bill ${inr(read.amount)} — the night is paid at the bill`);
-        else {
-          toast.message("Couldn't read the amount — type it in");
-          setEditing({ kind: "stays", id: date });
+        const r = await readTripBill(file, kind, trip);
+        if (!r.ok) {
+          // could not be read (handwritten, faded, no bill no / date): enter it
+          if (r.manual) {
+            toast.dismiss(tid);
+            if (alive.current) return setManual({ file, slot: kind, prefill: r.prefill, reason: r.reason });
+            toast.error("A bill couldn't be read — open the trip and upload it again to enter it by hand.", { duration: 8000 });
+            return;
+          }
+          toast.error(r.reason, { id: tid, duration: r.duplicate ? 10000 : 6000 });
+          return;
         }
+        // the one stay-and-food upload: the bill says which it is
+        const slot = kind === "da" ? (r.bill.kind === "Stay" ? "stays" : "foods") : kind === "car" ? (r.bill.kind === "Toll" ? "tolls" : "fuels") : kind;
+        const id = await f.actions.addBill(trip.id, slot, r.bill);
+        if (alive.current) setEditing({ kind: slot, id });
+        const b = r.bill;
+        toast.success(
+          slot === "stays"
+            ? `Hotel bill ${inr(b.billed)} · ${b.nights.length} night${b.nights.length > 1 ? "s" : ""} in this trip${b.amount !== b.billed ? ` (counts ${inr(b.amount)})` : ""}`
+            : `${BILL_NAME[slot]} ${inr(b.billed)} added · ${dayLabel(b.date)}`,
+          { id: tid, duration: 4000 }
+        );
+        if (b.flag) toast.message(`${b.flag} Your reporting officer will see this.`, { duration: 10000 });
       } catch (e) {
-        toast.error(errText(e));
+        toast.error(errText(e), { id: tid });
       } finally {
-        setBusy(null);
+        if (alive.current) setReading((x) => ({ ...x, [kind]: Math.max(0, (x[kind] || 0) - 1) }));
       }
     });
+  const removeBill = (kind, id) => {
+    run(`rm-${id}`, () => f.actions.removeBill(trip.id, kind, id), "Bill removed");
+    setEditing(null);
+  };
+
+  // outstation days no stay bill covers yet
+  const nextNight = calc.nights.find((n) => !n.bill) || null;
 
   const review = checks.some((c) => c.level === "review");
   const req = calc.request;
 
+  // Submit: the trip's lines go into the month's ERP claim (one per rep per
+  // month, erp-claim.js); the month goes to the reporting officer when it is
+  // sent from the month card
+  const month = trip.from.slice(0, 7);
+  const mon = monthWord(month);
+  const submit = () =>
+    run(
+      "submit",
+      async () => {
+        const added = await addTripToMonth({ employee: f.emp, month, trip, claim, calc, data: f.data });
+        await f.actions.submitTrip(trip.id, { total: calc.total, ta: calc.ta, da: calc.da, review, erpClaim: added.name });
+        setConfirming(false);
+        f.actions.refreshMonthClaim();
+        if (added.sent) toast.success(`Sent to ${f.manager} for approval — in your ${mon} claim`);
+        // a refused send must be seen: red, and it stays until closed
+        if (added.warning) (added.sent ? toast.message : toast.error)(added.warning, added.sent ? undefined : { duration: Infinity, closeButton: true });
+        if (!added.sent) setSendError(added.warning);
+      },
+      null
+    );
+  // Recall: the trip's lines come back out of the month's claim (only while
+  // the month is not sent), then the trip opens again
+  const recall = () =>
+    run(
+      "recall",
+      async () => {
+        await removeTripFromMonth({ employee: f.emp, month, trip });
+        await f.actions.recallTrip(trip.id);
+        f.actions.refreshMonthClaim();
+      },
+      `Taken out of your ${mon} claim — edit it and submit again`
+    );
+  const rowCount = editable ? tripClaimRows(trip, claim, calc, f.data).length : 0;
+
   const nDays = trip.days.length;
   const daysLabel = nDays > 1 ? `${nDays} days` : dayLabel(trip.from);
+  // where a submitted trip really is: in the month's claim, which is sent to
+  // the officer as one (from the month card) -- not on its own
+  const mc = f.monthClaim?.claim || null;
+  const monthState = !mc
+    ? null
+    : mc.open
+      ? mc.status === "Rejected"
+        ? "rejected"
+        : "draft"
+      : ["Verified", "Paid"].includes(mc.status)
+        ? "final"
+        : mc.status === "Approved"
+          ? "approved"
+          : mc.status === "In Review"
+          ? "review"
+          : "sent";
   const costStatus =
     claim.status === "unclaimed"
       ? claim.recalled
         ? "Recalled · not claimed"
         : "Not claimed yet"
-      : claim.status === "review"
-        ? "Claimed · in review"
-        : claim.status === "submitted"
-          ? "Claimed · awaiting approval"
-          : "Claimed · in payroll";
+      : monthState === "draft"
+        ? `In ${mon} claim · not sent yet`
+        : monthState === "rejected"
+          ? `${mon} claim rejected`
+          : monthState === "sent"
+            ? `Sent · awaiting ${f.manager}`
+            : monthState === "review"
+              ? "Approved · Accounts checking"
+              : monthState === "approved"
+                ? "Approved · final check pending"
+                : monthState === "final"
+                  ? "Finalised · in payroll"
+                : claim.status === "review"
+                  ? "Claimed · in review"
+                  : claim.status === "submitted"
+                    ? `In ${mon} claim`
+                    : "Claimed · in payroll";
   const sectionLabel = "text-[13px] font-bold text-gray-500";
 
   return (
     <div className="-mx-4 flex min-h-0 flex-1 flex-col overflow-y-auto overscroll-contain px-4 [&>*]:shrink-0 gap-3">
       {billInput}
+      {billView.viewer}
+      {manual && (
+        <ManualBill
+          file={manual.file}
+          slot={manual.slot}
+          trip={trip}
+          prefill={manual.prefill}
+          reason={manual.reason}
+          onCancel={() => setManual(null)}
+          onDone={(slotKey, bill) =>
+            run("manual", async () => {
+              const id = await f.actions.addBill(trip.id, slotKey, bill);
+              setManual(null);
+              setEditing({ kind: slotKey, id });
+              toast.success(`${BILL_NAME[slotKey]} ${inr(bill.billed)} added by hand — a person checks it against the photo`);
+              if (bill.flag) toast.message(`${bill.flag} Your reporting officer will see this.`, { duration: 10000 });
+            })
+          }
+        />
+      )}
 
       {/* header */}
       <div className="pr-10">
@@ -517,10 +828,18 @@ function TripSheet({ item }) {
                 <Car className="h-4 w-4 text-green-600" aria-hidden /> car
               </b>
               <span>·</span>
-              <b className="font-extrabold text-gray-900">fuel + toll</b>
-              <span>
-                · {inr(calc.fuel)} + {inr(calc.tolls)}
-              </span>
+              {calc.carBilled ? (
+                <>
+                  <span>
+                    fuel <b className="font-extrabold text-gray-900">{inr(calc.fuel)}</b> + toll <b className="font-extrabold text-gray-900">{inr(calc.tolls)}</b>
+                  </span>
+                </>
+              ) : (
+                <>
+                  <b className="font-extrabold text-gray-900">fare</b>
+                  <span>· no bills yet</span>
+                </>
+              )}
             </>
           ) : (
             <>
@@ -543,11 +862,11 @@ function TripSheet({ item }) {
             <span className="mt-2 flex items-center gap-3">
               <span className="block h-1.5 flex-1 overflow-hidden rounded-full bg-gray-100">
                 <i
-                  className={cn("block h-full rounded-full", calc.fuel + calc.tolls > calc.cap ? "bg-rose-600" : "bg-green-600")}
+                  className={cn("block h-full rounded-full", calc.capped ? "bg-amber-500" : "bg-green-600")}
                   style={{ width: `${Math.min(100, Math.round(((calc.fuel + calc.tolls) / (calc.cap || 1)) * 100))}%` }}
                 />
               </span>
-              <b className={cn("shrink-0", calc.fuel + calc.tolls > calc.cap ? "text-rose-600" : "text-gray-900")}>
+              <b className={cn("shrink-0", calc.capped ? "text-amber-700" : "text-gray-900")}>
                 {inr(calc.fuel + calc.tolls)} / {inr(calc.cap)}
               </b>
             </span>
@@ -558,28 +877,13 @@ function TripSheet({ item }) {
                   <BillChip key={b.id} kind={kind} bill={b} on={editing?.id === b.id} readOnly={!editable} onClick={() => setEditing(editing?.id === b.id ? null : { kind, id: b.id })} />
                 ))
               )}
-              {editable && (
-                <>
-                  <ChipButton busy={busy === "scan-fuels"} onClick={() => scan("fuels")}>
-                    <Camera className="h-4 w-4" aria-hidden /> scan fuel
-                  </ChipButton>
-                  <ChipButton busy={busy === "scan-tolls"} onClick={() => scan("tolls")}>
-                    <Camera className="h-4 w-4" aria-hidden /> scan toll
-                  </ChipButton>
-                </>
-              )}
             </div>
-            {editable && editing && editing.kind !== "foods" && (
+            {editable && (editing?.kind === "fuels" || editing?.kind === "tolls") && (
               <BillEditor
                 key={editing.id}
                 bill={(claim[editing.kind] || []).find((b) => b.id === editing.id)}
                 kind={editing.kind}
-                onAmount={(amount) => f.actions.updateCarBill(trip.id, editing.kind, editing.id, { amount })}
-                onPhoto={() => pickBill((file) => run("photo", () => f.actions.updateCarBill(trip.id, editing.kind, editing.id, { file }), "Photo attached"))}
-                onRemove={() => {
-                  run("rm", () => f.actions.removeCarBill(trip.id, editing.kind, editing.id));
-                  setEditing(null);
-                }}
+                onRemove={() => removeBill(editing.kind, editing.id)}
               />
             )}
           </div>
@@ -588,13 +892,18 @@ function TripSheet({ item }) {
         <p className="col-start-2 col-end-4 mt-2 flex items-start gap-1.5 text-[12.5px] leading-snug text-gray-500">
           <Info className="mt-0.5 h-4 w-4 shrink-0" aria-hidden />
           {calc.car
-            ? !calc.fuel && !calc.tolls
-              ? "Scan the pump bill and every toll receipt — AI reads the amounts."
-              : "Fuel + tolls are this trip's whole TA — no train fare is paid."
+            ? !calc.carBilled
+              ? `No fuel / toll bill yet · paid the fare ${inr(calc.fare)} · bills pay up to ${inr(calc.cap)}.`
+              : calc.capped
+                ? `Car bills ${inr(calc.fuel + calc.tolls)} → TA ${inr(calc.cap)} (approved max).`
+                : `Fuel + toll are the TA · up to ${inr(calc.cap)}.`
             : calc.carPending
-              ? "Car requested — until the GM approves, this trip is paid the normal fare."
-              : "TA pays the travel — one fare for the whole trip."}
+              ? "Car requested · paid the fare until the GM approves."
+              : "TA · one fare for the whole trip."}
         </p>
+
+        {/* normal fare or own car, asked for right here (RBM, ZSM, SM) */}
+        {f.canCar && trip.kind !== "hq" && <CarMode trip={trip} calc={calc} editable={editable} tab={tab} setTab={setTab} />}
       </div>
 
       {/* day by day */}
@@ -604,96 +913,62 @@ function TripSheet({ item }) {
             key={d.date}
             row={d}
             data={f.data}
-            car={calc.car}
+            car={calc.carBilled}
             last={i === trip.days.length - 1}
             multi={trip.days.length > 1}
             night={calc.nights.find((n) => n.date === d.date)}
+            bills={calc.billsByDate?.[d.date] || null}
+            stayOff={!!calc.stayOff?.[d.date]}
+            billStrip={billView.strip(d.date)}
           />
         ))}
       </ol>
 
-      {/* DA: the daily allowance is what pays food and stay. The day DA comes
-          from the rate card; a stay bill takes the night from 50 % to 100 %;
-          food bills are the proof behind it, not a cost on top. */}
+      {/* DA: the ERP's daily allowance -- an outstation day at 50 % of its
+          rate; with stay + food bills those days are paid what the bills come
+          to, pooled over the trip: at least 50 %, at most the full rate. */}
       <div className="grid grid-cols-[36px_minmax(0,1fr)_auto] items-center gap-x-2 border-t border-dashed border-gray-300 pt-3">
         <span className="text-[13px] font-extrabold text-gray-500">DA</span>
         <span className="min-w-0 text-[15px] text-gray-600">
-          {calc.nights.length ? `daily ${inr(calc.da - calc.nightDA)} + stay ${inr(calc.nightDA)}` : ""}
+          {calc.pool?.on
+            ? `${calc.nights.length} outstation day${calc.nights.length > 1 ? "s" : ""} · bills day by day`
+            : calc.nights.length
+              ? `${calc.nights.length} outstation day${calc.nights.length > 1 ? "s" : ""} at 50 %`
+              : ""}
         </span>
         <b className="text-[18px] font-extrabold text-gray-900">{inr(calc.da)}</b>
       </div>
 
       {/* bills only for a night spent away: back at HQ the same day, no stay
           or food bill is asked for (one already added still shows) */}
-      {calc.billsAllowed && (calc.nights.length > 0 || (claim.foods || []).length > 0) && (
+      {calc.billsAllowed && (calc.nights.length > 0 || calc.stayBills + calc.foodBills > 0) && (
         <div>
           <span className={sectionLabel}>DA bills · stay &amp; food</span>
           <div className="mt-2 flex flex-wrap gap-2">
-            {calc.nights
-              .filter((n) => n.bill)
-              .map((n) => (
-                <StayChip
-                  key={n.date}
-                  night={n}
-                  on={editing?.kind === "stays" && editing.id === n.date}
-                  readOnly={!editable}
-                  busy={busy === `stay-${n.date}`}
-                  onClick={() => setEditing(editing?.kind === "stays" && editing.id === n.date ? null : { kind: "stays", id: n.date })}
-                />
-              ))}
-            {(claim.foods || []).map((b) => (
-              <BillChip key={b.id} kind="foods" bill={b} on={editing?.id === b.id} readOnly={!editable} onClick={() => setEditing(editing?.id === b.id ? null : { kind: "foods", id: b.id })} />
-            ))}
-            {editable && (
-              <>
-                {nextNight && (
-                  <ChipButton busy={busy === `stay-${nextNight.date}`} onClick={() => stayBill(nextNight.date)}>
-                    <Camera className="h-4 w-4" aria-hidden /> scan stay
-                  </ChipButton>
-                )}
-                <ChipButton busy={busy === "scan-foods"} onClick={() => scan("foods")}>
-                  <Camera className="h-4 w-4" aria-hidden /> scan food
-                </ChipButton>
-              </>
+            {["stays", "foods"].flatMap((kind) =>
+              (claim[kind] || []).map((b) => (
+                <BillChip key={b.id} kind={kind} bill={b} on={editing?.id === b.id} readOnly={!editable} onClick={() => setEditing(editing?.id === b.id ? null : { kind, id: b.id })} />
+              ))
             )}
+            {!calc.stayBills && !calc.foodBills && <span className="text-[12.5px] text-gray-500">No bill yet — upload them with the button at the bottom.</span>}
           </div>
-          {editable && editing?.kind === "stays" && calc.nights.find((n) => n.date === editing.id)?.bill && (
-            <BillEditor
-              key={`stay-${editing.id}`}
-              bill={calc.nights.find((n) => n.date === editing.id).bill}
-              kind="stays"
-              onAmount={(amount) => run(`stay-${editing.id}`, () => f.actions.setStayAmount(trip.id, editing.id, amount))}
-              onPhoto={() => stayBill(editing.id)}
-              onRemove={() => {
-                run(`stay-${editing.id}`, () => f.actions.setStayBill(trip.id, editing.id, null), "Stay bill removed — the night is back to 50 % of DA");
-                setEditing(null);
-              }}
-            />
-          )}
-          {editable && editing?.kind === "foods" && (
+          {editable && (editing?.kind === "stays" || editing?.kind === "foods") && (
             <BillEditor
               key={editing.id}
-              bill={(claim.foods || []).find((b) => b.id === editing.id)}
-              kind="foods"
-              onAmount={(amount) => f.actions.updateCarBill(trip.id, "foods", editing.id, { amount })}
-              onPhoto={() => pickBill((file) => run("photo", () => f.actions.updateCarBill(trip.id, "foods", editing.id, { file }), "Photo attached"))}
-              onRemove={() => {
-                run("rm", () => f.actions.removeCarBill(trip.id, "foods", editing.id));
-                setEditing(null);
-              }}
+              bill={(claim[editing.kind] || []).find((b) => b.id === editing.id)}
+              kind={editing.kind}
+              onRemove={() => removeBill(editing.kind, editing.id)}
             />
           )}
-          <p className="mt-2 flex items-start gap-1.5 text-[12.5px] leading-snug text-gray-500">
-            <Info className="mt-0.5 h-4 w-4 shrink-0" aria-hidden />
-            {nextNight
-              ? `Night of ${dayLabel(nextNight.date)}: no bill, so 50 % of DA (${inr(nextNight.amount)}). Upload the hotel bill and the night is paid at the bill's amount.`
-              : calc.nights.length
-                ? calc.nights.some((n) => n.bill && !n.billed)
-                  ? "A stay bill has no amount yet — tap it and type the amount."
-                  : "Every night is paid at its hotel bill."
-                : "No night away on this trip — no bill needed."}
-            {" "}Food bills are kept as proof of the DA{calc.food ? ` (${inr(calc.food)} scanned)` : ""} — they do not add to it.
-          </p>
+          {calc.nights.length > 0 && (
+            <p className="mt-2 flex items-start gap-1.5 text-[12.5px] leading-snug text-gray-500">
+              <Info className="mt-0.5 h-4 w-4 shrink-0" aria-hidden />
+              {calc.pool?.on
+                ? `Each day: stay + food, kept between 50 % and 100 % of its DA.${calc.pool.unpaid ? ` ${inr(calc.pool.unpaid)} on days with no outstation DA.` : ""}`
+                : `No bill yet · 50 % DA ${inr(calc.pool?.half || 0)} · add stay / food bills for up to 100 %.`}
+              {nextNight && calc.stayBills > 0 ? ` No stay bill covers ${dayLabel(nextNight.date)}.` : ""}
+            </p>
+          )}
         </div>
       )}
 
@@ -710,13 +985,45 @@ function TripSheet({ item }) {
       {/* cost & status */}
       <div>
         <span className={sectionLabel}>Cost &amp; status</span>
+        {/* the officer decides each trip on its own: this one's decision */}
+        {claim.officer?.decision === "rejected" && (
+          <div className="mt-1.5 flex flex-col gap-1 rounded-2xl bg-rose-50 px-3.5 py-2.5 text-[12.5px] leading-snug text-rose-900">
+            <b className="text-[11px] font-extrabold uppercase tracking-wider text-rose-700">This trip was rejected by {f.manager}</b>
+            <span>{claim.officer.note ? `“${claim.officer.note}”` : "No reason given."}</span>
+            <span className="text-rose-800">Fix it — recall the trip, change it and submit it again — or recall it to leave it out. Your other trips keep their approval.</span>
+          </div>
+        )}
+        {claim.officer?.decision === "approved" && (monthState === "sent" || monthState === "rejected" || monthState === "draft") && (
+          <div className="mt-1.5 flex items-start gap-2 rounded-2xl bg-green-50 px-3.5 py-2.5 text-[12.5px] leading-snug text-green-800">
+            <Check className="mt-0.5 h-4 w-4 shrink-0" aria-hidden />
+            <span>
+              {f.manager} approved this trip.{" "}
+              {monthState === "sent" ? `The rest of your ${mon} claim is still with them.` : `It stays approved — only a trip sent back needs fixing before ${mon} goes again.`}
+            </span>
+          </div>
+        )}
+        {/* what the final check changed on this trip's days, who and why */}
+        {(mc?.adjustments || []).filter((a) => a.date >= trip.from && a.date <= trip.to).length > 0 && (
+          <div className="mt-1.5 flex flex-col gap-1 rounded-2xl bg-amber-50 px-3.5 py-2.5 text-[12.5px] leading-snug text-amber-900">
+            <b className="text-[11px] font-extrabold uppercase tracking-wider text-amber-700">Changed on the final check</b>
+            {mc.adjustments
+              .filter((a) => a.date >= trip.from && a.date <= trip.to)
+              .map((a, i) => (
+                <span key={i}>
+                  {a.type} · {dayLabel(a.date)}: <s>{inr(a.amount)}</s> → <b>{inr(a.final)}</b>
+                  {a.by ? ` · by ${a.by}` : ""}
+                  {a.reason ? ` — “${a.reason}”` : ""}
+                </span>
+              ))}
+          </div>
+        )}
         <div className="mt-1.5 flex items-center justify-between gap-3 rounded-2xl border border-blue-100 bg-blue-50 px-3.5 py-3">
           <div className="min-w-0">
             <small className="block text-[11.5px] font-extrabold uppercase tracking-wider text-blue-700">Trip cost</small>
             <b className="block text-[28px] font-extrabold leading-tight tracking-tight text-gray-900">{inr(calc.total)}</b>
             <span className="block text-[13px] text-gray-500">
               TA {inr(calc.ta)}
-              {calc.da || nightsAny(calc) ? ` + DA ${inr(calc.da)} (food & stay${calc.missingStayBills ? ", stay bill missing" : ""})` : ""}
+              {calc.da || nightsAny(calc) ? ` + DA ${inr(calc.da)}${calc.missingStayBills ? " · no stay bill" : ""}` : ""}
             </span>
           </div>
           <div className="flex shrink-0 flex-col items-end gap-1.5 text-right">
@@ -744,61 +1051,133 @@ function TripSheet({ item }) {
       {canRecall(claim) && calc.missingStayBills > 0 && (
         <p className="flex items-start gap-2 rounded-2xl bg-amber-50 px-3 py-2.5 text-[12.5px] text-amber-800">
           <Zap className="mt-0.5 h-4 w-4 shrink-0" aria-hidden />
-          Submitted without a stay bill — those nights are at 50 % of DA. Recall and upload the bill to be paid at its amount.
+          Submitted without stay or food bills — the outstation days are at 50 % of DA. Recall and scan the bills to be paid what you spent, up to the full DA.
         </p>
       )}
       {isLocked(claim) && (
         <p className="flex items-start gap-2 rounded-2xl bg-gray-50 px-3 py-2.5 text-[12.5px] text-gray-600">
           <Info className="mt-0.5 h-4 w-4 shrink-0" aria-hidden />
-          Locked — already in payroll.
+          {claim.status === "paid"
+            ? "Finalised — in payroll. It can no longer change."
+            : `Approved by ${f.manager} · final check next, then payroll · can't be recalled now.`}
         </p>
       )}
 
       {/* with the car on, what is still missing before it can go */}
-      {editable && calc.car && (calc.carBlock || calc.missingStayBills > 0) && (
+      {editable && calc.carBlock && (
         <div className="flex flex-col gap-1.5 rounded-2xl border border-amber-200 bg-amber-50 px-3 py-2.5 text-[12.5px] font-semibold text-amber-800">
           <span className="text-[11px] font-extrabold uppercase tracking-wider text-amber-700">Own car · bills needed</span>
-          {calc.carBlock && (
-            <span className="flex items-start gap-2">
-              <Fuel className="mt-0.5 h-4 w-4 shrink-0" aria-hidden />
-              {calc.carBlock}
-            </span>
-          )}
-          {calc.missingStayBills > 0 && (
-            <span className="flex items-start gap-2">
-              <BedDouble className="mt-0.5 h-4 w-4 shrink-0" aria-hidden />
-              Attach the stay bill for {calc.missingStayBills} night{calc.missingStayBills > 1 ? "s" : ""} — DA stays at 50 % until you do
-            </span>
-          )}
+          <span className="flex items-start gap-2">
+            <Fuel className="mt-0.5 h-4 w-4 shrink-0" aria-hidden />
+            {calc.carBlock}
+          </span>
         </div>
       )}
 
-      {/* total + the one action, pinned to the bottom */}
-      <div className="sticky bottom-0 z-10 -mx-4 mt-auto flex items-center justify-between gap-3 border-t bg-white px-4 pt-3 pb-[max(12px,env(safe-area-inset-bottom))]">
+      {/* total + the one action, pinned to the bottom; Submit asks first */}
+      <div className="sticky bottom-0 z-10 -mx-4 mt-auto flex flex-col gap-3 border-t bg-white px-4 pt-3 pb-[max(12px,env(safe-area-inset-bottom))]">
+        {/* ONE upload for stay and food bills, always in reach: the bill itself
+            says whether it is a hotel or a food bill */}
+        {/* own-car tab: fuel and toll bills, only once the GM approved the car */}
+        {editable && carTab && !confirming && (
+          <button
+            type="button"
+            disabled={!calc.carApproved}
+            onClick={() => scan("car")}
+            className="flex min-h-11 w-full items-center justify-center gap-2 rounded-2xl border-[1.5px] border-dashed border-blue-300 bg-blue-50 px-4 text-[14px] font-bold text-blue-700 active:bg-blue-100 disabled:border-gray-200 disabled:bg-gray-50 disabled:text-gray-400"
+          >
+            {reading.car ? <Loader2 className="h-4 w-4 animate-spin" aria-hidden /> : <Fuel className={cn("h-4 w-4", calc.carApproved ? "text-green-600" : "text-gray-400")} aria-hidden />}
+            {reading.car ? `Reading ${reading.car} bill${reading.car > 1 ? "s" : ""}… · add another` : "Upload fuel / toll bill"}
+            {!calc.carApproved && <span className="text-[12px] font-semibold">· {calc.carPending ? `after ${f.carApprover.replace(/^the /, "")} approves` : "ask for the car first"}</span>}
+            {calc.carApproved && calc.fuel + calc.tolls > 0 && !reading.car && (
+              <span className="text-[12px] font-semibold text-blue-600">
+                · {(claim.fuels || []).length + (claim.tolls || []).length} added · {inr(calc.fuel + calc.tolls)}
+              </span>
+            )}
+          </button>
+        )}
+        {editable && !carTab && calc.billsAllowed && calc.nights.length > 0 && !confirming && (
+          <button
+            type="button"
+            disabled={false}
+            onClick={() => scan("da")}
+            className="flex min-h-11 w-full items-center justify-center gap-2 rounded-2xl border-[1.5px] border-dashed border-blue-300 bg-blue-50 px-4 text-[14px] font-bold text-blue-700 active:bg-blue-100 disabled:opacity-60"
+          >
+            {reading.da ? <Loader2 className="h-4 w-4 animate-spin" aria-hidden /> : <Camera className="h-4 w-4 text-green-600" aria-hidden />}
+            {reading.da ? `Reading ${reading.da} bill${reading.da > 1 ? "s" : ""}… · add another` : "Upload stay / food bill"}
+            {calc.stayBills + calc.foodBills > 0 && !reading.da && (
+              <span className="text-[12px] font-semibold text-blue-600">
+                · {calc.stayBills + calc.foodBills} added · {inr(calc.pool?.bills || 0)}
+              </span>
+            )}
+          </button>
+        )}
+        {editable && confirming && (
+          <div role="alertdialog" aria-label="Confirm submit" className="flex flex-col gap-2 rounded-2xl border border-blue-200 bg-blue-50 px-3.5 py-3">
+            <b className="text-[14.5px] font-extrabold text-gray-900">
+              Send {inr(calc.total)} · {rangeLabel(trip.from, trip.to)} to {f.manager}?
+            </b>
+            {/* short: what goes, where, and that it can still be recalled */}
+            <span className="text-[12.5px] leading-snug text-gray-600">
+              TA {inr(calc.ta)} + DA {inr(calc.da)} · into your {mon} claim · recall any time before approval.
+              {calc.missingStayBills ? ` ${calc.missingStayBills} day${calc.missingStayBills > 1 ? "s" : ""} at 50 % (no bill).` : ""}
+            </span>
+            <span className="flex gap-2">
+              <button type="button" disabled={!!busy} onClick={() => setConfirming(false)} className="min-h-11 flex-1 rounded-xl border border-gray-300 bg-white text-[14px] font-bold text-gray-800">
+                Cancel
+              </button>
+              <button type="button" disabled={!!busy} onClick={submit} className="flex min-h-11 flex-1 items-center justify-center gap-2 rounded-xl bg-blue-600 text-[14px] font-bold text-white disabled:opacity-60">
+                {busy === "submit" && <Loader2 className="h-4 w-4 animate-spin" aria-hidden />}
+                Yes, send
+              </button>
+            </span>
+          </div>
+        )}
+        {/* submitted, but the month is not sent yet: the trip waits in the
+            month's claim -- sending is done once, for the whole month */}
+        {!editable && (monthState === "draft" || monthState === "rejected") && (
+          <button
+            type="button"
+            onClick={f.openKpi}
+            className="flex w-full items-center gap-2 rounded-2xl border border-amber-200 bg-amber-50 px-3.5 py-2.5 text-left text-amber-900 active:bg-amber-100"
+          >
+            <Info className="h-4 w-4 shrink-0" aria-hidden />
+            <span className="min-w-0 flex-1 text-[12.5px] font-semibold leading-snug">
+              {monthState === "rejected"
+                ? `${mon} was sent back by ${f.manager}. Fix the trip, then send ${mon} again.`
+                : `Your ${mon} claim (${inr(mc?.total)}) is saved but not sent to ${f.manager} yet.${sendError ? ` ${sendError}` : ""}`}
+            </span>
+            <span className="flex shrink-0 items-center text-[13px] font-extrabold text-blue-700">
+              Send {mon} <ChevronRight className="h-4 w-4" aria-hidden />
+            </span>
+          </button>
+        )}
+        <div className="flex items-center justify-between gap-3">
         <div className="min-w-0">
           <span className="block text-[13px] text-gray-500">
             Total · {daysLabel}
-            {!editable ? ` · ${STATUS_LABEL[statusKey(claim)]}` : ""}
+            {!editable ? ` · ${monthState === "draft" ? `In ${mon} claim · not sent` : monthState === "sent" ? "Sent for approval" : STATUS_LABEL[statusKey(claim)]}` : ""}
           </span>
           <b className="block text-[22px] font-extrabold tracking-tight text-gray-900">{inr(calc.total)}</b>
         </div>
         {editable ? (
           <button
             type="button"
-            disabled={!!busy || calc.total <= 0 || !!calc.carBlock}
-            onClick={() =>
-              run("submit", () => f.actions.submitTrip(trip.id, { total: calc.total, ta: calc.ta, da: calc.da, review }), review ? "Submitted — one item goes to a reviewer" : "Trip submitted")
-            }
+            disabled={!!busy || calc.total <= 0 || !!calc.carBlock || confirming}
+            onClick={() => setConfirming(true)}
             className="flex min-h-[52px] shrink-0 items-center justify-center gap-2 rounded-2xl bg-blue-600 px-6 text-[16px] font-bold text-white transition active:scale-[.98] disabled:bg-gray-200 disabled:text-gray-500"
           >
-            {busy === "submit" && <Loader2 className="h-4 w-4 animate-spin" aria-hidden />}
             {claim.recalled ? "Resubmit" : "Submit"} {trip.kind === "tour" ? "tour" : trip.kind === "hq" ? (nDays > 1 ? "HQ days" : "HQ day") : "day"}
+          </button>
+        ) : canRecall(claim) && (monthState === "review" || monthState === "approved" || monthState === "final") ? (
+          <button type="button" onClick={f.closeSheet} className="flex min-h-[52px] shrink-0 items-center rounded-2xl bg-gray-100 px-6 text-[15px] font-bold text-gray-900">
+            Close
           </button>
         ) : canRecall(claim) ? (
           <button
             type="button"
             disabled={!!busy}
-            onClick={() => run("recall", () => f.actions.recallTrip(trip.id), "Recalled — edit and resubmit")}
+            onClick={recall}
             className="flex min-h-[52px] shrink-0 items-center justify-center gap-2 rounded-2xl bg-gray-100 px-5 text-[15px] font-bold text-gray-900 active:bg-gray-200"
           >
             {busy === "recall" ? <Loader2 className="h-4 w-4 animate-spin" aria-hidden /> : <Undo2 className="h-4 w-4" aria-hidden />}
@@ -809,6 +1188,7 @@ function TripSheet({ item }) {
             Close
           </button>
         )}
+        </div>
       </div>
     </div>
   );
@@ -816,37 +1196,13 @@ function TripSheet({ item }) {
 
 const nightsAny = (calc) => calc.nights.length > 0;
 
-/* An attached hotel bill: the night it covers and the amount on the bill
-   (that amount is the night's DA). Tap to fix the amount or remove it. */
-function StayChip({ night, on, readOnly, busy, onClick }) {
-  const known = !!night.billed;
-  const cls = cn(
-    "inline-flex min-h-8 items-center gap-1 rounded-lg border px-2 text-[12px] font-bold",
-    known ? "border-gray-200 bg-white text-gray-800" : "border-amber-300 bg-amber-50 text-amber-800",
-    on && "ring-2 ring-blue-500"
-  );
-  const inner = (
-    <>
-      <BedDouble className="h-3.5 w-3.5" aria-hidden />
-      {dayLabel(night.date)} · {known ? inr(night.billed) : "₹ — amount?"}
-      <Check className="h-3 w-3 text-green-700" aria-hidden />
-    </>
-  );
-  if (readOnly) return <span className={cls}>{inner}</span>;
-  return (
-    <button type="button" className={cls} disabled={busy} aria-pressed={on} onClick={onClick} aria-label={`Hotel bill for ${dayLabel(night.date)} — tap to edit`}>
-      {busy ? <Loader2 className="h-3.5 w-3.5 animate-spin" aria-hidden /> : inner}
-    </button>
-  );
-}
-
-function TripDay({ row, data, car, last, multi, night }) {
+function TripDay({ row, data, car, last, multi, night, bills, stayOff, billStrip }) {
   const d = new Date(row.date + "T00:00:00");
   const dow = ["SUN", "MON", "TUE", "WED", "THU", "FRI", "SAT"][d.getDay()];
   const stops = (row.route || []).map((s) => s.place).filter(Boolean);
   const basis = fareBasis(row, data);
   const route = stops.length ? stops.join(" → ") + (night ? " (stay)" : "") : DAY_TYPE_LABEL[row.dayType] || row.dayType || row.kind;
-  const nightLabel = `night of ${dayLabel(row.date)}`;
+  const nightLabel = `outstation ${dayLabel(row.date)}`;
   // the day's TA in parts, as the console shows it: the local run (km × rate,
   // each way) and, on a day that also moves between HQs, the train fare; the
   // two add up to the console's TA
@@ -881,7 +1237,8 @@ function TripDay({ row, data, car, last, multi, night }) {
                       ? `${row.km != null ? `${row.km} km · ` : ""}local ${inr(local)}`
                       : `${row.km != null ? `${row.km} km · ` : ""}no local fare`
                     : `${row.km != null ? `${row.km} km · ` : ""}fare ${inr(row.ta)}`}
-              {row.da ? ` · DA ${inr(row.da)}` : ""}
+              {/* with stay / food bills the day is paid what they add up to (50-100 %) */}
+              {row.da ? ` · DA ${inr(night && bills ? night.paid : row.da)}` : ""}
             </>
           ) : (
             `${row.dayType || row.kind} · no TA`
@@ -907,19 +1264,54 @@ function TripDay({ row, data, car, last, multi, night }) {
           <span
             className={cn(
               "mt-2 inline-flex items-center gap-1.5 rounded-xl px-2.5 py-1.5 text-[12px] font-semibold",
-              night.bill ? "bg-green-50 text-green-800" : "bg-amber-50 text-amber-800"
+              bills ? "bg-green-50 text-green-800" : "bg-amber-50 text-amber-800"
             )}
           >
             <BedDouble className="h-3.5 w-3.5 shrink-0" aria-hidden />
-            DA · {nightLabel} · {night.billed ? "as billed" : night.bill ? "bill · amount missing · 50 %" : "no bill · 50 % of DA"} · {inr(night.amount)}
+            {/* short: the bills, then what the day is paid -- "max" when the
+                day's full DA cuts it, "min 50 %" when it is raised */}
+            {bills ? (
+              <span title={`${nightLabel} · the day's DA is paid between ${inr(night.amount)} (50 %) and ${inr(night.full)} (100 %)`}>
+                {[bills.stay ? `Stay ${inr(bills.stay)}` : null, bills.food ? `Food ${inr(bills.food)}` : null].filter(Boolean).join(" + ")}
+                {night.capped ? (
+                  <>
+                    {" "}= {inr(night.billSum)} → <b className="font-extrabold">{inr(night.paid)}</b> <span className="font-medium opacity-80">max</span>
+                  </>
+                ) : night.topUp ? (
+                  <>
+                    {" "}→ <b className="font-extrabold">{inr(night.paid)}</b> <span className="font-medium opacity-80">min 50 %</span>
+                  </>
+                ) : bills.stay && bills.food ? (
+                  <>
+                    {" "}= <b className="font-extrabold">{inr(night.paid)}</b>
+                  </>
+                ) : null}
+              </span>
+            ) : (
+              <span title={nightLabel}>
+                No bill yet · 50 % · <b className="font-extrabold">{inr(night.amount)}</b>
+              </span>
+            )}
+          </span>
+        ) : bills || stayOff ? (
+          /* a holiday / weekly-off day inside the stay (13 Nov 2026): no DA, so
+             no share of the hotel bill (it is split over the working nights)
+             and its own food is not paid -- grey, not green */
+          <span className="mt-2 inline-flex items-center gap-1.5 rounded-xl bg-gray-100 px-2.5 py-1.5 text-[12px] font-semibold text-gray-600">
+            <BedDouble className="h-3.5 w-3.5 shrink-0 text-gray-400" aria-hidden />
+            {[stayOff ? "Hotel night · split onto working days" : bills?.stay ? `Stay ${inr(bills.stay)}` : null, bills?.food ? `Food ${inr(bills.food)} not paid (no DA)` : null]
+              .filter(Boolean)
+              .join(" · ")}
           </span>
         ) : (
           row.payable && (
             <span className="mt-2 inline-flex rounded-xl bg-gray-100 px-2.5 py-1.5 text-[12.5px] font-semibold text-gray-600">
-              {last && multi ? "back at HQ" : multi ? "on tour" : "home the same day"} · no night DA
+              {last && multi ? "back at HQ" : multi ? "on tour" : "home the same day"} · no outstation DA
             </span>
           )
         )}
+        {/* that day's bills as pictures -- tap one to see it full screen */}
+        {billStrip}
       </div>
     </li>
   );

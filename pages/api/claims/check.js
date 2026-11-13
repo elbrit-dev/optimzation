@@ -8,8 +8,8 @@
 // once, when the bill was attached (/api/claims/read-bill: toMarkdown, then
 // Clairic and Clef Flash), and its read came back signed by this server. Here
 // each bill's signed read is compared with what the person submitted on the
-// row (lib/billReader.js compareBill): total, date and bill type must match,
-// each read with confidence 0.9 or more. All three -> score 100, else 40 with
+// row (lib/billReader.js compareBill): total and date must match and the photo
+// must be a bill, each read with confidence 0.9 or more. All three -> score 100, else 40 with
 // the reasons. The ERP decides from the score ("Expense Running Guard": 90+
 // Verified, anything above Rs 50,000 still to Accounts; else In Review + a
 // Task). The read itself is kept on the row (custom_bill_meta).
@@ -58,6 +58,65 @@ async function erp(origin, token, path, init = {}) {
 // Keep in step with REVIEW_ABOVE in the Expense Running Guard.
 const REVIEW_ABOVE = 50000;
 
+/* The planner's monthly field TA/DA claim (13 Nov 2026): its RISK SCORE, over
+   every line -- the verifiers sort and check by it on the field-expenses
+   dashboard. The ERP's AI Guard turns the score into the risk: 90+ Low,
+   70-89 Medium, below 70 High.
+     a line with no bill (TA / DA as the ERP worked it out, a DA top-up made
+       from checked bills)                                         100
+     a bill line: its own check -- checked on scanning 100, possible
+       repeat 85, entered by hand 70, not matching 40, never checked 0
+   The claim: those weighted by amount, and held down so one small risky bill
+   can't hide behind a big TA/DA total -- a bill not matching or never checked
+   makes the claim High (at most 69), a handwritten bill or a possible repeat
+   at most Medium (89). */
+const FIELD = "Field TA/DA · ";
+export function fieldClaimScore(rows) {
+  const lines = (rows || []).filter((r) => !NO_SCORE_TYPES.includes(r.expense_type));
+  let money = 0;
+  let weighted = 0;
+  let erpAmt = 0;
+  // each kind of bill once (a hotel bill is one line per night)
+  const bills = { checked: new Map(), hand: new Map(), repeat: new Map(), bad: new Map(), unchecked: new Map() };
+  const add = (k, r) => {
+    const x = bills[k].get(r.custom_bill) || { type: r.expense_type, amount: 0, dates: [] };
+    x.amount += flt(r.amount);
+    x.dates.push(String(r.expense_date || "").slice(0, 10));
+    bills[k].set(r.custom_bill, x);
+  };
+  for (const r of lines) {
+    const amt = flt(r.amount);
+    let s;
+    if (!r.custom_bill) {
+      s = 100;
+      erpAmt += amt;
+    } else if (!r.custom_ai_reason) {
+      s = 0;
+      add("unchecked", r);
+    } else {
+      s = flt(r.custom_ai_score);
+      add(/entered by hand/i.test(r.custom_ai_reason) ? "hand" : s >= 90 ? "checked" : s >= 70 ? "repeat" : "bad", r);
+    }
+    money += amt;
+    weighted += s * amt;
+  }
+  let score = money ? Math.round(weighted / money) : 100;
+  if (bills.bad.size || bills.unchecked.size) score = Math.min(score, 69);
+  else if (bills.hand.size || bills.repeat.size) score = Math.min(score, 89);
+  const n = Object.values(bills).reduce((s, m) => s + m.size, 0);
+  const list = (m) => [...m.values()].map((x) => `${x.type} ${inr(x.amount)}${x.dates[0] ? ` ${x.dates.sort()[0].slice(8, 10)}/${x.dates[0].slice(5, 7)}` : ""}`).join(", ");
+  const parts = [
+    erpAmt ? `TA/DA ${inr(erpAmt)} worked out by the ERP` : null,
+    n ? `${n} bill${n > 1 ? "s" : ""}${bills.checked.size ? `: ${bills.checked.size} checked` : ""}` : null,
+    bills.bad.size ? `${bills.bad.size} not matching (${list(bills.bad)})` : null,
+    bills.unchecked.size ? `${bills.unchecked.size} not checked (${list(bills.unchecked)})` : null,
+    bills.hand.size ? `${bills.hand.size} handwritten (${list(bills.hand)})` : null,
+    bills.repeat.size ? `${bills.repeat.size} possible repeat (${list(bills.repeat)})` : null,
+  ].filter(Boolean);
+  const summary = (n ? parts.join(" · ") : `TA/DA only, ${inr(erpAmt)} worked out by the ERP — no bills`).slice(0, 1000);
+  return { score, summary };
+}
+
 /* One row against its signed read -> what is written on the row. */
 function scoreRow(row, signed) {
   const claimed = flt(row.amount);
@@ -66,13 +125,14 @@ function scoreRow(row, signed) {
     return { row, score: 0, reason: "No bill read was kept for this bill -- checked by Accounts." + above, meta: { verification: { status: "Not read", checked_at: new Date().toISOString() } } };
   }
   const read = signed.read;
-  const { ok, checks } = compareBill(read, { amount: claimed, date: row.expense_date, food: row.expense_type === "Food" });
+  if (read.trip) return scoreTripRow(row, read);
+  const { ok, checks } = compareBill(read, { amount: claimed, date: row.expense_date });
   const score = ok ? 100 : 40;
   const v = read.values || {};
   return {
     row,
     score,
-    reason: (ok ? "Total, date and bill type match the bill." : checks.filter((c) => !c.ok).map((c) => c.why).join("; ") + ".") + above,
+    reason: (ok ? "Total and date match the bill." : checks.filter((c) => !c.ok).map((c) => c.why).join("; ") + ".") + above,
     amount: typeof v.total === "number" ? v.total : null,
     date: v.date || null,
     vendor: v.vendor ? String(v.vendor).slice(0, 140) : null,
@@ -81,6 +141,49 @@ function scoreRow(row, signed) {
     meta: {
       bill: { ...v, title: read.title, title_confidence: read.titleConfidence, confidence: read.confidence, read_at: read.at, markdown: String(read.md || "").slice(0, 4000) },
       verification: { status: ok ? "Matched" : "Mismatch", checked_at: new Date().toISOString(), score, min_confidence: 0.9, checks },
+    },
+  };
+}
+
+/* A planner trip bill (12 Nov 2026): its type, date, readability and
+   fingerprint were checked when it was scanned (read-bill), and that verdict
+   is inside the signed read. Here only that the row is that bill: same file,
+   same kind, dated inside the trip, and claiming no more than the bill (the
+   trip pays a share or caps it, never more). Passed -> 100: the officer's
+   approval is then final ("Expense Claim Route"). */
+function scoreTripRow(row, read) {
+  const tb = read.trip || {};
+  const vd = tb.verdict || {};
+  const claimed = flt(row.amount);
+  const why = [];
+  if (!vd.ok) why.push("the bill did not pass its checks when scanned");
+  if (row.custom_bill !== tb.file_url) why.push("the row's bill is not the one that was checked");
+  if (row.expense_type !== vd.kind) why.push(`a ${String(vd.kind || "?").toLowerCase()} bill on a ${row.expense_type} row`);
+  if (!(row.expense_date >= tb.trip?.from && row.expense_date <= tb.trip?.to)) why.push("the row is dated outside the trip");
+  if (claimed > flt(vd.billed) + 1) why.push(`₹${Math.round(claimed)} claimed on a ₹${Math.round(flt(vd.billed))} bill`);
+  const ok = !why.length;
+  const v = read.values || {};
+  // a possible repeat (near-identical photo, or same vendor/date/total with
+  // no bill no) passes but scores 85: Medium risk, so after the officer it
+  // still gets a person's look in Accounts
+  // entered BY HAND (the bill could not be read): nothing on it was checked by
+  // the AI -- 70, so after the officer a person compares the photo with it
+  const score = !ok ? 40 : vd.manual ? 70 : tb.flag ? 85 : 100;
+  return {
+    row,
+    score,
+    reason: ok
+      ? vd.manual
+        ? `${vd.kind} bill entered by hand — it could not be read; check the photo (and the payment proof, if added) against ₹${Math.round(flt(vd.billed))}${vd.kind === "Stay" && vd.checkIn ? `, ${vd.checkIn} to ${vd.checkOut}` : vd.date ? `, ${vd.date}` : ""}.${vd.why ? ` Rep's reason: "${String(vd.why).slice(0, 200)}".` : ""}${tb.flag ? ` ${tb.flag}` : ""}`
+        : `${vd.kind} bill checked on scanning (type, date, read).${tb.flag ? ` ${tb.flag}` : ""}`
+      : `${why.join("; ")}.`,
+    amount: typeof v.total === "number" ? v.total : null,
+    date: vd.date || v.date || null,
+    vendor: v.vendor ? String(v.vendor).slice(0, 140) : null,
+    meta: {
+      bill: { ...v, title: read.title, title_confidence: read.titleConfidence, confidence: read.confidence, read_at: read.at, markdown: String(read.md || "").slice(0, 4000) },
+      trip: { slot: tb.slot, trip: tb.trip, nights: vd.nights, billed: vd.billed, counted: vd.amount, fingerprint: tb.fingerprint, flag: tb.flag, hashes: tb.hashes },
+      verification: { status: ok ? (vd.manual ? "Entered by hand" : tb.flag ? "Trip bill checked, possible repeat" : "Trip bill checked") : "Mismatch", checked_at: new Date().toISOString(), score, min_confidence: 0.6, why },
     },
   };
 }
@@ -132,7 +235,9 @@ export default async function handler(req, res) {
   });
 
   const counted = scored.filter((s) => !s.skip);
-  if (!counted.length) return res.status(200).json({ skipped: true, reason: running ? "Every bill on this claim is checked already." : "Advance requests have no bills to check." });
+  // the planner's month claim is scored over every line, every time it changes
+  const field = String(claim.remark || "").startsWith(FIELD);
+  if (!counted.length && !field) return res.status(200).json({ skipped: true, reason: running ? "Every bill on this claim is checked already." : "Advance requests have no bills to check." });
   // Write with the checker login onto the LATEST claim, only this check's rows:
   // other checks (other bills) may be writing too, so re-read, merge, save, and
   // on "modified after you opened it" wait a moment and do it again.
@@ -171,12 +276,19 @@ export default async function handler(req, res) {
             custom_bill_meta: JSON.stringify(x.meta || {}),
           };
         });
-        // The claim's score: every checked bill on it, weighted by amount.
-        const done = doc.expenses.filter((r) => r.custom_ai_reason && !NO_SCORE_TYPES.includes(r.expense_type));
-        const money = done.reduce((s, r) => s + flt(r.amount), 0) || 1;
-        const issues = done.filter((r) => flt(r.custom_ai_score) < 90).map((r) => `Row ${r.idx} (${r.expense_type}, ${inr(flt(r.amount))}): ${r.custom_ai_reason}`);
-        doc.custom_ai_score = Math.round(done.reduce((s, r) => s + flt(r.custom_ai_score) * flt(r.amount), 0) / money);
-        doc.custom_ai_summary = (issues.length ? `${done.length - issues.length} of ${done.length} bills match. ${issues.join(" | ")}` : `All ${done.length} bills match the claim.`).slice(0, 1000);
+        if (field) {
+          // the month claim: every line, its risk (see fieldClaimScore)
+          const f = fieldClaimScore(doc.expenses);
+          doc.custom_ai_score = f.score;
+          doc.custom_ai_summary = f.summary;
+        } else {
+          // The claim's score: every checked bill on it, weighted by amount.
+          const done = doc.expenses.filter((r) => r.custom_ai_reason && !NO_SCORE_TYPES.includes(r.expense_type));
+          const money = done.reduce((s, r) => s + flt(r.amount), 0) || 1;
+          const issues = done.filter((r) => flt(r.custom_ai_score) < 90).map((r) => `Row ${r.idx} (${r.expense_type}, ${inr(flt(r.amount))}): ${r.custom_ai_reason}`);
+          doc.custom_ai_score = Math.round(done.reduce((s, r) => s + flt(r.custom_ai_score) * flt(r.amount), 0) / money);
+          doc.custom_ai_summary = (issues.length ? `${done.length - issues.length} of ${done.length} bills match. ${issues.join(" | ")}` : `All ${done.length} bills match the claim.`).slice(0, 1000);
+        }
         saved = (await erp(origin, checker, target, { method: "PUT", body: JSON.stringify(doc) })).data;
         break;
       } catch (e) {

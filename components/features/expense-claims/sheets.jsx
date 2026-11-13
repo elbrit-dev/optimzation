@@ -2,21 +2,20 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import {
-  ATTACH_ACCEPT, FOOD, FOOD_LIMIT, checkClaim, checkFile, extractBill, fetchClaim, fetchOpenClaim, invalidateClaims, requestAdvance, retryOnConflict, saveClaim,
+  ATTACH_ACCEPT, checkClaim, checkFile, extractBill, fetchClaim, fetchOpenClaim, invalidateClaims, requestAdvance, retryOnConflict, saveClaim,
   uploadClaimFile,
 } from "./data/claimsApi";
 import { IC, Icon, Note, Sheet, Spinner, btn, ell, tabNum } from "./ui";
-import { MON, foodUsed, inr, isoDay, ledger, shortDate } from "./model";
+import { inr, isoDay, ledger, shortDate } from "./model";
 
 /* The settlement sheets (Miscellaneous), in the app's theme:
  *
  *   BillSheet  "Add a bill" -- the AI bill check form: what it was for, a
  *              photo of the bill (read once on attach -- Cloudflare toMarkdown,
- *              then Clairic + Clef Flash: title, amount, date, food or not;
+ *              then Clairic + Clef Flash: title, amount and date;
  *              not-a-bill or unreadable is refused and nothing is saved),
  *              which the person checks and corrects only if needed.
- *              A bill the scan reads as food (the person can switch it) goes
- *              to that month's Food claim instead, within FOOD_LIMIT.
+ *              Every bill -- food too -- goes on the settlement claim.
  *              "Check my bill" adds it to the person's open claim; in the
  *              background plain code compares that read with what they sent
  *              (total, date, bill type; each read 90%+ sure): all match ->
@@ -75,7 +74,6 @@ const WRONG = {
 };
 
 /* Money in short, for the footer: +in hand / −owed on the open claim. */
-const shortMonth = (m) => MON[+m.slice(5, 7) - 1] || m;
 const signed = (L) => L.balance - (L.over - L.owedClosed);
 
 export function BillSheet({ conn, me, claims = [], advances = [], today = new Date(), onClose, onSaved, onChecked, desk }) {
@@ -86,7 +84,6 @@ export function BillSheet({ conn, me, claims = [], advances = [], today = new Da
   const [file, setFile] = useState(null);
   const [thumb, setThumb] = useState(null);
   const [read, setRead] = useState(null);
-  const [food, setFood] = useState(false);   // a food bill: to the month's Food claim
   const [busy, setBusy] = useState("");
   const [error, setError] = useState("");
   const [tried, setTried] = useState(false);
@@ -98,8 +95,6 @@ export function BillSheet({ conn, me, claims = [], advances = [], today = new Da
   const now = signed(L);
   const amt = Number(amount) || 0;
   const after = now - amt;
-  const month = date.slice(0, 7);
-  const foodLeft = Math.max(0, FOOD_LIMIT - foodUsed(claims, month));
 
   const attach = (f) => {
     const err = checkFile(f);
@@ -109,7 +104,7 @@ export function BillSheet({ conn, me, claims = [], advances = [], today = new Da
     setThumb(f.type.startsWith("image/") ? URL.createObjectURL(f) : null);
     setRead({ busy: true, file: f });
     // The one AI run (toMarkdown -> Clairic + Clef Flash, 5 Nov 2026): title,
-    // amount, date and food-or-not come off the bill; the person checks them,
+    // amount and date come off the bill; the person checks them,
     // changes any if needed, and sends. The signed read goes along to the check.
     extractBill(conn, f)
       .then((x) => {
@@ -117,7 +112,6 @@ export function BillSheet({ conn, me, claims = [], advances = [], today = new Da
         if (wrong) return setRead((r) => (r?.busy && r.file === f ? { busy: false, wrong } : r));
         const what = String(x.what || x.vendor || "").trim();
         setTitle(what ? what.charAt(0).toUpperCase() + what.slice(1, 60) : "");
-        setFood(!!x.food);
         setAmount(x.amount ? String(x.amount) : "");
         setDate(x.date && x.date <= todayIso ? x.date : todayIso);
         setRead((r) => (r?.busy && r.file === f ? { busy: false, filled: !!(x.amount || x.date || what), signed: x.signed || null, manual: !!x.skipped } : r));
@@ -129,15 +123,13 @@ export function BillSheet({ conn, me, claims = [], advances = [], today = new Da
     : read?.busy ? "Wait a moment — the bill is being read"
     : read?.wrong ? WRONG[read.wrong].title
     : !title.trim() ? "Say what it was for"
-    : !amt ? "Enter the bill amount"
-    : food && amt > foodLeft ? `Over the Food limit: ${inr(foodLeft)} of ${inr(FOOD_LIMIT)} is left for ${shortMonth(month)}. Ask for more from Food.` : "";
+    : !amt ? "Enter the bill amount" : "";
   const submit = async () => {
     setTried(true);
     if (missing) return setError(missing);
     setError("");
     const toLine = (l) => ({ id: l.id, type: l.type, sub: "", date: l.date, note: l.note, amount: l.amount, bill: l.bill });
-    const type = food ? FOOD : "Miscellaneous";
-    const mine = (bill, id) => ({ id, type, sub: "", date, note: title.trim(), amount: amt, bill });
+    const mine = (bill, id) => ({ id, type: "Miscellaneous", sub: "", date, note: title.trim(), amount: amt, bill });
     let name, row, before, waiting = [];
     try {
       setBusy("Saving…");
@@ -145,10 +137,9 @@ export function BillSheet({ conn, me, claims = [], advances = [], today = new Da
       // have saved it a moment ago -- then read it again and retry. Two first
       // bills at once: the second finds the claim the first just opened.
       name = await retryOnConflict(async () => {
-        // A food bill: the Food claim of the bill's month (posted on the 1st).
-        const open = await fetchOpenClaim(conn, me.id, { food: food ? month : null });
+        const open = await fetchOpenClaim(conn, me.id);
         before = new Set((open?.lines || []).map((l) => l.id));
-        return saveClaim(conn, { claim: open || undefined, employee: me.id, postingDate: open?.posting || (food ? `${month}-01` : todayIso), remark: open?.remark || "", running: true, lines: [...(open ? open.lines.map(toLine) : []), mine("")] });
+        return saveClaim(conn, { claim: open || undefined, employee: me.id, postingDate: open?.posting || todayIso, remark: open?.remark || "", running: true, lines: [...(open ? open.lines.map(toLine) : []), mine("")] });
       }, /already has an open claim/i);
       setBusy("Uploading the bill…");
       const url = (await uploadClaimFile(conn, name, file)).file_url;
@@ -178,8 +169,7 @@ export function BillSheet({ conn, me, claims = [], advances = [], today = new Da
       name, v,
       lines: [
         [`${title.trim()} · ${shortDate(date)}`, inr(amt)],
-        food ? ["Food left this month", inr(foodLeft - amt)]
-          : v.ok ? (after >= 0 ? ["In hand now", inr(after)] : ["Owed to you", inr(-after)]) : ["Counts", "once verified"],
+        v.ok ? (after >= 0 ? ["In hand now", inr(after)] : ["Owed to you", inr(-after)]) : ["Counts", "once verified"],
       ],
     });
   };
@@ -190,17 +180,8 @@ export function BillSheet({ conn, me, claims = [], advances = [], today = new Da
   ) : (
     <>
       <div style={{ flex: 1, minWidth: 0, display: "flex", flexDirection: "column" }}>
-        {food ? (
-          <>
-            <span style={{ fontSize: 12, color: "#5b6576" }}>{amt ? "Food left after this" : `Food left · ${shortMonth(month)}`}</span>
-            <b style={{ fontSize: 22, letterSpacing: "-0.02em", color: amt > foodLeft ? "#b42318" : "#0b1220", ...tabNum }}>{amt > foodLeft ? `${inr(amt - foodLeft)} over` : inr(foodLeft - amt)}</b>
-          </>
-        ) : (
-          <>
-            <span style={{ fontSize: 12, color: "#5b6576" }}>{!amt ? (now >= 0 ? "In hand now" : "Owed to you now") : after >= 0 ? "In hand after this" : "Owed to you after this"}</span>
-            <b style={{ fontSize: 22, letterSpacing: "-0.02em", color: (amt ? after : now) < 0 ? "#b42318" : "#0b1220", ...tabNum }}>{inr(Math.abs(amt ? after : now))}</b>
-          </>
-        )}
+        <span style={{ fontSize: 12, color: "#5b6576" }}>{!amt ? (now >= 0 ? "In hand now" : "Owed to you now") : after >= 0 ? "In hand after this" : "Owed to you after this"}</span>
+        <b style={{ fontSize: 22, letterSpacing: "-0.02em", color: (amt ? after : now) < 0 ? "#b42318" : "#0b1220", ...tabNum }}>{inr(Math.abs(amt ? after : now))}</b>
       </div>
       <button type="button" className="ec-cta" disabled={!!busy} onClick={submit} style={{ ...btn.primary, height: 50, padding: "0 22px", borderRadius: 14, fontSize: 15.5, display: "flex", alignItems: "center", gap: 8, opacity: missing && tried ? 0.55 : 1 }}>
         {busy ? <><Spinner size={14} />{busy}</> : <><Icon d={IC.shield} size={18} />Check my bill</>}
@@ -258,16 +239,6 @@ export function BillSheet({ conn, me, claims = [], advances = [], today = new Da
               <span style={lbl}>What was it for</span>
               <input className="ecs-in" placeholder="e.g. Fuel – Salem trip, Team lunch" value={title} maxLength={140} onChange={(e) => setTitle(e.target.value)} style={{ borderColor: tried && !title.trim() ? "#f04438" : undefined }} />
             </label>
-            <div role="radiogroup" aria-label="Kind of bill" style={{ display: "flex", flexDirection: "column", gap: 6 }}>
-              <span style={lbl}>Kind of bill</span>
-              <span style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 4, padding: 4, borderRadius: 14, background: "#f2f4f7" }}>
-                {[[false, "Other expense"], [true, "Food"]].map(([v, l]) => (
-                  <button key={l} type="button" role="radio" aria-checked={food === v} onClick={() => setFood(v)}
-                    style={{ height: 40, borderRadius: 11, border: 0, background: food === v ? "#fff" : "transparent", boxShadow: food === v ? "0 1px 2px rgba(16,24,40,.12)" : "none", color: food === v ? "#0b1220" : "#5b6576", fontSize: 14, fontWeight: 600, cursor: "pointer" }}>{l}</button>
-                ))}
-              </span>
-              <span style={hint}>{food ? `Goes to your Food limit — ${inr(foodLeft)} of ${inr(FOOD_LIMIT)} left for ${shortMonth(month)}` : "Goes to your settlement claim"}{read?.filled ? " · picked from the bill, change it if wrong" : ""}</span>
-            </div>
 
             <div style={{ display: "grid", gridTemplateColumns: "minmax(0,1.4fr) minmax(0,1fr)", gap: 10 }}>
               <label style={{ display: "flex", flexDirection: "column", gap: 6, minWidth: 0 }}>

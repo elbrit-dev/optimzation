@@ -128,12 +128,13 @@ env:
   # The bill reader (/api/claims/read-bill, lib/billReader.js, 5 Nov 2026):
   # Cloudflare Workers AI -- toMarkdown, Clairic, Clef Flash -- on account
   # 8f9bef7f528cdc6f7ddb49283821c82a. An API token with "Workers AI: Read" +
-  # "Workers AI: Edit". Until the secret exists the reader answers "not
-  # switched on" and bills go to Accounts. Uncomment once the secret is made
-  # (a missing secret fails the build).
-  # - variable: CLOUDFLARE_AI_TOKEN
-  #   secret: cloudflare-ai-token
-  #   availability: [RUNTIME]
+  # "Workers AI: Edit"; secret cloudflare-ai-token made 13 Nov 2026 (the
+  # backends' service account can read it). It also signs a bill's reading
+  # (CLAIMS_READ_SECRET is optional), and CLOUDFLARE_ACCOUNT_ID defaults to
+  # the account above.
+  - variable: CLOUDFLARE_AI_TOKEN
+    secret: cloudflare-ai-token
+    availability: [RUNTIME]
 
   # ── Misc client config ────────────────────────────────────────────────────
   - variable: NEXT_PUBLIC_MONACO_EDITOR_CDN_URL

@@ -7,14 +7,15 @@
    swapped for its ERP call (and `PREVIEW` set to false) without touching the
    UI:
      submitTrip      -> create the claim, attach the bills, "Send for Approval"
+                        (12 Nov 2026: the trip's lines go into the month's
+                        ERP claim by erp-claim.js first; this records it)
      recallTrip      -> workflow action "Withdraw"
      saveTripDraft   -> save the Draft claim
-     requestOwnCar   -> create the request for the rep's manager
-     withdrawRequest -> cancel it
-   Bill photos are not kept here: only their name and size, plus the amount
-   read off them. */
+   Bills (12 Nov 2026) are stored in the ERP the moment they are scanned and
+   checked (bill-reader.js); here only what was read, the ERP file's url, the
+   fingerprint and the signed read the claim check needs. */
 
-export const PREVIEW = true;
+export const PREVIEW = false;
 
 const KEY = (emp) => `fx-trip-claims:${emp}`;
 const empty = () => ({ trips: {}, requests: [] });
@@ -51,11 +52,17 @@ export function subscribeClaims(fn) {
   return () => listeners.delete(fn);
 }
 
-const blankClaim = () => ({ status: "unclaimed", recalled: false, car: false, fuels: [], tolls: [], foods: [], stays: {} });
+const blankClaim = () => ({ status: "unclaimed", recalled: false, car: false, fuels: [], tolls: [], foods: [], stays: [] });
 const uid = () => Math.random().toString(36).slice(2, 10);
-const fileMeta = (file) => (file ? { name: file.name || "bill", size: file.size || 0 } : null);
 
-export const claimOf = (state, tripId) => ({ ...blankClaim(), ...(state?.trips?.[tripId] || {}) });
+export const claimOf = (state, tripId) => {
+  const c = { ...blankClaim(), ...(state?.trips?.[tripId] || {}) };
+  // before 12 Nov 2026 stays were one per night ({ date: bill }) and bills
+  // were never checked: those are dropped, scan them again
+  const checked = (b) => b && b.signed?.sig && b.url;
+  for (const k of ["stays", "foods", "fuels", "tolls"]) c[k] = Array.isArray(c[k]) ? c[k].filter(checked) : [];
+  return c;
+};
 
 function updateTrip(emp, tripId, fn) {
   const state = read(emp);
@@ -65,56 +72,47 @@ function updateTrip(emp, tripId, fn) {
   return write(emp, { ...state, trips: { ...state.trips, [tripId]: next } });
 }
 
-/* ---------- editing a trip before it is submitted ---------- */
+/* ---------- bills, before the trip is submitted ---------- */
 
 export async function setCar(emp, tripId, on) {
   return updateTrip(emp, tripId, (c) => ({ ...c, car: !!on }));
 }
 
-/* A night's hotel bill and the amount on it (read off the bill, or typed in).
-   With a bill the night's DA is the bill's amount; without one, 50 % of DA. */
-export async function setStayBill(emp, tripId, date, file, amount = null) {
-  return updateTrip(emp, tripId, (c) => {
-    const stays = { ...c.stays };
-    if (file) stays[date] = { ...fileMeta(file), amount: Number(amount) > 0 ? Math.round(Number(amount)) : null };
-    else delete stays[date];
-    return { ...c, stays };
-  });
-}
-
-export async function setStayAmount(emp, tripId, date, amount) {
-  return updateTrip(emp, tripId, (c) => {
-    if (!c.stays?.[date]) return c;
-    return { ...c, stays: { ...c.stays, [date]: { ...c.stays[date], amount: Number(amount) > 0 ? Math.round(Number(amount)) : null } } };
-  });
-}
-
-/* kind: "fuels" | "tolls" | "foods". A scan adds a row with what the bill
-   reader found. Food bills are kept with the claim as the proof behind the DA. */
-export async function addCarBill(emp, tripId, kind, { amount = null, file = null, read = null, date = null } = {}) {
+/* kind: "stays" | "foods" | "fuels" | "tolls". `bill` is what readTripBill
+   gave back: it passed its checks, is stored in the ERP (url) and has its
+   fingerprint (fp). -> the bill's id */
+export async function addBill(emp, tripId, kind, bill) {
   const id = uid();
-  updateTrip(emp, tripId, (c) => ({ ...c, [kind]: [...(c[kind] || []), { id, amount, file: fileMeta(file), read, ...(date ? { date } : {}) }] }));
+  updateTrip(emp, tripId, (c) => ({ ...c, [kind]: [...(c[kind] || []), { id, ...bill }] }));
   return id;
 }
 
-export async function updateCarBill(emp, tripId, kind, id, patch) {
-  return updateTrip(emp, tripId, (c) => ({
-    ...c,
-    [kind]: (c[kind] || []).map((b) => (b.id === id ? { ...b, ...patch, ...(patch.file !== undefined ? { file: fileMeta(patch.file) } : {}) } : b)),
-  }));
-}
-
-export async function removeCarBill(emp, tripId, kind, id) {
-  return updateTrip(emp, tripId, (c) => ({ ...c, [kind]: (c[kind] || []).filter((b) => b.id !== id) }));
+/* -> the bill taken off (so its fingerprint can be released) */
+export async function removeBill(emp, tripId, kind, id) {
+  let gone = null;
+  updateTrip(emp, tripId, (c) => {
+    gone = (c[kind] || []).find((b) => b.id === id) || null;
+    return { ...c, [kind]: (c[kind] || []).filter((b) => b.id !== id) };
+  });
+  return gone;
 }
 
 /* ---------- submit / recall ---------- */
 
-export async function submitTrip(emp, tripId, { total, ta, da, review }) {
+/* erpClaim: the month's ERP Expense Claim the trip's lines went into (see
+   erp-claim.js: one claim per rep per month). */
+export async function submitTrip(emp, tripId, { total, ta, da, review, erpClaim }) {
   const state = read(emp);
   const cur = claimOf(state, tripId);
   if (cur.status !== "unclaimed") throw new Error("This trip is already submitted.");
-  const next = { ...cur, status: review ? "review" : "submitted", recalled: false, submittedAt: new Date().toISOString(), claimed: { total, ta, da } };
+  const next = {
+    ...cur,
+    status: review ? "review" : "submitted",
+    recalled: false,
+    submittedAt: new Date().toISOString(),
+    claimed: { total, ta, da },
+    ...(erpClaim ? { erpClaim } : {}),
+  };
   return write(emp, { ...state, trips: { ...state.trips, [tripId]: next } });
 }
 
@@ -126,47 +124,28 @@ export async function recallTrip(emp, tripId) {
   return write(emp, { ...state, trips: { ...state.trips, [tripId]: next } });
 }
 
-/* ---------- own-car requests ---------- */
-
-export async function requestOwnCar(emp, req) {
-  const state = read(emp);
-  const clash = state.requests.find((r) => r.status !== "withdrawn" && (r.tripId && r.tripId === req.tripId || (r.from <= req.to && r.to >= req.from)));
-  if (clash) {
-    throw new Error(clash.status === "approved" ? "The car is already approved for these dates." : "A car request for these dates is already waiting — recall it to change it.");
-  }
-  const next = { id: uid(), status: "pending", requestedAt: new Date().toISOString(), ...req };
-  return write(emp, { ...state, requests: [...state.requests, next] });
-}
-
-/* PREVIEW ONLY: stands in for the GM approving in the ERP, so the car
-   allowance can be seen before the approval flow exists. */
-export async function approveRequest(emp, id) {
-  if (!PREVIEW) throw new Error("Car requests are approved by the GM in the ERP.");
-  const state = read(emp);
-  return write(emp, { ...state, requests: state.requests.map((r) => (r.id === id && r.status === "pending" ? { ...r, status: "approved", approvedAt: new Date().toISOString() } : r)) });
-}
-
-/* The fuel and toll bills on a car request (name, size, amount each). */
-export async function setRequestBills(emp, id, bills) {
-  const state = read(emp);
-  return write(emp, { ...state, requests: state.requests.map((r) => (r.id === id ? { ...r, bills } : r)) });
-}
-
-export async function withdrawRequest(emp, id) {
-  const state = read(emp);
-  return write(emp, { ...state, requests: state.requests.map((r) => (r.id === id ? { ...r, status: "withdrawn" } : r)) });
-}
+/* Own-car requests are not kept here any more (12 Nov 2026): they are the
+   ERP's Car Request, decided by the GM (erp-claim.js loadCarRequests /
+   requestCar / withdrawCar). */
 
 /* ---------- labels ---------- */
 
+/* A submitted trip shows where the MONTH'S claim is in the ERP (field-context
+   sets it from the claim): sent -> with the officer, rejected -> sent back,
+   approved -> approved by the officer, waiting for the final check, paid ->
+   finalised for payroll. */
 export const STATUS_LABEL = {
   unclaimed: "To claim",
   recalled: "Recalled",
-  submitted: "Submitted",
+  submitted: "In month's claim",
+  sent: "With officer",
+  // the officer decides each trip on its own (12 Nov 2026)
+  okd: "Trip approved",
+  rejected: "Sent back",
   review: "In review",
-  approved: "In payroll",
-  paid: "Paid",
+  approved: "Approved",
+  paid: "Finalised",
 };
 export const statusKey = (c) => (c.status === "unclaimed" && c.recalled ? "recalled" : c.status);
-export const canRecall = (c) => c.status === "submitted" || c.status === "review";
+export const canRecall = (c) => c.status === "submitted" || c.status === "review" || c.status === "sent" || c.status === "rejected";
 export const isLocked = (c) => c.status === "approved" || c.status === "paid";

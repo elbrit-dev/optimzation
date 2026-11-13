@@ -59,6 +59,10 @@ const TYPE_COLORS = {
   Miscellaneous: ["#0e7490", "#ecfeff", "#155e75"],
   Advance: ["#7c3aed", "#f4f0ff", "#5b21b6"],
   Stay: ["#4f46e5", "#eef2ff", "#3730a3"],
+  // the planner's monthly field TA/DA claim (12 Nov 2026)
+  "Daily Allowance": ["#0f766e", "#f0fdfa", "#115e59"],
+  Fuel: ["#ea580c", "#fff7ed", "#c2410c"],
+  Toll: ["#9333ea", "#faf5ff", "#7e22ce"],
 };
 export const typeColor = (t) => {
   const [c, bg, fg] = TYPE_COLORS[t] || ["#64748b", "#f1f5f9", "#334155"];
@@ -126,7 +130,7 @@ export const CLEARED = new Set(["Verified", "Paid"]);
  * still owe. Claims of the old flow (one claim per trip, reporting officer)
  * are not part of it -- they stay under "All past claims". */
 export function ledger(claims, advances = []) {
-  const running = claims.filter((c) => c.running && !c.food && live(c));   // Food has its own limit
+  const running = claims.filter((c) => c.running && live(c));
   const open = running.find((c) => c.docstatus === 0) || null;
   const ev = [];
   for (const a of advances) {
@@ -165,12 +169,6 @@ export function ledger(claims, advances = []) {
     any: ev.length > 0,
   };
 }
-
-/* The Food used in a month ("yyyy-mm"): every bill not Rejected on that
-   month's Food claim (the guard's FOOD_LIMIT counts the same way). */
-export const foodUsed = (claims, month) => claims
-  .filter((c) => c.food && c.status !== "Cancelled" && c.posting.slice(0, 7) === month)
-  .reduce((s, c) => s + c.lines.filter((l) => l.state !== "Rejected").reduce((a, l) => a + l.amount, 0), 0);
 
 /* In-hand cash in short (the home Settle bar). */
 export function cashOf(claims, advances) {

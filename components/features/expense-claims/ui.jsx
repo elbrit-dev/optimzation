@@ -53,6 +53,8 @@ export const IC = {
   file: "M6 3h9l4 4v14H6zM14 3v5h5", eye: "M2 12s3.6-7 10-7 10 7 10 7-3.6 7-10 7S2 12 2 12zM12 15a3 3 0 1 0 0-6 3 3 0 0 0 0 6z",
   dl: "M12 4v11M7 10l5 5 5-5M5 20h14", trash: "M5 7h14M10 11v6M14 11v6M6 7l1 13h10l1-13M9 7V4h6v3",
   wallet: "M4 7h14a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2H4zM4 7l11-3v3M16 13.5h.01", hist: "M3 12a9 9 0 1 0 3-6.7L3 8M3 3v5h5M12 7v5l3 2",
+  zin: "M11 18a7 7 0 1 0 0-14 7 7 0 0 0 0 14zM20 20l-4-4M8 11h6M11 8v6", zout: "M11 18a7 7 0 1 0 0-14 7 7 0 0 0 0 14zM20 20l-4-4M8 11h6",
+  rot: "M20 11a8 8 0 1 0-2.3 5.7M20 4v7h-7",
   check: "M5 12l5 5 9-10", search: "M11 18a7 7 0 1 0 0-14 7 7 0 0 0 0 14zM20 20l-4-4", filter: "M4 6h16M7 12h10M10 18h4",
   shield: "M20 13c0 5-3.5 7.5-7.7 9a1 1 0 0 1-.6 0C7.5 20.5 4 18 4 13V6a1 1 0 0 1 1-1c2 0 4.5-1.2 6.2-2.7a1.2 1.2 0 0 1 1.6 0C14.5 3.8 17 5 19 5a1 1 0 0 1 1 1zM9 12l2 2 4-4",
   flame: "M12 22c4.4 0 7-2.9 7-6.6 0-2.4-1.3-4.3-2.6-5.9-.4 1.7-1.2 2.8-2.4 3.4-.3-2.9-1.9-5.6-5-7.9.4 3-.8 4.6-2 6.4-.9 1.4-1.4 2.6-1.4 3.9C5.6 19.3 8.1 22 12 22z",
@@ -301,7 +303,7 @@ export function useClaimFiles(conn, claim) {
 export const forgetClaimFiles = (claimId) => { for (const k of fileCache.keys()) if (k.startsWith(claimId + "|")) fileCache.delete(k); };
 
 const blobCache = new Map();
-function useFileUrl(conn, file) {
+export function useFileUrl(conn, file) {
   const [s, setS] = useState({ status: "loading" });
   useEffect(() => {
     if (!file) return undefined;
@@ -347,6 +349,11 @@ export function FilePreview({ conn, file, files = [], onClose }) {
     return () => window.removeEventListener("keydown", k);
   }, [i, files]);
   const nav = (d) => setCur(files[i + d]);
+  // a photo of a bill can be zoomed (1 = fit the screen) and turned
+  const [zoom, setZoom] = useState(1);
+  const [turn, setTurn] = useState(0);
+  useEffect(() => { setZoom(1); setTurn(0); }, [cur]);
+  const isImg = status === "ready" && cur.kind === "image";
   /* Full screen, on the design system's Dialog: no swipe (a PDF scrolls), but
      Escape and back close it like every other overlay, and a press on the
      dark space around the file closes it as before. */
@@ -355,19 +362,37 @@ export function FilePreview({ conn, file, files = [], onClose }) {
       <Dialog.Portal>
         <Dialog.Backdrop style={{ background: "rgba(10,14,22,.86)" }} />
         <Dialog.Viewport style={{ padding: 0 }}>
-    <Dialog.Popup className="ec-root" aria-label={cur.name} onClick={onClose} style={{ inlineSize: "100%", blockSize: "100%", maxInlineSize: "none", maxBlockSize: "none", borderRadius: 0, background: "transparent", boxShadow: "none", display: "flex", flexDirection: "column" }}>
+    {/* the dark is on the popup itself: opened from inside a claim sheet (a
+        nested dialog) the backdrop is not drawn, and the sheet showed through */}
+    <Dialog.Popup className="ec-root" aria-label={cur.name} onClick={onClose} style={{ inlineSize: "100%", blockSize: "100%", maxInlineSize: "none", maxBlockSize: "none", borderRadius: 0, background: "rgba(10,14,22,.92)", boxShadow: "none", display: "flex", flexDirection: "column" }}>
       <div onClick={(e) => e.stopPropagation()} style={{ flex: "none", display: "flex", alignItems: "center", gap: 10, padding: "12px 12px 12px 18px", color: "#fff" }}>
         <span style={{ flex: 1, minWidth: 0, display: "flex", flexDirection: "column" }}>
           <span style={{ fontSize: 14, fontWeight: 600, ...ell }}>{cur.name}</span>
           {files.length > 1 && <span style={{ fontSize: 12, color: "#98a2b3" }}>{i + 1} of {files.length}</span>}
         </span>
+        {isImg && <>
+          <button type="button" aria-label="Zoom out" disabled={zoom <= 1} onClick={() => setZoom((z) => Math.max(1, z - 0.5))} style={{ ...btn.icon, color: "#fff", opacity: zoom <= 1 ? 0.4 : 1 }}><Icon d={IC.zout} size={18} /></button>
+          <span style={{ fontSize: 12, color: "#d0d5dd", minWidth: 38, textAlign: "center", ...tabNum }}>{zoom === 1 ? "Fit" : `${Math.round(zoom * 100)}%`}</span>
+          <button type="button" aria-label="Zoom in" disabled={zoom >= 4} onClick={() => setZoom((z) => Math.min(4, z + 0.5))} style={{ ...btn.icon, color: "#fff", opacity: zoom >= 4 ? 0.4 : 1 }}><Icon d={IC.zin} size={18} /></button>
+          <button type="button" aria-label="Turn the photo" onClick={() => setTurn((t) => (t + 90) % 360)} style={{ ...btn.icon, color: "#fff" }}><Icon d={IC.rot} size={18} /></button>
+        </>}
         {status === "ready" && <a href={url} download={cur.name} aria-label="Download" style={{ ...btn.icon, color: "#fff", textDecoration: "none" }}><Icon d={IC.dl} size={18} /></a>}
         <button type="button" aria-label="Close preview" onClick={onClose} style={{ ...btn.icon, color: "#fff" }}><Icon d={IC.x} size={18} /></button>
       </div>
-      <div onClick={(e) => e.stopPropagation()} style={{ flex: 1, minHeight: 0, display: "flex", alignItems: "center", justifyContent: "center", padding: "0 12px 16px", position: "relative" }}>
+      <div onClick={(e) => e.stopPropagation()} style={{ flex: 1, minHeight: 0, display: "flex", alignItems: zoom > 1 ? "flex-start" : "center", justifyContent: zoom > 1 ? "flex-start" : "center", padding: "0 12px 16px", position: "relative", overflow: zoom > 1 ? "auto" : "hidden" }}>
         {status === "loading" && <Spinner size={28} />}
         {status === "error" && <Note>{error}</Note>}
-        {status === "ready" && cur.kind === "image" && <img src={url} alt={cur.name} style={{ maxWidth: "100%", maxHeight: "100%", objectFit: "contain", borderRadius: 8, background: "#fff" }} />}
+        {isImg && (
+          <img
+            src={url}
+            alt={cur.name}
+            title={zoom > 1 ? "Double-click to fit" : "Double-click to zoom"}
+            onDoubleClick={() => setZoom((z) => (z > 1 ? 1 : 2))}
+            style={zoom > 1
+              ? { width: `${zoom * 100}%`, maxWidth: "none", height: "auto", flex: "none", margin: "0 auto", transform: `rotate(${turn}deg)`, borderRadius: 8, background: "#fff", cursor: "zoom-out" }
+              : { maxWidth: "100%", maxHeight: "100%", objectFit: "contain", transform: `rotate(${turn}deg)`, borderRadius: 8, background: "#fff", cursor: "zoom-in" }}
+          />
+        )}
         {status === "ready" && cur.kind === "pdf" && <iframe title={cur.name} src={url} style={{ width: "100%", maxWidth: 900, height: "100%", border: 0, borderRadius: 8, background: "#fff" }} />}
         {status === "ready" && cur.kind === "other" && (
           <div style={{ ...card, padding: 24, textAlign: "center", display: "flex", flexDirection: "column", gap: 12, alignItems: "center" }}>
@@ -411,6 +436,26 @@ export function RiskBadge({ ai, small }) {
       <span style={{ width: 6, height: 6, borderRadius: "50%", background: r.dot }} />
       {r.label}{ai.score != null ? ` · ${Math.round(ai.score)}` : ""}
     </span>
+  );
+}
+
+/* A bill as its picture (a PDF as a tile), with a caption -- press it for the
+   full-screen preview. */
+export function BillThumb({ conn, file, caption, sub, tone, onOpen, w = 112, h = 140 }) {
+  const img = file.kind === "image";
+  const { status, url } = useFileUrl(img ? conn : null, img ? file : null);
+  return (
+    <button type="button" onClick={onOpen} className="ec-card" title={`Open ${file.name}`} style={{ flex: "none", width: w, display: "flex", flexDirection: "column", gap: 5, padding: 0, border: 0, background: "transparent", cursor: "zoom-in", textAlign: "left" }}>
+      <span style={{ position: "relative", width: w, height: h, borderRadius: 10, overflow: "hidden", background: "#f2f4f7", boxShadow: `0 0 0 1px ${tone || "#e4e7ec"}`, display: "grid", placeItems: "center", color: file.kind === "pdf" ? "#b42318" : "#475467" }}>
+        {img && status === "ready" ? <img src={url} alt="" style={{ width: "100%", height: "100%", objectFit: "cover", objectPosition: "top" }} />
+          : img && status === "loading" ? <Spinner />
+          : img ? <Icon d={IC.file} size={22} />
+          : file.kind === "pdf" ? <span style={{ fontSize: 13, fontWeight: 800 }}>PDF</span> : <Icon d={IC.file} size={22} />}
+        <span style={{ position: "absolute", right: 5, bottom: 5, width: 24, height: 24, borderRadius: 7, background: "rgba(16,24,40,.6)", color: "#fff", display: "grid", placeItems: "center" }}><Icon d={IC.zin} size={14} /></span>
+      </span>
+      {caption && <span style={{ fontSize: 11.5, fontWeight: 600, color: "#344054", lineHeight: 1.25, ...ell }}>{caption}</span>}
+      {sub && <span style={{ fontSize: 11, color: tone || "#667085", lineHeight: 1.25, marginTop: -3, ...ell }}>{sub}</span>}
+    </button>
   );
 }
 

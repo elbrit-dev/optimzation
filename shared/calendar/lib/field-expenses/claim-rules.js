@@ -1,9 +1,12 @@
 /* Trip claim rules for the planner's Field layer — the Elbrit Claims prototype's
-   rules on top of the Field expenses console's day pricing.
+   rules on top of the ERP's day pricing (Field Expense Day).
 
-   The console decides each day's type, TA and DA. On top of that a trip adds:
-     - a night allowance per night away: the zone/role OS rate from the rate
-       card, 50 % without a hotel bill, 100 % with one;
+   The ERP decides each day's type, TA and DA -- an outstation day's DA is
+   already 50 % of the outstation rate without a bill (11 Nov 2026: the old
+   night allowance on top of it is gone, it paid the stay twice). On top of
+   that a trip adds:
+     - the stay / food bills for its outstation days, the proof that lets
+       those days be paid in full once approved;
      - own car (RBM, ZSM, SM request it per trip; the GM approves): once the
        request is approved, the scanned
        fuel + toll bills replace the trip's fare, up to a cap of
@@ -14,7 +17,6 @@
 
 import { AWAY_TYPES } from "@calendar/lib/field-expenses/field-days";
 
-export const NIGHT_NO_BILL = 0.5; // share of the DA paid for a night with no hotel bill
 export const MILEAGE_KM_PER_L = 15; // fixed company assumption
 export const FUEL_PRICE = { Petrol: 101, Diesel: 92, EV: 0 }; // ₹ per litre
 export const FUEL_TYPES = Object.keys(FUEL_PRICE);
@@ -47,43 +49,122 @@ export const carCap = (km, fuel, tolls) => fuelCost(km, fuel) + (tolls ?? tollEs
 
 const sum = (arr) => (arr || []).reduce((s, x) => s + (Number(x.amount) || 0), 0);
 
-/* The nights of a trip: every day of a tour but the last (the night of the
-   1st is spent away when the 2nd is still on the tour). A day trip has none. */
+/* The away days of a trip that a stay / food bill counts for: the worked
+   outstation days the ERP gave an outstation rate (osDaFull) -- exactly the
+   days it pays at 50 % without a bill. A day trip has none. */
 export function tripNights(trip) {
   if (!trip || trip.kind !== "tour") return [];
-  const days = trip.days;
-  const last = days[days.length - 1];
-  // a tour whose last day is still away (the data ends, or the month does) has
-  // a night on that day too
-  const endsAway = last.payable && AWAY_TYPES.has(last.dayType) && !last.journey;
-  // a holiday, weekly off or leave inside the tour earns no TA and no DA, so
-  // no night allowance either: only a worked (payable) day has a night
-  return (endsAway ? days : days.slice(0, -1)).filter((d) => d.payable).map((d) => d.date);
+  return trip.days.filter((d) => d.payable && AWAY_TYPES.has(d.dayType) && d.osDaFull > 0).map((d) => d.date);
 }
 
 /* An own-car request covering any day of the trip. */
 export const requestFor = (trip, requests) => {
   const live = (requests || []).filter((r) => r.status !== "withdrawn");
-  return live.find((r) => r.tripId === trip.id) || live.find((r) => r.from <= trip.to && r.to >= trip.from) || null;
+  const mine = (r) => r.tripId === trip.id || (r.from <= trip.to && r.to >= trip.from);
+  // one still waiting or approved wins over an older rejected one
+  return live.find((r) => mine(r) && r.status !== "rejected") || live.find(mine) || null;
 };
+
+/* A hotel bill split evenly over the nights it covers, the last night taking
+   the rounding. -> { date: share } (the screen and the claim lines both use it)
+   13 Nov 2026 (the user's rule): only over its WORKING nights -- the trip's
+   outstation DA days (`work`) -- a holiday or weekly-off night inside the
+   stay takes no share; its rupees go to the working nights. A bill with no
+   working night at all is split over all its nights (nothing pays it). */
+export function stayShares(b, work = null) {
+  const all = (b?.nights || []).length ? b.nights : [b?.date].filter(Boolean);
+  const onWork = work ? all.filter((d) => work.has(d)) : [];
+  const ns = onWork.length ? onWork : all;
+  const amt = Math.round(Number(b?.amount) || 0);
+  const each = ns.length ? Math.floor(amt / ns.length) : 0;
+  const out = {};
+  ns.forEach((date, i) => {
+    out[date] = (out[date] || 0) + (i === ns.length - 1 ? amt - each * (ns.length - 1) : each);
+  });
+  return out;
+}
 
 /* Everything a trip's claim is worth, from the console's days and the claim's
    own state (car, bills, stays). */
-export function tripClaim(trip, claim, { rates, role, requests } = {}) {
+export function tripClaim(trip, claim, { role, requests } = {}) {
   const c = claim || {};
-  // nights (and their stay bills) only for the roles that claim them
-  const nights = claimsStays(role) ? tripNights(trip) : [];
-  // a night is half the day DA an away day is priced at (the console's EQ rate;
-  // its "OS" column is the retired flat outstation DA)
-  const osRate = Number(rates?.da?.EQ) || 0;
+  // away days (and their stay / food bills) only for the roles that claim them
+  const billsAllowed = claimsStays(role);
+  const nights = billsAllowed ? tripNights(trip) : [];
+  const stays = billsAllowed ? c.stays || [] : [];
+  const foods = billsAllowed ? c.foods || [] : [];
+  /* Each day's bills, to show on the day (12 Nov 2026, the user's rule): a
+     hotel bill is split evenly over the nights it covers (the last night takes
+     the rounding), a food bill sits on its own date. The money is still the
+     trip's pool below -- this is only where each rupee of the bills fell. */
+  const billsByDate = {};
+  const onDay = (date) => (billsByDate[date] = billsByDate[date] || { stay: 0, food: 0, stays: 0, foods: 0 });
+  // the working nights a hotel bill is split over; a holiday / weekly-off
+  // night it covers is marked so the day can say where its share went
+  const workNights = new Set(nights);
+  const stayOff = {};
+  for (const b of stays) {
+    if ((b.nights || []).some((d) => workNights.has(d))) for (const d of b.nights || []) if (!workNights.has(d)) stayOff[d] = true;
+    for (const [date, share] of Object.entries(stayShares(b, workNights))) {
+      const d = onDay(date);
+      d.stay += share;
+      d.stays += 1;
+    }
+  }
+  for (const b of foods) {
+    const d = onDay(b.date);
+    d.food += Math.round(Number(b.amount) || 0);
+    d.foods += 1;
+  }
   const nightRows = nights.map((date) => {
-    const bill = c.stays?.[date] || null;
-    // the bill's own amount when one is uploaded (and its amount known);
-    // otherwise half the DA
-    const billed = bill && Number(bill.amount) > 0 ? Math.round(Number(bill.amount)) : null;
-    return { date, bill, billed, amount: billed ?? Math.round(osRate * NIGHT_NO_BILL) };
+    const day = trip.byDate?.get(date) || trip.days.find((d) => d.date === date) || {};
+    // a hotel bill covers each night it was checked for (check-in to the day
+    // before check-out)
+    const bill = stays.find((s) => (s.nights || []).includes(date)) || null;
+    // amount: what the ERP pays the day without a bill (50 %); full: its
+    // outstation rate; bills: the stay share and the food on this day
+    const amount = day.da || 0;
+    const full = day.osDaFull || 0;
+    const b = billsByDate[date] || null;
+    const billSum = b ? b.stay + b.food : 0;
+    /* PER DAY (12 Nov 2026, the user's rule): the day's stay share + its own
+       food, at least the day's 50 % and at most its 100 %. What one day goes
+       over is NOT carried to a cheaper day. */
+    const paid = billSum > 0 ? Math.min(full, Math.max(amount, billSum)) : amount;
+    return {
+      date,
+      bill,
+      amount,
+      full,
+      bills: b,
+      billSum,
+      paid,
+      capped: billSum > full ? billSum - full : 0,
+      topUp: billSum > 0 && billSum < amount ? amount - billSum : 0,
+    };
   });
-  const nightDA = nightRows.reduce((s, n) => s + n.amount, 0);
+  // the ERP's DA already holds the stay: nothing on top of it
+  const nightDA = 0;
+
+  /* The outstation days added up (each day already held between its own 50 %
+     and 100 % above). Bills on a day with no outstation DA (a day off inside
+     the trip) pay nothing -- `unpaid`. Never refused on the amount. */
+  const half = nightRows.reduce((s, n) => s + n.amount, 0);
+  const full = nightRows.reduce((s, n) => s + n.full, 0);
+  const nightsPaid = nightRows.reduce((s, n) => s + n.paid, 0);
+  const billed = sum(stays) + sum(foods);
+  const onNights = nightRows.reduce((s, n) => s + n.billSum, 0);
+  const poolOn = nights.length > 0 && stays.length + foods.length > 0;
+  const pool = {
+    on: poolOn,
+    half,
+    full,
+    bills: billed,
+    paid: nightsPaid,
+    capped: nightRows.reduce((s, n) => s + n.capped, 0),
+    topUp: nightRows.reduce((s, n) => s + n.topUp, 0),
+    unpaid: Math.max(0, billed - onNights),
+  };
 
   const req = requestFor(trip, requests);
   // car allowance only once the GM has approved the trip's request; before
@@ -99,30 +180,24 @@ export function tripClaim(trip, claim, { rates, role, requests } = {}) {
     ? req.ask
     : carCap(req?.km || trip.km, req?.fuel || "Petrol", req?.tolls);
 
-  const ta = car ? fuel + tolls : fare;
+  // 12 Nov 2026: the bills replace the fare only once there are some; an
+  // approved car with no fuel / toll bill is paid the ERP's fare as it is.
+  // Bills are paid as they are up to the approved amount (no 50 % floor:
+  // fuel is money spent, not an allowance), never above it.
+  const carBilled = car && fuel + tolls > 0;
+  const capped = carBilled && fuel + tolls > cap;
+  const ta = carBilled ? Math.min(fuel + tolls, cap) : fare;
   // stay and food come under DA (RBM and SM and above attach the bills): the
-  // stay bill lifts the night's DA from 50 % to 100 %; food bills only back it
-  const billsAllowed = claimsStays(role);
-  const food = billsAllowed ? sum(c.foods) : 0;
-  const da = trip.da + nightDA;
-  // with the car on, the claim needs the pump bill, and every bill its photo
-  const bills = car ? [...(c.fuels || []), ...(c.tolls || [])] : [];
+  // outstation days' 50 % swapped for what the pool pays
+  const food = sum(foods);
+  const da = trip.da - half + nightsPaid;
+  // with the car billed, the pump bill too (a toll-only claim would pay less
+  // than the fare by mistake); every bill here was checked when scanned
   const fuelBills = car ? (c.fuels || []).length : 0;
-  const unphotographed = bills.filter((b) => !b.file).length;
-  const unpriced = bills.filter((b) => !(Number(b.amount) > 0)).length;
-  const carBlock = !car
-    ? null
-    : !fuelBills
-      ? "Scan the fuel bill to submit with your own car"
-      : unphotographed
-        ? "Attach a photo to every fuel and toll bill"
-        : unpriced
-          ? "Enter the amount on every bill"
-          : null;
+  const carBlock = !carBilled ? null : !fuelBills ? "Scan the fuel bill too — or remove the toll bills to be paid the fare" : null;
   return {
     nights: nightRows,
     nightDA,
-    osRate,
     request: req,
     carAllowed,
     carApproved,
@@ -130,8 +205,14 @@ export function tripClaim(trip, claim, { rates, role, requests } = {}) {
     carBlock,
     billsAllowed,
     food,
-    foodBills: billsAllowed ? (c.foods || []).length : 0,
+    foodBills: foods.length,
+    stayBills: stays.length,
+    pool,
+    billsByDate,
+    stayOff,
     car,
+    carBilled,
+    capped,
     fuel,
     tolls,
     fare,
@@ -139,7 +220,8 @@ export function tripClaim(trip, claim, { rates, role, requests } = {}) {
     ta,
     da,
     total: ta + da,
-    missingStayBills: nightRows.filter((n) => !n.bill).length,
+    // outstation days paid at 50 % for want of any stay / food bill
+    missingStayBills: poolOn ? 0 : nightRows.length,
   };
 }
 
@@ -149,19 +231,21 @@ export function tripClaim(trip, claim, { rates, role, requests } = {}) {
 export function tripChecks(trip, claim, calc) {
   const out = [];
   if (calc.car) {
-    const bills = [...(claim?.fuels || []), ...(claim?.tolls || [])];
-    // with the car on, the train fare is out of the picture: the checks are
-    // against the car's own cap and the route km, never the fare
-    if (!calc.fuel && !calc.tolls) out.push({ ok: false, level: "info", text: "Scan the pump bill and every toll receipt — AI reads the amounts." });
-    else if (bills.some((b) => Number(b.amount) > 0 && !b.file)) out.push({ ok: false, level: "info", text: "A bill has no photo — tap its chip to attach one." });
-    else if (calc.fuel > fuelCost(trip.km) * 1.5) out.push({ ok: false, level: "review", text: `₹${fmt(calc.fuel)} fuel for a ${trip.km} km trip is above the expected range — goes to a reviewer.` });
-    else if (calc.tolls > trip.km * 4) out.push({ ok: false, level: "review", text: `₹${fmt(calc.tolls)} in tolls on a ${trip.km} km trip is above the usual range — goes to a reviewer.` });
-    else if (calc.fuel + calc.tolls > calc.cap) out.push({ ok: false, level: "review", text: `₹${fmt(calc.fuel + calc.tolls)} is ₹${fmt(calc.fuel + calc.tolls - calc.cap)} over the approved ₹${fmt(calc.cap)} for this trip — goes to a reviewer.` });
-    else out.push({ ok: true, text: `Fuel and tolls match the ${trip.km} km trip · ₹${fmt(calc.cap - calc.fuel - calc.tolls)} of the approved ₹${fmt(calc.cap)} unused.` });
-    if (bills.some((b) => Number(b.amount) >= BILL_AUTO_APPROVE)) out.push({ ok: false, level: "review", text: `A bill of ₹${fmt(BILL_AUTO_APPROVE)} or more always gets a human look.` });
+    // 12 Nov 2026: the amount is never a reason for review -- bills are paid
+    // as they are up to the approved amount, and capped above it
+    // short (12 Nov 2026): what is paid, then the limit
+    if (!calc.fuel && !calc.tolls) out.push({ ok: true, text: `No car bill yet · fare ₹${fmt(calc.fare)} paid.` });
+    else if (calc.capped) out.push({ ok: true, text: `Car bills ₹${fmt(calc.fuel + calc.tolls)} → ₹${fmt(calc.cap)} (approved max).` });
+    else out.push({ ok: true, text: `Car bills ₹${fmt(calc.fuel + calc.tolls)} paid · up to ₹${fmt(calc.cap)}.` });
   }
-  if (calc.missingStayBills) {
-    out.push({ ok: false, level: "info", text: `${calc.missingStayBills} night${calc.missingStayBills > 1 ? "s" : ""} at 50 % of DA — upload the hotel bill and the night is paid at the bill's amount.` });
+  const p = calc.pool;
+  if (p?.on) {
+    out.push({
+      ok: true,
+      text: `Stay + food ₹${fmt(p.bills)} → DA ₹${fmt(p.paid)}${p.topUp ? ` (+₹${fmt(p.topUp)} to 50 %)` : ""}${p.capped ? ` (−₹${fmt(p.capped)} over 100 %)` : ""}${p.unpaid ? ` · ₹${fmt(p.unpaid)} not on DA days` : ""}.`,
+    });
+  } else if (calc.missingStayBills) {
+    out.push({ ok: false, level: "info", text: `${calc.missingStayBills} outstation day${calc.missingStayBills > 1 ? "s" : ""} at 50 % of DA — scan the stay and food bills to be paid what you spent, up to the full DA.` });
   }
   return out;
 }

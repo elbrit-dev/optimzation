@@ -2885,7 +2885,7 @@ PLASMIC.registerComponent(ClaimApprovals, {
   name: "ClaimApprovals",
   displayName: "Claim Approvals",
   description:
-    "Expense claims waiting on the signed-in person. Approve mode: the reporting officer's claims (Waiting for Approval, expense_approver = them) -> Approve / Reject with a reason; after Approve the ERP verifies AI score 90+ and sends the rest to review. Verify mode: claims In Review -> adjust sanctioned amounts, Verify (payroll entry next month) or Reject. Auto: both as tabs. Grouped by employee, with bills, AI risk and reasons; bulk approve for low-risk claims. Acts with the user's own ERP token; the ERP workflow decides who may act.",
+    "Expense claims waiting on the signed-in person. The planner's monthly field TA/DA claims (remark 'Field TA/DA · YYYY-MM') show day by day -- TA, DA, checked stay/food/fuel/toll bills -- and the officer's Approve is final (next month's payroll) when every bill passed its check. Approve mode: the reporting officer's claims (Waiting for Approval, expense_approver = them) -> Approve / Reject with a reason; after Approve the ERP verifies AI score 90+ and sends the rest to review. Verify mode: claims In Review -> adjust sanctioned amounts, Verify (payroll entry next month) or Reject. Auto: both as tabs. Grouped by employee, with bills, AI risk and reasons; bulk approve for low-risk claims. Acts with the user's own ERP token; the ERP workflow decides who may act.",
   props: {
     url: { type: "string", displayName: "GraphQL URL", description: "ERP GraphQL URL, e.g. https://erp.elbrit.org/api/method/graphql." },
     token: { type: "string", displayName: "Auth token", description: "The signed-in user's ERP token (key:secret)." },
