@@ -31,6 +31,9 @@ export async function fetchErpTiles({ endpointUrl, token, month, today, fetchImp
   // v=2 (this code only): RBM / SM get the Doctor Service approval tile
   // for the services waiting on them in the RBM -> SM -> GM chain.
   params.v = '2';
+  // app-uat only (13 Nov 2026): every reporting officer gets the Expense
+  // approval tile. Live never sends it (apphosting.prod.yaml sets it to 0).
+  if (process.env.NEXT_PUBLIC_EXPENSE_APPROVALS_FOR_ALL === '1') params.expense_all = '1';
   const qs = Object.keys(params).length ? `?${new URLSearchParams(params)}` : '';
   const res = await fetchImpl(`${new URL(endpointUrl).origin}/api/method/elbrit_ring_nav${qs}`, {
     headers: { Authorization: authHeader(token), Accept: 'application/json' },

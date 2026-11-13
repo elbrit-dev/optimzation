@@ -42,6 +42,13 @@ env:
   - variable: GOOGLE_CLIENT_SECRET
     secret: GOOGLE_CLIENT_SECRET
 
+  # Expense approvals open to every reporting officer (13 Nov 2026): app-uat
+  # asks the Ring Nav script with expense_all=1 and every officer gets the
+  # Expense approval tile. apphosting.prod.yaml turns it off for live.
+  - variable: NEXT_PUBLIC_EXPENSE_APPROVALS_FOR_ALL
+    value: "1"
+    availability: [BUILD, RUNTIME]
+
   # ── Firebase web config (public) ──────────────────────────────────────────
   - variable: NEXT_PUBLIC_FIREBASE_API_KEY
     value: AIzaSyAU7NbYC2FizLMT0HWJLWPTR0XkEn-xBXA

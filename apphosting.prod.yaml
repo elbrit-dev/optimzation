@@ -19,3 +19,10 @@ env:
   # Sentry: same project and DSN as apphosting.yaml, filed as production.
   - variable: NEXT_PUBLIC_SENTRY_ENVIRONMENT
     value: production
+
+  # Expense approvals stay as before on live (13 Nov 2026): the Expense tile
+  # for the IT department, the GM and the CEO only. app-uat opens it to every
+  # reporting officer (apphosting.yaml).
+  - variable: NEXT_PUBLIC_EXPENSE_APPROVALS_FOR_ALL
+    value: "0"
+    availability: [BUILD, RUNTIME]

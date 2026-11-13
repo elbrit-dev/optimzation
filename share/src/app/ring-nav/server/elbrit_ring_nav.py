@@ -94,6 +94,10 @@ HREFS = {"secondary-entry": "/secondary/entry",
          "doctor-support-approval": "/doctor-support/approval"}
 ENTRY_FROM_DAY = 1
 ENTRY_DUE_DAY = 13     # default due day; a task's "due_day" overrides it (past the month's end would mean its last day)
+# One-off extensions by ENTRY MONTH: every task's due day for that month's entry.
+# 2026-10 (keyed in Nov 2026): Secondary and Support extended to the 13th; the
+# tasks' own due days (Secondary 5th, Support 8th) apply from Dec 2026.
+DUE_DAY_EXTENDED = {"2026-10": 13}
 ALWAYS_ROLE_PROFILE = "IT"   # users with this Role Profile see the tiles every day
 MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun",
           "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"]
@@ -170,6 +174,7 @@ def window_of(task):
     # the IT role profile on any day; the approval tile never past the due
     # day, IT included.
     d = task.get("due_day") or ENTRY_DUE_DAY
+    d = DUE_DAY_EXTENDED.get(month) or d
     d = d if d < last_day else last_day
     open_now = ENTRY_FROM_DAY <= day <= d
     return {"open": open_now, "entry": always or open_now,
@@ -1146,10 +1151,13 @@ expense_head = False
 for r in EXPENSE_APPROVER_ROLES:
     if r in service_roles:
         expense_head = True
+# app-uat (13 Nov 2026): the app asks with expense_all=1 -- every reporting
+# officer gets the Expense approval tile there. Live never sends it.
+expense_all = str(frappe.form_dict.get("expense_all") or "") == "1"
 
 
 def expense_tiles():
-    if not (EXPENSE_TILES_FOR_ALL or expense_team or expense_head):
+    if not (EXPENSE_TILES_FOR_ALL or expense_team or expense_head or expense_all):
         return
     month_start = today[:8] + "01"
     open_states = ["Waiting for Approval"]
