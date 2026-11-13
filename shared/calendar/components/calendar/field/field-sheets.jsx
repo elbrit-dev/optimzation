@@ -14,7 +14,7 @@ import { cn } from "@calendar/lib/utils";
 import { ModalTitle } from "@calendar/components/ui/responsive-modal";
 import { useFieldExpenses } from "@calendar/components/calendar/field/field-context";
 import { inr, rangeLabel } from "@calendar/lib/field-expenses/field-days";
-import { FUEL_PRICE, MILEAGE_KM_PER_L, fuelCost, routeText, tollEstimate } from "@calendar/lib/field-expenses/claim-rules";
+import { FUEL_PRICE, MILEAGE_KM_PER_L, fuelCost, tollEstimate, tripRoute } from "@calendar/lib/field-expenses/claim-rules";
 
 const MONTH_LONG = ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"];
 const monthName = (ym) => MONTH_LONG[Number(ym.slice(5, 7)) - 1];
@@ -106,8 +106,10 @@ export function KpiSheet() {
     return {
       total: f.claimed.reduce((s, x) => s + pick(x), 0),
       payroll: sumOf((s) => s === "approved" || s === "paid"),
-      submitted: sumOf((s) => s === "submitted" || s === "review"),
-      toClaim: sumOf((s) => s === "unclaimed"),
+      // in the claim or with the officer (approved by them trip by trip, too)
+      submitted: sumOf((s) => s === "submitted" || s === "review" || s === "sent" || s === "okd"),
+      // still to claim, or sent back to fix
+      toClaim: sumOf((s) => s === "unclaimed" || s === "rejected"),
     };
   };
   const ta = by((x) => x.calc.ta);
@@ -116,7 +118,21 @@ export function KpiSheet() {
   const nights = f.claimed.reduce((s, x) => s + x.calc.nights.length, 0);
   const withBill = f.claimed.reduce((s, x) => s + x.calc.nights.filter((n) => n.bill).length, 0);
   const noBill = nights - withBill;
-  const daysOut = f.claimed.filter((x) => x.trip.kind !== "hq").reduce((s, x) => s + x.trip.days.length, 0);
+  // the whole month by kind of day: HQ, EQ (out and back) and outstation
+  const kindRow = (k) => {
+    const xs = f.claimed.filter((x) => (k === "hq" ? x.trip.kind === "hq" : k === "tour" ? x.trip.kind === "tour" : x.trip.kind !== "hq" && x.trip.kind !== "tour"));
+    return {
+      days: xs.reduce((s, x) => s + x.trip.days.filter((d) => d.payable).length, 0),
+      ta: xs.reduce((s, x) => s + x.calc.ta, 0),
+      da: xs.reduce((s, x) => s + x.calc.da, 0),
+    };
+  };
+  const kinds = [
+    ["HQ days", kindRow("hq")],
+    ["EQ days", kindRow("day")],
+    ["Outstation", kindRow("tour")],
+  ].filter(([, r]) => r.days > 0);
+  const daysWorked = kinds.reduce((s, [, r]) => s + r.days, 0);
 
   return (
     <div className="-mx-4 flex min-h-0 flex-1 flex-col overflow-y-auto overscroll-contain px-4 [&>*]:shrink-0 gap-3">
@@ -129,7 +145,7 @@ export function KpiSheet() {
           <div>
             <h3 className="text-[16px] font-extrabold text-gray-900">{m} summary</h3>
             <p className="text-[13px] leading-snug text-gray-600">
-              {f.stats.trips} trips · {daysOut} days out · {f.stats.km} km · into {f.payroll.name} (by {f.payroll.cutoff})
+              {daysWorked} days worked · {f.stats.km} km · into {f.payroll.name} (by {f.payroll.cutoff})
             </p>
           </div>
         </div>
@@ -152,8 +168,35 @@ export function KpiSheet() {
           </span>
           <div className="flex flex-col gap-2">
             <Part icon={Route} dot="bg-blue-600" title="TA · travel" value={ta.total} sub={`${f.stats.km} km · ${carTrips ? `car on ${carTrips} trip${carTrips > 1 ? "s" : ""}` : "fare"}`} />
-            <Part icon={BedDouble} dot="bg-sky-300" title="DA" value={da.total} sub={`${nights} outstation day${nights === 1 ? "" : "s"} · ${withBill} with bill`} />
+            <Part
+              icon={BedDouble}
+              dot="bg-sky-300"
+              title="DA"
+              value={da.total}
+              sub={`${daysWorked} day${daysWorked === 1 ? "" : "s"}${nights ? ` · ${nights} outstation, ${withBill} with bill` : ""}`}
+            />
           </div>
+          {/* the month by kind of day */}
+          {kinds.length > 0 && (
+            <div className="overflow-hidden rounded-xl border border-gray-100">
+              <div className="grid grid-cols-[minmax(0,1.4fr)_minmax(0,.6fr)_repeat(3,minmax(0,1fr))] gap-1 bg-gray-50 px-2.5 py-1.5 text-[10px] font-extrabold uppercase tracking-wide text-gray-400">
+                <span>Day</span>
+                <span className="text-right">Days</span>
+                <span className="text-right">TA</span>
+                <span className="text-right">DA</span>
+                <span className="text-right">Total</span>
+              </div>
+              {kinds.map(([label, r]) => (
+                <div key={label} className="grid grid-cols-[minmax(0,1.4fr)_minmax(0,.6fr)_repeat(3,minmax(0,1fr))] gap-1 border-t border-gray-100 px-2.5 py-1.5 text-[12.5px] tabular-nums text-gray-700">
+                  <span className="truncate font-bold text-gray-900">{label}</span>
+                  <span className="text-right">{r.days}</span>
+                  <span className="truncate text-right">{inr(r.ta)}</span>
+                  <span className="truncate text-right">{inr(r.da)}</span>
+                  <b className="truncate text-right text-gray-900">{inr(r.ta + r.da)}</b>
+                </div>
+              ))}
+            </div>
+          )}
           {noBill > 0 && (
             <span className="flex items-start gap-1 text-[11.5px] font-semibold leading-snug text-amber-700">
               <Zap className="mt-0.5 h-3 w-3 shrink-0" aria-hidden />
@@ -320,7 +363,7 @@ export function CarRequestSheet({ opts }) {
     id: t.id,
     from: t.from,
     to: t.to,
-    places: routeText(t.places, f.data?.employee?.hq),
+    places: tripRoute(t, f.data?.employee?.hq),
     name: t.name,
     km: t.km,
     kmKnown: true,

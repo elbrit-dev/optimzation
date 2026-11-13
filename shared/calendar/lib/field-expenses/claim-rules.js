@@ -276,6 +276,28 @@ export function payrollOf(month) {
 const hqName = (t) => String(t || "").replace(/^HQ[-\s]*/i, "").trim();
 /* A trip's route from and back to the rep's own HQ, by name (13 Nov 2026):
    "Coimbatore (HQ) → Madurai → Bodi → Coimbatore (HQ)". */
+/* A trip's route as it was travelled, for the car request (13 Nov 2026):
+   from where it left (the HQ, or the town of the first journey) to where the
+   road ended -- a flown leg is the company's ticket, so a trip that flew home
+   from Thrissur ends at Thrissur, the flight named after it. */
+export function tripRoute(trip, hq) {
+  const homeName = hqName(hq);
+  const label = (p) => (p && homeName && sameHq(p, homeName) ? `${homeName} (HQ)` : p);
+  const paid = (trip.days || []).filter((d) => d.payable);
+  const first = paid[0];
+  const last = paid[paid.length - 1];
+  const firstLeg = (first?.travelLegs || [])[0] || null;
+  const lastLeg = (last?.travelLegs || []).slice(-1)[0] || null;
+  const flownOut = firstLeg?.flown ? firstLeg : null;
+  const flownBack = lastLeg?.flown && lastLeg !== firstLeg ? lastLeg : null;
+  const start = (flownOut ? flownOut.to : first?.journey?.from) || homeName || "HQ";
+  const end = (flownBack ? flownBack.from : trip.kind === "tour" ? last?.journey?.to : null) || homeName || "HQ";
+  const mid = (trip.places || []).filter((p) => !sameHq(p, start) && !sameHq(p, end));
+  const stops = [start, ...mid, end].map(label);
+  const flights = [flownOut, flownBack].filter(Boolean).map((l) => `flight ${l.from} → ${l.to}`);
+  return stops.join(" → ") + (flights.length ? ` · ${flights.join(", ")} (company ticket)` : "");
+}
+
 export const routeText = (places, hq) => {
   const home = hqName(hq) ? `${hqName(hq)} (HQ)` : "HQ";
   return [home, ...(places || []), home].join(" → ");

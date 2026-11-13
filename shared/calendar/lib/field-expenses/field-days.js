@@ -91,6 +91,22 @@ function routeStops(text) {
     });
 }
 
+/* A flight on the day (13 Nov 2026), as the field-expenses dashboard marks it
+   (Field Expense Flight): the legs flown pay no TA -- the company books and
+   pays the ticket -- and every other leg is still paid. An old plain tick
+   flew every road journey. -> { keys, legs: ["Bangalore → Goa"], notPaid } | null */
+function flightOf(d, x) {
+  const legs = x.legs || [];
+  const flown = legs.filter((l) => l.flown);
+  if (!d.flight && !flown.length && !(x.flightZero || []).length) return null;
+  const strip2 = (t) => String(t || "").replace(/^HQ[-\s]*/i, "").trim();
+  return {
+    keys: x.flightZero || (flown.length ? flown.map((l) => (l.leg === "Home" ? "homeBack" : "out")) : ["out"]),
+    legs: flown.map((l) => `${strip2(l.from_place)} → ${strip2(l.to_place)}`),
+    notPaid: Math.round(flown.reduce((s, l) => s + (Number(l.fare) || 0), 0)),
+  };
+}
+
 /* A Field Expense Day -> the row the planner's screens read. */
 export function shapeDay(d) {
   const x = d.detail || {};
@@ -102,6 +118,18 @@ export function shapeDay(d) {
   const legs = x.legs || [];
   const local = legs.find((l) => l.leg === "Local") || null;
   const travel = legs.filter((l) => l.leg !== "Local");
+  // each leg between towns, flown or not (13 Nov 2026): a flown leg is the
+  // company's ticket -- no TA, and not part of the road km
+  const travelLegs = travel.map((l) => ({
+    leg: l.leg,
+    from: strip(l.from_place) || null,
+    to: strip(l.to_place) || null,
+    km: Number(l.km) || 0,
+    fare: Math.round(Number(l.fare) || 0),
+    flown: !!l.flown,
+  }));
+  const roadLegs = travelLegs.filter((l) => !l.flown);
+  const anyFlown = roadLegs.length < travelLegs.length;
   const away = AWAY_TYPES.has(dayType);
   const journey = travel.length
     ? {
@@ -110,6 +138,14 @@ export function shapeDay(d) {
         to: strip(travel[travel.length - 1].to_place) || null,
         via: null,
         km: travel.reduce((s, l) => s + (Number(l.km) || 0), 0) || null,
+        // with a leg flown: what was driven / taken by train (null = all flown)
+        ...(anyFlown
+          ? {
+              road: roadLegs.length
+                ? { from: roadLegs[0].from, to: roadLegs[roadLegs.length - 1].to, km: roadLegs.reduce((s, l) => s + l.km, 0) }
+                : null,
+            }
+          : {}),
       }
     : null;
   return {
@@ -136,6 +172,8 @@ export function shapeDay(d) {
     status: d.status || "Draft",
     legs,
     flags: x.flags || [],
+    flight: flightOf(d, x),
+    travelLegs,
   };
 }
 
@@ -298,7 +336,9 @@ export function buildTrips(rows, home = null) {
     }
     const ta = paid.reduce((s, d) => s + d.ta, 0);
     const da = paid.reduce((s, d) => s + d.da, 0);
-    const km = paid.reduce((s, d) => s + (d.km || 0) + (d.journey?.km || 0), 0);
+    // road km: a flown leg is not driven (13 Nov 2026)
+    const km = paid.reduce((s, d) => s + (d.km || 0) + (d.journey ? ("road" in d.journey ? d.journey.road?.km || 0 : d.journey.km || 0) : 0), 0);
+    const flights = paid.flatMap((d) => (d.travelLegs || []).filter((l) => l.flown).map((l) => ({ ...l, date: d.date })));
     const kind = paid.some((d) => AWAY_TYPES.has(d.dayType)) ? "tour" : paid.some((d) => d.dayType === "EQ") ? "day" : "hq";
     return {
       id: `${days[0].date}_${days[days.length - 1].date}`,
@@ -312,6 +352,9 @@ export function buildTrips(rows, home = null) {
       da,
       total: ta + da,
       km: Math.round(km),
+      // legs flown on the company's ticket, and the fare they would have paid
+      flights,
+      flownFare: flights.reduce((s, l) => s + l.fare, 0),
       nights: kind === "tour" ? Math.max(0, days.length - 1) : 0,
       visits: paid.reduce((s, d) => s + d.visits, 0),
       byDate,

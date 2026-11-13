@@ -12,7 +12,7 @@
 #
 # THE CALENDAR. A month's secondary is keyed in during the next month
 # (July's trackers were all raised in August on production), due by
-# its task's due day — SECONDARY AND DOCTOR SUPPORT THE 10TH (TASKS
+# its task's due day — SECONDARY THE 5TH, DOCTOR SUPPORT THE 8TH (TASKS
 # "due_day"; ENTRY_DUE_DAY otherwise. A due day past a month's last day
 # would be that last day, so 31 means "month end"):
 #   - the entry month is LAST month (`month` overrides it);
@@ -149,7 +149,7 @@ if not valid_month(month):
     month = month_before(today[:7])
 # The user's Role Profile — the one on the User, or any of several where
 # the ERP allows more than one (the "User Role Profile" table).
-always = frappe.db.get_value("User", me, "role_profile_name") == ALWAYS_ROLE_PROFILE
+always = (frappe.db.get_value("Role Profile", frappe.db.get_value("User", me, "role_profile_name") or "-", "custom_role_template") or frappe.db.get_value("User", me, "role_profile_name")) == ALWAYS_ROLE_PROFILE  # BO- seat -> its role template (effective profile)
 if not always:
     try:
         always = bool(frappe.db.exists("User Role Profile", {
@@ -374,7 +374,7 @@ TASKS = [
      "party": "distributor", "party_doctype": "Customer",
      "rp": "custom_role_profile", "status": "custom_status",
      "link": "custom_ref_secondary_data_entry", "prefix": "Secondary Data Entry-",
-     "due_day": 13, "hide_empty": False, "enabled": True,
+     "due_day": 5, "hide_empty": False, "enabled": True,
      "show_add": True, "add_tone": "warning"},
     # A seat with no Doctor Support in the month gets no entry tile.
     {"id": "doctor-support", "label": "Support", "icon": "file-check",
@@ -382,7 +382,7 @@ TASKS = [
      "party": "doctor", "party_doctype": "Lead",
      "rp": "role_profile", "status": "status",
      "link": "reference", "prefix": "Doctor Support-",
-     "due_day": 13, "hide_empty": True, "enabled": True,
+     "due_day": 8, "hide_empty": True, "enabled": True,
      "show_add": True, "add_tone": "warning"},
 ]
 
@@ -1139,10 +1139,17 @@ EXPENSE_TILES_FOR_ALL = False
 EXPENSE_DEPARTMENTS = ["IT - ELPL"]
 expense_team = me == "Administrator" or bool(frappe.db.get_value(
     "Employee", {"user_id": me, "status": "Active", "department": ["in", EXPENSE_DEPARTMENTS]}, "name"))
+# 13 Nov 2026: the GM and the CEO (by role, as the SERVICE tiles) get the
+# Expense approval tile too, every day -- not the Verify one.
+EXPENSE_APPROVER_ROLES = ["GM", "CEO"]
+expense_head = False
+for r in EXPENSE_APPROVER_ROLES:
+    if r in service_roles:
+        expense_head = True
 
 
 def expense_tiles():
-    if not (EXPENSE_TILES_FOR_ALL or expense_team):
+    if not (EXPENSE_TILES_FOR_ALL or expense_team or expense_head):
         return
     month_start = today[:8] + "01"
     open_states = ["Waiting for Approval"]
@@ -1151,7 +1158,7 @@ def expense_tiles():
     waiting = count("Expense Claim", [["docstatus", "=", 0], ["workflow_state", "in", open_states], ["expense_approver", "=", me]])
     my_emp = frappe.db.get_value("Employee", {"user_id": me, "status": "Active"}, "name")
     manager = bool(my_emp) and bool(frappe.db.exists("Employee", {"reports_to": my_emp, "status": "Active"}))
-    if waiting or manager or expense_team:
+    if waiting or manager or expense_team or expense_head:
         approved = count("Expense Claim", [["docstatus", "=", 0], ["workflow_state", "in", done_states],
                                            ["expense_approver", "=", me], ["modified", ">=", month_start]])
         items.append({
@@ -1226,6 +1233,96 @@ if frappe.db.exists("Workflow", "Expense Claim Approval"):
         expense_tiles()
     except Exception as err:
         frappe.log_error(title="Elbrit Ring Nav: expense tiles", message=str(err))
+
+# ---------------------------------------------------------------- LEAVE
+# Leave approvals (/leave/approval): the Open Leave Applications waiting on
+# the caller -- as their approver (leave_approver), or as the next level
+# (custom_escalation_approver) once a leave has waited LEAVE_ESCALATE_AFTER
+# days or has already started. The same rule as the app's Leave Approval
+# screen (leave-approval/data/shape.js) -- change both.
+#   badge     how many wait on the caller
+#   caption   "Today" when one has started, else the soonest first day
+#   ring      started (red) / in the next LEAVE_SOON_DAYS days (amber) / later
+# For now ONLY the IT department gets it (LEAVE_DEPARTMENTS); set
+# LEAVE_TILE_FOR_ALL = True to give it to every approver with work waiting.
+HREFS["leave-approval"] = "/leave/approval"
+LEAVE_TILE_FOR_ALL = False
+LEAVE_DEPARTMENTS = ["IT - ELPL"]
+LEAVE_ESCALATE_AFTER = 2
+LEAVE_SOON_DAYS = 3
+
+
+def leave_tile():
+    leave_team = bool(frappe.db.get_value(
+        "Employee", {"user_id": me, "status": "Active", "department": ["in", LEAVE_DEPARTMENTS]}, "name"))
+    if not (LEAVE_TILE_FOR_ALL or leave_team):
+        return
+    fields = ["name", "from_date", "posting_date", "leave_approver"]
+    rows = frappe.get_all("Leave Application", filters=[["status", "=", "Open"], ["docstatus", "=", 0],
+                                                        ["leave_approver", "=", me]],
+                          fields=fields, limit_page_length=0)
+    for r in frappe.get_all("Leave Application", filters=[["status", "=", "Open"], ["docstatus", "=", 0],
+                                                          ["custom_escalation_approver", "=", me],
+                                                          ["leave_approver", "!=", me]],
+                            fields=fields, limit_page_length=0):
+        waited = frappe.utils.date_diff(today, r.get("posting_date")) if r.get("posting_date") else 0
+        if waited >= LEAVE_ESCALATE_AFTER or str(r.get("from_date")) <= today:
+            rows.append(r)
+    started = 0
+    soon = 0
+    later = 0
+    first = ""
+    for r in rows:
+        f = str(r.get("from_date") or "")
+        if not f:
+            continue
+        if not first or f < first:
+            first = f
+        ahead = frappe.utils.date_diff(f, today)
+        if ahead <= 0:
+            started = started + 1
+        elif ahead <= LEAVE_SOON_DAYS:
+            soon = soon + 1
+        else:
+            later = later + 1
+    waiting = started + soon + later
+    if not waiting and not leave_team:
+        return
+    caption = "Clear"
+    tone = "success"
+    if started:
+        caption = "Today"
+        tone = "danger"
+    elif waiting:
+        caption = str(int(first[8:10])) + " " + MONTHS[int(first[5:7]) - 1]
+        tone = "warning"
+    segments = []
+    if started:
+        segments.append({"key": "started", "value": started, "tone": "danger", "label": "Starts today or already started"})
+    if soon:
+        segments.append({"key": "soon", "value": soon, "tone": "warning", "label": "In the next " + str(LEAVE_SOON_DAYS) + " days"})
+    if later:
+        segments.append({"key": "later", "value": later, "tone": "neutral", "label": "Later"})
+    if not segments:
+        segments = [{"key": "clear", "value": 1, "tone": "success", "label": "Nothing pending"}]
+    items.append({
+        "id": "leave-approval",
+        "label": "Leave",
+        "href": HREFS["leave-approval"],
+        "icon": "calendar-minus",
+        "statusIcon": "check-square",
+        "statusTone": "neutral",
+        "count": waiting,
+        "caption": caption,
+        "captionTone": tone,
+        "segments": segments,
+    })
+
+
+try:
+    leave_tile()
+except Exception as err:
+    frappe.log_error(title="Elbrit Ring Nav: leave tile", message=str(err))
 
 frappe.response["message"] = {
     "user": me,

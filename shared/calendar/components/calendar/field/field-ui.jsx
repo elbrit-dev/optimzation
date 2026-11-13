@@ -28,6 +28,7 @@ import {
   Info,
   Loader2,
   MapPin,
+  Plane,
   Route,
   ShieldCheck,
   TrainFront,
@@ -46,7 +47,7 @@ import {
   inr,
   rangeLabel,
 } from "@calendar/lib/field-expenses/field-days";
-import { FUEL_PRICE, MILEAGE_KM_PER_L, fuelCost, routeText, tollEstimate } from "@calendar/lib/field-expenses/claim-rules";
+import { FUEL_PRICE, MILEAGE_KM_PER_L, fuelCost, tollEstimate, tripRoute } from "@calendar/lib/field-expenses/claim-rules";
 import { PREVIEW, STATUS_LABEL, canRecall, isLocked, statusKey } from "@calendar/lib/field-expenses/trip-claims-store";
 import { readTripBill } from "@calendar/lib/field-expenses/bill-reader";
 import { addTripToMonth, addTripsToMonth, monthWord, removeTripFromMonth, tripClaimRows } from "@calendar/lib/field-expenses/erp-claim";
@@ -184,9 +185,12 @@ export function FieldStrip() {
   );
 }
 
-/* An HQ or EQ (same-day) trip with nothing to upload: no own car approved
-   for it and no fuel / toll bills. These sit together in one card. */
-export const isLocalTrip = (x) => x.trip.kind !== "tour" && x.calc.request?.status !== "approved" && !x.calc.carBilled;
+/* An HQ or EQ (same-day) trip with nothing to upload: no own-car request
+   sent for it (waiting or approved -- bills may follow, so it has its own
+   card; a rejected one is paid the fare and comes back) and no fuel / toll
+   bills. These sit together in one card. */
+const CAR_ASKED = new Set(["pending", "approved"]);
+export const isLocalTrip = (x) => x.trip.kind !== "tour" && !CAR_ASKED.has(x.calc.request?.status) && !x.calc.carBilled;
 
 /* The HQ & EQ days, as one card: how many, what they come to, what is left
    to claim -- tap for the date-wise list. */
@@ -197,7 +201,6 @@ function LocalCard({ items, onOpen }) {
   const ta = items.reduce((a, x) => a + x.calc.ta, 0);
   const da = items.reduce((a, x) => a + x.calc.da, 0);
   const total = items.reduce((a, x) => a + x.calc.total, 0);
-  const asking = items.filter((x) => x.calc.request?.status === "pending").length;
   const worst = [...items].sort((a, b) => rank(a.claim) - rank(b.claim))[0];
   const kinds = [hq ? `${hq} HQ day${hq > 1 ? "s" : ""}` : null, eq ? `${eq} EQ day${eq > 1 ? "s" : ""}` : null].filter(Boolean).join(" · ");
   return (
@@ -224,14 +227,6 @@ function LocalCard({ items, onOpen }) {
           </span>
         </span>
       </button>
-      {asking > 0 && (
-        <div className="border-t border-gray-100 px-2 py-1">
-          <span className="flex w-full items-center gap-1 rounded-md bg-amber-50 px-1.5 py-0.5 text-[10.5px] font-extrabold text-amber-800">
-            <Car className="h-3.5 w-3.5 shrink-0" aria-hidden />
-            <span className="truncate">Car requested · {asking} EQ day{asking > 1 ? "s" : ""} · awaiting GM</span>
-          </span>
-        </div>
-      )}
     </div>
   );
 }
@@ -304,12 +299,9 @@ function LocalDaysSheet() {
                   <span className="truncate text-[11.5px] text-gray-500">
                     {trip.days.length > 1 ? `${rangeLabel(trip.from, trip.to)} · ` : ""}
                     {trip.km} km · TA {inr(calc.ta)} · DA {inr(calc.da)}
+                    {trip.days.some((dd) => dd.flight) ? " · ✈ flight, TA by company" : ""}
                   </span>
-                  {req && ["pending", "rejected"].includes(req.status) && (
-                    <span className={cn("w-fit rounded px-1.5 text-[10.5px] font-bold", req.status === "pending" ? "bg-amber-50 text-amber-800" : "bg-rose-50 text-rose-700")}>
-                      {req.status === "pending" ? `Car requested · ${inr(req.asked || req.ask)} · awaiting GM` : "Car not approved · fare paid"}
-                    </span>
-                  )}
+                  {req?.status === "rejected" && <span className="w-fit rounded bg-rose-50 px-1.5 text-[10.5px] font-bold text-rose-700">Car not approved · fare paid</span>}
                 </span>
                 <span className="flex shrink-0 flex-col items-end gap-1">
                   <b className="text-[14px] font-extrabold text-gray-900">{inr(calc.total)}</b>
@@ -376,6 +368,7 @@ function TripCard({ item, canCar, onOpen, onRequestOpen }) {
     `${trip.km} km`,
     calc.nights.length ? `${calc.nights.length} night${calc.nights.length > 1 ? "s" : ""}` : null,
     calc.car ? "car" : null,
+    trip.days.some((d) => d.flight) ? "✈ flight" : null,
   ]
     .filter(Boolean)
     .join(" · ");
@@ -408,6 +401,16 @@ function TripCard({ item, canCar, onOpen, onRequestOpen }) {
         </span>
       </span>
     </button>
+    {trip.flownFare > 0 && !calc.carBilled && (
+      <div className="border-t border-gray-100 px-2 py-1">
+        <span className="flex w-full items-center gap-1 rounded-md bg-sky-50 px-1.5 py-0.5 text-[10.5px] font-extrabold text-sky-800" title={`Flown: ${trip.flights.map((l) => `${l.from} → ${l.to}`).join(", ")} -- company ticket`}>
+          <Plane className="h-3.5 w-3.5 shrink-0" aria-hidden />
+          <span className="truncate">
+            Flight · TA <s className="font-semibold opacity-70">{inr(calc.ta + trip.flownFare)}</s> → {inr(calc.ta)}
+          </span>
+        </span>
+      </div>
+    )}
     {/* where the trip's own-car request stands, on the card itself: waiting,
         approved (and for how much) or not approved -- tap for the request */}
     {canCar && req && ["pending", "approved", "rejected"].includes(req.status) && (
@@ -632,7 +635,12 @@ function tripStory(trip) {
   const first = paid[0];
   const last = paid[paid.length - 1];
   const out = first.journey ? `Left ${first.journey.from || "HQ"} ${dayLabel(first.date)}` : `Out from ${dayLabel(first.date)}`;
-  const back = last.journey && last !== first ? ` · back at ${last.journey.to || "HQ"} ${dayLabel(last.date)}` : "";
+  const flewBack = (last.travelLegs || []).slice(-1)[0]?.flown ? last.travelLegs.slice(-1)[0] : null;
+  const back = last.journey && last !== first
+    ? flewBack
+      ? ` · flew ${flewBack.from} → ${flewBack.to} ${dayLabel(last.date)}`
+      : ` · back at ${last.journey.to || "HQ"} ${dayLabel(last.date)}`
+    : "";
   return `${out} · ${trip.days.length} days away${back} · ${trip.km} km`;
 }
 
@@ -675,7 +683,7 @@ function CarMode({ trip, calc, editable, tab, setTab }) {
         tripId: trip.id,
         from: trip.from,
         to: trip.to,
-        places: routeText(trip.places, f.data?.employee?.hq),
+        places: tripRoute(trip, f.data?.employee?.hq),
         km,
         fuel,
         fuelCost: fuelCost(km, fuel),
@@ -1074,6 +1082,18 @@ function TripSheet({ item }) {
           </div>
         )}
 
+        {/* a flown leg: the company's ticket -- the fare it would have paid
+            comes off the trip's TA (13 Nov 2026) */}
+        {trip.flownFare > 0 && !calc.carBilled && (
+          <div className="col-start-2 col-end-4 mt-2 flex items-start gap-1.5 rounded-xl bg-sky-50 px-2.5 py-2 text-[12.5px] leading-snug text-sky-900">
+            <Plane className="mt-0.5 h-4 w-4 shrink-0" aria-hidden />
+            <span className="min-w-0">
+              By road {inr(calc.ta + trip.flownFare)} − flight {trip.flights.map((l) => `${l.from} → ${l.to}`).join(", ")} {inr(trip.flownFare)} ={" "}
+              <b>TA {inr(calc.ta)}</b>
+              <span className="block text-[11.5px] text-sky-700">The flight is the company&rsquo;s ticket, so its leg pays no TA.</span>
+            </span>
+          </div>
+        )}
         <p className="col-start-2 col-end-4 mt-2 flex items-start gap-1.5 text-[12.5px] leading-snug text-gray-500">
           <Info className="mt-0.5 h-4 w-4 shrink-0" aria-hidden />
           {calc.car
@@ -1395,6 +1415,9 @@ function TripDay({ row, data, car, last, multi, night, bills, stayOff, billStrip
   const local = Math.max(0, (row.ta || 0) - (row.journey?.fare || 0));
   const byKm = local > 0 && legKm > 0 && legKm <= (data?.bands?.eqKm ?? 100);
   const perKm = byKm ? Math.round((local / (2 * legKm)) * 100) / 100 : null;
+  // with a leg flown, the journey line shows what was driven; all flown, the flight
+  const jr = row.journey && "road" in row.journey ? row.journey.road : row.journey;
+  const flownOnly = !!row.journey && "road" in row.journey && !row.journey.road;
 
   return (
     <li className="grid grid-cols-[18px_44px_minmax(0,1fr)] gap-x-2">
@@ -1429,13 +1452,31 @@ function TripDay({ row, data, car, last, multi, night, bills, stayOff, billStrip
             `${row.dayType || row.kind} · no TA`
           )}
         </span>
-        {/* the journey between HQs: by car it is just the drive, no train fare */}
-        {row.payable && row.journey && (
+        {/* the journey between HQs: by car it is just the drive, no train fare;
+            flown, the company's ticket */}
+        {row.payable && jr && (
           <span className="mt-0.5 flex items-center gap-1 text-[12px] text-gray-400">
             {car ? <Car className="h-3.5 w-3.5 shrink-0" aria-hidden /> : <TrainFront className="h-3.5 w-3.5 shrink-0" aria-hidden />}
-            {row.journey.from} → {row.journey.to}
-            {row.journey.km != null ? ` · ${Math.round(row.journey.km)} km` : ""}
+            {jr.from} → {jr.to}
+            {jr.km != null ? ` · ${Math.round(jr.km)} km` : ""}
             {car ? " · by car" : ` · ${inr(row.journey.fare)}`}
+          </span>
+        )}
+        {row.payable && flownOnly && (
+          <span className="mt-0.5 flex items-center gap-1 text-[12px] text-gray-400">
+            <Plane className="h-3.5 w-3.5 shrink-0" aria-hidden />
+            {row.journey.from} → {row.journey.to} · by flight
+          </span>
+        )}
+        {/* a flight (marked on the field-expenses dashboard): the flown legs pay
+            no TA -- the company books the ticket -- the rest are paid */}
+        {row.flight && (
+          <span className="mt-1.5 flex w-fit max-w-full items-center gap-1.5 rounded-xl bg-sky-50 px-2.5 py-1.5 text-[12px] font-semibold text-sky-800">
+            <Plane className="h-3.5 w-3.5 shrink-0" aria-hidden />
+            <span className="min-w-0">
+              Flight travel · company ticket · TA ₹0{row.flight.legs.length ? ` for ${row.flight.legs.join(", ")}` : ""}
+              {row.flight.notPaid > 0 ? ` (${inr(row.flight.notPaid)} not claimed)` : ""}
+            </span>
           </span>
         )}
         {row.payable && !car && basis && !row.journey && !byKm && <span className="mt-0.5 block text-[11.5px] text-gray-400">{basis}</span>}
