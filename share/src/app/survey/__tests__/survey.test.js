@@ -67,11 +67,12 @@ describe('surveys and circles', () => {
     expect(withSurveyTiles(DEFAULT_RING_NAV_ITEMS, []).map((t) => t.id)).not.toContain('survey');
   });
 
-  it('draws one circle per survey, due today first, done and missed last', async () => {
+  it('draws one circle per survey, due today first, done last — none for a closed one', async () => {
     const api = createSurveyApi({ source: 'mock', role: 'BE', delay: 0 });
     const tiles = surveyTiles(await api.getMyList(), '2026-11-11');
-    expect(tiles.map((t) => t.label)).toEqual(['Secondary', 'Rx audit', 'Clinic', 'Diwali CME']);
-    const [secondary, rx, footfall, cme] = tiles;
+    /* Diwali CME is closed (missed, due 8 Nov): no circle. */
+    expect(tiles.map((t) => t.label)).toEqual(['Secondary', 'Rx audit', 'Clinic']);
+    const [secondary, rx, footfall] = tiles;
     expect(secondary).toMatchObject({
       href: '/survey/SC-2026-0034',
       count: 1,
@@ -87,18 +88,42 @@ describe('surveys and circles', () => {
     ]);
     expect(footfall).toMatchObject({ iconTone: 'neutral', ariaLabel: 'Clinic footfall check, all sent', segments: [{ tone: 'neutral' }] });
     expect(footfall.caption).toBeUndefined();
-    expect(cme).toMatchObject({ caption: 'Missed', iconTone: 'neutral', segments: [{ tone: 'neutral' }] });
   });
 
-  it('captions an overdue survey Late, in red, ahead of later ones', () => {
-    const row = (c, due) => ({ response: `R-${c}`, campaign: c, state: 'todo', title: `Survey ${c}`, due_date: due, questions: [] });
+  const row = (c, due, state = 'todo') => ({ response: `R-${c}`, campaign: c, state, title: `Survey ${c}`, due_date: due, questions: [] });
+
+  it('orders the circles by the nearest due date', () => {
     const list = { surveys: [row('A', '2026-11-25'), row('B', '2026-11-18')], selftag: [] };
     expect(surveyTiles(list, '2026-11-11').map((t) => [t.id, t.caption])).toEqual([
       ['survey-B', '18 Nov'],
       ['survey-A', '25 Nov'],
     ]);
-    const late = surveyTiles(list, '2026-11-19');
-    expect(late[0]).toMatchObject({ id: 'survey-B', caption: 'Late', captionTone: 'danger', ariaLabel: 'Survey B, 1 left of 1, overdue' });
+  });
+
+  it('shows a circle on its due date, captioned Today in red', () => {
+    const list = { surveys: [row('A', '2026-11-25'), row('B', '2026-11-18')], selftag: [] };
+    const tiles = surveyTiles(list, '2026-11-18');
+    expect(tiles.map((t) => t.id)).toEqual(['survey-B', 'survey-A']);
+    expect(tiles[0]).toMatchObject({ caption: 'Today', captionTone: 'danger', countTone: 'danger', ariaLabel: 'Survey B, 1 left of 1, due today' });
+  });
+
+  it('shows no circle from the day after the due date — whatever its state', () => {
+    const list = {
+      surveys: [row('A', '2026-11-25'), row('B', '2026-11-18'), row('C', '2026-11-18', 'done'), row('D', '2026-11-18', 'missed')],
+      selftag: [],
+    };
+    expect(surveyTiles(list, '2026-11-19').map((t) => t.id)).toEqual(['survey-A']);
+    /* An open Self-tag survey past its due date too. */
+    expect(surveyTiles({ surveys: [], selftag: [{ campaign: 'S', title: 'Survey S', due_date: '2026-11-18', questions: [] }] }, '2026-11-19')).toEqual([]);
+  });
+
+  it('shows no circle for a survey closed before its due date', () => {
+    const list = { surveys: [row('A', '2026-11-25', 'missed'), row('B', '2026-11-25')], selftag: [] };
+    expect(surveyTiles(list, '2026-11-11').map((t) => t.id)).toEqual(['survey-B']);
+  });
+
+  it('shows a survey with no due date', () => {
+    expect(surveyTiles({ surveys: [row('A', null)], selftag: [] }, '2026-11-11').map((t) => t.id)).toEqual(['survey-A']);
   });
 
   it('places the circles right after the entry tiles, before the approvals', () => {

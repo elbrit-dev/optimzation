@@ -18,12 +18,13 @@ describe('SurveyHome — a circle per survey, home first', () => {
     await screen.findByRole('link', { name: /^Secondary statement/ });
     const labels = screen.getAllByRole('link').map((a) => a.getAttribute('aria-label'));
     const first = labels.findIndex((l) => l.startsWith('Secondary statement'));
-    expect(labels.slice(first, first + 4).map((l) => l.split(',')[0])).toEqual([
+    expect(labels.slice(first, first + 3).map((l) => l.split(',')[0])).toEqual([
       'Secondary statement — October',
       'Rx audit — vascular range',
       'Clinic footfall check',
-      'Diwali CME invitation',
     ]);
+    /* Diwali CME is closed: no circle. */
+    expect(labels.some((l) => l.startsWith('Diwali CME'))).toBe(false);
     expect(first).toBe(3);
     expect(screen.getByText('Home page content')).toBeTruthy();
     expect(screen.queryByRole('tab', { name: /To do/ })).toBeNull();

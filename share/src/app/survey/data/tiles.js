@@ -3,6 +3,12 @@
  * built from survey_my_list (SURVEYS_CONTEXT.md §4). Nobody gets a circle
  * for a survey they were not sent; no survey, no circle.
  *
+ *   shown      up to and including the due date (`today` against due_date,
+ *              as daysLeft counts it); from the day after, no circle,
+ *              whatever its state. A closed survey (missed — closed before
+ *              or on its due date) has none either. No due date: shown.
+ *              The /survey/<campaign> page still opens by link.
+ *
  *   label      the title's first words (shape.shortName); the full title is
  *              in ariaLabel
  *   badge      left to send: a Pre-tag survey's pending rows; a Self-tag one
@@ -97,9 +103,17 @@ export function surveyTile(s, today, { hrefBase = '/survey' } = {}) {
   };
 }
 
+/* Has a circle today: not closed, and not past its due date. */
+export function onStrip(s, today) {
+  if (s.state === 'missed') return false;
+  const days = daysLeft(today, s.due_date);
+  return days == null || days >= 0;
+}
+
 /* survey_my_list → the circles, in order. Empty for someone with no survey. */
 export function surveyTiles(list, today, options) {
   return surveysFromMyList(list)
+    .filter((s) => onStrip(s, today))
     .sort(byRank(today))
     .map((s) => surveyTile(s, today, options));
 }
