@@ -1119,15 +1119,45 @@ describe('buildCustomReportV2Input — STOCK report', () => {
     expect(input.dimension_filters).toBeUndefined();
   });
 
-  it('drops dimensions and metrics the report does not define, rather than letting the server 400', () => {
+  it('strict: drops dimensions and metrics the mirror does not define', () => {
     const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
     const input = buildCustomReportV2Input({
       ...stockVars,
       filters: { ...stockVars.filters, group_by: ['Department', 'Item'], selected_columns: ['sales_qty', 'net_primary'] },
-    });
+    }, null, { strict: true });
     expect(input.group_by).toEqual(['ITEM']);
     expect(input.metrics).toEqual(['SALES_QTY']);
     expect(warn).toHaveBeenCalledTimes(2);
+  });
+
+  it('lenient (default): sends keys the mirror lacks as their enum, so a new server column needs only the config', () => {
+    const input = buildCustomReportV2Input({
+      report: 'SECONDARY',
+      sort_by: 'new_metric:desc,not_selected:asc',
+      filters: { group_by: ['Department', 'Zone Head'], selected_columns: ['sales_value', 'new_metric'], zone_head: ['X'] },
+    });
+    expect(input.group_by).toEqual(['DEPARTMENT', 'ZONE_HEAD']);
+    expect(input.metrics).toEqual(['SALES_VALUE', 'NEW_METRIC']);
+    expect(input.dimension_filters).toEqual([{ dimension: 'ZONE_HEAD', operator: 'IN', values: ['X'] }]);
+    // Only a selected column becomes a sort metric; a stray field is still dropped.
+    expect(input.sort).toEqual([{ metric: 'NEW_METRIC', direction: 'DESC' }]);
+  });
+
+  it('retries strict when the server refuses a key the mirror lacks', async () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const ok = { data: { customReportV2: { report_meta: [{ columns: [] }], edges: [] } } };
+    const spy = vi.spyOn(globalThis, 'fetch')
+      .mockResolvedValueOnce(new Response(JSON.stringify({ errors: [{ message: 'INVALID_METRIC_FOR_REPORT: NEW_METRIC' }] }), { status: 200 }))
+      .mockResolvedValueOnce(new Response(JSON.stringify(ok), { status: 200 }));
+    await graphqlQueryReportDataSource({
+      endpoint: '/x', token: 't', reportApiVersion: 'v2',
+      variables: { report: 'SECONDARY', filters: { from_date: '2026-04-01', to_date: '2026-04-30', group_by: ['Department'], selected_columns: ['sales_value', 'new_metric'] } },
+    })({ viewParams: {}, pagination: { first: 0, rows: 50 } });
+    expect(spy).toHaveBeenCalledTimes(2);
+    expect(JSON.parse(spy.mock.calls[0][1].body).variables.input.metrics).toEqual(['SALES_VALUE', 'NEW_METRIC']);
+    expect(JSON.parse(spy.mock.calls[1][1].body).variables.input.metrics).toEqual(['SALES_VALUE']);
+    spy.mockRestore();
+    warn.mockRestore();
   });
 
   it('resolves sort against the report own metrics and dimensions', () => {

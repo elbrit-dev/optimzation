@@ -1,7 +1,8 @@
 import { graphqlRequest } from "@calendar/lib/graphql-client";
 import { AUTH_CONFIG } from "@calendar/components/auth/calendar-users";
 import { getCached } from "@calendar/lib/data-cache";
-import { LEAVE_ALLOCATIONS_QUERY, LEAVE_APPLICATIONS_QUERY, LEAVE_QUERY, LEAVE_TYPES_QUERY, SAVE_LEAVE_APPLICATION_MUTATION, UPDATE_LEAVE_ATTACHMENT_MUTATION, UPDATE_LEAVE_STATUS_MUTATION } from "@calendar/components/calendar/module/leave/graphql/leave.query";
+import { isOnProbation, PROBATION_LEAVE_TYPE } from "@calendar/lib/calendar/probationLeave";
+import { EMPLOYEE_PROBATION_QUERY, LEAVE_APPLICATION_DAYS_QUERY, LEAVE_ALLOCATIONS_QUERY, LEAVE_APPLICATIONS_QUERY, LEAVE_QUERY, LEAVE_TYPES_QUERY, SAVE_LEAVE_APPLICATION_MUTATION, UPDATE_LEAVE_ATTACHMENT_MUTATION, UPDATE_LEAVE_STATUS_MUTATION } from "@calendar/components/calendar/module/leave/graphql/leave.query";
 import { getCachedLeaveBalance, getLeaveCacheKey, setCachedLeaveBalance } from "@calendar/components/calendar/module/leave/cache/leave-cache";
 import { mapErpLeaveToCalendar } from "@calendar/components/calendar/module/leave/mappers/leave.mapper";
 import { invalidateCalendarData } from "@calendar/lib/calendar/invalidate";
@@ -430,6 +431,45 @@ export async function fetchEmployeeHolidayList(employeeId) {
 export async function fetchEmployeeHolidays(employeeId) {
   const holidays = await fetchEmployeeHolidayList(employeeId);
   return new Set(holidays.map((holiday) => holiday.date));
+}
+
+/* Probationary Leave context for one employee: whether they are on probation
+   (Employee.employment_type, nothing else), when they joined, and the
+   Probationary Leave already APPROVED -- the only kind that counts as taken.
+   -> { onProbation, joiningDate, approved: [{ from, to, halfDay, halfDayDate }] }
+   Not cached: an approval in another tab must show at once. */
+export async function fetchProbationLeaveContext(employeeId) {
+  if (!employeeId) return { onProbation: false, joiningDate: null, approved: [] };
+  const empRes = await graphqlRequest(EMPLOYEE_PROBATION_QUERY, {
+    filters: [{ fieldname: "name", operator: "EQ", value: employeeId }],
+  });
+  const emp = empRes?.Employees?.edges?.[0]?.node ?? null;
+  const onProbation = isOnProbation(emp?.employment_type__name);
+  if (!onProbation) return { onProbation: false, joiningDate: emp?.date_of_joining ?? null, approved: [] };
+
+  // Approved AND still-pending ones: a request waiting for approval already
+  // holds its days, so a second request that month goes to LOP instead of
+  // stacking on the same limit. A rejected or cancelled one frees them again.
+  const byStatus = (status, docstatus) => graphqlRequest(LEAVE_APPLICATION_DAYS_QUERY, {
+    first: 200,
+    filters: [
+      { fieldname: "employee", operator: "EQ", value: employeeId },
+      { fieldname: "leave_type", operator: "EQ", value: PROBATION_LEAVE_TYPE },
+      { fieldname: "status", operator: "EQ", value: status },
+      { fieldname: "docstatus", operator: "EQ", value: docstatus },
+    ],
+  });
+  const results = await Promise.all([byStatus("APPROVED", "1"), byStatus("OPEN", "0")]);
+  const approved = results.flatMap((res, i) => (res?.LeaveApplications?.edges ?? []).map((edge) => ({ ...edge, pending: i === 1 }))).map(({ node, pending }) => ({
+    name: node.name,
+    // Pending holds its days only from the current month on (see the form).
+    pending,
+    from: node.from_date,
+    to: node.to_date,
+    halfDay: node.half_day === 1 || node.half_day === true || node.half_day === "1",
+    halfDayDate: node.half_day_date ?? null,
+  }));
+  return { onProbation: true, joiningDate: emp?.date_of_joining ?? null, approved };
 }
 
 export async function fetchLeaveTypes() {

@@ -327,7 +327,17 @@ export function resolveVisibleEmployeeIds(elbritEdges, users) {
 // and a vacant seat has no employee at all but still has an HQ and doctors.
 // -> Map(roleId -> hq), seats without an HQ left out
 export function resolveSeatHqs(elbritEdges = [], roleId) {
-  const isAdmin = LOGGED_IN_USER?.role === "Admin" || LOGGED_IN_USER?.roleId === "Admin";
+  // Head office -- Admin, IT, GM, CEO seats -- plans for every seat. Their own
+  // seat is a root with nothing under it and usually no territory, so the team
+  // walk below gave them no HQ and no doctors at all (IN002, seat "IT").
+  // The same roster that already sees everyone's Other Work. Decided by the
+  // SEAT only (`roleId` here is the resolved custom_role_profile): the
+  // Employee `role_id` field is never read -- it is stale and disagrees with
+  // the seat (IN002's says "Admin"). A back-office seat (BO-IT-SFSM1) counts
+  // as its role template ("IT"), as it does everywhere else.
+  const isAdmin =
+    LOGGED_IN_USER?.role === "Admin" ||
+    ALL_OTHER_WORK_ROLE_CODES.includes(roleCodeFromProfile(effectiveSeat(roleId)));
   const roles = new Set(resolveVisibleRoleIds(elbritEdges, roleId));
   const seats = new Map();
   elbritEdges.forEach(({ node }) => {

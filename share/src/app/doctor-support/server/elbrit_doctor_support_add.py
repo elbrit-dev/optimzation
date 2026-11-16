@@ -236,7 +236,9 @@ if seat != own_seat:
                             order_by="status asc, modified desc", limit_page_length=1)
     holder = holder[0] if holder else {}
     approver = holder.get("name")
-    dept = holder.get("department") or frappe.db.get_value("Role Profile", seat, "custom_department")
+    # The SEAT's department first: a "Vacant_" placeholder often keeps a
+    # stale one, and a department with no products fails the whole add.
+    dept = frappe.db.get_value("Role Profile", seat, "custom_department") or holder.get("department")
     hq = holder.get("custom_territory")
 else:
     approver = emp.get("name")

@@ -2917,7 +2917,7 @@ PLASMIC.registerComponent(SummaryCard, {
       type: "object",
       displayName: "Data",
       description:
-        "PRIMARY: { Name (or hq), Target (a number, or { value, month } at HQ level), color, Incentive, Model: [{ Name, tot_title, Total, data: [{ Title, Values }] }] } - the same shape at every level. SECONDARY: the team payload, wrapped or not - { data: { Team, HQ?, distributors, sales: { quantity, value }, closing: { quantity, value }, customer, total_qty, total_sales_value, total_closing_qty, total_closing_value }, Team }.",
+        "PRIMARY: { Name (or hq), Target (a number, or { value, month } at HQ level), color, Incentive, Model: [{ Name, tot_title, Total, data: [{ Title, Values }] }] } - the same shape at every level. SECONDARY: the team payload, wrapped or not - { data: { Team, HQ?, distributors, sales: { quantity, value }, closing: { quantity, value }, customer, total_qty, total_sales_value, total_closing_qty, total_closing_value, target_value, inc_primary, target_pct, secondary_target_pct, last_month_sales_value, last_month_inc_primary, last_month_target_value }, Team }. The last seven are the Secondary report's own columns (Department / HQ rows and the Total only) and drive Target (it replaced Opening, which double counted), Growth vs last month, Primary − Secondary and Secondary % of target. They may also be nested: target: { value }, primary: { value }, last_month: { sales_value, inc_primary, target_value }. Any missing one shows as —.",
     },
     total: {
       type: "boolean",

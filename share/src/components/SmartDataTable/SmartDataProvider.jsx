@@ -769,6 +769,9 @@ function SmartDataProviderCore({ dataSource: providerDataSource, reportConfig: r
         includeChildCounts: drillDown.includeChildCounts,
         page,
         signal: controller.signal,
+        // The top-level call had to drop config keys the server refused: the
+        // children leave them out too, rather than failing once per expand.
+        strict: !!view.drillDownMeta?.strictKeys,
       });
 
       // The server echoes back the node it answered for. A response that does

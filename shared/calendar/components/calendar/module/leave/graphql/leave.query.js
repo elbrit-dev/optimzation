@@ -75,6 +75,40 @@ query LeaveApplications($first: Int!, $filters: [DBFilterInput!]) {
 `;
 
 
+// Probationary Leave: who is on probation and since when (see
+// lib/calendar/probationLeave.js).
+export const EMPLOYEE_PROBATION_QUERY = `
+query EmployeeProbation($filters: [DBFilterInput!]) {
+  Employees(first: 1, filter: $filters) {
+    edges {
+      node {
+        name
+        employment_type__name
+        date_of_joining
+      }
+    }
+  }
+}
+`;
+
+// Approved leave with the dates and half day, so each day lands in its month.
+export const LEAVE_APPLICATION_DAYS_QUERY = `
+query LeaveApplicationDays($first: Int!, $filters: [DBFilterInput!]) {
+  LeaveApplications(first: $first, filter: $filters) {
+    edges {
+      node {
+        name
+        from_date
+        to_date
+        half_day
+        half_day_date
+        total_leave_days
+      }
+    }
+  }
+}
+`;
+
 export const SAVE_LEAVE_APPLICATION_MUTATION = `
 mutation SaveEvent($doc: String!) {
   saveDoc(doctype: "Leave Application", doc: $doc) {

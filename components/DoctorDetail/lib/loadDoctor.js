@@ -103,7 +103,7 @@ function employeeIndex(org) {
     byId.set(row.name, {
       employee: row.name,
       name: row.employee_name,
-      role: ladderRole(roleId),
+      role: ladderRole(roleId, row.designation),
       roleId,
       division: department.division,
       department: department.label,

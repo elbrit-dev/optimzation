@@ -2004,9 +2004,22 @@
 .ds-drawer[data-edge='center'] {
   inline-size: 100%;
   max-inline-size: min(48rem, 100%);
+  /* The popup must never outgrow the window: it sits centred in a fixed
+     viewport, so a panel taller than the screen loses its top and bottom with
+     nothing to scroll. Utilities beat this layer, so a caller's
+     `md:max-h-none` undoes this cap -- that is what broke the doctor popup and
+     the claims sheets (removed there 2026-11-11). Never pass it. */
   max-block-size: calc(100dvh - 2 * var(--space-24));
   border-radius: var(--ds-radius-xl);
-  overflow: hidden;
+  /* Scrolls by default, so a caller that never made its own scroll region
+     still scrolls rather than being clipped. A Sheet scrolls its Body and
+     keeps the panel itself still (below). */
+  overflow-x: hidden;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  /* A tablet's finger has to be able to scroll it; the bottom sheet keeps
+     touch-action:none because there the drag is the gesture. */
+  touch-action: pan-y;
   transform: translateY(var(--drawer-swipe-movement-y, 0px));
   transition:
     transform var(--dur-base) var(--ds-ease-standard),
@@ -2016,6 +2029,7 @@
   /* A Sheet is rows: a steady height, so switching lists inside it or a
      row expanding does not resize the box under the pointer. */
   block-size: min(52rem, calc(100dvh - 2 * var(--space-24)));
+  overflow: hidden;
 }
 .ds-drawer[data-edge='center'][data-starting-style],
 .ds-drawer[data-edge='center'][data-ending-style] {
