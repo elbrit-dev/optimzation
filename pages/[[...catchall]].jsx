@@ -71,9 +71,48 @@ class PageErrorBoundary extends React.Component {
 
 const HOME = "/";
 
+/* Shown only when Plasmic could not be reached at all for a URL this server has
+   never built (see getStaticProps). Instead of a 500, wait a moment and reload:
+   by then the page has usually been rebuilt in the background. Capped so a
+   long Plasmic outage does not reload forever. */
+function PlasmicRetryScreen() {
+  const [gaveUp, setGaveUp] = React.useState(false);
+  React.useEffect(() => {
+    const key = `plasmic-retry:${window.location.pathname}`;
+    let tries = 0;
+    try { tries = Number(sessionStorage.getItem(key) || 0); } catch {}
+    if (tries >= 6) {
+      setGaveUp(true);
+      try { sessionStorage.removeItem(key); } catch {}
+      return undefined;
+    }
+    try { sessionStorage.setItem(key, String(tries + 1)); } catch {}
+    const t = setTimeout(() => window.location.reload(), 4000);
+    return () => clearTimeout(t);
+  }, []);
+  return (
+    <div role="status" style={{ padding: "48px 24px", textAlign: "center", fontFamily: "system-ui, sans-serif", color: "#444" }}>
+      {gaveUp ? (
+        <button type="button" onClick={() => window.location.reload()} style={{ padding: ".5rem 1rem", cursor: "pointer" }}>
+          Reload
+        </button>
+      ) : (
+        "Loading…"
+      )}
+    </div>
+  );
+}
+
 export default function PlasmicLoaderPage(props) {
-  const { plasmicData, queryCache } = props;
+  const { plasmicData, queryCache, plasmicUnavailable } = props;
   const router = useRouter();
+  React.useEffect(() => {
+    // the page loaded: forget any reload count left by PlasmicRetryScreen
+    if (plasmicData) {
+      try { sessionStorage.removeItem(`plasmic-retry:${window.location.pathname}`); } catch {}
+    }
+  }, [plasmicData]);
+  if (plasmicUnavailable) return <PlasmicRetryScreen />;
   if (!plasmicData || plasmicData.entryCompMetas.length === 0) {
     return <Error statusCode={404} />;
   }
@@ -97,7 +136,20 @@ export default function PlasmicLoaderPage(props) {
 export const getStaticProps = async (context) => {
   const { catchall } = context.params ?? {};
   const plasmicPath = typeof catchall === 'string' ? catchall : Array.isArray(catchall) ? `/${catchall.join('/')}` : '/';
-  const plasmicData = await retryPlasmicHiccup(() => PLASMIC.maybeFetchComponentData(plasmicPath));
+  const known = reuseLastGood(plasmicPath);
+  let plasmicData;
+  try {
+    // With a known-good copy to fall back on, do not keep the person waiting.
+    plasmicData = await retryPlasmicHiccup(() => PLASMIC.maybeFetchComponentData(plasmicPath), known ? 2 : undefined);
+  } catch (err) {
+    if (!isPlasmicHiccup(err)) throw err;
+    if (known) {
+      console.warn(`Plasmic unavailable for ${plasmicPath}; serving the last good copy of ${known.plasmicData.entryCompMetas[0].path}`);
+      return { props: known, revalidate: 60 };
+    }
+    console.warn(`Plasmic unavailable for ${plasmicPath}; sending the retry screen`);
+    return { props: { plasmicUnavailable: true }, revalidate: 5 };
+  }
   if (!plasmicData) {
     // non-Plasmic catch-all. Re-checked every minute: without a revalidate
     // this "not found" was cached FOREVER, so a page opened before it was
@@ -117,31 +169,92 @@ export const getStaticProps = async (context) => {
       <PlasmicComponent component={pageMeta.displayName} />
     </PlasmicRootProvider>
   );
+  rememberLastGood(pageMeta, plasmicData, queryCache);
   // Rebuild at most every 10 minutes: each rebuild runs as a Netlify function,
   // and at 60s every page regenerated almost every minute of the working day.
   // User data is fetched client-side, so this only delays Plasmic publishes.
   return { props: { plasmicData, queryCache }, revalidate: 600 };
 }
 
-/* Plasmic's CDN keeps answering "status: 499; response: Upstream responded
-   with 412" for a few seconds at a time (hundreds a day on app-prod, Nov 2026).
-   A page already built just keeps its old copy, but a URL seen for the first
-   time is built on the request — every /login/<who>/… impersonation and
-   /doctor-detail/<id> — so the person got a 500 and had to reload 4-5 times.
-   Wait it out here instead; anything else still throws at once. Total wait
-   stays well inside the 60s request limit. */
-async function retryPlasmicHiccup(fetchOnce) {
-  const waits = [1500, 3000, 5000, 8000];
+/* Plasmic's CDN keeps failing for a few seconds to a few minutes at a time:
+   "status: 499; response: Upstream responded with 412" (Nov 2026), then from
+   15 Nov 2026 "Error fetching loader data: Please upgrade your @plasmicapp/*
+   packages" (hundreds a day on app-prod; the same URL loads fine a minute
+   later, so it is not really about our version). A page already built just
+   keeps its old copy, but a URL seen for the first time is built on the
+   request — every /login/<who>/… impersonation and /doctor-detail/<id> — so
+   the person got a 500 and had to reload 4-5 times. Wait it out here; an
+   error that is not Plasmic's still throws at once. Total wait (~30s) stays
+   inside the 60s request limit. */
+function isPlasmicHiccup(err) {
+  return /Error fetching loader data|Upstream responded with|status: (4\d\d|5\d\d)|fetch failed|ECONNRESET|ETIMEDOUT|EAI_AGAIN|socket hang up/i.test(
+    String(err?.message || err) + String(err?.cause?.code || "")
+  );
+}
+
+async function retryPlasmicHiccup(fetchOnce, maxRetries) {
+  const waits = [1500, 3000, 5000, 8000, 12000].slice(0, maxRetries);
   for (let attempt = 0; ; attempt += 1) {
     try {
       return await fetchOnce();
     } catch (err) {
-      const hiccup = /Upstream responded with 4\d\d|status: (412|499|5\d\d)/.test(String(err?.message || err));
-      if (!hiccup || attempt >= waits.length) throw err;
+      if (!isPlasmicHiccup(err) || attempt >= waits.length) throw err;
       console.warn(`Plasmic hiccup, retry ${attempt + 1}/${waits.length}:`, err?.message || err);
       await new Promise((resolve) => setTimeout(resolve, waits[attempt]));
     }
   }
+}
+
+/* Every /doctor-detail/<id> (and /login/<who>/<name>/<reason>) is the SAME
+   Plasmic page: the id lives only in entryCompMetas[0].params. So the last
+   copy this server built for a route pattern serves any other URL of that
+   pattern while Plasmic is down — with this URL's params swapped in. Kept per
+   server instance (in memory); a fresh instance has none until its first
+   good build. */
+const lastGoodByRoute = new Map();
+
+function routeMatcher(pattern) {
+  const names = [];
+  const source = pattern
+    .split("/")
+    .map((seg) => {
+      const catchAll = seg.match(/^\[\[?\.\.\.(.+?)\]?\]$/);
+      if (catchAll) { names.push([catchAll[1], true]); return "(.+)"; }
+      const param = seg.match(/^\[(.+)\]$/);
+      if (param) { names.push([param[1], false]); return "([^/]+)"; }
+      return seg.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+    })
+    .join("/");
+  const re = new RegExp(`^${source}$`);
+  return (path) => {
+    const m = path.match(re);
+    if (!m) return null;
+    const params = {};
+    names.forEach(([name, many], i) => {
+      const value = m[i + 1]; // Next has already decoded the catch-all segments
+      params[name] = many ? value.split("/") : value;
+    });
+    return params;
+  };
+}
+
+function rememberLastGood(pageMeta, plasmicData, queryCache) {
+  const pattern = pageMeta?.path;
+  if (!pattern || !pattern.includes("[")) return; // fixed pages keep their own ISR copy
+  lastGoodByRoute.set(pattern, { match: routeMatcher(pattern), plasmicData, queryCache });
+}
+
+function reuseLastGood(plasmicPath) {
+  for (const entry of lastGoodByRoute.values()) {
+    const params = entry.match(plasmicPath);
+    if (!params) continue;
+    const [meta, ...rest] = entry.plasmicData.entryCompMetas;
+    return {
+      plasmicData: { ...entry.plasmicData, entryCompMetas: [{ ...meta, params }, ...rest] },
+      queryCache: entry.queryCache,
+    };
+  }
+  return null;
 }
 
 /* A Plasmic hiccup must not fail the whole build. Three builds in a row (16 Oct
