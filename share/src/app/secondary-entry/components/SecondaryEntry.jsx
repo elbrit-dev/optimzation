@@ -196,7 +196,11 @@ export function SecondaryEntry({
   const counts = countByStatus(entries);
   const prog = progress(entries);
   const matrix = statusMatrix(entries);
-  const pending = pendingForSeat(entries);
+  /* FULL EDIT (the server's `full_edit`: the CRM Manager entering for a
+     seat): the sheet holds EVERY stockist, Pending and Approved too, and an
+     upload corrects their figures without changing their status. */
+  const fullEdit = Boolean(serverMode && viewing && server.data?.full_edit && server.data?.seat === viewing.seat);
+  const pending = fullEdit ? entries : pendingForSeat(entries);
 
   const [filter, setFilter] = useState('draft');
   const [openName, setOpenName] = useState(null);
@@ -283,11 +287,11 @@ export function SecondaryEntry({
   }, [getWriter, slot, serverMode, server]);
 
   const saveEntry = useCallback(
-    async (name, { lines, submit }, { sync = true } = {}) => {
+    async (name, { lines, submit, keepStatus = false }, { sync = true } = {}) => {
       const writer = await getWriter();
       /* A covered vacant seat's row saves to its real record, as that seat. */
       const entry = entriesRef.current.find((e) => e.name === name);
-      const saved = await writer.saveSeat(entry?.docName ?? name, { roleProfile: entry?.seat ?? roleProfile, lines, submit });
+      const saved = await writer.saveSeat(entry?.docName ?? name, { roleProfile: entry?.seat ?? roleProfile, lines, submit, keepStatus });
       if (saved && typeof saved === 'object') {
         /* A save's reply is the whole record — every seat's lines; laid
            over the list as the seat's own, as the server script sends it. */
@@ -493,6 +497,7 @@ export function SecondaryEntry({
       const priceOf = new Map(products.map((p) => [p.item, p.price]));
       let filled = 0;
       let resubmitted = 0;
+      let corrected = 0;
       /* Kept apart, each said in one plain line below: already sent for
          approval (not changed), and could not be saved. */
       const skipped = [];
@@ -536,9 +541,12 @@ export function SecondaryEntry({
            approval (found on UAT). So a revisit is resubmitted, as its own
            page's only button does. */
         const revisit = entry.status === 'revisit';
+        /* Full edit: a Pending / Approved stockist keeps its status. */
+        const keepStatus = fullEdit && (entry.status === 'pending' || entry.status === 'approved');
         try {
-          await saveEntry(name, { lines, submit: revisit }, { sync: false });
-          if (revisit) resubmitted += 1;
+          await saveEntry(name, { lines, submit: revisit, keepStatus }, { sync: false });
+          if (keepStatus) corrected += 1;
+          else if (revisit) resubmitted += 1;
           else filled += 1;
         } catch (e) {
           console.warn(`[secondary-entry] ${entry.stockist} not saved:`, e?.message ?? e);
@@ -549,18 +557,19 @@ export function SecondaryEntry({
          was not and why, what to do next — no workflow words. */
       const few = (names) => (names.length > 2 ? `${names.slice(0, 2).join(', ')} and ${names.length - 2} more` : names.join(', '));
       setBulkMessage({
-        tone: notSaved.length || errors.length || (!filled && !resubmitted && !skipped.length) ? 'danger' : 'neutral',
+        tone: notSaved.length || errors.length || (!filled && !resubmitted && !corrected && !skipped.length) ? 'danger' : 'neutral',
         text: [
           filled ? `${partyCount(task, filled)} saved — open and tap Submit.` : null,
           resubmitted ? `${partyCount(task, resubmitted)} corrected and sent for approval.` : null,
+          corrected ? `${partyCount(task, corrected)} updated, status unchanged.` : null,
           skipped.length ? `Not changed, already sent for approval: ${few(skipped)}.` : null,
           notSaved.length ? `Could not save ${few(notSaved)} — please try again.` : null,
           errors.length ? `${errors[0]}${errors.length > 1 ? ` (+${errors.length - 1} more)` : ''}` : null,
-          !filled && !resubmitted && !skipped.length && !notSaved.length && !errors.length ? 'Nothing to save in this file.' : null,
+          !filled && !resubmitted && !corrected && !skipped.length && !notSaved.length && !errors.length ? 'Nothing to save in this file.' : null,
         ].filter(Boolean).join(' '),
       });
-      if (filled || resubmitted) {
-        setFilter('draft');
+      if (filled || resubmitted || corrected) {
+        if (!corrected) setFilter('draft');
         await refetch();
       }
     } finally {
