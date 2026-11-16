@@ -28,9 +28,11 @@ export async function fetchErpTiles({ endpointUrl, token, month, today, fetchImp
   const params = {};
   if (month) params.month = month;
   if (today) params.today = today;
-  // v=2 (this code only): RBM / SM get the Doctor Service approval tile
-  // for the services waiting on them in the RBM -> SM -> GM chain.
-  params.v = '2';
+  // v=2: RBM / SM get the Doctor Service approval tile for the services
+  // waiting on them in the RBM -> SM -> GM chain. app-uat only for now
+  // (16 Nov 2026): NEXT_PUBLIC_SERVICE_RBM_SM_APPROVAL is 1 there and 0 on
+  // live (apphosting.prod.yaml), so live RBMs / SMs get no Service tile.
+  if (process.env.NEXT_PUBLIC_SERVICE_RBM_SM_APPROVAL === '1') params.v = '2';
   // app-uat only (13 Nov 2026): every reporting officer gets the Expense
   // approval tile. Live never sends it (apphosting.prod.yaml sets it to 0).
   if (process.env.NEXT_PUBLIC_EXPENSE_APPROVALS_FOR_ALL === '1') params.expense_all = '1';

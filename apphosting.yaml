@@ -49,6 +49,13 @@ env:
     value: "1"
     availability: [BUILD, RUNTIME]
 
+  # Doctor Service RBM / SM approval tile on the Ring Nav (16 Nov 2026):
+  # app-uat asks the Ring Nav script with v=2 and RBMs / SMs get the Service
+  # approval tile. apphosting.prod.yaml turns it off for live.
+  - variable: NEXT_PUBLIC_SERVICE_RBM_SM_APPROVAL
+    value: "1"
+    availability: [BUILD, RUNTIME]
+
   # ── Firebase web config (public) ──────────────────────────────────────────
   - variable: NEXT_PUBLIC_FIREBASE_API_KEY
     value: AIzaSyAU7NbYC2FizLMT0HWJLWPTR0XkEn-xBXA

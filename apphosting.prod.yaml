@@ -26,3 +26,9 @@ env:
   - variable: NEXT_PUBLIC_EXPENSE_APPROVALS_FOR_ALL
     value: "0"
     availability: [BUILD, RUNTIME]
+
+  # Doctor Service RBM / SM approval tile stays off on live (16 Nov 2026): the
+  # app does not send v=2 to the Ring Nav script. app-uat turns it on.
+  - variable: NEXT_PUBLIC_SERVICE_RBM_SM_APPROVAL
+    value: "0"
+    availability: [BUILD, RUNTIME]
