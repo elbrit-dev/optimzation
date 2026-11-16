@@ -5,8 +5,10 @@
 //      x-erp-token:    <the user's ERP token>
 //
 // Reads a bill the moment it is attached -- the only time any AI runs on it
-// (lib/billReader.js): toMarkdown (a photo sent upright and at the size it reads
-// anyway, 13 Nov 2026), then Clairic (values) and Clef Flash (title).
+// (lib/billReader.js): Gemma 4 with thinking off (16 Nov 2026) reads a photo, a
+// PDF's own text ("text", copied out in the browser) or a scanned PDF's page
+// pictures ("page" parts, made in the browser); then Clairic (values) and Clef
+// Flash (title).
 // -> { read: { values, confidence, title, titleConfidence, md }, sig, ms }
 //    sig: the server's signature over `read`; the bill carries both to
 //    /api/claims/check, which compares them with what was submitted.
@@ -20,7 +22,8 @@ import { SLOTS, manualBillVerdict, tripBillVerdict } from "../../../shared/calen
 
 export const config = { api: { bodyParser: false } };
 
-const MAX = 10 * 1024 * 1024 + 64 * 1024; // the form's 10 MB, plus the multipart wrapping
+// the form's 10 MB, plus a scanned PDF's page pictures (up to 5, ~0.3-1 MB each; 16 Nov 2026) and the multipart wrapping
+const MAX = 15 * 1024 * 1024 + 64 * 1024;
 const tokenHeader = (t) => (/^(token|bearer)\s/i.test(t) ? t : `token ${t}`);
 
 async function rawBody(req) {
@@ -47,7 +50,7 @@ async function rawBody(req) {
    -> { verdict, read?, sig?, file?: { name, url }, fingerprint?: { name, flag } } */
 /* Store the bill in the ERP as the rep (private; attached to the month's
    claim later) and hash it. Started the moment the upload arrives, so it runs
-   WHILE toMarkdown reads the bill (13 Nov 2026) -- a refused bill's file is
+   WHILE Gemma 4 reads the bill (13 Nov 2026) -- a refused bill's file is
    deleted again. -> { stored, file, image } | { error } */
 async function storeBill({ origin, userErp, body, type }) {
   const auth = { Authorization: tokenHeader(userErp) };
@@ -217,7 +220,7 @@ export default async function handler(req, res) {
         manual: true,
         title: TITLE[given.kind],
         titleConfidence: null,
-        values: { total: given.billed, date: given.kind === "Stay" ? given.checkOut : given.date, check_in: given.checkIn || null, check_out: given.checkOut || null, vendor: given.vendor, bill_no: null, gstin: null },
+        values: { total: given.billed, date: given.kind === "Stay" ? given.checkOut : given.date, check_in: given.checkIn || null, check_out: given.checkOut || null, vendor: given.vendor, bill_no: given.billNo || null, gstin: null },
         confidence: {},
         md: "",
         at: new Date().toISOString(),

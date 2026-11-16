@@ -17,6 +17,7 @@
  * forwards the same user token -- the ERP still decides who may see a file. */
 
 import { cached, evictCached, gql, loggedUser, makeConn as makeErpConn } from "../../support-report/data/erpClient";
+import { pdfForReading } from "@calendar/lib/field-expenses/bill-reader";
 
 export function makeConn({ url, token }) {
   try {
@@ -630,8 +631,9 @@ export async function saveSanctioned(conn, claim, sanctionedById) {
 /* ------------------------------ AI check -------------------------------- */
 
 /* Reads a bill the moment it is attached -- the only time any AI runs on it:
-   our server (/api/claims/read-bill) sends it to Cloudflare toMarkdown, then
-   Clairic (values) and Clef Flash (title) on that Markdown. The form fills
+   our server (/api/claims/read-bill) sends it to Cloudflare Gemma 4 (a photo,
+   a PDF's text copied out here, or a scanned PDF's page pictures), then
+   Clairic (values) and Clef Flash (title) on its answer. The form fills
    title, amount and date from it; the person may change them. The read comes
    back signed by the server and goes along to checkClaim, which compares it
    with what was submitted in plain code.
@@ -640,6 +642,10 @@ export async function saveSanctioned(conn, claim, sanctionedById) {
 export async function extractBill(conn, file) {
   const form = new FormData();
   form.append("files", file, file.name || "bill");
+  // a PDF also goes as its text, or -- a scanned PDF -- as pictures of its pages
+  const pdf = await pdfForReading(file);
+  if (pdf.text) form.append("text", pdf.text);
+  for (const p of pdf.pages || []) form.append("page", p, p.name);
   const res = await fetch("/api/claims/read-bill", {
     method: "POST",
     headers: { "x-erp-token": conn.authToken, "x-erp-endpoint": conn.endpointUrl },

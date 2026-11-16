@@ -381,15 +381,18 @@ export function CarRequestSheet({ opts }) {
         : null,
   });
 
-  // the trips to pick from: a trip card asks for its own trip only; the
-  // month summary lists every trip of the month, then the upcoming HQ Tour
-  // Plan trips that have no request yet
+  // the trips to pick from: the month summary (the only place a car is asked
+  // for since 14 Nov 2026) lists every trip of the month, then the upcoming
+  // HQ Tour Plan trips that have no request yet; a rejected request asked
+  // again opens on its own trip
   const options = travelled
     ? [fromTrip(travelled)]
     : [
         ...(picking
           ? [...f.claimed]
-              .filter((x) => x.trip.kind !== "hq")
+              // every trip that pays TA (14 Nov 2026): EQ days and outstation
+              // trips, and an HQ run only if it has TA
+              .filter((x) => x.trip.kind !== "hq" || x.trip.ta > 0)
               .sort((a, b) => a.trip.from.localeCompare(b.trip.from))
               .map((x) => fromTrip(x.trip, x.claim, x.calc.request))
           : []),

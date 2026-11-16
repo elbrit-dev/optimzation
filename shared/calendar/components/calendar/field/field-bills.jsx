@@ -159,7 +159,8 @@ export function BillEditor({ bill, kind, onRemove }) {
 const KIND_SLOT = { Stay: "stays", Food: "foods", Fuel: "fuels", Toll: "tolls" };
 const KIND_WORD = { Stay: "Stay (hotel)", Food: "Food", Fuel: "Fuel", Toll: "Toll" };
 
-/* A bill the reader could not read (handwritten, faded, no bill no or date):
+/* A HANDWRITTEN bill (every one, 16 Nov 2026), or one the reader could not
+   read (faded, no bill no or date):
    instead of a refusal, the rep enters its type, date(s) and amount next to
    the photo, starting from whatever was read. The server checks the same
    trip rules on what is typed, stores the photo and fingerprints it; the line
@@ -204,7 +205,7 @@ export function ManualBill({ file, slot, trip, prefill, reason, onCancel, onDone
     setError("");
     setBusy(true);
     try {
-      const r = await enterTripBill(file, slot, trip, { kind, date, checkIn, checkOut, amount: Number(amount), vendor, why: why.trim(), cash }, cash ? null : proof);
+      const r = await enterTripBill(file, slot, trip, { kind, date, checkIn, checkOut, amount: Number(amount), vendor, why: why.trim(), cash, billNo: p.billNo || null }, cash ? null : proof);
       if (!r.ok) return setError(r.reason);
       onDone(KIND_SLOT[r.bill.kind] || KIND_SLOT[kind], r.bill);
     } finally {

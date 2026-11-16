@@ -10,8 +10,9 @@
                  morning after the trip ends is fine; nights outside the trip
                  do not count and their share of the bill comes off;
      3. read  -- the type, date and total were read with 60 % confidence or
-                 more. Below that (a handwritten bill, no bill no / date, a
-                 faded print) the bill is NOT refused: the rep enters its type,
+                 more, and the bill is PRINTED. A HANDWRITTEN bill, however
+                 clear (16 Nov 2026), or one read below that (no bill no /
+                 date, a faded print) is NOT refused: the rep enters its type,
                  date(s) and amount by hand next to the photo (`manual`, 12 Nov
                  2026) -- manualBillVerdict checks those, the line is marked
                  "entered by hand" and gets a person's look in Accounts.
@@ -31,16 +32,18 @@ export const SLOTS = {
 const SLOT_OF_TITLE = Object.fromEntries(Object.entries(SLOTS).map(([k, s]) => [s.title, k]));
 
 const CLEAR = "Upload a clear photo of the bill — this one could not be read.";
+const HANDWRITTEN = "This is a handwritten bill. Check the details read from it, add the payment proof and say why it's handwritten.";
 const MANUAL = "This bill couldn't be read (handwritten, faded, or no bill no / date). Enter its details below — your photo stays with it.";
 /* Not readable enough: no refusal -- the rep enters it by hand, starting from
    whatever was read. */
-function unreadable(read, slotKind) {
+function unreadable(read, slotKind, reason = MANUAL) {
   const v = read?.values || {};
   const guess = slotKind || { "Hotel bill": "Stay", "Food bill": "Food", "Fuel bill": "Fuel", Toll: "Toll" }[read?.title] || null;
   return {
     ok: false,
     manual: true,
-    reason: MANUAL,
+    handwritten: reason === HANDWRITTEN,
+    reason,
     prefill: {
       kind: guess,
       amount: typeof v.total === "number" && v.total > 0 ? Math.round(v.total) : null,
@@ -48,6 +51,9 @@ function unreadable(read, slotKind) {
       checkIn: ISO.test(String(v.check_in || "")) ? v.check_in : null,
       checkOut: ISO.test(String(v.check_out || "")) ? v.check_out : null,
       vendor: v.vendor || null,
+      // not shown: carried to the fingerprint, so the same bill entered
+      // again is still caught by its number
+      billNo: v.bill_no || null,
     },
   };
 }
@@ -137,6 +143,12 @@ export function tripBillVerdict(read, slot, trip) {
     if (ci && co && (co <= trip.from || ci > trip.to)) return { ok: false, reason: `This stay is ${span(ci, addDays(co, -1))} — outside this trip (${span(trip.from, trip.to)}).` };
   }
 
+  // a HANDWRITTEN bill, however clear: entered by hand, from what was read,
+  // with the payment proof and the reason (16 Nov 2026). Only after the
+  // refusals above -- a handwritten bill of the wrong kind, or clearly
+  // outside the trip, is still refused.
+  if (read.handwritten) return unreadable(read, s.kind, HANDWRITTEN);
+
   // 3. (before the date: a date needs a sure read) the total
   if (!(typeof v.total === "number" && v.total > 0) || !sure(conf.total)) return unreadable(read, s.kind);
   const billed = Math.round(v.total);
@@ -188,7 +200,8 @@ export function manualBillVerdict(entry, slot, trip) {
   if (why.length < 5) return { ok: false, reason: "Say why you only have a handwritten bill." };
   // 13 Nov 2026: the payment proof is REQUIRED (the server checks a second
   // file came) -- unless it was paid in cash, which has none
-  const base = { ok: true, manual: true, kind: e.kind, billed, vendor: String(e.vendor || "").trim().slice(0, 140) || null, billNo: null, why, cash: !!e.cash };
+  // billNo: the number the reader found on a handwritten bill (not typed)
+  const base = { ok: true, manual: true, kind: e.kind, billed, vendor: String(e.vendor || "").trim().slice(0, 140) || null, billNo: String(e.billNo || "").trim().slice(0, 140) || null, why, cash: !!e.cash };
   if (e.kind === "Stay") {
     const checkIn = ISO.test(String(e.checkIn || "")) ? e.checkIn : null;
     let checkOut = ISO.test(String(e.checkOut || "")) ? e.checkOut : null;

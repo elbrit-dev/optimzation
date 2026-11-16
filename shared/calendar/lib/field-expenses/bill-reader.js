@@ -1,5 +1,6 @@
 /* Scanning a bill onto a planner trip (12 Nov 2026). The app server reads it
-   (Cloudflare toMarkdown -> Clairic + Clef), checks it against the trip --
+   (Cloudflare Gemma 4 -- a photo, a PDF's text or a scanned PDF's pages --
+   then Clairic + Clef), checks it against the trip --
    right type, date inside the trip (a hotel bill by its nights), read with
    60 % confidence -- stores it in the ERP as the rep and registers its
    fingerprint so the same bill can't come back. A bill that fails any of it
@@ -45,6 +46,75 @@ export async function shrinkPhoto(file) {
   }
 }
 
+/* What the server's Gemma 4 reads of a PDF bill (16 Nov 2026), made here in
+   the browser -- the server never opens the PDF:
+     a PDF with text  its own text, copied out page by page (exact, like
+                      toMarkdown was) -> { text }; no pictures are made
+     a scanned PDF    (photos saved as a PDF, no text in it) its pages as
+                      JPEGs -> { pages }, read by Gemma all in one request
+   Up to PDF_PAGES pages (a bill is a page or two; this keeps a long PDF from
+   making the upload huge). pdf.js is loaded from cdnjs only when a PDF is
+   attached. Not a PDF, or it could not be opened -> {} (the server then asks
+   for a photo instead). -> { text?, pages? } */
+const PDFJS = "https://cdnjs.cloudflare.com/ajax/libs/pdf.js/4.10.38";
+const PAGE_PX = 1600;
+export const PDF_PAGES = 5;
+// enough letters and a figure to be a bill's text, not a stray scanner stamp
+const hasText = (t) => t.replace(/[^A-Za-z0-9]/g, "").length >= 40 && /\d/.test(t);
+export async function pdfForReading(file) {
+  try {
+    if (!file || file.type !== "application/pdf" || typeof document === "undefined") return {};
+    const pdfjs = await import(/* webpackIgnore: true */ `${PDFJS}/pdf.min.mjs`);
+    pdfjs.GlobalWorkerOptions.workerSrc = `${PDFJS}/pdf.worker.min.mjs`;
+    const doc = await pdfjs.getDocument({ data: new Uint8Array(await file.arrayBuffer()) }).promise;
+    try {
+      const count = Math.min(doc.numPages, PDF_PAGES);
+      const texts = [];
+      for (let n = 1; n <= count; n++) {
+        const { items } = await (await doc.getPage(n)).getTextContent();
+        const body = items.map((it) => (it.str || "") + (it.hasEOL ? "\n" : " ")).join("").replace(/[ \t]+\n/g, "\n").trim();
+        texts.push(count > 1 ? `--- page ${n} ---\n${body}` : body);
+      }
+      const text = texts.join("\n\n").trim();
+      if (hasText(text)) return { text };
+      const base = String(file.name || "bill").replace(/\.\w+$/, "");
+      const pages = [];
+      for (let n = 1; n <= count; n++) {
+        const page = await doc.getPage(n);
+        const one = page.getViewport({ scale: 1 });
+        const viewport = page.getViewport({ scale: PAGE_PX / Math.max(one.width, one.height) });
+        const canvas = document.createElement("canvas");
+        canvas.width = Math.round(viewport.width);
+        canvas.height = Math.round(viewport.height);
+        const ctx = canvas.getContext("2d");
+        ctx.fillStyle = "#fff";
+        ctx.fillRect(0, 0, canvas.width, canvas.height);
+        await page.render({ canvasContext: ctx, viewport }).promise;
+        const blob = await new Promise((r) => canvas.toBlob(r, "image/jpeg", 0.85));
+        if (!blob) return {};
+        pages.push(new File([blob], `${base}-page${n}.jpg`, { type: "image/jpeg" }));
+      }
+      return { pages };
+    } finally {
+      doc.destroy();
+    }
+  } catch (e) {
+    console.warn("bill reader: could not open the PDF to read it:", e?.message || e);
+    return {};
+  }
+}
+
+/* -> the form the reader is sent: the bill itself ("files"), and for a PDF
+   its text ("text") or its page pictures ("page" parts). */
+export async function billForm(file) {
+  const [small, pdf] = await Promise.all([shrinkPhoto(file), pdfForReading(file)]);
+  const form = new FormData();
+  form.append("files", small, small.name || "bill");
+  if (pdf.text) form.append("text", pdf.text);
+  for (const p of pdf.pages || []) form.append("page", p, p.name);
+  return form;
+}
+
 const erpOrigin = () => {
   try {
     return new URL(AUTH_CONFIG.erpUrl).origin;
@@ -61,9 +131,7 @@ const tokenHeader = (t) => (/^(token|bearer)\s/i.test(String(t || "")) ? t : `to
 export async function readTripBill(file, slot, trip) {
   const bad = checkBillFile(file);
   if (bad) return { ok: false, reason: bad };
-  const small = await shrinkPhoto(file);
-  const form = new FormData();
-  form.append("files", small, small.name || "bill");
+  const form = await billForm(file);
   let json;
   try {
     const res = await fetch("/api/claims/read-bill", {

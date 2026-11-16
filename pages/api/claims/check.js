@@ -5,7 +5,7 @@
 //      x-erp-token: <the user's ERP token>
 //
 // The bill check, in plain code (5 Nov 2026) -- no AI runs here. The AI ran
-// once, when the bill was attached (/api/claims/read-bill: toMarkdown, then
+// once, when the bill was attached (/api/claims/read-bill: Gemma 4, then
 // Clairic and Clef Flash), and its read came back signed by this server. Here
 // each bill's signed read is compared with what the person submitted on the
 // row (lib/billReader.js compareBill): total and date must match and the photo

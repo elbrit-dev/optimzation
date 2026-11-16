@@ -11,7 +11,7 @@ import { inr, isoDay, ledger, shortDate } from "./model";
 /* The settlement sheets (Miscellaneous), in the app's theme:
  *
  *   BillSheet  "Add a bill" -- the AI bill check form: what it was for, a
- *              photo of the bill (read once on attach -- Cloudflare toMarkdown,
+ *              photo of the bill (read once on attach -- Cloudflare Gemma 4,
  *              then Clairic + Clef Flash: title, amount and date;
  *              not-a-bill or unreadable is refused and nothing is saved),
  *              which the person checks and corrects only if needed.
@@ -103,7 +103,7 @@ export function BillSheet({ conn, me, claims = [], advances = [], today = new Da
     setFile(f);
     setThumb(f.type.startsWith("image/") ? URL.createObjectURL(f) : null);
     setRead({ busy: true, file: f });
-    // The one AI run (toMarkdown -> Clairic + Clef Flash, 5 Nov 2026): title,
+    // The one AI run (Gemma 4 -> Clairic + Clef Flash; 16 Nov 2026): title,
     // amount and date come off the bill; the person checks them,
     // changes any if needed, and sends. The signed read goes along to the check.
     extractBill(conn, f)

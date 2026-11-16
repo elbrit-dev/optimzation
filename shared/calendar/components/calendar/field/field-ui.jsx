@@ -22,6 +22,7 @@ import {
   Car,
   Check,
   ChevronDown,
+  CircleHelp,
   ChevronRight,
   Eye,
   Fuel,
@@ -32,6 +33,7 @@ import {
   ShieldCheck,
   TrainFront,
   Undo2,
+  X,
   Zap,
 } from "lucide-react";
 import { cn } from "@calendar/lib/utils";
@@ -46,13 +48,14 @@ import {
   inr,
   rangeLabel,
 } from "@calendar/lib/field-expenses/field-days";
-import { FUEL_PRICE, MILEAGE_KM_PER_L, carDayShares, fuelCost, tripRoute } from "@calendar/lib/field-expenses/claim-rules";
+import { FUEL_PRICE, MILEAGE_KM_PER_L, carDayShares } from "@calendar/lib/field-expenses/claim-rules";
 import { PREVIEW, STATUS_LABEL, canRecall, isLocked, statusKey } from "@calendar/lib/field-expenses/trip-claims-store";
 import { readTripBill } from "@calendar/lib/field-expenses/bill-reader";
 import { addTripToMonth, addTripsToMonth, monthWord, removeTripFromMonth, tripClaimRows } from "@calendar/lib/field-expenses/erp-claim";
 import { CarRequestSheet, KpiSheet, RequestSheet } from "@calendar/components/calendar/field/field-sheets";
 import { BILL_NAME, BillChip, BillEditor, ChipButton, ManualBill, useBillPicker } from "@calendar/components/calendar/field/field-bills";
 import { useTripBillViewer } from "@calendar/components/calendar/field/field-bill-view";
+import { HELP_STATUS, askedText, htmlText, listTripHelp, sendTripHelp } from "@calendar/lib/field-expenses/trip-help";
 
 const MONTH_LONG = ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"];
 const monthName = (ym) => MONTH_LONG[Number(ym.slice(5, 7)) - 1];
@@ -159,15 +162,16 @@ export function FieldStrip() {
       {canOpen && f.stripOpen && (
         <>
           <div className="-mx-3 mt-2 flex gap-2 overflow-x-auto px-3 pb-1 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden" aria-label="Trips">
-            {/* HQ / EQ first, then the outstation trips by date (earliest first),
-                an EQ day with its own car after them, the month's summary last
-                (13 Nov 2026); each trip card says OS / EQ in its title */}
+            {/* the trips with no bills in one card first (HQ / EQ, and a BE's /
+                ABM's OS trips -- 14 Nov 2026), then the trips with bill uploads:
+                outstation by date (earliest first), an EQ day with its own car
+                after them, the month's summary last; each card says OS / EQ */}
             {f.claimed.some(isLocalTrip) && <LocalCard items={f.claimed.filter(isLocalTrip)} onOpen={f.openLocal} />}
             {[(x) => x.trip.kind === "tour", (x) => x.trip.kind !== "tour"].flatMap((pick) =>
               f.claimed
                 .filter((x) => !isLocalTrip(x) && pick(x))
                 .sort((p, q) => p.trip.from.localeCompare(q.trip.from))
-                .map((x) => <TripCard key={x.trip.id} item={x} canCar={f.canCar} onOpen={() => f.openTrip(x.trip.id)} onRequestOpen={(id) => f.openRequest(id)} />)
+                .map((x) => <TripCard key={x.trip.id} item={x} onOpen={() => f.openTrip(x.trip.id)} />)
             )}
             <MonthCard month={m} stats={f.stats} claimed={f.claimed} pulledAt={f.data?.pulledAt} onOpen={f.openKpi} />
           </div>
@@ -184,29 +188,43 @@ export function FieldStrip() {
   );
 }
 
-/* An HQ or EQ (same-day) trip with nothing to upload: no own-car request
-   sent for it (waiting or approved -- bills may follow, so it has its own
-   card; a rejected one is paid the fare and comes back) and no fuel / toll
-   bills. These sit together in one card. */
+/* A trip with nothing to upload sits in the one combined card (14 Nov 2026:
+   by bill uploads, not by OS): no own-car request sent for it (waiting or
+   approved -- fuel bills may follow; a rejected one is paid the fare and
+   comes back), no fuel bills, and no stay / food bills asked for or added.
+   A BE / ABM never uploads (their outstation DA is already 100 %), so every
+   trip of theirs -- OS too -- is in it; an RBM and up keeps an outstation
+   trip with nights on its own card for the bills. */
 const CAR_ASKED = new Set(["pending", "approved"]);
-export const isLocalTrip = (x) => x.trip.kind !== "tour" && !CAR_ASKED.has(x.calc.request?.status) && !x.calc.carBilled;
+const needsBills = (calc) => (calc.billsAllowed && calc.nights.length > 0 && !calc.fullNoBill) || calc.stayBills + calc.foodBills > 0;
+export const isLocalTrip = (x) => !CAR_ASKED.has(x.calc.request?.status) && !x.calc.carBilled && !needsBills(x.calc);
 
-/* The HQ & EQ days, as one card: how many, what they come to, what is left
-   to claim -- tap for the date-wise list. */
+// "1 HQ day · 16 EQ days · 2 OS trips"
+const localKinds = (items) => {
+  const hq = items.filter((x) => x.trip.kind === "hq").reduce((n, x) => n + x.trip.days.filter((d) => d.payable).length, 0);
+  const eq = items.filter((x) => x.trip.kind === "day").length;
+  const os = items.filter((x) => x.trip.kind === "tour").length;
+  return {
+    os,
+    text: [hq ? `${hq} HQ day${hq > 1 ? "s" : ""}` : null, eq ? `${eq} EQ day${eq > 1 ? "s" : ""}` : null, os ? `${os} OS trip${os > 1 ? "s" : ""}` : null].filter(Boolean).join(" · "),
+  };
+};
+const localTitle = (os) => (os ? "HQ, EQ & OS" : "HQ & EQ days");
+
+/* The trips with no bills, as one card: how many, what they come to, what is
+   left to claim -- tap for the date-wise list. */
 function LocalCard({ items, onOpen }) {
   const open = items.filter((x) => x.claim.status === "unclaimed");
-  const hq = items.filter((x) => x.trip.kind === "hq").reduce((n, x) => n + x.trip.days.filter((d) => d.payable).length, 0);
-  const eq = items.filter((x) => x.trip.kind !== "hq").length;
   const ta = items.reduce((a, x) => a + x.calc.ta, 0);
   const da = items.reduce((a, x) => a + x.calc.da, 0);
   const total = items.reduce((a, x) => a + x.calc.total, 0);
   const worst = [...items].sort((a, b) => rank(a.claim) - rank(b.claim))[0];
-  const kinds = [hq ? `${hq} HQ day${hq > 1 ? "s" : ""}` : null, eq ? `${eq} EQ day${eq > 1 ? "s" : ""}` : null].filter(Boolean).join(" · ");
+  const { os, text: kinds } = localKinds(items);
   return (
     <div className={cn(CARD, "w-52 bg-white p-0", open.length ? "border-l-blue-500" : "border-l-gray-300")}>
       <button type="button" onClick={onOpen} className="flex min-w-0 flex-col gap-0.5 px-2.5 pb-1.5 pt-2 text-left">
         <span className="flex min-w-0 items-center gap-1.5">
-          <b className="min-w-0 flex-1 truncate text-[13px] font-bold text-gray-900">HQ &amp; EQ days</b>
+          <b className="min-w-0 flex-1 truncate text-[13px] font-bold text-gray-900">{localTitle(os)}</b>
           {open.length ? (
             <Pill tone="unclaimed" className="px-1.5 text-[9.5px]">{open.length} to claim</Pill>
           ) : (
@@ -230,9 +248,10 @@ function LocalCard({ items, onOpen }) {
   );
 }
 
-/* The HQ & EQ days, date by date: tap a day for its own sheet (an EQ day asks
-   for the car there); "Claim all" puts every day still to claim into the
-   month's claim at once. */
+/* The trips with no bills, date by date: tap a row to open it in place (its
+   days, TA and DA -- 14 Nov 2026, no separate page); a recall still opens
+   the trip's sheet. "Claim all" puts every one still to claim
+   into the month's claim at once. */
 function LocalDaysSheet() {
   const f = useFieldExpenses();
   const items = f.claimed.filter(isLocalTrip).sort((a, b) => a.trip.from.localeCompare(b.trip.from));
@@ -241,8 +260,18 @@ function LocalDaysSheet() {
   const allTotal = items.reduce((a, x) => a + x.calc.total, 0);
   const [confirming, setConfirming] = useState(false);
   const [busy, setBusy] = useState(false);
+  const [expanded, setExpanded] = useState(() => new Set());
+  const toggle = (id) =>
+    setExpanded((s) => {
+      const n = new Set(s);
+      if (n.has(id)) n.delete(id);
+      else n.add(id);
+      return n;
+    });
+  const { os, text: kinds } = localKinds(items);
   const mon = monthWord(f.month);
-  const nDays = `${open.length} day${open.length > 1 ? "s" : ""}`;
+  const unit = os ? "trip" : "day";
+  const nDays = `${open.length} ${unit}${open.length > 1 ? "s" : ""}`;
   const claimAll = async () => {
     setBusy(true);
     try {
@@ -272,9 +301,9 @@ function LocalDaysSheet() {
   return (
     <div className="-mx-4 flex min-h-0 flex-1 flex-col overflow-y-auto overscroll-contain px-4 [&>*]:shrink-0 gap-3">
       <div className="pr-10">
-        <ModalTitle className="text-[22px] font-extrabold leading-tight tracking-tight text-gray-900">HQ &amp; EQ days</ModalTitle>
+        <ModalTitle className="text-[22px] font-extrabold leading-tight tracking-tight text-gray-900">{localTitle(os)}</ModalTitle>
         <p className="mt-0.5 text-[14px] font-semibold text-gray-500">
-          {monthName(f.month)} · {items.length} day{items.length === 1 ? "" : "s"} · no bills needed
+          {monthName(f.month)} · {kinds} · no bills needed
         </p>
       </div>
       <ol className="flex flex-col divide-y divide-gray-100 rounded-2xl border border-gray-200 bg-white">
@@ -283,16 +312,20 @@ function LocalDaysSheet() {
           const req = calc.request;
           const d = new Date(`${trip.from}T00:00:00`);
           const isHq = trip.kind === "hq";
+          const isOs = trip.kind === "tour";
+          const on = expanded.has(trip.id);
+          // a recall still needs the trip's own sheet (the car: month summary)
+          const recallable = canRecall(claim);
           return (
             <li key={trip.id}>
-              <button type="button" onClick={() => f.openTrip(trip.id, "local")} className="flex w-full items-center gap-3 px-3 py-2.5 text-left active:bg-gray-50">
+              <button type="button" onClick={() => toggle(trip.id)} aria-expanded={on} className={cn("flex w-full items-center gap-3 px-3 py-2.5 text-left active:bg-gray-50", on && "bg-blue-50/80")}>
                 <span className="flex w-10 shrink-0 flex-col items-center leading-none">
                   <b className="text-[17px] font-extrabold text-gray-900">{d.getDate()}</b>
                   <small className="mt-0.5 text-[10px] font-bold uppercase text-gray-500">{d.toLocaleDateString("en-IN", { weekday: "short" })}</small>
                 </span>
                 <span className="flex min-w-0 flex-1 flex-col gap-0.5">
                   <span className="flex min-w-0 items-center gap-1.5">
-                    <span className={cn("shrink-0 rounded px-1 text-[9.5px] font-extrabold", isHq ? "bg-gray-100 text-gray-700" : "bg-blue-50 text-blue-800")}>{isHq ? "HQ" : "EQ"}</span>
+                    <span className={cn("shrink-0 rounded px-1 text-[9.5px] font-extrabold", isHq ? "bg-gray-100 text-gray-700" : isOs ? "bg-indigo-50 text-indigo-800" : "bg-blue-50 text-blue-800")}>{isHq ? "HQ" : isOs ? "OS" : "EQ"}</span>
                     <b className="min-w-0 truncate text-[13.5px] font-bold text-gray-900">{trip.name}</b>
                   </span>
                   <span className="truncate text-[11.5px] text-gray-500">
@@ -311,8 +344,66 @@ function LocalDaysSheet() {
                   </span>
                   <StatusPill claim={claim} className="px-1.5 text-[9.5px]" />
                 </span>
-                <ChevronRight className="h-4 w-4 shrink-0 text-gray-300" aria-hidden />
+                <ChevronDown className={cn("h-4 w-4 shrink-0 text-gray-400 transition-transform", on && "rotate-180")} aria-hidden />
               </button>
+              {on && (
+                <div className="flex flex-col gap-2.5 border-t border-dashed border-blue-200 bg-blue-50/50 px-3 pb-3 pt-3">
+                  <TripHelp item={x} day />
+                  <ol>
+                    {trip.days.map((dd, i) => (
+                      <TripDay
+                        key={dd.date}
+                        row={dd}
+                        data={f.data}
+                        car={false}
+                        last={i === trip.days.length - 1}
+                        multi={trip.days.length > 1}
+                        night={calc.nights.find((n) => n.date === dd.date)}
+                        carShare={null}
+                        bills={null}
+                        stayOff={false}
+                        billStrip={null}
+                      />
+                    ))}
+                  </ol>
+                  {/* the officer's / final check's change, with why */}
+                  {(claim.changes || []).length > 0 && (
+                    <div className="flex flex-col gap-0.5 rounded-xl bg-amber-50 px-2.5 py-2 text-[12px] leading-snug text-amber-900">
+                      {claim.changes.map((a) => (
+                        <span key={a.id}>
+                          {a.type === "Travel" ? "TA" : a.type} · {dayLabel(a.date)}: <s>{inr(a.amount)}</s> → <b>{inr(a.final)}</b>
+                          {a.reason ? ` — “${a.reason}”` : ""}
+                        </span>
+                      ))}
+                    </div>
+                  )}
+                  {claim.officer?.decision === "rejected" && (
+                    <span className="rounded-xl bg-rose-50 px-2.5 py-2 text-[12px] leading-snug text-rose-900">
+                      <b>Rejected by {f.manager}</b>
+                      {claim.officer.note ? ` — “${claim.officer.note}”` : ""}
+                    </span>
+                  )}
+                  {/* the total, right under the day's amounts (the same columns as
+                      the day rows above), a recall on the left */}
+                  <div className="grid grid-cols-[18px_44px_minmax(0,1fr)] items-center gap-x-2">
+                    <span className="col-start-3 flex min-w-0 items-center gap-2 px-2.5">
+                    {recallable && (
+                      <button
+                        type="button"
+                        onClick={() => f.openTrip(trip.id, "local")}
+                        className="flex shrink-0 items-center gap-1 rounded-xl border border-gray-200 bg-white px-2.5 py-1.5 text-[12.5px] font-bold text-blue-700 active:bg-gray-50"
+                      >
+                        <Undo2 className="h-3.5 w-3.5" aria-hidden /> Recall
+                        <ChevronRight className="h-3.5 w-3.5" aria-hidden />
+                      </button>
+                    )}
+                    <span className="ml-auto text-right text-[12.5px] tabular-nums text-gray-500">
+                      TA {inr(calc.ta)} + DA {inr(calc.da)} = <b className="text-[14px] font-extrabold text-gray-900">{inr(calc.total)}</b>
+                    </span>
+                    </span>
+                  </div>
+                </div>
+              )}
             </li>
           );
         })}
@@ -365,7 +456,7 @@ const CARD = "flex shrink-0 flex-col gap-0.5 overflow-hidden rounded-xl border b
 
 /* A trip card; an RBM, ZSM or SM asks for the car from here, and the card
    says where that request stands. */
-function TripCard({ item, canCar, onOpen, onRequestOpen }) {
+function TripCard({ item, onOpen }) {
   const { trip, claim, calc } = item;
   const meta = [
     rangeLabel(trip.from, trip.to),
@@ -376,7 +467,6 @@ function TripCard({ item, canCar, onOpen, onRequestOpen }) {
   ]
     .filter(Boolean)
     .join(" · ");
-  const req = calc.request;
   return (
     <div
       className={cn(
@@ -430,29 +520,8 @@ function TripCard({ item, canCar, onOpen, onRequestOpen }) {
         </span>
       </div>
     )}
-    {/* where the trip's own-car request stands, on the card itself: waiting,
-        approved (and for how much) or not approved -- tap for the request */}
-    {canCar && req && ["pending", "approved", "rejected"].includes(req.status) && (
-      <div className="border-t border-gray-100 px-2 py-1">
-        <button
-          type="button"
-          onClick={() => onRequestOpen(req.id)}
-          className={cn(
-            "flex w-full items-center gap-1 rounded-md px-1.5 py-0.5 text-[10.5px] font-extrabold",
-            req.status === "approved" ? "bg-green-50 text-green-700" : req.status === "rejected" ? "bg-rose-50 text-rose-700" : "bg-amber-50 text-amber-800"
-          )}
-        >
-          {req.status === "approved" ? <Check className="h-3.5 w-3.5 shrink-0" aria-hidden /> : <Car className="h-3.5 w-3.5 shrink-0" aria-hidden />}
-          <span className="truncate">
-            {req.status === "approved"
-              ? `Car approved · up to ${inr(req.ask)}`
-              : req.status === "rejected"
-                ? "Car not approved · fare paid"
-                : `Car requested · ${inr(req.asked || req.ask)} · awaiting GM`}
-          </span>
-        </button>
-      </div>
-    )}
+    {/* no car request on the trip card (14 Nov 2026): it is asked for, and
+        followed, from the month summary card only */}
     </div>
   );
 }
@@ -640,27 +709,16 @@ function FieldSheets() {
   );
 }
 
-/* How the trip was travelled, inside the trip itself (RBM, ZSM, SM): normal
-   TA (the fare), or own car -- ticked, it shows the ask (km ÷ mileage × fuel
-   price + tolls, editable) and sends the request to the approver from here.
-   Waiting, it says so (withdraw to change it); approved, the trip's TA turns
-   into fuel + tolls and the fuel / toll scans appear in the TA block above.
-   Until approval the trip is paid the normal fare. */
-function CarMode({ trip, calc, editable, tab, setTab }) {
+/* The trip's own-car request, inside the trip (RBM, ZSM, SM) -- its state
+   only. Since 14 Nov 2026 the car is asked for from the month summary card
+   only, so there is no fare / own-car switch or ask here. Waiting: withdraw
+   or view it; approved: the fuel upload shows at the bottom; not approved:
+   why, and that the fare is paid. */
+function CarMode({ calc, editable }) {
   const f = useFieldExpenses();
   const req = calc.request;
-  // the tab is the trip sheet's: it also decides the pinned upload button
-  // (fare -> stay / food bills, own car -> fuel / toll bills)
-  const on = tab === "car";
-  // one fuel price for every car: petrol (12 Nov 2026)
-  const fuel = "Petrol";
-  const [askIn, setAskIn] = useState(null);
   const [busy, setBusy] = useState(false);
-  const km = trip.km || 0;
-  const tolls = 0; // not paid (13 Nov 2026)
-  const sugg = fuelCost(km, fuel);
-  const ask = askIn != null ? Math.max(0, Math.round(Number(askIn) || 0)) : sugg;
-
+  if (!req) return null;
   const act = async (fn, ok) => {
     setBusy(true);
     try {
@@ -672,126 +730,201 @@ function CarMode({ trip, calc, editable, tab, setTab }) {
       setBusy(false);
     }
   };
-  const send = () =>
-    act(async () => {
-      await f.actions.requestOwnCar({
-        planId: trip.id,
-        tripId: trip.id,
-        from: trip.from,
-        to: trip.to,
-        places: tripRoute(trip, f.data?.employee?.hq),
-        km,
-        fuel,
-        fuelCost: fuelCost(km, fuel),
-        tolls,
-        suggested: sugg,
-        ask,
-      });
-    }, `Car request sent to ${f.carApprover}`);
-
-  const box = "rounded-2xl border border-gray-200 bg-white px-3 py-2.5";
-  // already asked: its state, and what can be done with it (the GM decides in
-  // the ERP -- Car Request -- from the approvals page)
-  const live = req && req.status !== "rejected" ? req : null;
-  const ok = live?.status === "approved";
-  const changed = ok && live.asked && live.approvedAmount !== live.asked;
-  const status = live ? (
-      <div className={cn(box, "flex flex-col gap-2", ok ? "border-green-200 bg-green-50" : "border-amber-200 bg-amber-50")}>
-        <span className="flex items-center gap-2 text-[13px] font-bold text-gray-900">
-          <Car className={cn("h-4 w-4", ok ? "text-green-700" : "text-amber-700")} aria-hidden />
-          {ok
-            ? `Own car approved up to ${inr(req.ask)}${changed ? ` (you asked ${inr(req.asked)})` : ""}`
-            : `Own car requested · ${inr(req.ask)} · waiting for ${f.carApprover}`}
+  const box = "rounded-2xl border px-3 py-2.5";
+  const who = f.carApprover.replace(/^the /, "");
+  if (req.status === "rejected") {
+    return (
+      <div className={cn(box, "flex flex-col gap-1 border-rose-200 bg-rose-50")}>
+        <span className="flex items-center gap-2 text-[13px] font-bold text-rose-900">
+          <Car className="h-4 w-4 text-rose-700" aria-hidden />
+          Own car not approved · you asked {inr(req.asked)}
         </span>
-        <span className="text-[12.5px] leading-snug text-gray-600">
-          {ok ? "Fuel bills replace the fare · no bill, the fare is paid." : "Fare until approved · then upload the fuel bills."}
-          {ok && req.note ? <span className="mt-0.5 block italic text-gray-500">{f.carApprover.replace(/^the /, "")}: &ldquo;{req.note}&rdquo;</span> : null}
+        <span className="text-[12.5px] leading-snug text-rose-900">
+          {req.note ? `${who}: “${req.note}”` : "No reason given."} · fare paid{editable ? " · ask again from the month summary" : ""}
         </span>
-        {editable && (
-          <span className="flex flex-wrap gap-2">
-            <button type="button" onClick={() => f.openRequest(req.id)} className="rounded-xl border border-gray-300 bg-white px-3 py-1.5 text-[12.5px] font-bold text-gray-800">
-              View request
-            </button>
-            {!ok && (
-              <button type="button" disabled={busy} onClick={() => act(() => f.actions.withdrawRequest(req.id), "Car request withdrawn — the trip is back to the normal fare")} className="rounded-xl border border-gray-300 bg-white px-3 py-1.5 text-[12.5px] font-bold text-gray-800">
-                Withdraw
-              </button>
-            )}
-          </span>
-        )}
       </div>
-  ) : null;
-  // rejected: why, and the rep may ask again below
-  const rejected = req && req.status === "rejected" ? (
-    <div className={cn(box, "flex flex-col gap-1 border-rose-200 bg-rose-50")}>
-      <span className="flex items-center gap-2 text-[13px] font-bold text-rose-900">
-        <Car className="h-4 w-4 text-rose-700" aria-hidden />
-        Own car not approved · you asked {inr(req.asked)}
-      </span>
-      <span className="text-[12.5px] leading-snug text-rose-900">
-        {req.note ? `${f.carApprover.replace(/^the /, "")}: “${req.note}”` : "No reason given."} · fare paid{editable ? " · ask again below" : ""}
-      </span>
-    </div>
-  ) : null;
-  if (!editable) return status || rejected ? <div className="col-start-1 col-end-4 mt-2">{status || rejected}</div> : null;
+    );
+  }
+  const ok = req.status === "approved";
+  const changed = ok && req.asked && req.approvedAmount !== req.asked;
   return (
-    <div className="col-start-1 col-end-4 mt-2 flex flex-col gap-2">
-      <span className="text-[13px] font-bold text-gray-500">How did you travel?</span>
-      <span role="radiogroup" aria-label="How did you travel" className="grid grid-cols-2 gap-1 rounded-2xl bg-gray-100 p-1">
-        {[
-          [false, "Normal TA · fare"],
-          [true, "Own car · fuel"],
-        ].map(([v, label]) => (
-          <button
-            key={label}
-            type="button"
-            role="radio"
-            aria-checked={on === v}
-            onClick={() => setTab(v ? "car" : "fare")}
-            className={cn("min-h-10 rounded-xl px-2 text-[13px] font-bold", on === v ? "bg-white text-gray-900 shadow-sm" : "text-gray-500")}
-          >
-            {label}
-          </button>
-        ))}
+    <div className={cn(box, "flex flex-col gap-2", ok ? "border-green-200 bg-green-50" : "border-amber-200 bg-amber-50")}>
+      <span className="flex items-center gap-2 text-[13px] font-bold text-gray-900">
+        <Car className={cn("h-4 w-4", ok ? "text-green-700" : "text-amber-700")} aria-hidden />
+        {ok ? `Own car approved up to ${inr(req.ask)}${changed ? ` (you asked ${inr(req.asked)})` : ""}` : `Own car requested · ${inr(req.ask)} · waiting for ${f.carApprover}`}
       </span>
-      {on && status}
-      {on && !live && rejected}
-      {!on && live && (
-        <span className="text-[12px] leading-snug text-gray-500">
-          {ok ? "Own car approved for this trip — open Own car to upload the fuel bills." : "Own car requested — open Own car to see it."}
+      <span className="text-[12.5px] leading-snug text-gray-600">
+        {ok ? "Fuel bills replace the fare · no bill, the fare is paid." : "Fare until approved · then upload the fuel bills."}
+        {ok && req.note ? <span className="mt-0.5 block italic text-gray-500">{who}: &ldquo;{req.note}&rdquo;</span> : null}
+      </span>
+      {editable && (
+        <span className="flex flex-wrap gap-2">
+          <button type="button" onClick={() => f.openRequest(req.id)} className="rounded-xl border border-gray-300 bg-white px-3 py-1.5 text-[12.5px] font-bold text-gray-800">
+            View request
+          </button>
+          {!ok && (
+            <button type="button" disabled={busy} onClick={() => act(() => f.actions.withdrawRequest(req.id), "Car request withdrawn — the trip is back to the normal fare")} className="rounded-xl border border-gray-300 bg-white px-3 py-1.5 text-[12.5px] font-bold text-gray-800">
+              Withdraw
+            </button>
+          )}
         </span>
       )}
-      {on && !live && (
-        <div className={cn(box, "flex flex-col gap-2 bg-gray-50")}>
-          <span className="flex justify-between gap-2 text-[12.5px] text-gray-600">
-            <span>Fuel price</span>
-            <b className="text-gray-900">₹{FUEL_PRICE[fuel]}/l</b>
-          </span>
-          <span className="flex justify-between gap-2 text-[12.5px] text-gray-600">
-            <span>Fuel · {km} km ÷ {MILEAGE_KM_PER_L} km/l × ₹{FUEL_PRICE[fuel]}</span>
-            <b className="text-gray-900">{inr(fuelCost(km, fuel))}</b>
-          </span>
-          <span className="flex justify-between gap-2 border-t border-dashed border-gray-300 pt-1.5 text-[12.5px] font-bold text-gray-900">
-            <span>Suggested</span>
-            <b>{inr(sugg)}</b>
-          </span>
-          <label className="flex items-center justify-between gap-2 text-[12.5px] font-bold text-gray-700">
-            Your ask
-            <span className="flex h-9 w-32 items-center gap-1 rounded-lg border border-gray-300 bg-white px-2">
-              <span className="text-gray-400">₹</span>
-              <input type="number" inputMode="numeric" min="0" step="10" value={askIn ?? String(sugg)} onChange={(e) => setAskIn(e.target.value)} className="w-full bg-transparent text-[13px] font-semibold outline-none" aria-label="Amount asked" />
+    </div>
+  );
+}
+
+/* Help on a trip (14 Nov 2026; a Task since 16 Nov 2026): a wording line in
+   the look of the "Going by car…  Request ›" line, "Help" at its right; tap ->
+   a drawer from the bottom with the rep's requests on this trip so far (each
+   one's progress and the team's replies) and a box to raise a new one. Each
+   request is an ERP Task carrying the trip day by day (trip-help.js). */
+const HELP_TONE = {
+  blue: "bg-blue-50 text-blue-700",
+  amber: "bg-amber-50 text-amber-800",
+  green: "bg-green-50 text-green-700",
+  gray: "bg-gray-100 text-gray-600",
+};
+const whenText = (s) => {
+  const d = new Date(String(s || "").replace(" ", "T"));
+  if (Number.isNaN(d.getTime())) return "";
+  return d.toLocaleString("en-IN", { day: "numeric", month: "short", hour: "numeric", minute: "2-digit" });
+};
+function HelpRequest({ t }) {
+  const st = HELP_STATUS[t.status] || { label: t.status, tone: "gray" };
+  const asked = askedText(t.description);
+  const done = t.status === "Completed" || t.status === "Cancelled";
+  return (
+    <li className="flex flex-col gap-1.5 rounded-xl border border-gray-200 bg-white px-3 py-2.5">
+      <span className="flex items-center gap-2">
+        <span className={cn("rounded-md px-1.5 py-0.5 text-[11px] font-bold", HELP_TONE[st.tone])}>{st.label}</span>
+        <small className="min-w-0 flex-1 truncate text-[11.5px] font-semibold text-gray-500">
+          {t.name} · raised {whenText(t.creation)}
+        </small>
+      </span>
+      {asked && <p className="whitespace-pre-line text-[13px] text-gray-800">{asked}</p>}
+      {t.replies.map((r, i) => (
+        <div key={i} className={cn("rounded-lg px-2.5 py-1.5 text-[12.5px]", r.mine ? "bg-gray-50 text-gray-700" : "bg-blue-50 text-blue-900")}>
+          <b className="font-bold">{r.mine ? "You" : r.by}</b> <small className="text-[11px] text-gray-500">{whenText(r.at)}</small>
+          <p className="whitespace-pre-line">{htmlText(r.content)}</p>
+        </div>
+      ))}
+      {!t.replies.length && !done && <small className="text-[11.5px] text-gray-500">No reply yet — it&apos;s with the expense team.</small>}
+    </li>
+  );
+}
+
+function TripHelp({ item, day = false }) {
+  const f = useFieldExpenses();
+  const { trip, calc, claim } = item;
+  const [open, setOpen] = useState(false);
+  const [text, setText] = useState("");
+  const [busy, setBusy] = useState(false);
+  // the rep's requests on this trip: null = loading, [] = none
+  const [tasks, setTasks] = useState(null);
+  const [loadError, setLoadError] = useState("");
+  const ready = text.trim().length >= 5;
+  useEffect(() => {
+    if (!open) return undefined;
+    let alive = true;
+    setLoadError("");
+    listTripHelp(trip)
+      .then((list) => alive && setTasks(list))
+      .catch((e) => {
+        if (!alive) return;
+        setTasks((cur) => cur || []);
+        setLoadError(errText(e));
+      });
+    return () => {
+      alive = false;
+    };
+  }, [open, trip.from, trip.to]); // eslint-disable-line react-hooks/exhaustive-deps
+  const send = async () => {
+    setBusy(true);
+    try {
+      const t = await sendTripHelp({ trip, calc, claim, emp: f.emp, message: text });
+      toast.success(`Request sent${t?.name ? ` · ${t.name}` : ""} — the reply shows here`);
+      setText("");
+      if (t) setTasks((cur) => [t, ...(cur || [])]);
+    } catch (e) {
+      toast.error(errText(e));
+    } finally {
+      setBusy(false);
+    }
+  };
+  const any = (tasks || []).length > 0;
+  return (
+    <>
+      <button
+        type="button"
+        onClick={() => setOpen(true)}
+        className={cn("flex w-full items-center gap-2 rounded-2xl bg-blue-50 text-left text-blue-800 hover:bg-blue-100 active:bg-blue-100", day ? "px-2.5 py-2" : "px-3 py-2.5")}
+      >
+        <CircleHelp className="h-4 w-4 shrink-0" aria-hidden />
+        <span className={cn("min-w-0 flex-1 truncate font-semibold", day ? "text-[12.5px]" : "text-[13px]")}>
+          {day ? (trip.kind === "tour" ? "Something wrong in this trip?" : "Something wrong on this day?") : "Something wrong in this trip? Ask for help"}
+        </span>
+        <span className={cn("flex shrink-0 items-center font-extrabold", day ? "text-[12.5px]" : "text-[13px]")}>
+          Help <ChevronRight className="h-4 w-4" aria-hidden />
+        </span>
+      </button>
+      {open && (
+        // fixed inside the sheet (its panel is transformed): covers the sheet only
+        <div className="fixed inset-0 z-30 flex items-end bg-black/40" onClick={busy ? undefined : () => setOpen(false)}>
+          <div
+            role="dialog"
+            aria-label="Ask for help"
+            className="flex max-h-[85%] w-full flex-col gap-2 overflow-y-auto rounded-t-3xl bg-white px-4 pt-2.5 pb-[max(16px,env(safe-area-inset-bottom))] shadow-[0_-6px_24px_rgba(0,0,0,.12)]"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <span className="mx-auto mb-1 h-1 w-10 shrink-0 rounded-full bg-gray-300" aria-hidden />
+            <span className="flex items-center gap-2">
+              <b className="min-w-0 flex-1 truncate text-[15px] font-extrabold text-gray-900">Help · {trip.name}</b>
+              <small className="shrink-0 text-[12px] font-semibold text-gray-500">{rangeLabel(trip.from, trip.to)}</small>
+              <button type="button" aria-label="Close" disabled={busy} onClick={() => setOpen(false)} className="rounded-lg p-1 text-gray-500 hover:bg-gray-100">
+                <X className="h-4 w-4" />
+              </button>
             </span>
-          </label>
-          <button type="button" disabled={busy || !(km > 0 && ask > 0)} onClick={send} className="flex min-h-10 items-center justify-center gap-2 rounded-xl bg-blue-600 px-4 text-[14px] font-bold text-white disabled:bg-gray-200 disabled:text-gray-500">
-            {busy && <Loader2 className="h-4 w-4 animate-spin" aria-hidden />}
-            Send to {f.carApprover} for approval
-          </button>
-          <span className="text-[11.5px] leading-snug text-gray-500">
-            {f.carApprover.replace(/^the /, "")} approves (may change the amount) or rejects · fare until then.
-          </span>
+            {tasks === null ? (
+              <span className="flex items-center gap-2 py-1 text-[12.5px] text-gray-500">
+                <Loader2 className="h-4 w-4 animate-spin" aria-hidden /> Checking your requests…
+              </span>
+            ) : (
+              any && (
+                <>
+                  <b className="text-[12.5px] font-bold text-gray-600">Your requests</b>
+                  <ul className="flex flex-col gap-2">
+                    {tasks.map((t) => (
+                      <HelpRequest key={t.name} t={t} />
+                    ))}
+                  </ul>
+                </>
+              )
+            )}
+            {loadError && <small className="text-[11.5px] font-semibold text-amber-700">Couldn&apos;t load your earlier requests: {loadError}</small>}
+            {any && <b className="mt-1 text-[12.5px] font-bold text-gray-600">Raise another request</b>}
+            <textarea
+              autoFocus={!any}
+              rows={3}
+              value={text}
+              maxLength={1000}
+              onChange={(e) => setText(e.target.value)}
+              placeholder="What is wrong? e.g. 13 Oct shows local only — I went to Ottapalam and back (38 km)."
+              className="w-full shrink-0 resize-none rounded-xl border border-gray-300 bg-white px-3 py-2.5 text-[13.5px] text-gray-900 outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-100"
+            />
+            <small className="text-[11.5px] text-gray-500">{trip.from === trip.to ? "This day's" : "This trip's"} details go with it, day by day.</small>
+            <button
+              type="button"
+              disabled={busy || !ready}
+              onClick={send}
+              className="flex min-h-11 shrink-0 items-center justify-center gap-2 rounded-xl bg-blue-600 text-[15px] font-bold text-white disabled:bg-gray-200 disabled:text-gray-500"
+            >
+              {busy && <Loader2 className="h-4 w-4 animate-spin" aria-hidden />}
+              Send request
+            </button>
+          </div>
         </div>
       )}
-    </div>
+    </>
   );
 }
 
@@ -806,8 +939,9 @@ function TripSheet({ item }) {
   const [manual, setManual] = useState(null); // { file, slot, prefill, reason }
   // fare or own car: picks what the pinned upload takes (opens on own car when
   // a car request is waiting or approved)
-  const [tab, setTab] = useState(() => (calc.request && calc.request.status !== "rejected" ? "car" : "fare"));
-  const carTab = f.canCar && trip.kind !== "hq" && tab === "car";
+  // 14 Nov 2026: no fare / own-car switch here -- the car is asked for from
+  // the month summary only; once approved, the fuel upload simply shows
+  const carTab = f.canCar && trip.kind !== "hq" && calc.carApproved;
   const [sendError, setSendError] = useState(null); // why the last send was refused
   const [billInput, pickBill] = useBillPicker();
   // each day's bills as pictures, and the full-screen viewer (13 Nov 2026)
@@ -1028,11 +1162,15 @@ function TripSheet({ item }) {
         <p className="mt-0.5 text-[14px] font-semibold text-gray-500">
           {rangeLabel(trip.from, trip.to)} · {nDays} day{nDays > 1 ? "s" : ""} · {trip.km} km
         </p>
+        {/* something wrong with the trip: ask MIS (14 Nov 2026) */}
+        <div className="mt-3 -mr-10">
+          <TripHelp item={item} />
+        </div>
       </div>
 
       {/* how it was travelled: the own car (asked for right here) with its
           fuel / toll bills, and a flight -- the money itself is in Trip cost */}
-      {(calc.car || (trip.flownFare > 0 && !calc.carBilled) || (f.canCar && trip.kind !== "hq")) && (
+      {(calc.car || (trip.flownFare > 0 && !calc.carBilled) || (f.canCar && trip.kind !== "hq" && calc.request)) && (
         <div className="flex flex-col gap-2">
           {calc.car && (
             <div className="rounded-2xl border border-gray-200 px-3 py-2.5 text-[12.5px] text-gray-600">
@@ -1086,7 +1224,7 @@ function TripSheet({ item }) {
             </div>
           )}
           {/* normal fare or own car, asked for right here (RBM, ZSM, SM) */}
-          {f.canCar && trip.kind !== "hq" && <CarMode trip={trip} calc={calc} editable={editable} tab={tab} setTab={setTab} />}
+          {f.canCar && trip.kind !== "hq" && <CarMode calc={calc} editable={editable} />}
         </div>
       )}
 
@@ -1294,7 +1432,7 @@ function TripSheet({ item }) {
             )}
           </button>
         )}
-        {editable && !carTab && calc.billsAllowed && calc.nights.length > 0 && !calc.fullNoBill && !confirming && (
+        {editable && calc.billsAllowed && calc.nights.length > 0 && !calc.fullNoBill && !confirming && (
           <button
             type="button"
             disabled={false}
@@ -1496,7 +1634,12 @@ function TripDay({ row, data, car, last, multi, night, bills, stayOff, billStrip
               <MoneyRow label="TA" amount={row.ta}>
                 {basis || `Fare${row.km != null ? ` · ${row.km} km` : ""}`}
               </MoneyRow>
-            ) : null}
+            ) : (
+              // no travel that day: TA ₹0, said, not left out (14 Nov 2026)
+              <MoneyRow label="TA" amount={0}>
+                {row.dayType === "HQ" ? "HQ day · no travel" : "no travel"}
+              </MoneyRow>
+            )}
             {row.da > 0 && (
               <MoneyRow label="DA" amount={night && bills ? night.paid : row.da}>
                 {night
