@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import {
-  ATTACH_ACCEPT, checkClaim, checkFile, extractBill, fetchClaim, fetchOpenClaim, invalidateClaims, requestAdvance, retryOnConflict, saveClaim,
+  ATTACH_ACCEPT, checkClaim, checkFile, extractBill, fetchClaim, fetchOpenClaim, invalidateClaims, requestCashThroughChain, retryOnConflict, saveClaim,
   uploadClaimFile,
 } from "./data/claimsApi";
 import { IC, Icon, Note, Sheet, Spinner, btn, ell, tabNum } from "./ui";
@@ -21,10 +21,9 @@ import { inr, isoDay, ledger, shortDate } from "./model";
  *              (total, date, bill type; each read 90%+ sure): all match ->
  *              Verified and counts, anything else (or above ₹50,000) goes to
  *              Accounts to check. No AI runs again. No reporting officer.
- *   CashSheet  "Request cash" -- an Employee Advance for Accounts to approve
- *              and pay. Someone owed money asks for exactly that ("Settle").
- *              Paying it closes the open claim: its bills come out of the
- *              cash first, the rest is theirs to spend.
+ *   CashSheet  "Request cash" -- an Employee Advance, approved up the chain
+ *              (BE > ABM > RBM > SM/ZSM > GM > CEO, 16 Nov 2026); the CEO's
+ *              approval makes it Verified (nothing more for now).
  *
  * Both end on a success view. */
 
@@ -63,7 +62,8 @@ function Done({ title, amount, sub, lines, ai }) {
 
 /* What the AI check made of the new bill. */
 /* Saved; the check runs in the background (nobody waits for the AI). */
-const CHECKING = { ok: false, title: "Bill saved", text: "The AI is checking it in the background — it shows Verified, or goes to Accounts, in a minute. You can add the next bill now." };
+// 16 Nov 2026: a checked bill is sent for approval (up to the CEO), not verified by the AI
+const CHECKING = { ok: false, title: "Bill saved", text: "The AI is checking it in the background. Once it shows Checked, send your bills for approval from Settlements. You can add the next bill now." };
 
 
 /* Why a photo is refused on attach (extractBill's kind). */
@@ -288,7 +288,8 @@ export function CashSheet({ conn, me, claims = [], advances = [], today = new Da
     let name;
     try {
       setBusy("Sending…");
-      name = await requestAdvance(conn, { employee: me.id, amount: amt, purpose: what.trim(), date: isoDay(today) });
+      // up the approval chain (16 Nov 2026); the CEO's approval makes it Verified
+      name = (await requestCashThroughChain(conn, { amount: amt, purpose: what.trim() }))?.id;
     } catch (e) {
       setBusy("");
       return setError(e.message);
@@ -309,7 +310,7 @@ export function CashSheet({ conn, me, claims = [], advances = [], today = new Da
   return (
     <Sheet title={done ? "" : "Request cash"} sub={done ? null : `In hand now: ${inr(L.balance)}`} onClose={close} desktop="dialog" maxWidth={520} footer={footer}>
       <style>{CSS}</style>
-      {done ? <Done title="Cash requested" amount={amt} sub={`${what.trim()} · Accounts approve it and pay you. Your next verified bills come out of it first — the rest is yours to spend.`} /> : (
+      {done ? <Done title="Cash requested" amount={amt} sub={`${what.trim()} · It goes to your managers for approval, up to the CEO, whose approval verifies it. Track it under Settlements.`} /> : (
         <div style={{ display: "flex", flexDirection: "column", gap: 14, padding: desk ? "16px 24px 20px" : "12px 16px 18px" }}>
           {/* Verified is final for now (nothing booked); Accounts settle what is owed
               later, so it is not something to ask for as cash. */}
@@ -327,7 +328,7 @@ export function CashSheet({ conn, me, claims = [], advances = [], today = new Da
           </label>
           <div style={{ display: "flex", gap: 10, padding: "12px 14px", borderRadius: 14, background: "#f7f8fa" }}>
             <span style={{ color: "#7c3aed", display: "flex", flex: "none", marginTop: 1 }}><Icon d={IC.wallet} size={18} /></span>
-            <span style={{ fontSize: 13, color: "#5b6576", lineHeight: 1.45 }}>Accounts approve it and pay you. Bills you have added since your last cash come out of it first; what is left is yours to spend.</span>
+            <span style={{ fontSize: 13, color: "#5b6576", lineHeight: 1.45 }}>Your managers approve it, one after the other, up to the CEO — his approval verifies it.</span>
           </div>
           {error && <Note>{error}</Note>}
         </div>

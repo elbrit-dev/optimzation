@@ -4,7 +4,8 @@ import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import Router from "next/router";
 import { Dialog } from "@/design-system";
 import { useClaims } from "./data/useClaims";
-import { CASH_REQUESTS, fetchFileBlob } from "./data/claimsApi";
+import { CASH_REQUESTS, fetchFileBlob, fetchMySettlements, sendBillsForApproval } from "./data/claimsApi";
+import { MyRequests, SendBar } from "./settlement";
 import { CSS, FONT_HREF, Highlights, IC, Icon, Note, Rail, Sheet, Spinner, btn, card, ell, tabNum } from "./ui";
 import { BillSheet, CashSheet } from "./sheets";
 import { BILL_STATE, MON, WD, billState, dateOf, inr, ledger, monthKey, monthLabel, shortDate, weeksOf } from "./model";
@@ -123,10 +124,14 @@ function trackOf(e) {
   const aiPass = score != null && score >= 90;
   const steps = [{ k: "Bill received", v: `Saved on ${e.claim.id}`, at: "done" }];
   if (s === "Checking") steps.push({ k: "AI check", v: "Comparing the bill with what you entered…", at: "now" });
-  else steps.push({ k: "AI check", v: score == null ? "Done" : aiPass ? `Score ${score}/100 — matches the bill` : `Score ${score}/100 — needs a person`, note: aiPass ? null : l.ai?.reason, at: aiPass ? "done" : "flag" });
-  if (s === "In Review") steps.push({ k: "In review", v: "Accounts are checking it by hand", at: "now" });
+  else steps.push({ k: "AI check", v: score == null ? "Done" : aiPass ? `Score ${score}/100 — matches the bill` : `Score ${score}/100 — your approvers see why`, note: aiPass ? null : l.ai?.reason, at: aiPass ? "done" : "flag" });
+  // 16 Nov 2026: a checked bill goes up the approval chain to the CEO
+  if (s === "Checked" && l.review) steps.push({ k: "Sent back", v: "Fix it if needed, then send it again", note: l.review, at: "fail" });
+  else if (s === "Checked") steps.push({ k: "Approval", v: "Checked — send it for approval (Settlements)", at: "now" });
+  else if (s === "In Approval") steps.push({ k: "Approval", v: "With your managers, up to the CEO", at: "now" });
+  else if (s === "In Review") steps.push({ k: "In review", v: "Accounts are checking it by hand", at: "now" });
   else if (s === "Rejected") steps.push({ k: "Reviewed by Accounts", v: "Not accepted — it does not count", note: l.review, at: "fail" });
-  else if (s === "Verified" && !aiPass) steps.push({ k: "Reviewed by Accounts", v: "Accepted", note: l.review, at: "done" });
+  else if (s === "Verified") steps.push({ k: "Approved", v: "Approved up to the CEO", at: "done" });
   if (s !== "Rejected") {
     steps.push({ k: "Verified", v: s === "Verified" ? "Counts toward your settlement" : "Counts once verified", at: s === "Verified" ? "done" : "next" });
     const settled = e.claim.docstatus === 1;
@@ -254,6 +259,18 @@ export default function ClaimReport({
   const [month, setMonth] = useState(cur);
   const mi = months.indexOf(month);
 
+  // settlement approval (16 Nov 2026): the requests and the chain they go up
+  const [settle, setSettle] = useState({ requests: [], chain: [] });
+  const [sending, setSending] = useState(false);
+  const [settleTick, setSettleTick] = useState(0);
+  useEffect(() => {
+    if (!conn) return undefined;
+    let alive = true;
+    fetchMySettlements(conn).then((x) => alive && setSettle(x)).catch(() => {});
+    return () => { alive = false; };
+  }, [conn, claims, settleTick]);
+  const unsent = (L.open?.lines || []).filter((l) => l.state === "Checked");
+
   const [bill, setBill] = useState(null);
   const [sheet, setSheet] = useState(null); // "bill" | "cash"
   const [toast, setToast] = useState(null);
@@ -303,12 +320,25 @@ export default function ClaimReport({
     return out;
   }, [bills, inMonth]);
 
+  const send = async () => {
+    setSending(true);
+    try {
+      const r = await sendBillsForApproval(conn);
+      data.reload();
+      setSettleTick((t) => t + 1);
+      say(r ? `${inr(r.amount)} sent for approval · ${r.id}` : "Sent for approval");
+    } catch (e) {
+      say(e.message, "error");
+    }
+    setSending(false);
+  };
   const openHistory = () => (onOpenHistory ? onOpenHistory() : go(historyPath));
   const back = () => (onBack ? onBack() : go(homePath));
   const pad = isDesk ? 32 : 16;
   const saved = ({ name, message }) => {
     setSheet(null);
     data.reload();
+    setSettleTick((t) => t + 1);
     say(`${message || "Saved"} · ${name}`);
   };
 
@@ -359,7 +389,7 @@ export default function ClaimReport({
               <Step k="Paid to you" v={`+ ${inr(L.added)}`} color="#067647" />{arrow("a1")}
               <Step k="Verified bills" v={`− ${inr(L.spent)}`} />{arrow("a2")}
               <Step k={over ? "Owed to you" : "In hand"} v={inr(over || L.balance)} color={over ? "#b42318" : undefined} />
-              {L.requested > 0 && <Step k="Requested" v={`+ ${inr(L.requested)}`} color="#b54708" soft="#fffaeb" dashed small="waiting for Accounts" />}
+              {L.requested > 0 && <Step k="Requested" v={`+ ${inr(L.requested)}`} color="#b54708" soft="#fffaeb" dashed small="waiting for approval" />}
             </Rail>
             <button type="button" className="ec-cta" onClick={() => setSheet("bill")} style={{ ...btn.primary, height: 52, borderRadius: 14, fontSize: 16, display: "flex", alignItems: "center", justifyContent: "center", gap: 8, marginTop: 2 }}><Icon d={IC.camera} size={20} />Scan a bill</button>
             {CASH_REQUESTS && (
@@ -368,6 +398,9 @@ export default function ClaimReport({
               </div>
             )}
           </section>
+
+          <SendBar bills={unsent} chain={settle.chain} busy={sending} onSend={send} />
+          <MyRequests conn={conn} requests={settle.requests} onChanged={(m) => { data.reload(); setSettleTick((t) => t + 1); say(m); }} />
 
           {hl.length > 0 && (
             <section style={{ display: "flex", flexDirection: "column", gap: 8 }}>

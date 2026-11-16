@@ -16,7 +16,7 @@
 # "due_day"; ENTRY_DUE_DAY otherwise. A due day past a month's last day
 # would be that last day, so 31 means "month end"):
 #   - the entry month is LAST month (`month` overrides it);
-#   - the Secondary entry tile is on the strip from ENTRY_FROM_DAY to the
+#   - the Secondary entry tile is on the strfor the expence claimip from ENTRY_FROM_DAY to the
 #     due day, its caption the due date, "10 Oct", while anything is left —
 #     except for users whose Role Profile is "IT", who see it every day;
 #   - the approval tile keeps the same window — for IT too: past the due
@@ -161,6 +161,10 @@ if not always:
             "role_profile": ALWAYS_ROLE_PROFILE}))
     except Exception:
         always = False
+# Read-only external viewers see the tiles every day, as IT does (2026-11-14).
+is_viewer = bool(frappe.db.exists("Has Role", {"parent": me, "parenttype": "User", "role": "Elbrit Viewer"}))
+if is_viewer:
+    always = True
 # The due day, capped at this month's last day — so 31 is "the end of the
 # month" every month, February included.
 last_day = int(str(frappe.utils.get_last_day(today))[8:10])
@@ -337,6 +341,13 @@ EXTRA_USERS = ["kamesh@elbrit.org", "ramu@elbrit.org", "rahulbhargav@elbrit.org"
 # ...and EVERY RBM AND SM: anyone whose own seat is an RBM or SM seat (RBM-,
 # SRBM-, Deputy RBM, SM-) is an extra user too, for their whole team.
 EXTRA_SEATS = ["RBM", "SRBM", "Deputy RBM", "SM"]
+# FULL ENTRY SEATS: the CRM Manager's seat enters AND approves Secondary for
+# every seat (Elbrit Secondary Entry / Add carry the same list; the workflow
+# already lets it decide through its ABM..CEO and MIS roles). Its Secondary
+# approval tile shows on every day, not only in the entry window
+# (approval_tile). Change the lists together.
+FULL_ENTRY_SEATS = ["BO-MIS-CRMM1"]
+full_entry = seat in FULL_ENTRY_SEATS
 if (me in EXTRA_USERS or (seat or "").split("-")[0] in EXTRA_SEATS) and seat:
     frontier = [seat]
     reached = {seat: 1}
@@ -796,7 +807,7 @@ def approval_tile(task):
     # IT role profile gets it, as the overview of every tracker. Only in the
     # window: past the due day nobody does, IT included.
     win = window_of(task)
-    if not win["open"]:
+    if not win["open"] and not (full_entry and task["id"] == "secondary"):
         return
     counted = month_people(task)
     waiting = counted[0]
@@ -1263,7 +1274,7 @@ LEAVE_SOON_DAYS = 3
 def leave_tile():
     leave_team = bool(frappe.db.get_value(
         "Employee", {"user_id": me, "status": "Active", "department": ["in", LEAVE_DEPARTMENTS]}, "name"))
-    if not (LEAVE_TILE_FOR_ALL or leave_team):
+    if not (LEAVE_TILE_FOR_ALL or leave_team or is_viewer):
         return
     fields = ["name", "from_date", "posting_date", "leave_approver"]
     rows = frappe.get_all("Leave Application", filters=[["status", "=", "Open"], ["docstatus", "=", 0],
@@ -1331,6 +1342,55 @@ try:
     leave_tile()
 except Exception as err:
     frappe.log_error(title="Elbrit Ring Nav: leave tile", message=str(err))
+
+# ---------------------------------------------------------------- SETTLE
+# Settlement approval (16 Nov 2026): requests (AI-checked bills, or cash) going
+# up the requester's line, BE > ABM > RBM > SM/ZSM > GM > CEO ("Settlement
+# API"); the CEO's approval makes them Verified. app-uat ONLY: the app asks
+# with expense_all=1 there, never on live. The tile is for whoever a request
+# waits on, or who has one of their team's in the chain, or verified this month.
+#   badge     requests waiting on the caller
+#   caption   "N to approve", else "Clear"
+#   ring      waiting on me / in my team's chain / verified this month
+HREFS["settle-approval"] = "/expense/approval?view=settle"
+
+
+def settle_tile():
+    if not expense_all or not frappe.db.exists("DocType", "Settlement Request"):
+        return
+    mine = "%|" + me + "|%"
+    waiting = frappe.get_all("Settlement Request", filters={"status": "Waiting", "next_approver": me},
+                             fields=["amount"], limit_page_length=500)
+    team = frappe.get_all("Settlement Request", filters={"status": "Waiting", "approvers": ["like", mine], "next_approver": ["!=", me]},
+                          pluck="name", limit_page_length=500)
+    verified = frappe.get_all("Settlement Request", filters={"status": "Approved", "approvers": ["like", mine],
+                                                             "decided_on": [">=", today[:8] + "01"]},
+                              pluck="name", limit_page_length=500)
+    n = len(waiting)
+    if not (n or team or verified):
+        return
+    items.append({
+        "id": "settle-approval",
+        "label": "Settle",
+        "href": HREFS["settle-approval"],
+        "icon": "wallet",
+        "statusIcon": "check-square",
+        "statusTone": "neutral",
+        "count": n,
+        "caption": (str(n) + " to approve") if n else "Clear",
+        "captionTone": "danger" if n else "success",
+        "segments": service_ring([
+            {"key": "waiting", "value": n, "tone": "danger", "label": "Waiting for you"},
+            {"key": "team", "value": len(team), "tone": "warning", "label": "Your team, in approval"},
+            {"key": "verified", "value": len(verified), "tone": "success", "label": "Verified this month"},
+        ]),
+    })
+
+
+try:
+    settle_tile()
+except Exception as err:
+    frappe.log_error(title="Elbrit Ring Nav: settle tile", message=str(err))
 
 frappe.response["message"] = {
     "user": me,

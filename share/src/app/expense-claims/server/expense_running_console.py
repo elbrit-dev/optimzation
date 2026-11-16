@@ -58,7 +58,7 @@ FIELDS = [
      "insert_after": "approval_status", "read_only": 1, "no_copy": 1, "in_standard_filter": 1,
      "description": "The employee's open Miscellaneous claim: bills are added until the next advance payment closes it."},
     {"dt": "Expense Claim Detail", "fieldname": "custom_bill_status", "label": "Bill status", "fieldtype": "Select",
-     "options": "Checking\nVerified\nIn Review\nRejected", "default": "Checking", "insert_after": "custom_ai_reason",
+     "options": "Checking\nChecked\nIn Approval\nVerified\nIn Review\nRejected", "default": "Checking", "insert_after": "custom_ai_reason",
      "in_list_view": 1, "columns": 1, "no_copy": 1},
     {"dt": "Expense Claim Detail", "fieldname": "custom_review_note", "label": "Review note", "fieldtype": "Small Text",
      "insert_after": "custom_bill_status", "no_copy": 1,
@@ -140,7 +140,9 @@ if doc.get("custom_running"):
                         edited = True
                 elif str(r.get(f) or "") != str(o.get(f) or ""):
                     edited = True
-        if edited and was != "Checking" and not checker:
+        # 16 Nov 2026: a Checked bill (not sent for approval yet) may still be
+        # changed -- it is checked again; one In Approval or decided may not
+        if edited and was not in ["Checking", "Checked"] and not checker:
             frappe.throw("Bill " + str(r.idx) + " is already " + was + " and can no longer change.")
         if not o:
             if not checker:
@@ -157,11 +159,13 @@ if doc.get("custom_running"):
                     frappe.throw("Bill " + str(r.idx) + ": say why it is rejected (Review note).")
             elif not checker:
                 frappe.throw("Bill " + str(r.idx) + " is " + was + ": only a bill In Review can be decided.")
-        # The AI checker's result decides a bill still being checked -- except
-        # a bill above REVIEW_ABOVE, which a person always checks.
+        # SETTLEMENT APPROVAL (16 Nov 2026): the AI checker's result no longer
+        # decides a bill -- it is "Checked", with its score, and waits to be sent
+        # up the approval chain (BE > ABM > RBM > SM/ZSM > GM > CEO, the
+        # "Settlement API"); the CEO's approval verifies it. The API moves a
+        # bill to In Approval / Verified / back to Checked; nobody else can.
         if st == "Checking" and me in AI_USERS and r.get("custom_ai_reason"):
-            ok = frappe.utils.flt(r.get("custom_ai_score")) >= AUTO_SCORE and frappe.utils.flt(r.amount) <= REVIEW_ABOVE
-            st = "Verified" if ok else "In Review"
+            st = "Checked"
         r.custom_bill_status = st
         # Accounts' note is written only while the bill is In Review (when they decide);
         # any other save keeps it -- a save that leaves the field out must not wipe it.
@@ -169,9 +173,10 @@ if doc.get("custom_running"):
             r.custom_review_note = o.get("custom_review_note") if o else None
         if not carry:
             r.custom_task = o.get("custom_task") if o else None    # set only by the Route / Close scripts
+            r.custom_settlement = o.get("custom_settlement") if o else None    # set only by the Settlement API
         r.sanctioned_amount = r.amount if st == "Verified" else 0
     for name in prev:
-        if name not in seen and (prev[name].get("custom_bill_status") or "Checking") != "Checking" and not checker:
+        if name not in seen and (prev[name].get("custom_bill_status") or "Checking") not in ["Checking", "Checked"] and not checker:
             frappe.throw("Bill " + str(prev[name].idx) + " is " + str(prev[name].custom_bill_status) + " and cannot be removed.")
     # The month's Food limit: everything not Rejected counts. Checked only when
     # the total grows, so deciding bills never trips it.
@@ -220,35 +225,38 @@ if doc.get("custom_running"):
 ADVANCE_TASK = r'''
 PROJECT = "PROJ-2026-2027-0012"              # "Accounts"
 
-who = str(doc.employee_name or doc.employee)
-amount = frappe.utils.fmt_money(doc.advance_amount, currency="INR")
-link = frappe.utils.get_url() + "/app/employee-advance/" + doc.name
-purpose = str(doc.purpose or "").replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
-held = 0
-for a in frappe.get_all("Employee Advance", filters={"employee": doc.employee, "docstatus": 1}, fields=["paid_amount", "claimed_amount", "return_amount"]):
-    held = held + frappe.utils.flt(a.paid_amount) - frappe.utils.flt(a.claimed_amount) - frappe.utils.flt(a.return_amount)
-# Verified bills not booked yet (the open running claim) and, from when
-# bills were booked, the unpaid part of submitted running claims.
-verified = 0
-for c in frappe.get_all("Expense Claim", filters={"employee": doc.employee, "custom_running": 1, "docstatus": 0}, fields=["total_sanctioned_amount"]):
-    verified = verified + frappe.utils.flt(c.total_sanctioned_amount)
-owed = 0
-for c in frappe.get_all("Expense Claim", filters={"employee": doc.employee, "custom_running": 1, "docstatus": 1}, fields=["grand_total", "total_amount_reimbursed"]):
-    left = frappe.utils.flt(c.grand_total) - frappe.utils.flt(c.total_amount_reimbursed)
-    if left > 0:
-        owed = owed + left
-body = "<p><b>" + who + "</b> (" + str(doc.employee) + ") asks for <b>" + amount + "</b> in <a href='" + link + "'>" + doc.name + "</a>: " + purpose + "</p>"
-body = body + "<p>Right now " + who + " holds " + frappe.utils.fmt_money(held, currency="INR") + " of unused advances"
-if verified > 0:
-    body = body + ", has " + frappe.utils.fmt_money(verified, currency="INR") + " of verified bills not booked yet"
-if owed > 0:
-    body = body + " and is owed " + frappe.utils.fmt_money(owed, currency="INR") + " on booked bills (Accounts Payable -- see their Pay Tasks)"
-body = body + ".</p><p>Approve: submit the advance, then pay it with a Payment Entry. Reject: cancel this Task and the advance.</p>"
-t = frappe.get_doc({"doctype": "Task", "subject": "Advance - " + who + " - " + amount + " (" + doc.name + ")",
-    "project": PROJECT, "status": "Open", "priority": "High", "exp_start_date": frappe.utils.today(), "description": body})
-t.flags.ignore_permissions = True
-t.insert()
-frappe.db.set_value("Employee Advance", doc.name, "custom_task", t.name)
+# 16 Nov 2026: a cash request through the settlement chain (flags.settlement,
+# set by the "Settlement API") gets its Task only when the CEO approves it.
+if not doc.flags.get("settlement"):
+    who = str(doc.employee_name or doc.employee)
+    amount = frappe.utils.fmt_money(doc.advance_amount, currency="INR")
+    link = frappe.utils.get_url() + "/app/employee-advance/" + doc.name
+    purpose = str(doc.purpose or "").replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
+    held = 0
+    for a in frappe.get_all("Employee Advance", filters={"employee": doc.employee, "docstatus": 1}, fields=["paid_amount", "claimed_amount", "return_amount"]):
+        held = held + frappe.utils.flt(a.paid_amount) - frappe.utils.flt(a.claimed_amount) - frappe.utils.flt(a.return_amount)
+    # Verified bills not booked yet (the open running claim) and, from when
+    # bills were booked, the unpaid part of submitted running claims.
+    verified = 0
+    for c in frappe.get_all("Expense Claim", filters={"employee": doc.employee, "custom_running": 1, "docstatus": 0}, fields=["total_sanctioned_amount"]):
+        verified = verified + frappe.utils.flt(c.total_sanctioned_amount)
+    owed = 0
+    for c in frappe.get_all("Expense Claim", filters={"employee": doc.employee, "custom_running": 1, "docstatus": 1}, fields=["grand_total", "total_amount_reimbursed"]):
+        left = frappe.utils.flt(c.grand_total) - frappe.utils.flt(c.total_amount_reimbursed)
+        if left > 0:
+            owed = owed + left
+    body = "<p><b>" + who + "</b> (" + str(doc.employee) + ") asks for <b>" + amount + "</b> in <a href='" + link + "'>" + doc.name + "</a>: " + purpose + "</p>"
+    body = body + "<p>Right now " + who + " holds " + frappe.utils.fmt_money(held, currency="INR") + " of unused advances"
+    if verified > 0:
+        body = body + ", has " + frappe.utils.fmt_money(verified, currency="INR") + " of verified bills not booked yet"
+    if owed > 0:
+        body = body + " and is owed " + frappe.utils.fmt_money(owed, currency="INR") + " on booked bills (Accounts Payable -- see their Pay Tasks)"
+    body = body + ".</p><p>Approve: submit the advance, then pay it with a Payment Entry. Reject: cancel this Task and the advance.</p>"
+    t = frappe.get_doc({"doctype": "Task", "subject": "Advance - " + who + " - " + amount + " (" + doc.name + ")",
+        "project": PROJECT, "status": "Open", "priority": "High", "exp_start_date": frappe.utils.today(), "description": body})
+    t.flags.ignore_permissions = True
+    t.insert()
+    frappe.db.set_value("Employee Advance", doc.name, "custom_task", t.name)
 '''
 
 SETTLE = r'''

@@ -243,12 +243,20 @@ export const CLAIMS_DEPARTMENTS = ["IT"];
    bills up to verification only -- no advance set-up (its Task, the sales
    roles' permissions) and no settlement -- so a request would go nowhere.
    true brings the link and its form back. */
-export const CASH_REQUESTS = false;
+// 16 Nov 2026: on -- a cash request goes up the approval chain to the CEO
+export const CASH_REQUESTS = true;
 export const CLAIMS_ROLE_PROFILES = null;
+/* app-uat only (16 Nov 2026): claims and settlement are open to EVERY login --
+   each person sees their own, by their login. The same app-uat switch as the
+   Expense approval tile: NEXT_PUBLIC_EXPENSE_APPROVALS_FOR_ALL is "1" on
+   app-uat (apphosting.yaml) and "0" on live (apphosting.prod.yaml), so live
+   keeps the IT department only. */
+export const CLAIMS_FOR_ALL = process.env.NEXT_PUBLIC_EXPENSE_APPROVALS_FOR_ALL === "1";
 export const canUseClaims = (me) =>
   !!me
-  && (!CLAIMS_DEPARTMENTS || CLAIMS_DEPARTMENTS.includes(String(me.department || "").trim()))
-  && (!CLAIMS_ROLE_PROFILES || CLAIMS_ROLE_PROFILES.includes(String(me.roleProfile || "").trim()));
+  && (CLAIMS_FOR_ALL || (
+    (!CLAIMS_DEPARTMENTS || CLAIMS_DEPARTMENTS.includes(String(me.department || "").trim()))
+    && (!CLAIMS_ROLE_PROFILES || CLAIMS_ROLE_PROFILES.includes(String(me.roleProfile || "").trim()))));
 
 export function fetchClaims(conn, employee) {
   return cached(conn, `ec-claims|${employee}`, async () => {
@@ -431,7 +439,9 @@ export async function saveClaim(conn, { claim, employee, postingDate, remark, li
 export function fetchAdvances(conn, employee) {
   return cached(conn, `ec-adv|${employee}`, async () => {
     const q = new URLSearchParams({
-      filters: JSON.stringify([["employee", "=", employee], ["docstatus", "<", 2]]),
+      // 16 Nov 2026: a LOAN is not cash to spend -- an advance booked to a
+      // loan account ("Employee Loans - ELPL", repaid from salary) is left out
+      filters: JSON.stringify([["employee", "=", employee], ["docstatus", "<", 2], ["advance_account", "not like", "%Loan%"]]),
       fields: JSON.stringify(["name", "posting_date", "purpose", "advance_amount", "paid_amount", "claimed_amount", "return_amount", "status", "docstatus", "modified"]),
       order_by: "posting_date desc, creation desc",
       limit_page_length: "500",
@@ -917,6 +927,98 @@ export async function fetchCarQueue(conn) {
 export async function decideCarRequest(conn, id, decision, amount, note) {
   const m = (await carCall(conn, "POST", { action: "decide", name: id, decision, amount: String(amount || ""), note: note || "" })).message || {};
   return m.request ? shapeCarRequest(m.request) : null;
+}
+
+/* ------------------------- settlement approval -------------------------- */
+
+/* Settlement approval (16 Nov 2026): a request -- the AI-checked bills on the
+   rep's open settlement claim, or a cash advance -- goes up the requester's
+   reporting line (BE > ABM > RBM > SM/ZSM > GM > CEO); the CEO's approval is
+   final (bills Verified, or the advance to Accounts to pay). ERP Server Script
+   "Settlement API" (method settlement), as the signed-in user:
+   share/src/app/expense-claims/server/settlement_api.py. */
+const num0 = (v) => Number(v) || 0;
+export function shapeSettlement(r) {
+  return {
+    id: r.name,
+    employee: r.employee,
+    employeeName: r.employee_name || r.employee,
+    user: r.user,
+    kind: r.kind === "Cash" ? "cash" : "bills",
+    status: String(r.status || "").toLowerCase(), // waiting | approved | rejected | withdrawn
+    amount: num0(r.amount),
+    purpose: r.purpose || "",
+    claim: r.claim || "",
+    advance: r.advance || "",
+    step: num0(r.step),
+    nextApprover: r.next_approver || "",
+    nextLabel: r.next_label || "",
+    note: r.note || "",
+    decidedBy: r.decided_by || "",
+    decidedOn: r.decided_on && r.decided_on !== "None" ? r.decided_on : "",
+    created: r.creation,
+    modified: r.modified,
+    steps: (r.steps || []).map((s) => ({
+      user: s.user,
+      name: s.name || s.user,
+      level: s.level || "",
+      decision: s.decision || "",
+      at: s.at && s.at !== "None" ? s.at : "",
+      note: s.note || "",
+    })),
+    bills: (r.bills || []).map((b) => ({
+      row: b.row,
+      date: String(b.date || "").slice(0, 10),
+      title: b.title || "",
+      amount: num0(b.amount),
+      bill: b.bill || "",
+      score: b.score == null || b.score === "" ? null : num0(b.score),
+      risk: b.risk || "",
+      reason: b.reason || "",
+    })),
+  };
+}
+const settleCall = (conn, method, params) =>
+  method === "GET"
+    ? rest(conn, `/api/method/settlement?${new URLSearchParams(params)}`)
+    : rest(conn, "/api/method/settlement", { method: "POST", headers: { "Content-Type": "application/x-www-form-urlencoded" }, body: new URLSearchParams(params) });
+
+/* The requester's own requests and the chain a new one would go up.
+   -> { requests, chain: [{ user, name, level }], overview } */
+export async function fetchMySettlements(conn) {
+  const m = (await settleCall(conn, "GET", { action: "mine" })).message || {};
+  return { requests: (m.requests || []).map(shapeSettlement), chain: m.chain || [], overview: !!m.overview };
+}
+/* Every checked, unsent bill on the open settlement claim, as one request. */
+export async function sendBillsForApproval(conn) {
+  const m = (await settleCall(conn, "POST", { action: "send_bills" })).message || {};
+  return m.request ? shapeSettlement(m.request) : null;
+}
+/* "Request cash": an advance, up the same chain. */
+export async function requestCashThroughChain(conn, { amount, purpose }) {
+  const m = (await settleCall(conn, "POST", { action: "send_cash", amount: String(amount), purpose })).message || {};
+  return m.request ? shapeSettlement(m.request) : null;
+}
+/* Take a request back -- only before anyone has approved it. */
+export async function withdrawSettlement(conn, id) {
+  const m = (await settleCall(conn, "POST", { action: "withdraw", name: id })).message || {};
+  return m.request ? shapeSettlement(m.request) : null;
+}
+/* The approver's lists. -> { waiting, team, decided, overview, me } */
+export async function fetchSettlementQueue(conn) {
+  const m = (await settleCall(conn, "GET", { action: "queue" })).message || {};
+  return {
+    waiting: (m.waiting || []).map(shapeSettlement),
+    team: (m.team || []).map(shapeSettlement),
+    decided: (m.decided || []).map(shapeSettlement),
+    overview: !!m.overview,
+    me: m.me || "",
+  };
+}
+/* decision: "Approve" | "Reject" (a reason needed -- the requester sees it) */
+export async function decideSettlement(conn, id, decision, note) {
+  const m = (await settleCall(conn, "POST", { action: "decide", name: id, decision, note: note || "" })).message || {};
+  return m.request ? shapeSettlement(m.request) : null;
 }
 
 /* A file already in the ERP (the planner stores a trip bill the moment it is
