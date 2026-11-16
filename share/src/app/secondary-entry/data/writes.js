@@ -89,20 +89,23 @@ export function lineFields(children, task = SECONDARY) {
 
 /* Pure: the document with `roleProfile`'s lines set from `lines`. Other
    seats' children are returned as the same objects, untouched. `task` says
-   which child table and fields (Secondary by default). */
-export function applySeatLines(doc, { roleProfile, lines, submit }, task = SECONDARY) {
+   which child table and fields (Secondary by default).
+   `keepStatus`: figures only — every line keeps its status, and a new line
+   takes the seat's (the CRM Manager correcting an approved or pending
+   stockist without sending it round again). */
+export function applySeatLines(doc, { roleProfile, lines, submit, keepStatus = false }, task = SECONDARY) {
   if (!roleProfile) throw new Error('No seat (roleProfile) to write lines for.');
   const children = Array.isArray(doc[task.childTable]) ? doc[task.childTable] : [];
   const f = lineFields(children, task);
-  const status = submit ? LINE_SUBMITTED : LINE_DRAFT;
   const byItem = new Map(lines.filter((l) => l.item).map((l) => [l.item, l]));
   const template = children.find((c) => childRoleProfile(c, f) === roleProfile) ?? {};
+  const status = keepStatus ? template[f.status] || LINE_DRAFT : submit ? LINE_SUBMITTED : LINE_DRAFT;
 
   const touched = new Set();
   const nextChildren = children.map((child) => {
     if (childRoleProfile(child, f) !== roleProfile) return child;
     const form = byItem.get(childItem(child));
-    const next = { ...child, [f.status]: status };
+    const next = keepStatus ? { ...child } : { ...child, [f.status]: status };
     if (form) {
       touched.add(form.item);
       Object.assign(next, lineFigures(form, f, child));

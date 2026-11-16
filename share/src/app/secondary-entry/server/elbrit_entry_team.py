@@ -162,7 +162,7 @@ if not valid_month(month):
 first = month + "-01"
 last = str(frappe.utils.get_last_day(first))
 in_month = ["date", "between", [first, last]]
-is_it = frappe.db.get_value("User", me, "role_profile_name") == "IT"
+is_it = (frappe.db.get_value("Role Profile", frappe.db.get_value("User", me, "role_profile_name") or "-", "custom_role_template") or frappe.db.get_value("User", me, "role_profile_name")) == "IT"  # BO- seat -> its role template (effective profile)
 
 FIELDS = ["name", "employee_name", "custom_role_profile", "role_id", "reports_to", "user_id"]
 SALES_ROOT = "Sales"

@@ -1,3 +1,20 @@
+def team_departments(seat, dept):
+    # dept + the custom_departments of `seat` and every Role Profile under it
+    # (same rule as the elbrit_team_items API — keep them in sync)
+    out = set([dept]) if dept else set()
+    level = [seat] if seat else []
+    seen = set()
+    while level:
+        level = [s for s in level if s and s not in seen]
+        seen.update(level)
+        if level:
+            level = frappe.get_all("Role Profile", filters=[["parent_role_profile", "in", level]], pluck="name")
+    if seen:
+        out.update(frappe.get_all("Department Multiselect",
+            filters=[["parenttype", "=", "Role Profile"], ["parentfield", "=", "custom_departments"], ["parent", "in", list(seen)]],
+            pluck="department"))
+    return sorted([d for d in out if d])
+
 # =====================================================================
 # SERVER SCRIPT — the source of truth for the ERP's copy. Keep in step.
 #
@@ -123,6 +140,10 @@ if emp:
     own_employee = emp[0].get("name") or ""
     own_seat = emp[0].get("custom_role_profile") or emp[0].get("role_id") or ""
 seat = frappe.form_dict.get("seat") or own_seat
+# Read-only external viewers (Elbrit Viewer) see the whole month like IT (2026-11-14).
+is_viewer = bool(frappe.db.exists("Has Role", {"parent": me, "parenttype": "User", "role": "Elbrit Viewer"}))
+if is_viewer and not seat:
+    seat = "Viewer"
 vacant_seats = vacant_under(own_seat) if own_seat else []
 covering = bool(seat) and seat in vacant_seats
 
@@ -322,12 +343,28 @@ if (me in EXTRA_USERS or (own_seat or "").split("-")[0] in EXTRA_SEATS) and own_
                            "hq": frappe.db.get_value("Role Profile", s, "custom_territory")})
     entering = bool(seat) and seat != own_seat and bool(below.get(seat))
 
+# ---- FULL ENTRY SEATS: the CRM Manager's seat ENTERS for ANY seat it opens
+# (from the team tree, which gives it the whole Sales tree as IT), on any
+# day — editable, with download / upload and "Add stockist", as an extra
+# user enters for their team. Keyed on the SEAT, not the login. `enters` is
+# left empty: listing every seat in the company in "My entries" would load
+# them all. The same list is in Elbrit Secondary Add; change both together.
+# `full_edit` tells the screen it may also download and re-upload the
+# seat's Pending and Approved stockists, keeping their status (the Seat
+# Guard lets System Manager / CRM Manager change any line; the tracker script
+# leaves an approval past Draft as it is).
+FULL_ENTRY_SEATS = ["BO-MIS-CRMM1"]
+full_edit = False
+if own_seat in FULL_ENTRY_SEATS and seat and seat != own_seat and frappe.db.exists("Role Profile", seat):
+    entering = True
+    full_edit = True
+
 # ---- A TEAM SEAT: `seat` held by someone under the caller (any depth), a
 # vacant seat under the caller's seat in the Role Profile tree, or any seat
 # for the IT role profile. Those reads go past permissions (frappe.get_all).
 in_team = covering or entering
 if seat and seat != own_seat and not in_team:
-    if frappe.db.get_value("User", me, "role_profile_name") == "IT":
+    if (frappe.db.get_value("Role Profile", frappe.db.get_value("User", me, "role_profile_name") or "-", "custom_role_template") or frappe.db.get_value("User", me, "role_profile_name")) == "IT":
         in_team = True
     elif own_employee:
         holders = frappe.get_all("Employee", filters={"custom_role_profile": seat, "status": "Active"},
@@ -360,7 +397,7 @@ see_all = False
 if seat:
     # IT with no `seat` sees every entry of the month with EVERY seat's lines,
     # each tagged with its own seat (the screen shows them read-only).
-    see_all = (not frappe.form_dict.get("seat")) and frappe.db.get_value("User", me, "role_profile_name") == "IT"
+    see_all = (not frappe.form_dict.get("seat")) and (is_viewer or (frappe.db.get_value("Role Profile", frappe.db.get_value("User", me, "role_profile_name") or "-", "custom_role_template") or frappe.db.get_value("User", me, "role_profile_name")) == "IT")  # BO- seat -> its role template (effective profile)
 
     # ---- the seat's own lines (IT: every line), with their records' date and
     # stockist. ONLY THE SEAT'S RECORDS are read from here on: an entry is the
@@ -472,15 +509,24 @@ if seat:
              "tracker__name": r.get("tracker"), "tracker": None, "rp": r.get("rp")}
         by_name[n]["custom_status_tracker"].append(t)
         tracker_rows.append(t)
+    # The trackers' state and note in one read (one per tracker was an N+1).
+    wanted = []
     for t in tracker_rows:
         tn = t.get("tracker__name")
         rp = t.pop("rp")
         if tn and (seat == own_seat or in_team) and tn.endswith("-" + rp):
-            v = frappe.db.get_value("Operational Tracker", tn,
-                                    ["workflow_state", "reason_for_rejection"], as_dict=True)
-            if v:
-                t["tracker"] = {"workflow_state__name": v.get("workflow_state"),
-                                "reason_for_rejection": v.get("reason_for_rejection")}
+            wanted.append(tn)
+    states = {}
+    for part in chunks(wanted):
+        for v in frappe.get_all("Operational Tracker", filters=[["name", "in", part]],
+                                fields=["name", "workflow_state", "reason_for_rejection"],
+                                limit_page_length=0):
+            states[v.get("name")] = v
+    for t in tracker_rows:
+        v = states.get(t.get("tracker__name"))
+        if v:
+            t["tracker"] = {"workflow_state__name": v.get("workflow_state"),
+                            "reason_for_rejection": v.get("reason_for_rejection")}
 
     for n in names:
         row = by_name[n]
@@ -535,7 +581,7 @@ if seat:
         today = frappe.utils.nowdate()
         for r in frappe.get_all(
                 "Item",
-                filters=[["Elbrit Department Table", "elbrit_department", "in", [dept]],
+                filters=[["Elbrit Department Table", "elbrit_department", "in", team_departments(seat, dept)],
                          ["Item", "item_group", "descendants of (inclusive)", "Products"]],
                 fields=["name",
                         "`tabElbrit Department Table`.`valid_from` as valid_from",
@@ -633,6 +679,7 @@ frappe.response["message"] = {
     "covers": covers,
     "enters": enters,
     "entering": entering,
+    "full_edit": full_edit,
     "vacant_seats": vacant_seats,
     "read_only": see_all,
     "month": month,
