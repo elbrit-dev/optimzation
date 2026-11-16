@@ -28,9 +28,11 @@ export async function fetchErpTiles({ endpointUrl, token, month, today, fetchImp
   const params = {};
   if (month) params.month = month;
   if (today) params.today = today;
-  // v=2 (this code only): RBM / SM get the Doctor Service approval tile
-  // for the services waiting on them in the RBM -> SM -> GM chain.
-  params.v = '2';
+  // v=2: RBM / SM get the Doctor Service approval tile for the services
+  // waiting on them in the RBM -> SM -> GM chain. app-uat only for now
+  // (16 Nov 2026): NEXT_PUBLIC_SERVICE_RBM_SM_APPROVAL is 1 there and 0 on
+  // live (apphosting.prod.yaml), so live RBMs / SMs get no Service tile.
+  if (process.env.NEXT_PUBLIC_SERVICE_RBM_SM_APPROVAL === '1') params.v = '2';
   const qs = Object.keys(params).length ? `?${new URLSearchParams(params)}` : '';
   const res = await fetchImpl(`${new URL(endpointUrl).origin}/api/method/elbrit_ring_nav${qs}`, {
     headers: { Authorization: authHeader(token), Accept: 'application/json' },
