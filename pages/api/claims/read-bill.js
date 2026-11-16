@@ -170,7 +170,7 @@ export default async function handler(req, res) {
     try {
       const tb = JSON.parse(String(req.headers["x-trip-bill"]));
       const iso = /^\d{4}-\d{2}-\d{2}$/;
-      if (!(SLOTS[tb.slot] || tb.slot === "da" || tb.slot === "car") || !iso.test(tb.trip?.from) || !iso.test(tb.trip?.to)) throw new Error("bad");
+      if (!(SLOTS[tb.slot] || tb.slot === "da" || tb.slot === "car" || tb.slot === "all") || !iso.test(tb.trip?.from) || !iso.test(tb.trip?.to)) throw new Error("bad");
       tripBill = { slot: tb.slot, trip: { id: String(tb.trip.id || tb.trip.from).slice(0, 40), from: tb.trip.from, to: tb.trip.to } };
     } catch {
       return res.status(400).json({ error: "Which trip is this bill for?" });

@@ -27,7 +27,9 @@
 
 PROJECT = "PROJ-2026-2027-0016"               # "Expense claim"
 ASSIGNEE = "sathish.admin@elbrit.org"         # Sathishkumar Kumaresan
-SHARE_WITH = ["baranidharan@elbrit.org", "vigneshkumar.s@elbrit.org", "sanjay@elbrit.org", "hr@elbrit.org"]
+# 16 Nov 2026: hr@ replaced by Vikram Babu and Sivaraman R (HR); Vishnu K (MIS) added
+SHARE_WITH = ["baranidharan@elbrit.org", "vigneshkumar.s@elbrit.org", "sanjay@elbrit.org",
+              "vikram.babu@elbrit.org", "sivaraman.hr@elbrit.org", "vishnuk.mis@elbrit.org"]
 MAX_OPEN = 5
 OPEN = ["Open", "Working", "Pending Review", "Overdue"]
 
@@ -100,10 +102,12 @@ if action == "raise":
         "date": d_to,
         "assigned_by": user,
     }).insert(ignore_permissions=True)
-    # shared: read and write, with a notification
+    # shared: read and write, with a notification. The rep has no Share right
+    # on Task: without ignore_share_permission the ERP refuses it ("You need
+    # to have Share permission") and the whole request is undone.
     for u in SHARE_WITH:
         if frappe.db.exists("User", {"name": u, "enabled": 1}):
-            frappe.get_doc({
+            sh = frappe.get_doc({
                 "doctype": "DocShare",
                 "share_doctype": "Task",
                 "share_name": t.name,
@@ -112,7 +116,9 @@ if action == "raise":
                 "write": 1,
                 "share": 0,
                 "notify_by_email": 1,
-            }).insert(ignore_permissions=True)
+            })
+            sh.flags.ignore_share_permission = True
+            sh.insert(ignore_permissions=True)
     frappe.response["message"] = {"ok": 1, "task": {"name": t.name, "status": t.status, "subject": subject,
                                                     "creation": str(t.creation), "modified": str(t.modified),
                                                     "completed_on": None, "description": body,

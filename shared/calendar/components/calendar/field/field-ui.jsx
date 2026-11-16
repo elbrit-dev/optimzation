@@ -778,6 +778,8 @@ function CarMode({ calc, editable }) {
    a drawer from the bottom with the rep's requests on this trip so far (each
    one's progress and the team's replies) and a box to raise a new one. Each
    request is an ERP Task carrying the trip day by day (trip-help.js). */
+// the Help drawer shows this many of the rep's requests on the trip, newest first
+const HELP_SHOWN = 3;
 const HELP_TONE = {
   blue: "bg-blue-50 text-blue-700",
   amber: "bg-amber-50 text-amber-800",
@@ -892,8 +894,9 @@ function TripHelp({ item, day = false }) {
               any && (
                 <>
                   <b className="text-[12.5px] font-bold text-gray-600">Your requests</b>
+                  {/* the 3 latest only (16 Nov 2026) */}
                   <ul className="flex flex-col gap-2">
-                    {tasks.map((t) => (
+                    {tasks.slice(0, HELP_SHOWN).map((t) => (
                       <HelpRequest key={t.name} t={t} />
                     ))}
                   </ul>
@@ -928,6 +931,8 @@ function TripHelp({ item, day = false }) {
   );
 }
 
+const UPLOAD_LABEL = { da: "Upload stay / food bill", car: "Upload fuel bill", all: "Upload stay / food / fuel bill" };
+
 function TripSheet({ item }) {
   const f = useFieldExpenses();
   const { trip, claim, calc, checks } = item;
@@ -942,6 +947,12 @@ function TripSheet({ item }) {
   // 14 Nov 2026: no fare / own-car switch here -- the car is asked for from
   // the month summary only; once approved, the fuel upload simply shows
   const carTab = f.canCar && trip.kind !== "hq" && calc.carApproved;
+  // the trip's ONE upload (16 Nov 2026): what it takes
+  const stayFood = calc.billsAllowed && calc.nights.length > 0 && !calc.fullNoBill;
+  const fuelOn = carTab;
+  const upSlot = stayFood && fuelOn ? "all" : fuelOn ? "car" : "da";
+  const upCount = (stayFood ? calc.stayBills + calc.foodBills : 0) + (fuelOn ? (claim.fuels || []).length : 0);
+  const upAmount = (stayFood ? calc.pool?.bills || 0 : 0) + (fuelOn ? calc.fuel : 0);
   const [sendError, setSendError] = useState(null); // why the last send was refused
   const [billInput, pickBill] = useBillPicker();
   // each day's bills as pictures, and the full-screen viewer (13 Nov 2026)
@@ -965,7 +976,7 @@ function TripSheet({ item }) {
   /* 13 Nov 2026: reading a bill takes a while (the reader is ~15-25 s), so it
      runs in the background -- a "Reading the bill…" toast that turns into the
      result, the button free for the next bill, the rep free to carry on. */
-  const [reading, setReading] = useState({ da: 0, car: 0 });
+  const [reading, setReading] = useState({});
   const alive = useRef(true);
   // set on every mount: React's dev double-mount runs the cleanup once in between
   useEffect(() => {
@@ -997,7 +1008,8 @@ function TripSheet({ item }) {
           toast.error("Tolls are not paid — upload the fuel bill only.", { id: tid, duration: 6000 });
           return;
         }
-        const slot = kind === "da" ? (r.bill.kind === "Stay" ? "stays" : "foods") : kind === "car" ? "fuels" : kind;
+        // "da" / "all": the bill says which it is (stay, food -- and fuel on "all")
+        const slot = { Stay: "stays", Food: "foods", Fuel: "fuels" }[r.bill.kind] || (kind === "car" ? "fuels" : kind);
         const id = await f.actions.addBill(trip.id, slot, r.bill);
         if (alive.current) setEditing({ kind: slot, id });
         const b = r.bill;
@@ -1412,38 +1424,27 @@ function TripSheet({ item }) {
 
       {/* total + the one action, pinned to the bottom; Submit asks first */}
       <div className="sticky bottom-0 z-10 -mx-4 mt-auto flex flex-col gap-3 border-t bg-white px-4 pt-3 pb-[max(12px,env(safe-area-inset-bottom))]">
-        {/* ONE upload for stay and food bills, always in reach: the bill itself
-            says whether it is a hotel or a food bill */}
-        {/* own-car tab: fuel and toll bills, only once the GM approved the car */}
-        {editable && carTab && !confirming && (
+        {/* ONE upload, always in reach (16 Nov 2026): the bill itself says what
+            it is. Stay and food bills on a trip with outstation days; fuel
+            once the GM approved the car (asked for on the month summary) --
+            with both, the one button takes all three. Tolls are not paid. */}
+        {editable && !confirming && (stayFood || fuelOn) && (
           <button
             type="button"
-            disabled={!calc.carApproved}
-            onClick={() => scan("car")}
-            className="flex min-h-11 w-full items-center justify-center gap-2 rounded-2xl border-[1.5px] border-dashed border-blue-300 bg-blue-50 px-4 text-[14px] font-bold text-blue-700 active:bg-blue-100 disabled:border-gray-200 disabled:bg-gray-50 disabled:text-gray-400"
+            onClick={() => scan(upSlot)}
+            className="flex min-h-11 w-full items-center justify-center gap-2 rounded-2xl border-[1.5px] border-dashed border-blue-300 bg-blue-50 px-4 text-[14px] font-bold text-blue-700 active:bg-blue-100"
           >
-            {reading.car ? <Loader2 className="h-4 w-4 animate-spin" aria-hidden /> : <Fuel className={cn("h-4 w-4", calc.carApproved ? "text-green-600" : "text-gray-400")} aria-hidden />}
-            {reading.car ? `Reading ${reading.car} bill${reading.car > 1 ? "s" : ""}… · add another` : "Upload fuel bill"}
-            {!calc.carApproved && <span className="text-[12px] font-semibold">· {calc.carPending ? `after ${f.carApprover.replace(/^the /, "")} approves` : "ask for the car first"}</span>}
-            {calc.carApproved && calc.fuel + calc.tolls > 0 && !reading.car && (
-              <span className="text-[12px] font-semibold text-blue-600">
-                · {(claim.fuels || []).length} added · {inr(calc.fuel)}
-              </span>
+            {reading[upSlot] ? (
+              <Loader2 className="h-4 w-4 animate-spin" aria-hidden />
+            ) : upSlot === "car" ? (
+              <Fuel className="h-4 w-4 text-green-600" aria-hidden />
+            ) : (
+              <Camera className="h-4 w-4 text-green-600" aria-hidden />
             )}
-          </button>
-        )}
-        {editable && calc.billsAllowed && calc.nights.length > 0 && !calc.fullNoBill && !confirming && (
-          <button
-            type="button"
-            disabled={false}
-            onClick={() => scan("da")}
-            className="flex min-h-11 w-full items-center justify-center gap-2 rounded-2xl border-[1.5px] border-dashed border-blue-300 bg-blue-50 px-4 text-[14px] font-bold text-blue-700 active:bg-blue-100 disabled:opacity-60"
-          >
-            {reading.da ? <Loader2 className="h-4 w-4 animate-spin" aria-hidden /> : <Camera className="h-4 w-4 text-green-600" aria-hidden />}
-            {reading.da ? `Reading ${reading.da} bill${reading.da > 1 ? "s" : ""}… · add another` : "Upload stay / food bill"}
-            {calc.stayBills + calc.foodBills > 0 && !reading.da && (
+            {reading[upSlot] ? `Reading ${reading[upSlot]} bill${reading[upSlot] > 1 ? "s" : ""}… · add another` : UPLOAD_LABEL[upSlot]}
+            {upCount > 0 && !reading[upSlot] && (
               <span className="text-[12px] font-semibold text-blue-600">
-                · {calc.stayBills + calc.foodBills} added · {inr(calc.pool?.bills || 0)}
+                · {upCount} added · {inr(upAmount)}
               </span>
             )}
           </button>

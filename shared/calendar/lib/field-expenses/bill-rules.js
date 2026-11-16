@@ -58,6 +58,7 @@ function unreadable(read, slotKind, reason = MANUAL) {
   };
 }
 const NOT_BILL = "This doesn't look like a bill — upload a photo of the bill itself.";
+const TOLL_NOT_PAID = "Tolls are not paid — upload the fuel bill only.";
 const ISO = /^\d{4}-\d{2}-\d{2}$/;
 
 export const addDays = (iso, n) => {
@@ -99,10 +100,24 @@ export function tripBillVerdict(read, slot, trip) {
         : `This is a ${String(read.title).toLowerCase()} — only hotel and food bills go here.`,
     };
   }
+  // "all": the trip's ONE upload once the car is approved and the trip has
+  // stay / food bills too (16 Nov 2026) -- the bill says which it is: a hotel
+  // bill goes to Stay, a food bill to Food, a fuel bill to Fuel. Tolls are
+  // not paid (13 Nov 2026).
+  if (slot === "all") {
+    if (read?.title === "Hotel bill") return tripBillVerdict(read, "stays", trip);
+    if (read?.title === "Food bill") return tripBillVerdict(read, "foods", trip);
+    if (read?.title === "Fuel bill") return tripBillVerdict(read, "fuels", trip);
+    if (!read?.title || !fairly(read.titleConfidence)) return unreadable(read, null);
+    if (read.title === "Not a bill") return { ok: false, reason: NOT_BILL };
+    if (read.title === "Toll") return { ok: false, reason: TOLL_NOT_PAID };
+    return { ok: false, reason: `This is a ${String(read.title).toLowerCase()} — only hotel, food and fuel bills go here.` };
+  }
   // "car": ONE upload for an approved own car's fuel and toll bills
   if (slot === "car") {
     if (read?.title === "Fuel bill") return tripBillVerdict(read, "fuels", trip);
-    if (read?.title === "Toll") return tripBillVerdict(read, "tolls", trip);
+    // tolls are not paid (13 Nov 2026): refused before the bill is stored
+    if (read?.title === "Toll") return { ok: false, reason: TOLL_NOT_PAID };
     if (!read?.title || !fairly(read.titleConfidence)) return unreadable(read, null);
     if (read.title === "Not a bill") return { ok: false, reason: NOT_BILL };
     const other = SLOT_OF_TITLE[read.title];
@@ -186,7 +201,8 @@ export function tripBillVerdict(read, slot, trip) {
    rupee figure.
    entry: { kind, date, checkIn, checkOut, amount, vendor }
    -> { ok: false, reason } | the same as tripBillVerdict, with manual: true */
-export const MANUAL_KINDS = { da: ["Stay", "Food"], car: ["Fuel", "Toll"], stays: ["Stay"], foods: ["Food"], fuels: ["Fuel"], tolls: ["Toll"] };
+// tolls are not paid (13 Nov 2026): never offered for hand entry on a trip
+export const MANUAL_KINDS = { da: ["Stay", "Food"], car: ["Fuel"], all: ["Stay", "Food", "Fuel"], stays: ["Stay"], foods: ["Food"], fuels: ["Fuel"], tolls: ["Toll"] };
 export function manualBillVerdict(entry, slot, trip) {
   const e = entry || {};
   const kinds = MANUAL_KINDS[slot] || [];
