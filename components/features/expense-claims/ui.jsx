@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Dialog, Drawer } from "@/design-system";
+import { limiter } from "../../../lib/limit";
 import {
   ADVANCE, ATTACH_ACCEPT, DEFAULT_TYPES, applyAction, checkClaim, checkFile, fetchClaim, fetchClaimComments, fetchClaimFiles, fetchFileBlob,
   extractBill, fileKind, invalidateClaims, saveClaim, uploadClaimFile,
@@ -682,10 +683,15 @@ export function ClaimForm({ conn, me, types, claims = [], claim, copyFrom, today
       const pending = rows.map((r, i) => ({ r, i })).filter((x) => x.r.file);
       if (pending.length) {
         const urls = {};
-        for (const [n, { r, i }] of pending.entries()) {
-          setBusy(`Uploading bill ${n + 1} of ${pending.length}…`);
+        // 3 at a time (17 Nov 2026), not one after another
+        const run = limiter(3);
+        let up = 0;
+        setBusy(`Uploading bill 1 of ${pending.length}…`);
+        await Promise.all(pending.map(({ r, i }) => run(async () => {
           urls[i] = (await uploadClaimFile(conn, name, r.file)).file_url;
-        }
+          up += 1;
+          setBusy(`Uploading bill ${Math.min(up + 1, pending.length)} of ${pending.length}…`);
+        })));
         setBusy("Saving bills…");
         const fresh = await fetchClaim(conn, name);
         await saveClaim(conn, {

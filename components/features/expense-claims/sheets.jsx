@@ -2,11 +2,12 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import {
-  ATTACH_ACCEPT, checkClaim, checkFile, extractBill, fetchClaim, fetchOpenClaim, invalidateClaims, requestCashThroughChain, retryOnConflict, saveClaim,
+  ATTACH_ACCEPT, checkClaim, checkFile, extractBill, fetchClaim, fetchOpenClaim, invalidateClaims, requestCashThroughChain, retryOnConflict, saveClaim, sendBillsForApproval,
   uploadClaimFile,
 } from "./data/claimsApi";
 import { IC, Icon, Note, Sheet, Spinner, btn, ell, tabNum } from "./ui";
 import { inr, isoDay, ledger, shortDate } from "./model";
+import { waitingOn } from "./settlement";
 
 /* The settlement sheets (Miscellaneous), in the app's theme:
  *
@@ -18,9 +19,11 @@ import { inr, isoDay, ledger, shortDate } from "./model";
  *              Every bill -- food too -- goes on the settlement claim.
  *              "Check my bill" adds it to the person's open claim; in the
  *              background plain code compares that read with what they sent
- *              (total, date, bill type; each read 90%+ sure): all match ->
- *              Verified and counts, anything else (or above ₹50,000) goes to
- *              Accounts to check. No AI runs again. No reporting officer.
+ *              (total, date, bill type; each read 90%+ sure) and the bill is
+ *              Checked (score 100, or 40 with the reasons). The person then
+ *              sends Checked bills up the approval chain from Settlements
+ *              (16 Nov 2026). No AI runs again. The form explains none of
+ *              this (user, 16 Nov 2026).
  *   CashSheet  "Request cash" -- an Employee Advance, approved up the chain
  *              (BE > ABM > RBM > SM/ZSM > GM > CEO, 16 Nov 2026); the CEO's
  *              approval makes it Verified (nothing more for now).
@@ -36,7 +39,6 @@ const CSS = `
 `;
 const lbl = { fontSize: 13, fontWeight: 600, color: "#344054" };
 const hint = { fontSize: 12.5, color: "#8a93a3" };
-const SCAN = "M4 8V6a2 2 0 0 1 2-2h2M16 4h2a2 2 0 0 1 2 2v2M20 16v2a2 2 0 0 1-2 2h-2M8 20H6a2 2 0 0 1-2-2v-2M7 12h10";
 
 /* The success view, inside the sheet. */
 function Done({ title, amount, sub, lines, ai }) {
@@ -60,17 +62,13 @@ function Done({ title, amount, sub, lines, ai }) {
   );
 }
 
-/* What the AI check made of the new bill. */
-/* Saved; the check runs in the background (nobody waits for the AI). */
-// 16 Nov 2026: a checked bill is sent for approval (up to the CEO), not verified by the AI
-const CHECKING = { ok: false, title: "Bill saved", text: "The AI is checking it in the background. Once it shows Checked, send your bills for approval from Settlements. You can add the next bill now." };
-
-
 /* Why a photo is refused on attach (extractBill's kind). */
 const WRONG = {
   not_a_bill: { title: "Not the correct attachment — this is not a bill", text: "Take a photo of the printed bill or receipt itself, with the amount and date clear." },
   unreadable: { title: "Not the correct attachment — the bill could not be read", text: "Take a clear, well-lit photo of the whole printed bill and try again." },
   failed: { title: "The bill could not be checked", text: "The AI check did not answer. Choose the photo again in a moment." },
+  // 17 Nov 2026: the same register as the planner's trip bills
+  duplicate: { title: "This bill was already claimed", text: "A bill can be claimed once — here or on a trip." },
 };
 
 /* Money in short, for the footer: +in hand / −owed on the open claim. */
@@ -90,6 +88,21 @@ export function BillSheet({ conn, me, claims = [], advances = [], today = new Da
   const [done, setDone] = useState(null);
   const pick = useRef(null);
   useEffect(() => () => { if (thumb) URL.revokeObjectURL(thumb); }, [thumb]);
+  // A handwritten bill (16 Nov 2026, as on the planner): why only a
+  // handwritten bill, and the payment proof -- or "Paid in cash".
+  const [why, setWhy] = useState("");
+  const [cash, setCash] = useState(false);
+  const [proof, setProof] = useState(null);
+  const [proofThumb, setProofThumb] = useState(null);
+  const proofPick = useRef(null);
+  useEffect(() => () => { if (proofThumb) URL.revokeObjectURL(proofThumb); }, [proofThumb]);
+  const pickProof = (f) => {
+    const err = checkFile(f);
+    if (err) return setError(err);
+    setError("");
+    setProof(f);
+    setProofThumb(f.type.startsWith("image/") ? URL.createObjectURL(f) : null);
+  };
 
   const L = useMemo(() => ledger(claims, advances), [claims, advances]);
   const now = signed(L);
@@ -108,13 +121,13 @@ export function BillSheet({ conn, me, claims = [], advances = [], today = new Da
     // changes any if needed, and sends. The signed read goes along to the check.
     extractBill(conn, f)
       .then((x) => {
-        const wrong = x.kind === "not_a_bill" ? "not_a_bill" : !x.readable ? "unreadable" : null;
-        if (wrong) return setRead((r) => (r?.busy && r.file === f ? { busy: false, wrong } : r));
+        const wrong = x.kind === "not_a_bill" ? "not_a_bill" : !x.readable ? "unreadable" : x.duplicate ? "duplicate" : null;
+        if (wrong) return setRead((r) => (r?.busy && r.file === f ? { busy: false, wrong, why: x.duplicate || "" } : r));
         const what = String(x.what || x.vendor || "").trim();
         setTitle(what ? what.charAt(0).toUpperCase() + what.slice(1, 60) : "");
         setAmount(x.amount ? String(x.amount) : "");
         setDate(x.date && x.date <= todayIso ? x.date : todayIso);
-        setRead((r) => (r?.busy && r.file === f ? { busy: false, filled: !!(x.amount || x.date || what), signed: x.signed || null, manual: !!x.skipped } : r));
+        setRead((r) => (r?.busy && r.file === f ? { busy: false, filled: !!(x.amount || x.date || what), signed: x.signed || null, manual: !!x.skipped, handwritten: !!x.handwritten } : r));
       })
       .catch(() => setRead((r) => (r?.busy && r.file === f ? { busy: false, wrong: "failed" } : r)));
   };
@@ -123,14 +136,16 @@ export function BillSheet({ conn, me, claims = [], advances = [], today = new Da
     : read?.busy ? "Wait a moment — the bill is being read"
     : read?.wrong ? WRONG[read.wrong].title
     : !title.trim() ? "Say what it was for"
-    : !amt ? "Enter the bill amount" : "";
+    : !amt ? "Enter the bill amount"
+    : read?.handwritten && why.trim().length < 5 ? "Say why you have only a handwritten bill"
+    : read?.handwritten && !cash && !proof ? "Add the payment proof — or tick “Paid in cash”" : "";
   const submit = async () => {
     setTried(true);
     if (missing) return setError(missing);
     setError("");
     const toLine = (l) => ({ id: l.id, type: l.type, sub: "", date: l.date, note: l.note, amount: l.amount, bill: l.bill });
     const mine = (bill, id) => ({ id, type: "Miscellaneous", sub: "", date, note: title.trim(), amount: amt, bill });
-    let name, row, before, waiting = [];
+    let name, row, before, waiting = [], proofUrl = null;
     try {
       setBusy("Saving…");
       // Onto the LATEST open claim: another bill (or its background check) may
@@ -142,7 +157,13 @@ export function BillSheet({ conn, me, claims = [], advances = [], today = new Da
         return saveClaim(conn, { claim: open || undefined, employee: me.id, postingDate: open?.posting || todayIso, remark: open?.remark || "", running: true, lines: [...(open ? open.lines.map(toLine) : []), mine("")] });
       }, /already has an open claim/i);
       setBusy("Uploading the bill…");
-      const url = (await uploadClaimFile(conn, name, file)).file_url;
+      // the bill and its payment proof (the approvers open it too) side by side
+      const [up, upProof] = await Promise.all([
+        uploadClaimFile(conn, name, file),
+        read?.handwritten && !cash && proof ? uploadClaimFile(conn, name, proof) : null,
+      ]);
+      const url = up.file_url;
+      if (upProof) proofUrl = upProof.file_url;
       await retryOnConflict(async () => {
         const fresh = await fetchClaim(conn, name);
         row = row || fresh.lines.filter((l) => !before.has(l.id) && !l.bill && l.note === title.trim() && l.amount === amt && l.date === date).pop()?.id;
@@ -156,25 +177,39 @@ export function BillSheet({ conn, me, claims = [], advances = [], today = new Da
       if (name) invalidateClaims(conn, me.id);
       return setError(e.message);
     }
-    // The check runs on its own: the person is not held up. Whatever it decides
-    // reaches the page through onChecked (a bill it misses stays "Checking" and
-    // goes along with the next bill's check).
-    checkClaim(conn, name, [row, ...waiting], read?.signed ? { [row]: read.signed } : undefined)
-      .catch((e) => console.warn("[expense-claims] background check:", e.message))
-      .finally(() => { invalidateClaims(conn, me.id); onChecked?.(); });
+    // The score (16 Nov 2026, user): Gemma is near perfect, so the form only
+    // fills in what it read and the person changes anything wrong. The score
+    // -- what was sent against what was read -- is worked out here, quietly
+    // (plain code, no AI), and shown only to the approvers with the risk. The
+    // person is told nothing about it. If it fails, the bill stays "Checking"
+    // and is scored when it is sent for approval.
+    setBusy("Saving…");
+    let scored = false;
+    try {
+      const hand = read?.handwritten ? { why: why.trim(), cash, proof: cash ? null : proofUrl } : undefined;
+      await checkClaim(conn, name, [row, ...waiting], read?.signed ? { [row]: { ...read.signed, hand } } : undefined);
+      scored = true;
+    } catch (e) {
+      console.warn("[expense-claims] bill score:", e.message);
+    }
+    // ...and sent for approval right away (16 Nov 2026, user: no second step).
+    // Just this bill -- one sent back stays with the rep until it is fixed.
+    // If this fails, the Settlements page offers "Send for approval" for it.
+    let sent = null;
+    if (scored) {
+      setBusy("Sending for approval…");
+      sent = await sendBillsForApproval(conn, [row]).catch((e) => { console.warn("[expense-claims] send:", e.message); return null; });
+    }
     invalidateClaims(conn, me.id);
+    onChecked?.();
     setBusy("");
-    const v = CHECKING;
-    setDone({
-      name, v,
-      lines: [
-        [`${title.trim()} · ${shortDate(date)}`, inr(amt)],
-        v.ok ? (after >= 0 ? ["In hand now", inr(after)] : ["Owed to you", inr(-after)]) : ["Counts", "once verified"],
-      ],
-    });
+    const first = sent?.requests?.[0];
+    const lines = [[`${title.trim()} · ${shortDate(date)}`, inr(amt)]];
+    if (first && waitingOn(first)) lines.push(["Now", waitingOn(first).replace(/^with/, "With")]);
+    setDone({ name, sent: !!first, lines });
   };
 
-  const close = () => (done ? onSaved?.({ name: done.name, verified: done.v.ok, message: done.v.title }) : onClose?.());
+  const close = () => (done ? onSaved?.({ name: done.name, message: done.sent ? "Sent for approval" : "Bill added" }) : onClose?.());
   const footer = done ? (
     <button type="button" className="ec-cta" onClick={close} style={{ ...btn.primary, flex: 1, height: 50, borderRadius: 14, fontSize: 16 }}>Done</button>
   ) : (
@@ -184,17 +219,16 @@ export function BillSheet({ conn, me, claims = [], advances = [], today = new Da
         <b style={{ fontSize: 22, letterSpacing: "-0.02em", color: (amt ? after : now) < 0 ? "#b42318" : "#0b1220", ...tabNum }}>{inr(Math.abs(amt ? after : now))}</b>
       </div>
       <button type="button" className="ec-cta" disabled={!!busy} onClick={submit} style={{ ...btn.primary, height: 50, padding: "0 22px", borderRadius: 14, fontSize: 15.5, display: "flex", alignItems: "center", gap: 8, opacity: missing && tried ? 0.55 : 1 }}>
-        {busy ? <><Spinner size={14} />{busy}</> : <><Icon d={IC.shield} size={18} />Check my bill</>}
+        {busy ? <><Spinner size={14} />{busy}</> : <><Icon d={IC.arrow} size={18} />Send for approval</>}
       </button>
     </>
   );
 
   return (
     <Sheet title={done ? "" : "Add a bill"} sub={done ? null : "Take a photo of your bill — the details fill in by themselves."}
-      chips={done ? null : <span style={{ display: "flex", alignItems: "center", gap: 5, fontSize: 11, fontWeight: 700, letterSpacing: ".08em", textTransform: "uppercase", color: "#1d4ed8" }}><Icon d={SCAN} size={13} />AI bill check</span>}
       onClose={close} desktop="dialog" maxWidth={520} footer={footer}>
       <style>{CSS}</style>
-      {done ? <Done title={done.v.title} amount={amt} lines={done.lines} ai={{ ok: done.v.ok, text: done.v.text }} /> : (
+      {done ? <Done title={done.sent ? "Sent for approval" : "Bill added"} amount={amt} lines={done.lines} /> : (
         <div style={{ display: "flex", flexDirection: "column", gap: 16, padding: desk ? "18px 24px 20px" : "14px 16px 18px" }}>
           <button type="button" className="ecs-drop" onClick={() => pick.current?.click()}
             style={{ display: "flex", flexDirection: file ? "row" : "column", alignItems: "center", justifyContent: "center", gap: file ? 12 : 6, width: "100%", minHeight: file ? 76 : 150, padding: file ? "10px 12px" : "18px 14px", borderRadius: 16, border: `1.5px ${file ? "solid" : "dashed"} ${read?.wrong ? "#f04438" : file ? "#12b76a" : tried && !file ? "#f04438" : "#b2c8f7"}`, background: read?.wrong ? "#fef3f2" : file ? "#f6fef9" : "#f5f8ff", color: "#0b1220", textAlign: file ? "left" : "center", cursor: "pointer" }}>
@@ -223,7 +257,7 @@ export function BillSheet({ conn, me, claims = [], advances = [], today = new Da
               <span style={{ display: "flex", flex: "none", marginTop: 1 }}><Icon d={IC.x} size={18} sw={2.2} /></span>
               <span style={{ display: "flex", flexDirection: "column", gap: 3 }}>
                 <b style={{ fontSize: 13.5 }}>{WRONG[read.wrong].title}</b>
-                <span style={{ fontSize: 13, color: "#7a271a", lineHeight: 1.45 }}>{WRONG[read.wrong].text} Nothing has been saved.</span>
+                <span style={{ fontSize: 13, color: "#7a271a", lineHeight: 1.45 }}>{read.wrong === "duplicate" && read.why ? `${read.why} ` : ""}{WRONG[read.wrong].text} Nothing has been saved.</span>
               </span>
             </div>
           ) : null}
@@ -254,17 +288,44 @@ export function BillSheet({ conn, me, claims = [], advances = [], today = new Da
               </label>
             </div>
             <span style={{ ...hint, marginTop: -8, color: read?.filled ? "#b54708" : hint.color }}>{read?.filled ? "Filled from the bill — change anything only if it is wrong" : read?.manual ? "Type the total and the date exactly as on the bill" : "Could not read these off the bill — type them exactly as on it"}</span>
+            {read?.handwritten && (
+              <div style={{ display: "flex", flexDirection: "column", gap: 12, padding: 14, borderRadius: 14, background: "#fffaeb", boxShadow: "0 0 0 1px #fedf89" }}>
+                <b style={{ fontSize: 13.5, color: "#93370d" }}>This is a handwritten bill</b>
+                <label style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+                  <span style={lbl}>Why only a handwritten bill?</span>
+                  <textarea className="ecs-in" rows={2} value={why} maxLength={300} onChange={(e) => setWhy(e.target.value)} placeholder="e.g. Local taxi — they give only handwritten bills"
+                    style={{ height: "auto", minHeight: 64, padding: "10px 12px", fontSize: 14, resize: "vertical", borderColor: tried && why.trim().length < 5 ? "#f04438" : undefined }} />
+                </label>
+                <span style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+                  <span style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8 }}>
+                    <span style={lbl}>Payment proof</span>
+                    <label style={{ display: "inline-flex", alignItems: "center", gap: 6, fontSize: 13, fontWeight: 600, color: "#344054", cursor: "pointer" }}>
+                      <input type="checkbox" checked={cash} onChange={(e) => setCash(e.target.checked)} style={{ width: 16, height: 16, accentColor: "#2563eb" }} />
+                      Paid in cash
+                    </label>
+                  </span>
+                  {cash ? (
+                    <span style={{ fontSize: 12.5, color: "#5b6576" }}>No proof needed — paid in cash.</span>
+                  ) : proof ? (
+                    <span style={{ display: "flex", alignItems: "center", gap: 10, padding: "8px 10px", borderRadius: 12, background: "#f6fef9", boxShadow: "0 0 0 1px #abefc6" }}>
+                      {proofThumb ? <img src={proofThumb} alt="Payment proof" style={{ width: 40, height: 48, borderRadius: 8, objectFit: "cover", flex: "none" }} /> : <Icon d={IC.file} size={18} />}
+                      <span style={{ flex: 1, minWidth: 0, fontSize: 13, fontWeight: 600, color: "#067647", ...ell }}>{proof.name || "Payment proof"}</span>
+                      <button type="button" onClick={() => proofPick.current?.click()} style={{ border: 0, background: "transparent", fontSize: 13, fontWeight: 600, color: "#1d4ed8", cursor: "pointer" }}>Change</button>
+                    </span>
+                  ) : (
+                    <button type="button" onClick={() => proofPick.current?.click()}
+                      style={{ minHeight: 46, borderRadius: 12, border: `1.5px dashed ${tried ? "#f04438" : "#b2c8f7"}`, background: "#f5f8ff", color: "#1d4ed8", fontSize: 13.5, fontWeight: 700, cursor: "pointer" }}>
+                      Add payment proof · GPay / UPI / bank screenshot
+                    </button>
+                  )}
+                  <input ref={proofPick} type="file" accept={ATTACH_ACCEPT} style={{ display: "none" }} onChange={(e) => { const f = e.target.files?.[0]; e.target.value = ""; if (f) pickProof(f); }} />
+                </span>
+              </div>
+            )}
 
             </>
           )}
 
-          <div style={{ display: "flex", gap: 10, padding: "12px 14px", borderRadius: 14, background: "#f7f8fa" }}>
-            <span style={{ color: "#1d4ed8", display: "flex", flex: "none", marginTop: 1 }}><Icon d={IC.shield} size={18} /></span>
-            <span style={{ display: "flex", flexDirection: "column", gap: 3 }}>
-              <b style={{ fontSize: 13.5 }}>What happens next?</b>
-              <span style={{ fontSize: 13, color: "#5b6576", lineHeight: 1.45 }}>The bill is read once when you add it. If what you send matches it, it is verified at once and counts straight away; anything different or unclear, or any bill above ₹50,000, goes to Accounts to check — never rejected silently.</span>
-            </span>
-          </div>
           {error && <Note>{error}</Note>}
         </div>
       )}

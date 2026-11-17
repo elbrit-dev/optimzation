@@ -673,6 +673,11 @@ export async function extractBill(conn, file) {
     vendor: v.vendor || null,
     what: r.title && r.title !== "Not a bill" && r.title !== "Other bill" ? r.title : null,
     kind: r.title === "Not a bill" ? "not_a_bill" : "printed",
+    // Gemma's call (16 Nov 2026): a handwritten bill needs a reason and the
+    // payment proof (or "paid in cash") before it can be sent
+    handwritten: !!r.handwritten,
+    // already claimed -- on a settlement bill or a planner trip, by anyone
+    duplicate: json.duplicate || null,
     readable: true,
     signed: { read: r, sig: json.sig },
   };
@@ -943,6 +948,16 @@ export function shapeSettlement(r) {
     id: r.name,
     employee: r.employee,
     employeeName: r.employee_name || r.employee,
+    hq: r.hq || "",
+    // sent again after a rejection (17 Nov 2026): { from, by, note }
+    resent: r.resent && r.resent.from ? { from: r.resent.from, by: r.resent.by || "", note: r.resent.note || "" } : null,
+    // booked in the accounts at the CEO's approval (17 Nov 2026): the claim (a
+    // bill) or the advance (cash), and whether Accounts has paid it
+    booked: r.booked ? {
+      claim: r.booked.claim || "", advance: r.booked.advance || "",
+      paid: /^paid$/i.test(r.booked.status || "") || (r.booked.advance && num0(r.booked.paid) > 0),
+      amountPaid: num0(r.booked.paid),
+    } : null,
     user: r.user,
     kind: r.kind === "Cash" ? "cash" : "bills",
     status: String(r.status || "").toLowerCase(), // waiting | approved | rejected | withdrawn
@@ -990,9 +1005,11 @@ export async function fetchMySettlements(conn) {
   return { requests: (m.requests || []).map(shapeSettlement), chain: m.chain || [], overview: !!m.overview };
 }
 /* Every checked, unsent bill on the open settlement claim, as one request. */
-export async function sendBillsForApproval(conn) {
-  const m = (await settleCall(conn, "POST", { action: "send_bills" })).message || {};
-  return m.request ? shapeSettlement(m.request) : null;
+/* One request PER BILL (16 Nov 2026): -> { count, amount, requests } */
+export async function sendBillsForApproval(conn, rows) {
+  const m = (await settleCall(conn, "POST", { action: "send_bills", ...(rows?.length ? { rows: rows.join(",") } : {}) })).message || {};
+  const requests = (m.requests || (m.request ? [m.request] : [])).map(shapeSettlement);
+  return { count: m.count ?? requests.length, amount: num0(m.amount ?? requests.reduce((s, r) => s + r.amount, 0)), requests };
 }
 /* "Request cash": an advance, up the same chain. */
 export async function requestCashThroughChain(conn, { amount, purpose }) {
@@ -1019,6 +1036,69 @@ export async function fetchSettlementQueue(conn) {
 export async function decideSettlement(conn, id, decision, note) {
   const m = (await settleCall(conn, "POST", { action: "decide", name: id, decision, note: note || "" })).message || {};
   return m.request ? shapeSettlement(m.request) : null;
+}
+
+/* ---- Paying (17 Nov 2026, Settlement Pay API): Accounts batches what the
+   CEO approved, one line per employee; the CEO approves the batch; the UTR
+   makes the Payment Entries. */
+const payCall = (conn, method, params) =>
+  method === "GET"
+    ? rest(conn, `/api/method/settlement_pay?${new URLSearchParams(params)}`)
+    : rest(conn, "/api/method/settlement_pay", { method: "POST", headers: { "Content-Type": "application/x-www-form-urlencoded" }, body: new URLSearchParams(params) });
+/* -> { accounts, ceo, it, ready } -- nothing (all false) when payments are not set up */
+export async function fetchPayRole(conn) {
+  try {
+    const m = (await payCall(conn, "GET", { action: "me" })).message || {};
+    return { accounts: !!m.accounts, ceo: !!m.ceo, it: !!m.it, ready: !!m.ready };
+  } catch {
+    return { accounts: false, ceo: false, it: false, ready: false };
+  }
+}
+const shapeLine = (l) => ({
+  employee: l.employee, name: l.employee_name || l.employee, amount: num0(l.amount),
+  claims: l.claims || [], advances: l.advances || [], bankAc: l.bank_ac_no || "", ifsc: l.ifsc || "", bank: l.bank_name || "",
+  utr: l.utr || "", paid: !!l.paid, entries: l.payment_entries || "",
+});
+const shapeBatch = (b) => ({
+  id: b.name, status: String(b.status || "").toLowerCase(), amount: num0(b.amount), count: b.count || 0,
+  createdBy: b.created_by || "", created: b.creation, note: b.note || "", decidedBy: b.decided_by || "",
+  decidedOn: b.decided_on && b.decided_on !== "None" ? b.decided_on : "", paidOn: b.paid_on && b.paid_on !== "None" ? b.paid_on : "",
+  bankAccount: b.bank_account || "", lines: (b.lines || []).map(shapeLine),
+});
+/* What is owed, by employee. -> { employees: [{ employee, name, claims, advances, total, hasBank }], banks, defaultBank } */
+export async function fetchDue(conn) {
+  const m = (await payCall(conn, "GET", { action: "due" })).message || {};
+  return {
+    employees: (m.employees || []).map((e) => ({
+      employee: e.employee, name: e.employee_name || e.employee, total: num0(e.total), hasBank: !!e.has_bank,
+      claims: (e.claims || []).map((c) => ({ id: c.name, amount: num0(c.amount), title: c.title || "Bill", date: c.bill_date || c.date, bill: c.bill || "", request: c.request || "" })),
+      advances: (e.advances || []).map((a) => ({ id: a.name, amount: num0(a.amount), purpose: a.purpose || "Cash advance", date: a.date })),
+    })),
+    banks: m.banks || [],
+    defaultBank: m.default_bank || "",
+  };
+}
+export async function fetchBatches(conn) {
+  const m = (await payCall(conn, "GET", { action: "batches" })).message || {};
+  return (m.batches || []).map(shapeBatch);
+}
+export async function createBatch(conn, employees) {
+  const m = (await payCall(conn, "POST", { action: "create", employees: employees.join(",") })).message || {};
+  return m.batch ? shapeBatch(m.batch) : null;
+}
+export async function decideBatch(conn, id, decision, note) {
+  const m = (await payCall(conn, "POST", { action: "decide", name: id, decision, note: note || "" })).message || {};
+  return m.batch ? shapeBatch(m.batch) : null;
+}
+/* utrs: { <employee>: utr } -- any left blank take `utr` */
+export async function markBatchPaid(conn, id, { bank, date, utr, utrs = {} }) {
+  const extra = Object.fromEntries(Object.entries(utrs).filter(([, v]) => String(v || "").trim()).map(([k, v]) => [`utr_${k}`, String(v).trim()]));
+  const m = (await payCall(conn, "POST", { action: "paid", name: id, bank_account: bank || "", date: date || "", utr: utr || "", ...extra })).message || {};
+  return m.batch ? shapeBatch(m.batch) : null;
+}
+export async function cancelBatch(conn, id) {
+  const m = (await payCall(conn, "POST", { action: "cancel", name: id })).message || {};
+  return m.batch ? shapeBatch(m.batch) : null;
 }
 
 /* A file already in the ERP (the planner stores a trip bill the moment it is

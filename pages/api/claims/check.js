@@ -10,9 +10,10 @@
 // each bill's signed read is compared with what the person submitted on the
 // row (lib/billReader.js compareBill): total and date must match and the photo
 // must be a bill, each read with confidence 0.9 or more. All three -> score 100, else 40 with
-// the reasons. The ERP decides from the score ("Expense Running Guard": 90+
-// Verified, anything above Rs 50,000 still to Accounts; else In Review + a
-// Task). The read itself is kept on the row (custom_bill_meta).
+// the reasons. Either way the bill becomes Checked ("Expense Running Guard",
+// 16 Nov 2026) and the person sends it up the approval chain; the approvers
+// see the score and reasons. The add-bill form waits for this check (it is
+// quick) and shows the result. The read is kept on the row (custom_bill_meta).
 //
 // Who does what:
 //   - the claim is READ with the user's own token, so only someone who may
@@ -26,6 +27,7 @@
 // A bill with no signed read (the reader was off, or the old claim form) is
 // scored 0 -- a person in Accounts checks it.
 
+import { fingerprintCall, fingerprintFields } from "../../../lib/billFingerprint";
 import { allowedErpHosts } from "../../../lib/erpServer";
 import { compareBill, readIsSigned } from "../../../lib/billReader";
 
@@ -55,8 +57,6 @@ async function erp(origin, token, path, init = {}) {
   return json;
 }
 
-// Keep in step with REVIEW_ABOVE in the Expense Running Guard.
-const REVIEW_ABOVE = 50000;
 
 /* The planner's monthly field TA/DA claim (13 Nov 2026): its RISK SCORE, over
    every line -- the verifiers sort and check by it on the field-expenses
@@ -120,19 +120,35 @@ export function fieldClaimScore(rows) {
 /* One row against its signed read -> what is written on the row. */
 function scoreRow(row, signed) {
   const claimed = flt(row.amount);
-  const above = claimed > REVIEW_ABOVE ? " Above ₹50,000 -- always checked by Accounts." : "";
+  // 16 Nov 2026: no Accounts review and no ₹50,000 rule -- every Checked bill
+  // goes up the approval chain, and the approvers read this reason.
   if (!signed || !readIsSigned(signed.read, signed.sig)) {
-    return { row, score: 0, reason: "No bill read was kept for this bill -- checked by Accounts." + above, meta: { verification: { status: "Not read", checked_at: new Date().toISOString() } } };
+    return { row, score: 0, reason: "The bill was not read when it was added -- check the photo by hand.", meta: { verification: { status: "Not read", checked_at: new Date().toISOString() } } };
   }
   const read = signed.read;
   if (read.trip) return scoreTripRow(row, read);
   const { ok, checks } = compareBill(read, { amount: claimed, date: row.expense_date });
-  const score = ok ? 100 : 40;
+  let score = ok ? 100 : 40;
   const v = read.values || {};
+  let reason = ok ? "Total and date match the bill." : checks.filter((c) => !c.ok).map((c) => c.why).join("; ") + ".";
+  // A handwritten bill (16 Nov 2026; Gemma's call, inside the signed read):
+  // never "clean" -- Medium (70) with the rep's reason and the payment proof
+  // (or "paid in cash"), High (40) without them or when it does not match.
+  // The proof's file is named in the reason; the approval page shows it.
+  let hand = null;
+  if (read.handwritten) {
+    const h = signed.hand || {};
+    const why = String(h.why || "").replace(/\s+/g, " ").trim().slice(0, 200);
+    const proof = typeof h.proof === "string" && /^\/(private\/)?files\/[^\s"]+$/.test(h.proof) ? h.proof : "";
+    const paid = h.cash ? "Paid in cash." : proof ? `Payment proof: ${proof}` : "No payment proof.";
+    score = ok && why && (h.cash || proof) ? 70 : 40;
+    reason = `Handwritten bill. ${reason} ${paid}${why ? ` Rep's reason: "${why}".` : " No reason given."}`;
+    hand = { why, cash: !!h.cash, proof: proof || null };
+  }
   return {
     row,
     score,
-    reason: (ok ? "Total and date match the bill." : checks.filter((c) => !c.ok).map((c) => c.why).join("; ") + ".") + above,
+    reason,
     amount: typeof v.total === "number" ? v.total : null,
     date: v.date || null,
     vendor: v.vendor ? String(v.vendor).slice(0, 140) : null,
@@ -141,6 +157,7 @@ function scoreRow(row, signed) {
     meta: {
       bill: { ...v, title: read.title, title_confidence: read.titleConfidence, confidence: read.confidence, read_at: read.at, markdown: String(read.md || "").slice(0, 4000) },
       verification: { status: ok ? "Matched" : "Mismatch", checked_at: new Date().toISOString(), score, min_confidence: 0.9, checks },
+      ...(hand ? { handwritten: hand } : {}),
     },
   };
 }
@@ -235,6 +252,29 @@ export default async function handler(req, res) {
   });
 
   const counted = scored.filter((s) => !s.skip);
+  /* A settlement bill (17 Nov 2026) goes into the duplicate register the
+     planner's trip bills use, as the rep (their own token), now it is saved:
+     already claimed (anywhere, by anyone) -> 0 and why; a possible repeat ->
+     at most 85 (never "clean"). The register not answering leaves the score. */
+  await Promise.all(counted.map(async (x) => {
+    const sr = reads[x.row.name];
+    const pr = sr?.read?.prints;
+    if (!pr || sr.read.trip || !readIsSigned(sr.read, sr.sig) || x.score == null) return;
+    const fp = await fingerprintCall(origin, userErp, {
+      action: "claim", kind: "Bill", trip: claimName.slice(0, 40),
+      ...fingerprintFields(sr.read.values, { date: x.row.expense_date, amount: flt(x.row.amount) }),
+      file_url: x.row.custom_bill || "", file_hash: pr.file, image_hash: pr.image || "", content_hash: pr.content || "", strong: pr.strong ? "1" : "0",
+    });
+    if (!fp || fp.error !== undefined) return;
+    x.meta = { ...(x.meta || {}), fingerprint: fp.ok ? { name: fp.name, flag: fp.flag || null } : { refused: fp.matched || null } };
+    if (!fp.ok) {
+      x.score = 0;
+      x.reason = `${fp.reason || "Already claimed."} ${x.reason}`;
+    } else if (fp.flag) {
+      x.score = Math.min(x.score, 85);
+      x.reason = `${x.reason} ${fp.flag}`;
+    }
+  }));
   // the planner's month claim is scored over every line, every time it changes
   const field = String(claim.remark || "").startsWith(FIELD);
   if (!counted.length && !field) return res.status(200).json({ skipped: true, reason: running ? "Every bill on this claim is checked already." : "Advance requests have no bills to check." });

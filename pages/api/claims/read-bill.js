@@ -17,8 +17,15 @@
 
 import { allowedErpHosts } from "../../../lib/erpServer";
 import { billReaderOn, billText, readMarkdown, signRead } from "../../../lib/billReader";
-import { contentHash, fileHash, imageHash } from "../../../lib/billFingerprint";
+import { contentHash, fileHash, fingerprintCall, fingerprintFields, imageHash } from "../../../lib/billFingerprint";
 import { SLOTS, manualBillVerdict, tripBillVerdict } from "../../../shared/calendar/lib/field-expenses/bill-rules";
+import { limiter } from "../../../lib/limit";
+
+/* 17 Nov 2026: many reps' bills are read side by side, but at most
+   BILL_READ_PARALLEL (default 6) AI reads at once on one server -- the rest
+   wait their turn for a moment instead of all hitting the AI together (and
+   its rate limit). Storing and hashing a bill are not held back. */
+const aiSlot = limiter(Number(process.env.BILL_READ_PARALLEL) || 6);
 
 export const config = { api: { bodyParser: false } };
 
@@ -70,6 +77,20 @@ async function storeBill({ origin, userErp, body, type }) {
   ]);
   if (!stored?.file_url) return { error: "The bill could not be stored in the ERP — try again." };
   return { stored, file: fileHash(bytes), image };
+}
+
+/* A settlement bill's hashes (17 Nov 2026), worked out while it is read.
+   -> { file, image } | null */
+async function hashBill(body, type) {
+  try {
+    const form = await new Request("http://local/", { method: "POST", headers: { "content-type": type }, body }).formData();
+    const f = form.get("files");
+    if (!f || typeof f.arrayBuffer !== "function") return null;
+    const bytes = Buffer.from(await f.arrayBuffer());
+    return { file: fileHash(bytes), image: await imageHash(bytes, f.type).catch(() => null) };
+  } catch {
+    return null;
+  }
 }
 
 async function tripBillStep({ origin, userErp, body, type, read, tripBill, given = null, storing = null }) {
@@ -255,16 +276,20 @@ export default async function handler(req, res) {
 
   // a planner trip bill: stored in the ERP and hashed WHILE it is read
   const storing = tripBill ? storeBill({ origin, userErp, body, type }).catch((e) => ({ error: e.message })) : null;
+  // a settlement bill: only hashed while it is read (stored when it is saved)
+  const hashing = tripBill ? null : hashBill(body, type);
   const dropStored = () => storing && storing.then((s) => s?.stored && fetch(`${origin}/api/resource/File/${encodeURIComponent(s.stored.name)}`, { method: "DELETE", headers: { Authorization: tokenHeader(userErp) }, redirect: "manual" }).catch(() => {}));
   try {
-    const { md, via } = await billText(body, type);
+    const queued = aiSlot.active() >= (Number(process.env.BILL_READ_PARALLEL) || 6);
+    const { md, via, tq } = await aiSlot(async () => ({ tq: Date.now() - t, ...(await billText(body, type)) }));
+    if (queued) console.info("read-bill waited", tq, "ms for an AI slot");
     const tText = Date.now() - t;
     if (!md) {
       dropStored();
       if (tripBill) return res.status(200).json({ verdict: tripBillVerdict(null, tripBill.slot, tripBill.trip), ms: Date.now() - t });
       return res.status(200).json({ read: null, unreadable: true, ms: Date.now() - t });
     }
-    const read = { ...(await readMarkdown(md)), md: md.slice(0, 6000), via, at: new Date().toISOString() };
+    const read = { ...(await aiSlot(() => readMarkdown(md))), md: md.slice(0, 6000), via, at: new Date().toISOString() };
     const tRead = Date.now() - t;
     if (tripBill) {
       const out = await tripBillStep({ origin, userErp, body, type, read, tripBill, storing });
@@ -273,7 +298,23 @@ export default async function handler(req, res) {
       console.info("read-bill timing", JSON.stringify(timing));
       return res.status(200).json({ ...out, ms: timing.total, timing });
     }
-    return res.status(200).json({ read, sig: signRead(read), ms: Date.now() - t });
+    /* A settlement bill (17 Nov 2026): the same duplicate register as the
+       planner's -- asked now (nothing written), registered when the bill is
+       saved (/api/claims/check). The hashes ride inside the signed read. */
+    const h = await hashing;
+    const content = contentHash(read.values);
+    const prints = h ? { file: h.file, image: h.image, content: content?.hash || null, strong: !!content?.strong } : null;
+    let duplicate = null;
+    if (prints) {
+      const fp = await fingerprintCall(origin, userErp, {
+        action: "check", kind: "Bill", trip: "", ...fingerprintFields(read.values),
+        file_hash: prints.file, image_hash: prints.image || "", content_hash: prints.content || "", strong: prints.strong ? "1" : "0",
+      });
+      if (fp && fp.ok === 0) duplicate = fp.reason || "This bill was already claimed.";
+      else if (fp?.flag) read.flag = fp.flag;
+    }
+    const signedRead = { ...read, prints };
+    return res.status(200).json({ read: signedRead, sig: signRead(signedRead), ...(duplicate ? { duplicate } : {}), ms: Date.now() - t });
   } catch (e) {
     dropStored();
     console.error("read-bill:", e.message);

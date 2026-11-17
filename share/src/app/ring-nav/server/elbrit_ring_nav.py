@@ -1189,7 +1189,7 @@ def expense_tiles():
             "statusIcon": "check-square",
             "statusTone": "neutral",
             "count": waiting,
-            "caption": (str(waiting) + " to approve") if waiting else "Clear",
+            "caption": "Pending" if waiting else "Clear",
             "captionTone": "danger" if waiting else "success",
             "segments": service_ring([
                 {"key": "approved", "value": approved, "tone": "success", "label": "Approved this month"},
@@ -1349,21 +1349,29 @@ except Exception as err:
 # up the requester's line, BE > ABM > RBM > SM/ZSM > GM > CEO ("Settlement
 # API"); the CEO's approval makes them Verified. app-uat ONLY: the app asks
 # with expense_all=1 there, never on live. The tile is for whoever a request
-# waits on, or who has one of their team's in the chain, or verified this month.
+# waits on, or who approved one still going up, or verified this month. A
+# request that has not reached someone yet is not theirs to see (17 Nov 2026).
 #   badge     requests waiting on the caller
-#   caption   "N to approve", else "Clear"
-#   ring      waiting on me / in my team's chain / verified this month
+#   caption   "Pending", else "Clear" (the badge carries the number)
+#   icon      receipt -- not the Expense tile's wallet (17 Nov 2026)
+#   ring      waiting on me / I approved, still going up / verified this month
 HREFS["settle-approval"] = "/expense/approval?view=settle"
 
 
 def settle_tile():
     if not expense_all or not frappe.db.exists("DocType", "Settlement Request"):
         return
+    # a BE approves nobody (17 Nov 2026): no Settle tile
+    head = str(seat or "").split("-")[0].upper()
+    if head[:2] == "BE" and head[2:].isdigit() or head == "BE":
+        return
     mine = "%|" + me + "|%"
     waiting = frappe.get_all("Settlement Request", filters={"status": "Waiting", "next_approver": me},
                              fields=["amount"], limit_page_length=500)
-    team = frappe.get_all("Settlement Request", filters={"status": "Waiting", "approvers": ["like", mine], "next_approver": ["!=", me]},
-                          pluck="name", limit_page_length=500)
+    # approved by me and still going up (the steps are a child table: SQL)
+    team = frappe.db.sql("select distinct r.name from `tabSettlement Request` r join `tabSettlement Step` s"
+                         " on s.parent = r.name and s.parenttype = 'Settlement Request'"
+                         " where r.status = 'Waiting' and s.user = %s and s.decision = 'Approved' limit 500", (me,))
     verified = frappe.get_all("Settlement Request", filters={"status": "Approved", "approvers": ["like", mine],
                                                              "decided_on": [">=", today[:8] + "01"]},
                               pluck="name", limit_page_length=500)
@@ -1374,15 +1382,15 @@ def settle_tile():
         "id": "settle-approval",
         "label": "Settle",
         "href": HREFS["settle-approval"],
-        "icon": "wallet",
+        "icon": "receipt",
         "statusIcon": "check-square",
         "statusTone": "neutral",
         "count": n,
-        "caption": (str(n) + " to approve") if n else "Clear",
+        "caption": "Pending" if n else "Clear",
         "captionTone": "danger" if n else "success",
         "segments": service_ring([
             {"key": "waiting", "value": n, "tone": "danger", "label": "Waiting for you"},
-            {"key": "team", "value": len(team), "tone": "warning", "label": "Your team, in approval"},
+            {"key": "team", "value": len(team), "tone": "warning", "label": "You approved, going up"},
             {"key": "verified", "value": len(verified), "tone": "success", "label": "Verified this month"},
         ]),
     })

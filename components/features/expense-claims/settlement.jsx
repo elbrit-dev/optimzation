@@ -2,8 +2,9 @@
 
 import { useState } from "react";
 import { decideSettlement, withdrawSettlement } from "./data/claimsApi";
+import { eachByGroup } from "../../../lib/limit";
 import { inr, shortDate } from "./model";
-import { BillThumb, IC, Icon, Note, RiskBadge, Sheet, Spinner, billFile, btn, card, ell, label, tabNum } from "./ui";
+import { BillThumb, FilePreview, IC, Icon, Note, RiskBadge, Sheet, Spinner, billFile, btn, card, ell, label, tabNum } from "./ui";
 
 /* Settlement approval (16 Nov 2026), the app's side: a request -- the rep's
  * AI-checked bills, or a cash advance -- goes up their reporting line, BE >
@@ -31,7 +32,9 @@ const when = (s) => {
   const d = new Date(String(s || "").replace(" ", "T"));
   return isNaN(d) ? "" : d.toLocaleString("en-IN", { day: "numeric", month: "short", hour: "numeric", minute: "2-digit" });
 };
-export const kindWord = (r) => (r.kind === "cash" ? "Cash request" : `${r.bills.length} ${r.bills.length === 1 ? "bill" : "bills"}`);
+// a request is one bill since 16 Nov 2026 -- called by the bill's own name
+export const kindWord = (r) => (r.kind === "cash" ? "Cash request"
+  : r.bills.length === 1 ? (r.bills[0].title || "1 bill") : `${r.bills.length} bills`);
 /* who it waits on, in words */
 export const waitingOn = (r) => {
   const s = r.steps[r.step];
@@ -39,7 +42,10 @@ export const waitingOn = (r) => {
 };
 
 function StatusPill({ r }) {
-  const s = STATUS[r.status] || STATUS.waiting;
+  // approved = booked in the accounts (17 Nov 2026): to be paid, or paid
+  const s = r.status === "approved" && r.booked
+    ? (r.booked.paid ? { text: "Paid", fg: "#067647", bg: "#ecfdf3" } : { text: "To be paid", fg: "#1d4ed8", bg: "#eef3fe" })
+    : STATUS[r.status] || STATUS.waiting;
   return <span style={{ flex: "none", fontSize: 11.5, fontWeight: 700, padding: "3px 9px", borderRadius: 99, color: s.fg, background: s.bg, whiteSpace: "nowrap" }}>{s.text}</span>;
 }
 
@@ -53,13 +59,14 @@ export function ChainTrack({ r, steps: given, compact }) {
         const now = r && r.status === "waiting" && i === r.step;
         const ok = s.decision === "Approved";
         const no = s.decision === "Rejected";
+        const skip = s.decision === "Skipped"; // on leave / left / 2 working days (17 Nov 2026)
         const tone = ok ? "#067647" : no ? "#b42318" : now ? "#b54708" : "#98a2b3";
         return (
           <li key={i} aria-current={now ? "step" : undefined} style={{ display: "flex", alignItems: "center", gap: 4 }} title={[s.name, s.decision, s.at ? when(s.at) : "", s.note].filter(Boolean).join(" · ")}>
             {i > 0 && <span aria-hidden style={{ color: "#c0c5cf", fontSize: 12 }}>›</span>}
             <span style={{ display: "inline-flex", alignItems: "center", gap: 5, padding: compact ? "2px 7px" : "4px 9px", borderRadius: 99, fontSize: compact ? 11 : 12, fontWeight: 700, color: tone, background: ok ? "#ecfdf3" : no ? "#fef3f2" : now ? "#fffaeb" : "#f2f4f7", boxShadow: now ? "0 0 0 1.5px #f79009" : "none", whiteSpace: "nowrap" }}>
               {ok ? <Icon d={IC.check} size={11} sw={3} /> : no ? <Icon d={IC.x} size={11} sw={3} /> : now ? <span style={{ width: 6, height: 6, borderRadius: 99, background: "#f79009" }} /> : null}
-              {s.level || "Approver"}{!compact && <span style={{ fontWeight: 500, color: "#475467" }}> {String(s.name || "").split(" ")[0]}</span>}
+              <span style={skip ? { textDecoration: "line-through" } : undefined}>{s.level || "Approver"}</span>{!compact && <span style={{ fontWeight: 500, color: "#475467" }}> {String(s.name || "").split(" ")[0]}</span>}
             </span>
           </li>
         );
@@ -68,89 +75,180 @@ export function ChainTrack({ r, steps: given, compact }) {
   );
 }
 
-/* On the Settlements page: the checked bills not sent yet, and the button. */
-export function SendBar({ bills, chain, busy, onSend }) {
+/* On the Settlements page, only when needed (16 Nov 2026): a bill is sent for
+   approval the moment it is added, so this is for a bill sent back (fixed,
+   to send again) or one that could not be sent at the time. */
+export function SendBar({ bills, busy, onSend }) {
   if (!bills.length) return null;
   const total = bills.reduce((s, l) => s + l.amount, 0);
   const back = bills.filter((l) => l.review).length;
+  const allBack = back === bills.length;
   return (
-    <section style={{ ...card, padding: 16, display: "flex", flexDirection: "column", gap: 10, boxShadow: "0 0 0 1.5px #0e7490" }}>
+    <section style={{ ...card, padding: 16, display: "flex", flexDirection: "column", gap: 10, boxShadow: `0 0 0 1.5px ${allBack ? "#d92d20" : "#0e7490"}` }}>
       <div style={{ display: "flex", alignItems: "baseline", justifyContent: "space-between", gap: 10 }}>
-        <span style={{ fontSize: 15, fontWeight: 700 }}>{bills.length} checked {bills.length === 1 ? "bill" : "bills"} to send</span>
+        <span style={{ fontSize: 15, fontWeight: 700 }}>
+          {allBack ? `${back} ${back === 1 ? "bill" : "bills"} sent back` : `${bills.length} ${bills.length === 1 ? "bill" : "bills"} not sent yet`}
+        </span>
         <b style={{ fontSize: 18, ...tabNum }}>{inr(total)}</b>
       </div>
-      {back > 0 && <span style={{ fontSize: 12.5, color: "#b42318" }}>{back === 1 ? "1 bill was" : `${back} bills were`} sent back — fix or remove {back === 1 ? "it" : "them"} if needed, then send again.</span>}
-      {chain?.length > 0 && (
-        <span style={{ display: "flex", flexDirection: "column", gap: 6 }}>
-          <span style={{ fontSize: 12, color: "#5b6576" }}>Goes to, one after the other:</span>
-          <ChainTrack steps={chain.map((c) => ({ ...c, decision: "" }))} r={null} />
-        </span>
-      )}
+      {back > 0 && <span style={{ fontSize: 12.5, color: "#b42318" }}>Open {back === 1 ? "it" : "them"} below to see why. Fix or remove {back === 1 ? "it" : "them"}, then send again.</span>}
       <button type="button" className="ec-cta" disabled={busy} onClick={onSend} style={{ ...btn.primary, height: 48, borderRadius: 14, fontSize: 15.5, display: "flex", alignItems: "center", justifyContent: "center", gap: 8 }}>
-        {busy ? <><Spinner size={14} />Sending…</> : <><Icon d={IC.arrow} size={18} />Send for approval</>}
+        {busy ? <><Spinner size={14} />Sending…</> : <><Icon d={IC.arrow} size={18} />{allBack ? "Send again" : "Send for approval"}</>}
       </button>
     </section>
   );
 }
 
-/* The requester's requests, newest first: where each is, and why one came back. */
+/* The requester's requests, newest first (16 Nov 2026, user): one short row
+   each -- what, when, with whom, amount, status. Tap a row for the details:
+   the chain step by step, the bills, the reason it came back, Take back. */
 export function MyRequests({ conn, requests, onChanged }) {
-  const [busy, setBusy] = useState("");
+  const [open, setOpen] = useState(null);
+  const [all, setAll] = useState(false);
+  const list = requests.filter((r) => r.status !== "withdrawn");
+  if (!list.length) return null;
+  const shown = all ? list : list.slice(0, 5);
+  return (
+    <section style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+      <span style={{ fontSize: 15, fontWeight: 700, color: "#5b6576" }}>Your requests</span>
+      <div style={{ ...card, padding: "2px 14px" }}>
+        {shown.map((r, i) => (
+          <button key={r.id} type="button" onClick={() => setOpen(r)}
+            style={{ width: "100%", display: "flex", alignItems: "center", gap: 10, padding: "12px 0", border: 0, borderTop: i ? "1px solid #eef1f5" : 0, background: "transparent", textAlign: "left", cursor: "pointer", font: "inherit", color: "inherit" }}>
+            <span style={{ flex: 1, minWidth: 0, display: "flex", flexDirection: "column", gap: 2 }}>
+              <b style={{ fontSize: 14, ...ell }}>{kindWord(r)}{r.kind === "cash" && r.purpose ? ` · ${r.purpose}` : ""}</b>
+              <span style={{ fontSize: 12, color: r.status === "rejected" ? "#b42318" : "#8a93a3", ...ell }}>
+                {r.bills.length === 1 && r.bills[0].date ? `${shortDate(r.bills[0].date)} · ` : ""}{r.status === "rejected" ? "Sent back — tap to see why" : r.status === "approved" ? "Verified" : waitingOn(r) || `sent ${when(r.created)}`}
+              </span>
+            </span>
+            <b style={{ fontSize: 15, ...tabNum }}>{inr(r.amount)}</b>
+            <StatusPill r={r} />
+            <span aria-hidden style={{ color: "#98a2b3", display: "flex" }}><Icon d={IC.next} size={16} /></span>
+          </button>
+        ))}
+      </div>
+      {list.length > 5 && (
+        <button type="button" className="ec-ghost" onClick={() => setAll((a) => !a)} style={{ ...btn.ghost, alignSelf: "center", height: 34, fontSize: 12.5 }}>
+          {all ? "Show fewer" : `Show all ${list.length}`}
+        </button>
+      )}
+      {open && <MyRequestSheet conn={conn} r={open} onClose={() => setOpen(null)} onChanged={(m) => { setOpen(null); onChanged?.(m); }} />}
+    </section>
+  );
+}
+
+/* One of my requests, opened: the chain as a timeline, the bills (no score --
+   that is for the approvers), the reason it came back, and Take back while
+   nobody has approved it yet. */
+function MyRequestSheet({ conn, r, onClose, onChanged }) {
+  const [busy, setBusy] = useState(false);
   const [err, setErr] = useState("");
-  const shown = requests.filter((r) => r.status !== "withdrawn").slice(0, 8);
-  if (!shown.length) return null;
-  const takeBack = async (r) => {
-    setBusy(r.id);
+  const [preview, setPreview] = useState(null);
+  const canTakeBack = r.status === "waiting" && r.step === 0;
+  const takeBack = async () => {
+    setBusy(true);
     setErr("");
     try {
       await withdrawSettlement(conn, r.id);
       onChanged?.(`${kindWord(r)} taken back`);
     } catch (e) {
       setErr(e.message);
+      setBusy(false);
     }
-    setBusy("");
   };
+  const files = r.bills.map((b) => billFile(b.bill)).filter(Boolean);
   return (
-    <section style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-      <span style={{ fontSize: 15, fontWeight: 700, color: "#5b6576" }}>Your requests</span>
-      {err && <Note>{err}</Note>}
-      {shown.map((r) => (
-        <div key={r.id} style={{ ...card, padding: 14, display: "flex", flexDirection: "column", gap: 9 }}>
-          <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-            <span style={{ flex: 1, minWidth: 0, display: "flex", flexDirection: "column", gap: 1 }}>
-              <b style={{ fontSize: 14.5, ...ell }}>{kindWord(r)}{r.kind === "cash" && r.purpose ? ` · ${r.purpose}` : ""}</b>
-              <span style={{ fontSize: 12, color: "#8a93a3" }}>{r.id} · sent {when(r.created)}{waitingOn(r) ? ` · ${waitingOn(r)}` : ""}</span>
-            </span>
-            <b style={{ fontSize: 16, ...tabNum }}>{inr(r.amount)}</b>
-            <StatusPill r={r} />
-          </div>
-          <ChainTrack r={r} />
+    <>
+      <Sheet title={kindWord(r)} sub={`${r.id} · ${inr(r.amount)} · sent ${when(r.created)}`} onClose={busy ? () => {} : onClose} desktop="dialog" maxWidth={560} body="#f4f5f7"
+        footer={canTakeBack ? <>
+          <button type="button" className="ec-ghost" disabled={busy} onClick={takeBack} style={{ ...btn.ghost, flex: 1, display: "inline-flex", alignItems: "center", justifyContent: "center", gap: 8 }}>{busy ? <><Spinner size={14} />Taking back…</> : "Take back"}</button>
+          <button type="button" className="ec-cta" disabled={busy} onClick={onClose} style={{ ...btn.primary, flex: 1 }}>Close</button>
+        </> : <button type="button" className="ec-cta" onClick={onClose} style={{ ...btn.primary, flex: 1 }}>Close</button>}>
+        <div style={{ padding: 14, display: "flex", flexDirection: "column", gap: 10 }}>
+          {err && <Note>{err}</Note>}
           {r.status === "rejected" && r.note && (
-            <span style={{ fontSize: 13, color: "#b42318", padding: "8px 10px", borderRadius: 10, background: "#fef3f2" }}>
-              Sent back by {r.steps.find((s) => s.decision === "Rejected")?.name || "an approver"}: {r.note}
+            <span style={{ fontSize: 13, color: "#b42318", padding: "10px 12px", borderRadius: 12, background: "#fef3f2", lineHeight: 1.45 }}>
+              <b>Sent back by {r.steps.find((s) => s.decision === "Rejected")?.name || "an approver"}:</b> {r.note}
               {r.kind === "bills" ? " — the bills are back with you to fix and send again." : ""}
             </span>
           )}
-          {r.status === "approved" && <span style={{ fontSize: 12.5, color: "#067647" }}>Approved by the CEO — {r.kind === "bills" ? "the bills are verified." : "verified."}</span>}
-          {r.status === "waiting" && r.step === 0 && (
-            <button type="button" className="ec-ghost" disabled={busy === r.id} onClick={() => takeBack(r)} style={{ ...btn.ghost, alignSelf: "flex-start", height: 34, fontSize: 12.5 }}>
-              {busy === r.id ? "Taking back…" : "Take back"}
-            </button>
+          {r.status === "approved" && <span style={{ fontSize: 13, fontWeight: 600, color: "#067647", padding: "10px 12px", borderRadius: 12, background: "#ecfdf3" }}>
+            Approved by the CEO — {!r.booked ? (r.kind === "bills" ? "the bill is verified." : "verified.")
+              : r.booked.paid ? (r.kind === "bills" ? "paid to you." : "the cash is paid to you.")
+              : r.kind === "bills" ? "booked in the accounts; Accounts pays it in the next payment run." : "Accounts pays the cash in the next payment run."}
+          </span>}
+          <div style={{ ...card, padding: 14, display: "flex", flexDirection: "column" }}>
+            <span style={{ ...label, marginBottom: 10 }}>Approval</span>
+            {r.steps.map((s, i) => {
+              const now = r.status === "waiting" && i === r.step;
+              const ok = s.decision === "Approved", no = s.decision === "Rejected", skip = s.decision === "Skipped";
+              const tone = ok ? "#067647" : no ? "#b42318" : now ? "#b54708" : "#98a2b3";
+              const last = i === r.steps.length - 1;
+              return (
+                <div key={i} style={{ display: "flex", gap: 10 }}>
+                  <span style={{ display: "flex", flexDirection: "column", alignItems: "center", flex: "none", width: 22 }}>
+                    <span style={{ width: 22, height: 22, borderRadius: 99, display: "grid", placeItems: "center", color: "#fff", background: ok ? "#12b76a" : no ? "#d92d20" : now ? "#f79009" : "#d0d5dd" }}>
+                      {ok ? <Icon d={IC.check} size={12} sw={3} /> : no ? <Icon d={IC.x} size={12} sw={3} /> : <span style={{ width: 6, height: 6, borderRadius: 99, background: "#fff" }} />}
+                    </span>
+                    {!last && <span style={{ flex: 1, width: 2, minHeight: 14, background: ok ? "#a6f4c5" : "#eaecf0" }} />}
+                  </span>
+                  <span style={{ flex: 1, minWidth: 0, display: "flex", flexDirection: "column", gap: 1, paddingBottom: last ? 0 : 12 }}>
+                    <span style={{ fontSize: 13.5 }}><b>{s.name}</b> <span style={{ color: "#8a93a3" }}>{s.level}</span></span>
+                    <span style={{ fontSize: 12, color: tone }}>
+                      {ok ? `Approved · ${when(s.at)}` : no ? `Sent back · ${when(s.at)}` : skip ? `Skipped · ${when(s.at)}` : now ? "Waiting for them" : r.status === "waiting" ? "Next" : "—"}
+                    </span>
+                    {s.note && <span style={{ fontSize: 12, color: "#475467" }}>{s.note}</span>}
+                  </span>
+                </div>
+              );
+            })}
+          </div>
+          {r.kind === "cash" ? (
+            <div style={{ ...card, padding: 14, display: "flex", flexDirection: "column", gap: 4 }}>
+              <span style={label}>Cash asked for</span>
+              <b style={{ fontSize: 20, ...tabNum }}>{inr(r.amount)}</b>
+              {r.purpose && <span style={{ fontSize: 14, color: "#344054" }}>{r.purpose}</span>}
+            </div>
+          ) : (
+            <div style={{ ...card, padding: "2px 14px" }}>
+              <span style={{ ...label, display: "block", paddingTop: 12 }}>{r.bills.length === 1 ? "The bill" : kindWord(r)}</span>
+              {r.bills.map((b, i) => {
+                const f = billFile(b.bill);
+                return (
+                  <div key={b.row || i} style={{ display: "flex", gap: 12, padding: "10px 0", borderTop: i ? "1px solid #eef1f5" : 0, alignItems: "center" }}>
+                    {f ? <BillThumb conn={conn} file={f} w={44} h={54} onOpen={() => setPreview(f)} /> : <span style={{ width: 44, height: 54, borderRadius: 8, background: "#f2f4f7", display: "grid", placeItems: "center", color: "#98a2b3" }}><Icon d={IC.file} size={16} /></span>}
+                    <span style={{ flex: 1, minWidth: 0, display: "flex", flexDirection: "column", gap: 2 }}>
+                      <b style={{ fontSize: 13.5, ...ell }}>{b.title}</b>
+                      <span style={{ fontSize: 12, color: "#5b6576" }}>{shortDate(b.date)}</span>
+                    </span>
+                    <b style={{ fontSize: 14, ...tabNum }}>{inr(b.amount)}</b>
+                  </div>
+                );
+              })}
+            </div>
           )}
         </div>
-      ))}
-    </section>
+      </Sheet>
+      {preview && <FilePreview conn={conn} file={preview} files={files} onClose={() => setPreview(null)} />}
+    </>
   );
 }
 
-/* The approver's tab, by role (16 Nov 2026):
- *   the CEO       "Final approval" -- approving verifies
- *   ABM .. GM     their own step ("RBM approval"), what goes on after them
- *   IT overview   every request, read-only (and their own step, if any)
- * A role card with the numbers, then For you / Team / Decided (the overview:
- * In approval / Verified / Sent back), a search, requests grouped by person,
- * and -- on For you -- "Select clean" (every bill 90+, or cash) to approve
- * many at once. */
+/* The approver's tabs (17 Nov 2026, the user's list):
+ *   Waiting       waits on the caller now -- "Select clean" (every bill 90+,
+ *                 or cash) approves many at once
+ *   In approval   the caller approved it and it is still going up -- until
+ *                 the CEO approves it (17 Nov 2026, the user's rule: before a
+ *                 request reaches someone they see nothing of it)
+ *   Approved      the caller approved it and the CEO verified it
+ *   Rejected      sent back, by the caller or by someone above them after
+ *                 they approved
+ *   History       every request the caller acted on, approved or rejected,
+ *                 with their own decision -- even while it is still moving
+ * The IT overview (not in any chain) gets In approval / Approved / Rejected
+ * over everyone's requests, read-only.
+ * Every tab lists HQ > employee > requests, each level folding (17 Nov 2026:
+ * so the higher-ups can follow a whole region); one HQ skips that level. */
 
 /* the caller's place in the chain, from the requests they appear in */
 function roleOf(data) {
@@ -163,10 +261,10 @@ function roleOf(data) {
 }
 const clean = (r) => r.kind === "cash" || r.bills.every((b) => b.score != null && b.score >= 90);
 const sumOf = (rs) => rs.reduce((s, r) => s + r.amount, 0);
-const thisMonth = (s) => String(s || "").slice(0, 7) === new Date().toISOString().slice(0, 7);
 
-function QueueCard({ r, act, picked, onPick, onOpen }) {
-  const low = r.kind === "bills" ? r.bills.filter((b) => b.score != null && b.score < 90).length : 0;
+function QueueCard({ r, act, picked, onPick, onOpen, mine }) {
+  const look = r.kind === "bills" && r.bills.some((b) => b.score != null && b.score < 90);
+  const scored = r.kind === "bills" && r.bills.every((b) => b.score != null);
   return (
     <div style={{ ...card, padding: 0, display: "flex", alignItems: "stretch", boxShadow: act ? "0 0 0 1.5px #f79009" : card.boxShadow, overflow: "hidden" }}>
       {onPick && (
@@ -179,129 +277,138 @@ function QueueCard({ r, act, picked, onPick, onOpen }) {
           <span style={{ flex: 1, minWidth: 0, fontSize: 14.5, fontWeight: 700, ...ell }}>{kindWord(r)}{r.kind === "cash" && r.purpose ? ` · ${r.purpose}` : ""}</span>
           <span style={{ fontSize: 16, fontWeight: 700, ...tabNum }}>{inr(r.amount)}</span>
         </span>
-        <span style={{ fontSize: 12, color: "#8a93a3", ...ell }}>{r.id} · sent {when(r.created)}</span>
-        {low > 0 ? (
-          <span style={{ fontSize: 11.5, fontWeight: 700, color: "#b54708" }}>{low} {low === 1 ? "bill" : "bills"} below the AI bar — open to look</span>
-        ) : r.kind === "bills" ? (
-          <span style={{ fontSize: 11.5, fontWeight: 700, color: "#067647" }}>Every bill matched (AI 90+)</span>
-        ) : null}
+        <span style={{ fontSize: 12, color: "#8a93a3", ...ell }}>Sent {when(r.created)}{r.resent ? <b style={{ color: "#b54708", fontWeight: 600 }}> · sent again</b> : null}</span>
+        {act && (look ? (
+          <span style={{ fontSize: 11.5, fontWeight: 700, color: "#b54708" }}>Needs a look — open the bill</span>
+        ) : scored ? (
+          <span style={{ fontSize: 11.5, fontWeight: 700, color: "#067647" }}>Bill matches</span>
+        ) : null)}
         <ChainTrack r={r} compact />
+        {mine && (
+          <span style={{ fontSize: 12, fontWeight: 600, color: mine.decision === "Rejected" ? "#b42318" : "#067647", ...ell }}>
+            You {mine.decision === "Rejected" ? "rejected" : "approved"}{mine.at ? ` · ${when(mine.at)}` : ""}{mine.decision === "Rejected" && mine.note ? ` — ${mine.note}` : ""}
+          </span>
+        )}
         {!act && (r.status === "waiting" ? <span style={{ fontSize: 12, color: "#8a93a3" }}>{waitingOn(r)}</span> : <StatusPill r={r} />)}
       </button>
     </div>
   );
 }
 
-function Stat({ k, n, amount, tone }) {
+/* one folding row: an HQ (plain, bold) or an employee (inside its card) */
+function Fold({ open, onClick, title, sub, n, amount, hot, hq }) {
   return (
-    <span style={{ flex: "1 1 0", minWidth: 0, display: "flex", flexDirection: "column", gap: 2, padding: "10px 12px", borderRadius: 12, background: "#f7f8fa" }}>
-      <span style={{ fontSize: 11.5, fontWeight: 600, color: "#5b6576", ...ell }}>{k}</span>
-      <b style={{ fontSize: 20, color: tone || "#0b1220", ...tabNum }}>{n}</b>
-      <span style={{ fontSize: 11.5, color: "#8a93a3", ...tabNum }}>{inr(amount)}</span>
-    </span>
+    <button type="button" onClick={onClick} aria-expanded={open}
+      style={{ width: "100%", display: "flex", alignItems: "center", gap: 10, padding: hq ? "4px 2px" : "12px 14px", border: 0, background: "transparent", textAlign: "left", cursor: "pointer" }}>
+      <span aria-hidden style={{ flex: "none", width: 24, height: 24, borderRadius: 7, display: "grid", placeItems: "center", background: open ? "#eef3fe" : "#f2f4f7", color: open ? "#1d4ed8" : "#475467", transform: open ? "rotate(90deg)" : "none", transition: "transform .15s" }}>
+        <Icon d={IC.next} size={14} />
+      </span>
+      <span style={{ flex: 1, minWidth: 0, display: "flex", alignItems: "baseline", gap: 8 }}>
+        <b style={{ fontSize: hq ? 15 : 14, ...ell }}>{title}</b>
+        {sub && <span style={{ fontSize: 12, color: "#8a93a3", ...ell }}>{sub}</span>}
+      </span>
+      <span style={{ flex: "none", display: "inline-flex", alignItems: "center", gap: 8 }}>
+        <span style={{ minWidth: 22, height: 22, padding: "0 7px", borderRadius: 11, display: "grid", placeItems: "center", background: hot ? "#fef0c7" : "#f2f4f7", color: hot ? "#b54708" : "#475467", fontSize: 12, fontWeight: 700, ...tabNum }}>{n}</span>
+        <b style={{ fontSize: 13.5, ...tabNum }}>{inr(amount)}</b>
+      </span>
+    </button>
   );
 }
 
 export function SettleQueue({ conn, data, desk, onOpen, onDone, onError }) {
   const role = roleOf(data);
+  const me = data?.me;
   const { waiting = [], team = [], decided = [] } = data || {};
-  // the overview sees everyone's: split by where each request is
-  const all = role.overview ? [...waiting, ...team, ...decided] : [];
-  const tabs = role.overview && !role.approver
-    ? [
-        { k: "open", t: "In approval", list: all.filter((r) => r.status === "waiting") },
-        { k: "verified", t: "Verified", list: all.filter((r) => r.status === "approved") },
-        { k: "back", t: "Sent back", list: all.filter((r) => r.status === "rejected") },
-      ]
-    : [
-        { k: "mine", t: "For you", list: waiting, act: true },
-        { k: "team", t: role.ceo ? "Coming to you" : "Your team", list: team },
-        { k: "decided", t: "Decided", list: decided },
-      ];
+  const others = [...team, ...decided];
+  const myStep = (r) => r.steps.find((x) => x.user === me && (x.decision === "Approved" || x.decision === "Rejected"));
+  const newest = (a, b) => String(b.decidedOn || b.modified || "").localeCompare(String(a.decidedOn || a.modified || ""));
+  const reader = role.overview && !role.approver;
+  const tabs = [
+    ...(reader ? [] : [{ k: "waiting", t: "Waiting", list: waiting, act: true }]),
+    // only what reached the caller (they approved or rejected it); the IT overview sees all
+    { k: "moving", t: "In approval", list: others.filter((r) => r.status === "waiting" && (reader || myStep(r)?.decision === "Approved")) },
+    { k: "approved", t: "Approved", list: others.filter((r) => r.status === "approved" && (reader || myStep(r))).sort(newest) },
+    { k: "rejected", t: "Rejected", list: others.filter((r) => r.status === "rejected" && (reader || myStep(r))).sort(newest) },
+    ...(reader ? [] : [{
+      k: "history", t: "History", history: true,
+      list: others.filter(myStep).sort((a, b) => String(myStep(b).at).localeCompare(String(myStep(a).at))),
+    }]),
+  ];
   const [tab, setTab] = useState(() => (tabs[0].list.length || !tabs[1].list.length ? tabs[0].k : tabs[1].k));
   const cur = tabs.find((x) => x.k === tab) || tabs[0];
   const [q, setQ] = useState("");
   const [picked, setPicked] = useState(() => new Set());
   const [busy, setBusy] = useState("");
-  const shown = cur.list.filter((r) => !q.trim() || r.employeeName.toLowerCase().includes(q.trim().toLowerCase()));
-  // person -> their requests, the most waiting first
-  const people = Object.values(shown.reduce((m, r) => {
-    (m[r.employee] = m[r.employee] || { id: r.employee, name: r.employeeName, list: [] }).list.push(r);
+  const [flip, setFlip] = useState(() => new Set()); // folds the user turned, against the default
+  const needle = q.trim().toLowerCase();
+  const shown = cur.list.filter((r) => !needle || `${r.employeeName} ${r.hq}`.toLowerCase().includes(needle));
+  // HQ > employee > requests
+  const hqs = [...shown.reduce((m, r) => {
+    const h = r.hq || "No HQ";
+    if (!m.has(h)) m.set(h, new Map());
+    const ps = m.get(h);
+    if (!ps.has(r.employee)) ps.set(r.employee, { id: r.employee, name: r.employeeName, list: [] });
+    ps.get(r.employee).list.push(r);
     return m;
-  }, {})).sort((a, b) => b.list.length - a.list.length || a.name.localeCompare(b.name));
+  }, new Map()).entries()]
+    .map(([name, ps]) => ({ name, people: [...ps.values()].sort((a, b) => a.name.localeCompare(b.name)) }))
+    .sort((a, b) => (a.name === "No HQ") - (b.name === "No HQ") || a.name.localeCompare(b.name));
+  const nPeople = hqs.reduce((n, h) => n + h.people.length, 0);
+  const isOpen = (k, def) => (flip.has(k) ? !def : def);
+  const toggle = (k) => setFlip((f) => { const n = new Set(f); if (n.has(k)) n.delete(k); else n.add(k); return n; });
   const cleanOnes = cur.act ? shown.filter(clean) : [];
-  const approveMany = async () => {
-    const ids = [...picked];
+  // one employee's bills at once (17 Nov 2026): reject the odd one by
+  // opening it, then "Approve all" on the employee does the rest
+  const [sure, setSure] = useState(""); // the employee whose "Approve all" waits for its second tap
+  const approveMany = async (only) => {
+    const ids = Array.isArray(only) ? only : [...picked];
+    setSure("");
     setBusy(`Approving 0 of ${ids.length}…`);
+    // 17 Nov 2026: different employees in parallel, at most 3 at a time; one
+    // employee's own requests one after another (they write to the same claim)
+    const byId = new Map([...waiting, ...others].map((r) => [r.id, r]));
     let ok = 0;
-    const failed = [];
-    for (const id of ids) {
-      try {
-        await decideSettlement(conn, id, "Approve", "");
-        ok += 1;
-        setBusy(`Approving ${ok} of ${ids.length}…`);
-      } catch (e) {
-        failed.push(`${id}: ${e.message}`);
-      }
-    }
+    const res = await eachByGroup(ids, (id) => byId.get(id)?.claim || byId.get(id)?.employee || id, 3, async (id) => {
+      await decideSettlement(conn, id, "Approve", "");
+      ok += 1;
+      setBusy(`Approving ${ok} of ${ids.length}…`);
+    });
+    const failed = res.filter((x) => !x.ok).map((x) => `${x.item}: ${x.error?.message || x.error}`);
     setBusy("");
     setPicked(new Set());
     if (failed.length) onError?.(`${ok} approved, ${failed.length} failed — ${failed[0]}`);
     else onDone?.(role.ceo ? `${ok} ${ok === 1 ? "request" : "requests"} approved and verified` : `${ok} ${ok === 1 ? "request" : "requests"} approved — on to the next level`);
   };
-  const verifiedMonth = [...decided, ...team].filter((r) => r.status === "approved" && thisMonth(r.decidedOn));
   const grid = { display: "grid", gridTemplateColumns: desk ? "repeat(auto-fill,minmax(320px,1fr))" : "minmax(0,1fr)", gap: 8 };
+  const EMPTY = { waiting: "Nothing waits on you.", moving: "Nothing you approved is still going up.", approved: "Nothing approved yet.", rejected: "Nothing rejected.", history: "You have not approved or rejected anything yet." };
 
   return (
     <>
-      <section style={{ ...card, padding: desk ? "16px 18px" : 14, display: "flex", flexDirection: "column", gap: 12 }}>
-        <span style={{ display: "flex", flexDirection: "column", gap: 3 }}>
-          <b style={{ fontSize: 16 }}>
-            {role.ceo ? "Final approval" : role.approver ? `${role.level} approval` : "Settlement overview"}
-          </b>
-          <span style={{ fontSize: 13, color: "#5b6576", lineHeight: 1.45 }}>
-            {role.ceo
-              ? "You are the last step. Your approval verifies the request — nothing goes further."
-              : role.approver
-                ? "You approve the requests of your team at your step; after you, each goes on to the next level, up to the CEO, whose approval verifies it."
-                : "Every settlement request, wherever it is in its chain. Read-only — only the person it waits on can approve it."}
-          </span>
-        </span>
-        <span style={{ display: "flex", gap: 8 }}>
-          {role.overview && !role.approver ? <>
-            <Stat k="In approval" n={tabs[0].list.length} amount={sumOf(tabs[0].list)} tone="#b54708" />
-            <Stat k="Verified" n={tabs[1].list.length} amount={sumOf(tabs[1].list)} tone="#067647" />
-            <Stat k="Sent back" n={tabs[2].list.length} amount={sumOf(tabs[2].list)} tone="#b42318" />
-          </> : <>
-            <Stat k="Waiting for you" n={waiting.length} amount={sumOf(waiting)} tone={waiting.length ? "#b54708" : "#067647"} />
-            <Stat k={role.ceo ? "Coming to you" : "In your team"} n={team.length} amount={sumOf(team)} />
-            <Stat k={`Verified · ${new Date().toLocaleString("en-IN", { month: "short" })}`} n={verifiedMonth.length} amount={sumOf(verifiedMonth)} tone="#067647" />
-          </>}
-        </span>
-      </section>
-
       <div role="tablist" style={{ display: "flex", gap: 4, padding: 4, borderRadius: 12, background: "#e9ecf1", alignSelf: "flex-start", maxWidth: "100%", overflowX: "auto" }}>
         {tabs.map((x) => (
-          <button key={x.k} type="button" role="tab" aria-selected={tab === x.k} onClick={() => { setTab(x.k); setPicked(new Set()); }}
+          <button key={x.k} type="button" role="tab" aria-selected={tab === x.k} onClick={() => { setTab(x.k); setPicked(new Set()); setFlip(new Set()); }}
             style={{ height: 34, padding: "0 12px", borderRadius: 9, border: 0, background: tab === x.k ? "#fff" : "transparent", boxShadow: tab === x.k ? "0 1px 2px rgba(16,24,40,.12)" : "none", fontSize: 12.5, fontWeight: 600, cursor: "pointer", whiteSpace: "nowrap" }}>
             {x.t} <span style={{ color: x.act && x.list.length ? "#b54708" : "#8a93a3" }}>{x.list.length}</span>
           </button>
         ))}
       </div>
 
-      {cur.list.length > 0 && (
+      {busy && !picked.size && <span style={{ display: "inline-flex", alignItems: "center", gap: 8, fontSize: 13, fontWeight: 600, color: "#1d4ed8" }}><Spinner size={12} />{busy}</span>}
+      {(cur.list.length > 6 || (cur.act && cleanOnes.length > 1) || picked.size > 0) && (
         <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
-          <label style={{ flex: desk ? "0 1 300px" : "1 1 100%", display: "flex", alignItems: "center", gap: 8, height: 38, padding: "0 12px", borderRadius: 10, background: "#fff", boxShadow: "0 0 0 1px #e4e7ec" }}>
-            <Icon d={IC.search} size={15} />
-            <input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Search employee" aria-label="Search employee" style={{ flex: 1, minWidth: 0, border: 0, outline: 0, background: "transparent", fontSize: 13.5 }} />
-          </label>
-          {cur.act && cleanOnes.length > 0 && (
+          {cur.list.length > 6 && (
+            <label style={{ flex: desk ? "0 1 300px" : "1 1 100%", display: "flex", alignItems: "center", gap: 8, height: 38, padding: "0 12px", borderRadius: 10, background: "#fff", boxShadow: "0 0 0 1px #e4e7ec" }}>
+              <Icon d={IC.search} size={15} />
+              <input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Search employee or HQ" aria-label="Search employee or HQ" style={{ flex: 1, minWidth: 0, border: 0, outline: 0, background: "transparent", fontSize: 13.5 }} />
+            </label>
+          )}
+          {cur.act && cleanOnes.length > 1 && (
             <button type="button" className="ec-ghost" disabled={!!busy} onClick={() => setPicked(new Set(cleanOnes.map((r) => r.id)))} style={{ ...btn.ghost, height: 36, fontSize: 12.5 }}>
               Select {cleanOnes.length} clean
             </button>
           )}
           {cur.act && picked.size > 0 && <>
-            <button type="button" className="ec-cta" disabled={!!busy} onClick={approveMany} style={{ ...btn.primary, height: 36, fontSize: 12.5, display: "inline-flex", alignItems: "center", gap: 6 }}>
+            <button type="button" className="ec-cta" disabled={!!busy} onClick={() => approveMany()} style={{ ...btn.primary, height: 36, fontSize: 12.5, display: "inline-flex", alignItems: "center", gap: 6 }}>
               {busy ? <><Spinner size={12} />{busy}</> : `${role.ceo ? "Approve & verify" : "Approve"} ${picked.size} selected`}
             </button>
             <button type="button" className="ec-ghost" disabled={!!busy} onClick={() => setPicked(new Set())} style={{ ...btn.ghost, height: 36, fontSize: 12.5 }}>Clear</button>
@@ -309,31 +416,74 @@ export function SettleQueue({ conn, data, desk, onOpen, onDone, onError }) {
         </div>
       )}
 
-      {!cur.list.length && (
-        <div style={{ ...card, padding: "28px 16px", textAlign: "center", fontSize: 14, color: "#5b6576" }}>
-          {cur.act ? "Nothing waits on you." : cur.k === "team" ? (role.ceo ? "Nothing on its way to you." : "Nothing from your team in approval.") : "Nothing here yet."}
-        </div>
+      {!shown.length ? (
+        <div style={{ ...card, padding: "28px 16px", textAlign: "center", fontSize: 14, color: "#5b6576" }}>{cur.list.length ? `No one matches “${q}”.` : EMPTY[cur.k]}</div>
+      ) : (
+        hqs.map((h) => {
+          const people = h.people.map((p) => {
+            const k = `p:${h.name}:${p.id}`;
+            const open = isOpen(k, nPeople === 1);
+            return (
+              <div key={k} style={{ ...card, padding: 0, overflow: "hidden" }}>
+                <div style={{ display: "flex", alignItems: "center", gap: 4, paddingRight: cur.act ? 10 : 0, flexWrap: desk ? "nowrap" : "wrap" }}>
+                  {cur.act && (
+                    <label style={{ display: "grid", placeItems: "center", paddingLeft: 12, cursor: "pointer" }} aria-label={`Select all of ${p.name}'s bills`}>
+                      <input type="checkbox" disabled={!!busy} checked={p.list.every((r) => picked.has(r.id))}
+                        onChange={(e) => setPicked((s) => { const n = new Set(s); for (const r of p.list) { if (e.target.checked) n.add(r.id); else n.delete(r.id); } return n; })}
+                        style={{ width: 18, height: 18, accentColor: "#2563eb" }} />
+                    </label>
+                  )}
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <Fold open={open} onClick={() => toggle(k)} title={p.name} sub={hqs.length === 1 && h.name !== "No HQ" ? h.name : ""}
+                      n={p.list.length} amount={sumOf(p.list)} hot={cur.act} />
+                  </div>
+                  {cur.act && (
+                    <button type="button" className={sure === p.id ? "ec-cta" : "ec-ghost"} disabled={!!busy}
+                      onClick={() => (sure === p.id ? approveMany(p.list.map((r) => r.id)) : setSure(p.id))}
+                      onBlur={() => setSure((x) => (x === p.id ? "" : x))}
+                      style={{ ...(sure === p.id ? btn.primary : btn.ghost), height: 34, padding: "0 12px", fontSize: 12.5, whiteSpace: "nowrap", marginLeft: desk ? 0 : 12, marginBottom: desk ? 0 : 10 }}>
+                      {sure === p.id
+                        ? `Tap again: ${role.ceo ? "approve & verify" : "approve"} ${p.list.length} · ${inr(sumOf(p.list))}`
+                        : p.list.length === 1 ? (role.ceo ? "Approve & verify" : "Approve") : `${role.ceo ? "Approve & verify" : "Approve"} all ${p.list.length}`}
+                    </button>
+                  )}
+                </div>
+                {open && (
+                  <div style={{ ...grid, padding: "0 12px 12px" }}>
+                    {p.list.map((r) => (
+                      <QueueCard key={r.id} r={r} act={!!cur.act} picked={picked.has(r.id)} mine={cur.history ? myStep(r) : null}
+                        onPick={cur.act ? (on) => setPicked((s) => { const n = new Set(s); if (on) n.add(r.id); else n.delete(r.id); return n; }) : null}
+                        onOpen={() => onOpen(r, !!cur.act)} />
+                    ))}
+                  </div>
+                )}
+              </div>
+            );
+          });
+          if (hqs.length === 1) return <div key={h.name} style={{ display: "flex", flexDirection: "column", gap: 8 }}>{people}</div>;
+          const k = `h:${h.name}`;
+          const open = isOpen(k, hqs.length <= 3);
+          const all = h.people.flatMap((p) => p.list);
+          return (
+            <section key={k} style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+              <Fold open={open} onClick={() => toggle(k)} title={h.name} sub={`${h.people.length} ${h.people.length === 1 ? "person" : "people"}`}
+                n={all.length} amount={sumOf(all)} hot={cur.act} hq />
+              {open && <div style={{ display: "flex", flexDirection: "column", gap: 8, paddingLeft: desk ? 18 : 8 }}>{people}</div>}
+            </section>
+          );
+        })
       )}
-      {cur.list.length > 0 && !people.length && <div style={{ ...card, padding: "20px 16px", textAlign: "center", fontSize: 13.5, color: "#5b6576" }}>No one matches &ldquo;{q}&rdquo;.</div>}
-
-      {people.map((p) => (
-        <section key={p.id} style={{ display: "flex", flexDirection: "column", gap: 6 }}>
-          <span style={{ display: "flex", alignItems: "baseline", gap: 8, padding: "2px 2px 0" }}>
-            <b style={{ flex: 1, minWidth: 0, fontSize: 14, ...ell }}>{p.name}</b>
-            <span style={{ fontSize: 12, color: "#8a93a3", ...tabNum }}>{p.list.length} {p.list.length === 1 ? "request" : "requests"} · {inr(sumOf(p.list))}</span>
-          </span>
-          <div style={grid}>
-            {p.list.map((r) => (
-              <QueueCard key={r.id} r={r} act={!!cur.act} picked={picked.has(r.id)}
-                onPick={cur.act ? (on) => setPicked((s) => { const n = new Set(s); if (on) n.add(r.id); else n.delete(r.id); return n; }) : null}
-                onOpen={() => onOpen(r, !!cur.act)} />
-            ))}
-          </div>
-        </section>
-      ))}
     </>
   );
 }
+
+/* A handwritten bill's reason names its payment proof ("Payment proof:
+   /private/files/x.jpg", written by the bill check): show it as a photo, not
+   as a path. */
+const proofOf = (reason) => {
+  const m = /Payment proof: (\/(?:private\/)?files\/\S+)/.exec(String(reason || ""));
+  return m ? { file: billFile(m[1]), text: String(reason).replace(m[0], "Payment proof added.") } : { file: null, text: reason };
+};
 
 /* One request, opened: the bills with their photos and AI scores, the chain,
    and -- when it waits on the caller -- Approve / Reject with a reason. */
@@ -381,9 +531,14 @@ export function SettleSheet({ conn, req: r, canAct, desk, onClose, onDone, onBil
         <div style={{ ...card, padding: 14, display: "flex", flexDirection: "column", gap: 8 }}>
           <span style={label}>Approval chain</span>
           <ChainTrack r={r} />
+          {r.resent && (
+            <span style={{ fontSize: 12.5, color: "#b54708", padding: "8px 10px", borderRadius: 10, background: "#fffaeb", lineHeight: 1.45 }}>
+              <b>Sent again.</b> Sent back before{r.resent.by ? ` by ${r.resent.by}` : ""}{r.resent.note ? `: “${r.resent.note}”` : ""}
+            </span>
+          )}
           {r.steps.filter((s) => s.decision).map((s, i) => (
             <span key={i} style={{ fontSize: 12.5, color: "#475467" }}>
-              <b>{s.name}</b> ({s.level}) {s.decision === "Approved" ? "approved" : "sent it back"} · {when(s.at)}{s.note ? ` — ${s.note}` : ""}
+              <b>{s.name}</b> ({s.level}) {s.decision === "Approved" ? "approved" : s.decision === "Skipped" ? "skipped" : "sent it back"} · {when(s.at)}{s.note ? ` — ${s.note}` : ""}
             </span>
           ))}
           {canAct && last && <span style={{ fontSize: 12.5, fontWeight: 600, color: "#067647" }}>You are the last step: approving verifies {r.kind === "bills" ? "the bills" : "the request"}.</span>}
@@ -408,7 +563,13 @@ export function SettleSheet({ conn, req: r, canAct, desk, onClose, onDone, onBil
                     </span>
                     <span style={{ fontSize: 12.5, color: "#5b6576" }}>{shortDate(b.date)}</span>
                     <RiskBadge ai={{ risk: b.risk || (b.score == null ? "" : b.score >= 90 ? "Low" : b.score >= 70 ? "Medium" : "High"), score: b.score }} small />
-                    {b.score != null && b.score < 90 && b.reason && <span style={{ fontSize: 12, color: "#b54708", lineHeight: 1.4 }}>{b.reason}</span>}
+                    {b.score != null && b.score < 90 && b.reason && <span style={{ fontSize: 12, color: "#b54708", lineHeight: 1.4 }}>{proofOf(b.reason).text}</span>}
+                    {proofOf(b.reason).file && (
+                      <span style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                        <BillThumb conn={conn} file={proofOf(b.reason).file} w={44} h={54} onOpen={() => onBill(proofOf(b.reason).file, [proofOf(b.reason).file])} />
+                        <span style={{ fontSize: 12, fontWeight: 600, color: "#475467" }}>Payment proof</span>
+                      </span>
+                    )}
                   </span>
                 </div>
               );

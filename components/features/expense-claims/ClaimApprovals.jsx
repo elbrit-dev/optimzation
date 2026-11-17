@@ -1,9 +1,11 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { addClaimComment, adjustTripTA, applyAction, decideCarRequest, decideTrip, fetchCarQueue, fetchClaimDepartments, fetchClaimVisits, fetchMe, fetchQueue, fetchSettlementQueue, makeConn, saveSanctioned, withTripMarks } from "./data/claimsApi";
+import { addClaimComment, adjustTripTA, applyAction, decideCarRequest, decideTrip, fetchCarQueue, fetchClaimDepartments, fetchClaimVisits, fetchMe, fetchPayRole, fetchQueue, fetchSettlementQueue, makeConn, saveSanctioned, withTripMarks } from "./data/claimsApi";
 import { SettleQueue, SettleSheet } from "./settlement";
+import { PaymentsPanel } from "./payments";
 import { tripsOf } from "./fieldTrips";
+import { eachByGroup } from "../../../lib/limit";
 import { loggedUser } from "../support-report/data/erpClient";
 import { effectiveSeat, loadSeatTemplates } from "@calendar/lib/boSeat";
 import { MON, dateOf, inr, shortDate, spanOf, typeColor } from "./model";
@@ -106,7 +108,7 @@ export default function ClaimApprovals({ url, token, mode = "auto", verifiers = 
   const [tab, setTab] = useState(() => {
     if (mode !== "auto") return mode;
     const v = typeof window !== "undefined" ? new URLSearchParams(window.location.search).get("view") : null;
-    return v === "verify" ? "verify" : v === "cars" ? "cars" : v === "settle" ? "settle" : v === "history" ? "history" : "approve";
+    return v === "verify" ? "verify" : v === "cars" ? "cars" : v === "settle" ? "settle" : v === "pay" ? "pay" : v === "history" ? "history" : "approve";
   });
   const [fromLink] = useState(() => typeof window !== "undefined" && /[?&]view=/.test(window.location.search));
   const [open, setOpen] = useState(null);
@@ -126,10 +128,18 @@ export default function ClaimApprovals({ url, token, mode = "auto", verifiers = 
       // A back-office seat (BO-IT-SFSM1) counts as its role template ("IT").
       const overview = !!overviewRoleProfile && effectiveSeat(profile) === overviewRoleProfile;
       const verifier = (verifiers || []).includes(me);
+      // A BE seat (17 Nov 2026, the user): nobody reports to a BE, so no
+      // approvals at all -- no settlement queue, no car requests.
+      const be = /^BE\d*(-|$)/i.test(String(profile || "").trim());
       // A reporting officer keeps read access to claims they approved, so
       // "In Review" is only ever listed for the verifiers and the overview.
       const want = mode === "auto" ? ["approve", ...(verifier || overview ? ["verify"] : []), "history"] : [mode];
-      const out = { overview, verifier };
+      const out = { overview, verifier, be };
+      // settlement requests (16 Nov 2026) and own-car requests (12 Nov 2026),
+      // asked for at the same time as the claim lists (17 Nov 2026)
+      const extra = mode === "auto" && !be
+        ? Promise.all([fetchSettlementQueue(conn).catch(() => null), fetchCarQueue(conn).catch(() => null), fetchPayRole(conn)])
+        : Promise.resolve([null, null, null]);
       await Promise.all(
         want.map(async (m) => {
           let q;
@@ -157,12 +167,12 @@ export default function ClaimApprovals({ url, token, mode = "auto", verifiers = 
         }),
       );
       // own-car requests (12 Nov 2026): the GM's queue, when this person decides them
-      if (mode === "auto") {
-        // settlement requests (16 Nov 2026): the approval chain up to the CEO --
-        // shown to anyone it waits on, with a team in it, or who decided one
-        const settle = await fetchSettlementQueue(conn).catch(() => null);
+      {
+        // settlement: shown to anyone it waits on, with one in their chain, or who decided one
+        const [settle, cars, pay] = await extra;
+        // paying (17 Nov 2026): Accounts, the CEO and IT, once it is set up
+        if (pay?.ready && (pay.accounts || pay.ceo || pay.it)) out.pay = pay;
         if (settle && (settle.waiting.length || settle.team.length || settle.decided.length || settle.overview)) out.settle = settle;
-        const cars = await fetchCarQueue(conn).catch(() => null);
         if (cars) {
           out.cars = cars.pending;
           out.carsRecent = cars.recent;
@@ -176,26 +186,37 @@ export default function ClaimApprovals({ url, token, mode = "auto", verifiers = 
 
   useEffect(() => { load(); }, [load, tick]);
 
-  const visible = mode === "auto" ? ["approve", ...(lists.verify ? ["verify"] : []), ...(lists.settle ? ["settle"] : []), ...(lists.cars ? ["cars"] : []), "history"] : [mode];
-  useEffect(() => {
-    if (lists.status === "ready" && mode === "auto" && ((tab === "verify" && !lists.verify) || (tab === "cars" && !lists.cars) || (tab === "settle" && !lists.settle))) setTab("approve");
-  }, [lists, tab, mode]);
-  const [openSettle, setOpenSettle] = useState(null); // { r, act }
+  // Only the tabs that hold something (17 Nov 2026: an ABM with just bills
+  // saw "To approve 0 / Settlement 1 / History 0"); one tab = no tab bar.
   const settleWaiting = (lists.settle?.waiting || []).length;
+  const has = {
+    approve: (lists.approve || []).length,
+    verify: (lists.verify || []).length,
+    settle: lists.settle ? 1 : 0,
+    pay: lists.pay ? 1 : 0,
+    cars: (lists.cars || []).length + (lists.carsRecent || []).length,
+    history: (lists.history || []).length,
+  };
+  const visible = mode === "auto" ? (["approve", "verify", "settle", "pay", "cars", "history"].filter((m) => has[m]).length ? ["approve", "verify", "settle", "pay", "cars", "history"].filter((m) => has[m]) : ["approve"]) : [mode];
+  // a BE seat with nothing at all here: one line, not an empty approvals page
+  const beIdle = lists.status === "ready" && !!lists.be && !(lists.approve || []).length && !(lists.verify || []).length && !(lists.history || []).length;
+  const workOf = (m) => (m === "settle" ? settleWaiting : m === "history" || m === "pay" ? 0 : (lists[m] || []).length);
+  useEffect(() => {
+    // the tab with work first -- unless the link asked for a view that exists
+    if (mode !== "auto" || lists.status !== "ready") return;
+    const work = visible.find(workOf);
+    if (!visible.includes(tab)) setTab(work || visible[0]);
+    else if (!fromLink && work && !workOf(tab)) setTab(work);
+  }, [lists, mode]); // eslint-disable-line react-hooks/exhaustive-deps
+  const [openSettle, setOpenSettle] = useState(null); // { r, act }
   const [openCar, setOpenCar] = useState(null);
   // Who may act on a claim: approve = its own approver; verify = a verifier.
   const canAct = (c, kind) => (kind === "history" ? false : kind === "verify" ? !!lists.verifier : !!lists.me && c.approver === lists.me);
-  useEffect(() => {
-    // Jump to the tab with work -- unless the link asked for a view.
-    if (mode !== "auto" || lists.status !== "ready" || fromLink) return;
-    if (!(lists[tab] || []).length && (lists[tab === "approve" ? "verify" : "approve"] || []).length) setTab(tab === "approve" ? "verify" : "approve");
-    else if (tab === "approve" && !(lists.approve || []).length && (lists.settle?.waiting || []).length) setTab("settle");
-  }, [lists, mode]); // eslint-disable-line react-hooks/exhaustive-deps
-
   const current = mode === "auto" ? tab : mode;
   const cars = current === "cars";
   const settleTab = current === "settle";
-  const claims = useMemo(() => (cars || settleTab ? [] : lists[current] || []), [cars, settleTab, lists, current]);
+  const payTab = current === "pay";
+  const claims = useMemo(() => (cars || settleTab || payTab ? [] : lists[current] || []), [cars, settleTab, payTab, lists, current]);
   useEffect(() => {
     onCountChange?.((lists.approve || []).length + (lists.verify || []).length + (lists.cars || []).length + (lists.settle?.waiting || []).length);
   }, [lists, onCountChange]);
@@ -230,18 +251,15 @@ export default function ClaimApprovals({ url, token, mode = "auto", verifiers = 
 
   const bulkApprove = async () => {
     const ids = [...picked];
-    let ok = 0;
-    const failed = [];
-    for (const id of ids) {
-      try {
-        const c = claims.find((x) => x.id === id);
-        if (c && isField(c) && current === "approve") await finish(c);
-        else await applyAction(conn, id, MODES[current].yes);
-        ok += 1;
-      } catch (e) {
-        failed.push(`${id}: ${e.message}`);
-      }
-    }
+    // 17 Nov 2026: different employees in parallel (at most 3 at a time), one
+    // employee's claims one after another
+    const res = await eachByGroup(ids, (id) => claims.find((x) => x.id === id)?.employee || id, 3, async (id) => {
+      const c = claims.find((x) => x.id === id);
+      if (c && isField(c) && current === "approve") await finish(c);
+      else await applyAction(conn, id, MODES[current].yes);
+    });
+    const ok = res.filter((x) => x.ok).length;
+    const failed = res.filter((x) => !x.ok).map((x) => `${x.item}: ${x.error?.message || x.error}`);
     if (failed.length) say(`${ok} done, ${failed.length} failed -- ${failed[0]}`, "error");
     else done(`${ok} ${ok === 1 ? "claim" : "claims"} ${current === "approve" ? "approved" : "verified"}`);
     setTick((t) => t + 1);
@@ -308,33 +326,39 @@ export default function ClaimApprovals({ url, token, mode = "auto", verifiers = 
                 ? " "
                 : cars
                   ? `${(lists.cars || []).length} car ${(lists.cars || []).length === 1 ? "request" : "requests"} waiting · ${inr((lists.cars || []).reduce((s, r) => s + r.asked, 0))} asked`
+                  : payTab
+                    ? (lists.pay?.ceo ? "Payment batches Accounts sends you" : "Pay what the CEO approved, in batches")
                   : settleTab
-                    ? `${settleWaiting} settlement ${settleWaiting === 1 ? "request" : "requests"} waiting for you · ${inr((lists.settle?.waiting || []).reduce((s, r) => s + r.amount, 0))}`
+                    ? (settleWaiting ? `${settleWaiting} waiting for you · ${inr((lists.settle?.waiting || []).reduce((s, r) => s + r.amount, 0))}` : "Nothing waits on you")
                   : `${claims.length} ${claims.length === 1 ? "claim" : "claims"} · ${inr(total)}`}
             </span>
           </div>
           <button type="button" className="ec-ghost" onClick={() => setTick((t) => t + 1)} style={{ ...btn.ghost, height: 38, display: "inline-flex", alignItems: "center", gap: 6 }}><Icon d={IC.hist} size={15} />Refresh</button>
         </header>
 
-        {mode === "auto" && (
+        {mode === "auto" && visible.length > 1 && (
           <div role="tablist" style={{ display: "flex", gap: 4, padding: 4, borderRadius: 12, background: "#e9ecf1", alignSelf: "flex-start" }}>
             {visible.map((m) => (
               <button key={m} type="button" role="tab" aria-selected={tab === m} onClick={() => { setTab(m); setPicked(new Set()); }} style={{ height: 36, padding: "0 14px", borderRadius: 9, border: 0, background: tab === m ? "#fff" : "transparent", boxShadow: tab === m ? "0 1px 2px rgba(16,24,40,.12)" : "none", fontSize: 13, fontWeight: 600, cursor: "pointer" }}>
-                {m === "approve" ? "To approve" : m === "verify" ? "To verify" : m === "history" ? "History" : m === "settle" ? "Settlement" : "Car requests"} <span style={{ color: m === "settle" && settleWaiting ? "#b54708" : "#8a93a3" }}>{m === "settle" ? settleWaiting : (lists[m] || []).length}</span>
+                {m === "approve" ? "Claims" : m === "verify" ? "To verify" : m === "history" ? "History" : m === "settle" ? "Bills" : m === "pay" ? "Payments" : "Car requests"}{m !== "history" && m !== "pay" && <span style={{ color: workOf(m) ? "#b54708" : "#8a93a3" }}> {workOf(m)}</span>}
               </button>
             ))}
           </div>
         )}
 
+        {beIdle && (
+          <div style={{ ...card, padding: "28px 16px", textAlign: "center", fontSize: 14, color: "#5b6576" }}>Approvals are for managers — your own bills and their status are on the Settlements page.</div>
+        )}
         {lists.status === "idle" && <Note tone="info">Pass the ERP GraphQL URL and the signed-in user&rsquo;s token.</Note>}
         {lists.status === "error" && <Note>{lists.error}</Note>}
         {lists[current + "Error"] && <Note>{lists[current + "Error"]}</Note>}
         {lists.status === "loading" && <div aria-busy="true" style={{ ...card, height: 180, display: "grid", placeItems: "center" }}><Spinner size={24} /></div>}
 
         {lists.status === "ready" && cars && <CarQueue pending={lists.cars || []} recent={lists.carsRecent || []} desk={desk} onOpen={setOpenCar} />}
+        {lists.status === "ready" && payTab && lists.pay && <PaymentsPanel conn={conn} role={lists.pay} desk={desk} onDone={(m) => say(m)} onError={(m) => say(m, "error")} />}
         {lists.status === "ready" && settleTab && <SettleQueue conn={conn} data={lists.settle} desk={desk} onOpen={(r, act) => setOpenSettle({ r, act })} onDone={done} onError={(m) => { say(m, "error"); setTick((t) => t + 1); }} />}
 
-        {lists.status === "ready" && !cars && !settleTab && (
+        {lists.status === "ready" && !beIdle && !cars && !settleTab && !payTab && (
           <>
             {current === "history" && claims.length > 0 && (
               <Note tone="info">What you already decided, newest first (the last {HISTORY_MAX}). Approved claims go on to the final check and payroll; a claim sent back is with the employee until they send it again.</Note>

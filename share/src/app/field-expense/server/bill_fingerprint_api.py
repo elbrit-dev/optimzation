@@ -9,6 +9,13 @@
 #     -> { ok: 1, name, flag }       the bill is now registered to the rep
 #     -> { ok: 0, reason, matched }  refused; the attempt is recorded too
 #   action=release  name             the rep removed the bill from the trip
+#   action=check    the same as claim, nothing written -> { ok, reason, flag }
+#                   (17 Nov 2026: a settlement bill, the moment it is read)
+#
+# SETTLEMENT BILLS (17 Nov 2026) share this register, kind "Bill": the app
+# checks a settlement bill when it is read (check) and registers it when it
+# is saved (claim, from /api/claims/check). So a bill used on a planner trip
+# is refused as a settlement bill, and the other way round.
 #
 # THE SAME BILL IS REFUSED (16 Nov 2026) -- the read of a bill is not the same
 # letter for letter every time ("INV 2610..." vs "2610...", "13OCT" vs
@@ -105,9 +112,9 @@ if action == "release":
     else:
         frappe.response["message"] = {"released": None}
 
-elif action == "claim":
+elif action == "claim" or action == "check":
     kind = str(fd.get("kind") or "")
-    if kind not in ["Stay", "Food", "Fuel", "Toll"]:
+    if kind not in ["Stay", "Food", "Fuel", "Toll", "Bill"]:
         frappe.throw("Unknown bill kind.")
     trip = str(fd.get("trip") or "")[:40]
     fh = str(fd.get("file_hash") or "").lower()[:64]
@@ -170,7 +177,12 @@ elif action == "claim":
     for m in found:
         r = m["r"]
         if r.employee == emp:
-            where = "this trip" if r.trip == trip else ("your trip of " + str(r.trip or "")[:10])
+            if r.kind == "Bill":
+                where = "your settlement bills"
+            elif kind != "Bill" and r.trip == trip:
+                where = "this trip"
+            else:
+                where = "your trip of " + str(r.trip or "")[:10]
             text = "Already claimed on " + where + " (" + m["why"] + ")."
         else:
             text = "Already claimed by another employee (" + m["why"] + ")."
@@ -196,23 +208,32 @@ elif action == "claim":
         "strong": strong,
     }
 
-    if block:
+    if action == "check":
+        # nothing written: the settlement form asks before the bill is saved
+        if block:
+            frappe.response["message"] = {"ok": 0, "reason": block["text"], "matched": block["name"]}
+        else:
+            frappe.response["message"] = {"ok": 1, "flag": flag["text"] if flag else None}
+    elif block:
         base["status"] = "Refused"
         base["matched"] = block["name"]
         base["note"] = block["text"]
         frappe.get_doc(base).insert(ignore_permissions=True)
         # tell the reporting officer: a comment on the rep's claim for the month
         month = trip[:7]
-        if len(month) == 7:
+        claims = []
+        if kind == "Bill":
+            claims = frappe.get_all("Expense Claim", filters={"employee": emp, "custom_running": 1, "docstatus": 0}, fields=["name"], limit=1)
+        elif len(month) == 7:
             claims = frappe.get_all("Expense Claim", filters={"employee": emp, "remark": ["like", "Field TA/DA % " + month], "docstatus": ["<", 2]}, fields=["name"], limit=1)
-            if claims:
-                frappe.get_doc({
-                    "doctype": "Comment",
-                    "comment_type": "Comment",
-                    "reference_doctype": "Expense Claim",
-                    "reference_name": claims[0].name,
-                    "content": "Bill refused (" + kind + ", " + str(bdate or "no date") + ", Rs " + str(amount) + "): " + block["text"] + " See Bill Fingerprint " + block["name"] + ".",
-                }).insert(ignore_permissions=True)
+        if claims:
+            frappe.get_doc({
+                "doctype": "Comment",
+                "comment_type": "Comment",
+                "reference_doctype": "Expense Claim",
+                "reference_name": claims[0].name,
+                "content": "Bill refused (" + kind + ", " + str(bdate or "no date") + ", Rs " + str(amount) + "): " + block["text"] + " See Bill Fingerprint " + block["name"] + ".",
+            }).insert(ignore_permissions=True)
         frappe.response["message"] = {"ok": 0, "reason": block["text"], "matched": block["name"]}
     else:
         base["status"] = "Used"

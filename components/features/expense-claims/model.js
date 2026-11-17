@@ -183,8 +183,9 @@ export function cashOf(claims, advances) {
    approved); a request sent back leaves its bills Checked with the reason. */
 const PENDING = new Set(["Checking", "Checked", "In Approval", "In Review"]);
 export const BILL_STATE = {
-  Checking: { tone: "#2563eb", icon: "hist", text: "AI check", sub: "in progress" },
-  Checked: { tone: "#0e7490", icon: "check", text: "Checked", sub: "send it for approval" },
+  // 16 Nov 2026: the rep never sees a check -- an added bill is ready to send
+  Checking: { tone: "#0e7490", icon: "check", text: "Added", sub: "send it for approval" },
+  Checked: { tone: "#0e7490", icon: "check", text: "Added", sub: "send it for approval" },
   "In Approval": { tone: "#b54708", icon: "hist", text: "In approval", sub: "with your managers" },
   Verified: { tone: "#067647", icon: "shield", text: "Verified", sub: "approved · counted" },
   "In Review": { tone: "#b54708", icon: "eye", text: "In review", sub: "with Accounts" },
