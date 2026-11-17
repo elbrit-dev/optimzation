@@ -16,7 +16,7 @@
 # "due_day"; ENTRY_DUE_DAY otherwise. A due day past a month's last day
 # would be that last day, so 31 means "month end"):
 #   - the entry month is LAST month (`month` overrides it);
-#   - the Secondary entry tile is on the strfor the expence claimip from ENTRY_FROM_DAY to the
+#   - the Secondary entry tile is on the strip from ENTRY_FROM_DAY to the
 #     due day, its caption the due date, "10 Oct", while anything is left —
 #     except for users whose Role Profile is "IT", who see it every day;
 #   - the approval tile keeps the same window — for IT too: past the due
@@ -341,10 +341,11 @@ EXTRA_USERS = ["kamesh@elbrit.org", "ramu@elbrit.org", "rahulbhargav@elbrit.org"
 # ...and EVERY RBM AND SM: anyone whose own seat is an RBM or SM seat (RBM-,
 # SRBM-, Deputy RBM, SM-) is an extra user too, for their whole team.
 EXTRA_SEATS = ["RBM", "SRBM", "Deputy RBM", "SM"]
-# FULL ENTRY SEATS: the CRM Manager's seat enters AND approves Secondary for
-# every seat (Elbrit Secondary Entry / Add carry the same list; the workflow
-# already lets it decide through its ABM..CEO and MIS roles). Its Secondary
-# approval tile shows on every day, not only in the entry window
+# FULL ENTRY SEATS: the CRM Manager's seat enters AND approves Secondary and
+# Doctor Support for every seat (Elbrit Secondary Entry / Add and Elbrit
+# Doctor Support Entry / Add carry the same list; the workflow already lets
+# it decide through its ABM..CEO and MIS roles). Its Secondary and Support
+# approval tiles show on every day, not only in the entry window
 # (approval_tile). Change the lists together.
 FULL_ENTRY_SEATS = ["BO-MIS-CRMM1"]
 full_entry = seat in FULL_ENTRY_SEATS
@@ -807,7 +808,7 @@ def approval_tile(task):
     # IT role profile gets it, as the overview of every tracker. Only in the
     # window: past the due day nobody does, IT included.
     win = window_of(task)
-    if not win["open"] and not (full_entry and task["id"] == "secondary"):
+    if not win["open"] and not (full_entry and task["id"] in ["secondary", "doctor-support"]):
         return
     counted = month_people(task)
     waiting = counted[0]

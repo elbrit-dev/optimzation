@@ -1,3 +1,20 @@
+def team_departments(seat, dept):
+    # dept + the custom_departments of `seat` and every Role Profile under it
+    # (same rule as the elbrit_team_items API — keep them in sync)
+    out = set([dept]) if dept else set()
+    level = [seat] if seat else []
+    seen = set()
+    while level:
+        level = [s for s in level if s and s not in seen]
+        seen.update(level)
+        if level:
+            level = frappe.get_all("Role Profile", filters=[["parent_role_profile", "in", level]], pluck="name")
+    if seen:
+        out.update(frappe.get_all("Department Multiselect",
+            filters=[["parenttype", "=", "Role Profile"], ["parentfield", "=", "custom_departments"], ["parent", "in", list(seen)]],
+            pluck="department"))
+    return sorted([d for d in out if d])
+
 # =====================================================================
 # SERVER SCRIPT — the source of truth for the ERP's copy. Keep in step.
 #
@@ -171,6 +188,9 @@ EXTRA_USERS = ["kamesh@elbrit.org", "ramu@elbrit.org", "rahulbhargav@elbrit.org"
 # ...and EVERY RBM AND SM: anyone whose own seat is an RBM or SM seat (RBM-,
 # SRBM-, Deputy RBM, SM-) is an extra user too, for their whole team.
 EXTRA_SEATS = ["RBM", "SRBM", "Deputy RBM", "SM"]
+# FULL ENTRY SEATS: the CRM Manager's seat may add for ANY seat, as Elbrit
+# Doctor Support Entry lets it enter for any seat; change both together.
+FULL_ENTRY_SEATS = ["BO-MIS-CRMM1"]
 
 
 def seat_under(s, top):
@@ -227,7 +247,7 @@ if seat != own_seat:
     # USER — any seat under theirs, held or not
     if not frappe.db.exists("Role Profile", seat):
         frappe.throw("No such seat: " + seat)
-    if owner_seat(seat) != own_seat and not ((me in EXTRA_USERS or (own_seat or "").split("-")[0] in EXTRA_SEATS) and seat_under(seat, own_seat)):
+    if own_seat not in FULL_ENTRY_SEATS and owner_seat(seat) != own_seat and not ((me in EXTRA_USERS or (own_seat or "").split("-")[0] in EXTRA_SEATS) and seat_under(seat, own_seat)):
         frappe.throw("You do not cover " + seat + ", so you cannot add its doctors.")
     # Its holder: an Active one first (its live BE for an extra user's team
     # seat, else a "Vacant_" placeholder), else whoever held it last.
@@ -265,7 +285,7 @@ if dept:
     today = frappe.utils.nowdate()
     for r in frappe.get_all(
             "Item",
-            filters=[["Elbrit Department Table", "elbrit_department", "in", [dept]],
+            filters=[["Elbrit Department Table", "elbrit_department", "in", team_departments(seat, dept)],
                      ["Item", "item_group", "descendants of (inclusive)", "Products"]],
             fields=["name",
                     "`tabElbrit Department Table`.`valid_from` as valid_from",
