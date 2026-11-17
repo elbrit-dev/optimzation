@@ -173,7 +173,7 @@ function MyRequestSheet({ conn, r, onClose, onChanged }) {
             </span>
           )}
           {r.status === "approved" && <span style={{ fontSize: 13, fontWeight: 600, color: "#067647", padding: "10px 12px", borderRadius: 12, background: "#ecfdf3" }}>
-            Approved by the CEO — {!r.booked ? (r.kind === "bills" ? "the bill is verified." : "verified.")
+            Approved — {!r.booked ? (r.kind === "bills" ? "the bill is verified." : "verified.")
               : r.booked.paid ? (r.kind === "bills" ? "paid to you." : "the cash is paid to you.")
               : r.kind === "bills" ? "booked in the accounts; Accounts pays it in the next payment run." : "Accounts pays the cash in the next payment run."}
           </span>}
@@ -257,7 +257,8 @@ function roleOf(data) {
   for (const r of [...(data?.waiting || []), ...(data?.team || []), ...(data?.decided || [])])
     for (const s of r.steps) if (s.user === me) count[s.level] = (count[s.level] || 0) + 1;
   const level = Object.entries(count).sort((a, b) => b[1] - a[1])[0]?.[0] || "";
-  return { level, ceo: level === "CEO", overview: !!data?.overview, approver: !!level };
+  // the LAST step is the GM (17 Nov 2026), the CEO only where no GM is above
+  return { level, ceo: level === "CEO" || level === "GM", overview: !!data?.overview, approver: !!level };
 }
 const clean = (r) => r.kind === "cash" || r.bills.every((b) => b.score != null && b.score >= 90);
 const sumOf = (rs) => rs.reduce((s, r) => s + r.amount, 0);
@@ -377,7 +378,7 @@ export function SettleQueue({ conn, data, desk, onOpen, onDone, onError }) {
     setBusy("");
     setPicked(new Set());
     if (failed.length) onError?.(`${ok} approved, ${failed.length} failed — ${failed[0]}`);
-    else onDone?.(role.ceo ? `${ok} ${ok === 1 ? "request" : "requests"} approved and verified` : `${ok} ${ok === 1 ? "request" : "requests"} approved — on to the next level`);
+    else onDone?.(role.ceo ? `${ok} ${ok === 1 ? "bill" : "bills"} approved — booked for the next payment run` : `${ok} ${ok === 1 ? "request" : "requests"} approved — on to the next level`);
   };
   const grid = { display: "grid", gridTemplateColumns: desk ? "repeat(auto-fill,minmax(320px,1fr))" : "minmax(0,1fr)", gap: 8 };
   const EMPTY = { waiting: "Nothing waits on you.", moving: "Nothing you approved is still going up.", approved: "Nothing approved yet.", rejected: "Nothing rejected.", history: "You have not approved or rejected anything yet." };
@@ -409,7 +410,7 @@ export function SettleQueue({ conn, data, desk, onOpen, onDone, onError }) {
           )}
           {cur.act && picked.size > 0 && <>
             <button type="button" className="ec-cta" disabled={!!busy} onClick={() => approveMany()} style={{ ...btn.primary, height: 36, fontSize: 12.5, display: "inline-flex", alignItems: "center", gap: 6 }}>
-              {busy ? <><Spinner size={12} />{busy}</> : `${role.ceo ? "Approve & verify" : "Approve"} ${picked.size} selected`}
+              {busy ? <><Spinner size={12} />{busy}</> : `Approve ${picked.size} selected`}
             </button>
             <button type="button" className="ec-ghost" disabled={!!busy} onClick={() => setPicked(new Set())} style={{ ...btn.ghost, height: 36, fontSize: 12.5 }}>Clear</button>
           </>}
@@ -443,8 +444,8 @@ export function SettleQueue({ conn, data, desk, onOpen, onDone, onError }) {
                       onBlur={() => setSure((x) => (x === p.id ? "" : x))}
                       style={{ ...(sure === p.id ? btn.primary : btn.ghost), height: 34, padding: "0 12px", fontSize: 12.5, whiteSpace: "nowrap", marginLeft: desk ? 0 : 12, marginBottom: desk ? 0 : 10 }}>
                       {sure === p.id
-                        ? `Tap again: ${role.ceo ? "approve & verify" : "approve"} ${p.list.length} · ${inr(sumOf(p.list))}`
-                        : p.list.length === 1 ? (role.ceo ? "Approve & verify" : "Approve") : `${role.ceo ? "Approve & verify" : "Approve"} all ${p.list.length}`}
+                        ? `Tap again: approve ${p.list.length} · ${inr(sumOf(p.list))}`
+                        : p.list.length === 1 ? "Approve" : `Approve all ${p.list.length}`}
                     </button>
                   )}
                 </div>
@@ -523,7 +524,7 @@ export function SettleSheet({ conn, req: r, canAct, desk, onClose, onDone, onBil
       </> : <>
         <button type="button" className="ec-ghost" disabled={!!busy} onClick={() => setRejecting(true)} style={{ ...btn.ghost, flex: 1, color: "#b42318" }}>Reject</button>
         <button type="button" className="ec-cta" disabled={!!busy} onClick={() => go("Approve")} style={{ ...btn.primary, flex: 1.4, display: "inline-flex", alignItems: "center", justifyContent: "center", gap: 8 }}>
-          {busy ? <><Spinner />{busy}</> : last ? `Approve & verify ${inr(r.amount)}` : `Approve ${inr(r.amount)}`}
+          {busy ? <><Spinner />{busy}</> : `Approve ${inr(r.amount)}`}
         </button>
       </>}
     >
@@ -541,7 +542,7 @@ export function SettleSheet({ conn, req: r, canAct, desk, onClose, onDone, onBil
               <b>{s.name}</b> ({s.level}) {s.decision === "Approved" ? "approved" : s.decision === "Skipped" ? "skipped" : "sent it back"} · {when(s.at)}{s.note ? ` — ${s.note}` : ""}
             </span>
           ))}
-          {canAct && last && <span style={{ fontSize: 12.5, fontWeight: 600, color: "#067647" }}>You are the last step: approving verifies {r.kind === "bills" ? "the bills" : "the request"}.</span>}
+          {canAct && last && <span style={{ fontSize: 12.5, fontWeight: 600, color: "#067647" }}>You are the last step: approving books {r.kind === "bills" ? "the bill" : "the cash request"} for the next payment run.</span>}
         </div>
         {r.kind === "cash" ? (
           <div style={{ ...card, padding: 14, display: "flex", flexDirection: "column", gap: 4 }}>

@@ -1,7 +1,9 @@
 # Server Script "Settlement API" -- type API, method settlement (16 Nov 2026).
 # Settlement approval: a request goes up the requester's reporting line --
-# BE > ABM > RBM > SM/ZSM > GM > CEO -- one approver at a time; the CEO's
-# approval is final. Every action goes through here (reps and approvers have
+# BE > ABM > RBM > SM/ZSM > GM -- one approver at a time; the GM's approval
+# is final (17 Nov 2026, the user: "the validation ends with the GM"; the CEO
+# approves only the PAYMENT, as a batch -- Settlement Pay API). A line with
+# no GM above (a GM's own bills, back office under the CEO) ends at the CEO. Every action goes through here (reps and approvers have
 # no DocType permission on Settlement Request), with the caller's own token.
 #
 #   A BILLS request: ONE bill (16 Nov 2026) on the rep's open settlement
@@ -49,9 +51,9 @@
 #   POST action=decide       name, decision (Approve | Reject), note
 #
 # The chain: Employee.reports_to from the requester up, skipping anyone not
-# Active, with no enabled login, or a "Vacant" placeholder, until the CEO. A
-# line that never reaches the CEO gets the CEO added last: the CEO always
-# decides last.
+# Active, with no enabled login, or a "Vacant" placeholder, up to the first
+# GM (the last step). A line that never reaches a GM ends at the CEO, added
+# last if the line never reaches him either.
 #
 # safe_exec: no import, no .format(), no set literals, no tuple unpacking,
 # no underscore-prefixed names, no frappe.parse_json -- the chain and the
@@ -115,8 +117,8 @@ def chain_of(emp_name, ceo_user, ceo_designation, levels):
         if live:
             lv = level_of(m.custom_role_profile, m.designation, m.user_id, ceo_user, ceo_designation, levels)
             out.append({"user": m.user_id, "name": m.employee_name, "level": lv})
-            if lv == "CEO":
-                ceo = True
+            if lv == "CEO" or lv == "GM":
+                ceo = True          # the last step: the GM (or the CEO, with no GM above)
         cur = m.reports_to
     if not ceo:
         name = frappe.db.get_value("Employee", {"user_id": ceo_user, "status": "Active"}, "employee_name") or "CEO"
@@ -330,6 +332,40 @@ def book_cash(d, cfg):
     ea.flags.settlement = True
     ea.submit()
     return ea.name
+
+
+def finalize(d, by, cfg, book):
+    # the LAST step approved (the GM; the CEO where no GM is above): the bill
+    # is Verified and booked in the accounts (or the cash advance submitted),
+    # to be paid in a payment batch the CEO approves
+    d.status = "Approved"
+    d.next_approver = None
+    d.next_label = None
+    d.decided_by = by
+    d.decided_on = frappe.utils.now()
+    if d.kind == "Bills":
+        for b in d.bills or []:
+            amt = frappe.db.get_value("Expense Claim Detail", b.row, "amount")
+            frappe.db.set_value("Expense Claim Detail", b.row, {"custom_bill_status": "Verified", "sanctioned_amount": amt})
+        if d.claim:
+            tot = 0
+            for r in frappe.get_all("Expense Claim Detail", filters={"parent": d.claim, "parenttype": "Expense Claim"}, fields=["sanctioned_amount"], limit_page_length=1000):
+                tot = tot + frappe.utils.flt(r.sanctioned_amount)
+            frappe.db.set_value("Expense Claim", d.claim, "total_sanctioned_amount", tot)
+    if book and booking_ready(cfg):
+        try:
+            if d.kind == "Bills":
+                made = []
+                for b in d.bills or []:
+                    made.append(book_bill(d, b, cfg))
+                if made:
+                    d.booked = made[0]
+            elif d.advance:
+                book_cash(d, cfg)
+        except Exception as err:
+            frappe.throw("Not approved: it could not be booked in the accounts (" + str(err)[:300] + "). Nothing was changed -- tell IT.")
+    notify(d.user, ("Your bill is approved -- it will be paid in the next payment run" if d.kind == "Bills" else "Your cash request is approved -- it will be paid in the next payment run")
+           + " (" + frappe.utils.fmt_money(d.amount, currency="INR") + ")", d.name)
 
 
 def booking_ready(cfg):
@@ -562,35 +598,8 @@ elif action == "decide":
             if not sweep(d, frappe.utils.now(), True):
                 notify(d.next_approver, ("Settlement" if d.kind == "Bills" else "Cash request") + " to approve: " + str(d.employee_name) + " · " + frappe.utils.fmt_money(d.amount, currency="INR"), d.name)
         else:
-            # the CEO's approval is final
-            d.status = "Approved"
-            d.next_approver = None
-            d.next_label = None
-            d.decided_by = me
-            d.decided_on = frappe.utils.now()
-            if d.kind == "Bills":
-                for b in d.bills or []:
-                    amt = frappe.db.get_value("Expense Claim Detail", b.row, "amount")
-                    frappe.db.set_value("Expense Claim Detail", b.row, {"custom_bill_status": "Verified", "sanctioned_amount": amt})
-                if d.claim:
-                    tot = 0
-                    for r in frappe.get_all("Expense Claim Detail", filters={"parent": d.claim, "parenttype": "Expense Claim"}, fields=["sanctioned_amount"], limit_page_length=1000):
-                        tot = tot + frappe.utils.flt(r.sanctioned_amount)
-                    frappe.db.set_value("Expense Claim", d.claim, "total_sanctioned_amount", tot)
-            # 17 Nov 2026: booked in the accounts now -- or not approved at all
-            if BOOK and booking_ready(BOOKING):
-                try:
-                    if d.kind == "Bills":
-                        made = []
-                        for b in d.bills or []:
-                            made.append(book_bill(d, b, BOOKING))
-                        if made:
-                            d.booked = made[0]
-                    elif d.advance:
-                        book_cash(d, BOOKING)
-                except Exception as err:
-                    frappe.throw("Not approved: it could not be booked in the accounts (" + str(err)[:300] + "). Nothing was changed -- tell IT.")
-            notify(d.user, ("Your bills are verified" if d.kind == "Bills" else "Your cash request is verified") + " (" + frappe.utils.fmt_money(d.amount, currency="INR") + ")", d.name)
+            # the last step (the GM): approved and booked -- or not at all
+            finalize(d, me, BOOKING, BOOK)
     elif decision == "Reject":
         if not note:
             frappe.throw("Say why it is rejected -- the requester sees it.")

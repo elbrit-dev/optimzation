@@ -126,10 +126,10 @@ function trackOf(e) {
   if (s === "Checking") steps.push({ k: "Approval", v: "Send it for approval (Settlements)", at: "now" });
   else if (s === "Checked" && l.review) steps.push({ k: "Sent back", v: "Fix it if needed, then send it again", note: l.review, at: "fail" });
   else if (s === "Checked") steps.push({ k: "Approval", v: "Send it for approval (Settlements)", at: "now" });
-  else if (s === "In Approval") steps.push({ k: "Approval", v: "With your managers, up to the CEO", at: "now" });
+  else if (s === "In Approval") steps.push({ k: "Approval", v: "With your managers, up to the GM", at: "now" });
   else if (s === "In Review") steps.push({ k: "In review", v: "Accounts are checking it by hand", at: "now" });
   else if (s === "Rejected") steps.push({ k: "Reviewed by Accounts", v: "Not accepted — it does not count", note: l.review, at: "fail" });
-  else if (s === "Verified") steps.push({ k: "Approved", v: "Approved up to the CEO", at: "done" });
+  else if (s === "Verified") steps.push({ k: "Approved", v: "Approved — paid in the next payment run", at: "done" });
   if (s !== "Rejected") {
     steps.push({ k: "Verified", v: s === "Verified" ? "Counts toward your settlement" : "Counts once verified", at: s === "Verified" ? "done" : "next" });
     const settled = e.claim.docstatus === 1;

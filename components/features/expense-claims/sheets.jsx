@@ -371,7 +371,7 @@ export function CashSheet({ conn, me, claims = [], advances = [], today = new Da
   return (
     <Sheet title={done ? "" : "Request cash"} sub={done ? null : `In hand now: ${inr(L.balance)}`} onClose={close} desktop="dialog" maxWidth={520} footer={footer}>
       <style>{CSS}</style>
-      {done ? <Done title="Cash requested" amount={amt} sub={`${what.trim()} · It goes to your managers for approval, up to the CEO, whose approval verifies it. Track it under Settlements.`} /> : (
+      {done ? <Done title="Cash requested" amount={amt} sub={`${what.trim()} · It goes to your managers for approval, up to the GM; then Accounts pays it. Track it under Settlements.`} /> : (
         <div style={{ display: "flex", flexDirection: "column", gap: 14, padding: desk ? "16px 24px 20px" : "12px 16px 18px" }}>
           {/* Verified is final for now (nothing booked); Accounts settle what is owed
               later, so it is not something to ask for as cash. */}
@@ -389,7 +389,7 @@ export function CashSheet({ conn, me, claims = [], advances = [], today = new Da
           </label>
           <div style={{ display: "flex", gap: 10, padding: "12px 14px", borderRadius: 14, background: "#f7f8fa" }}>
             <span style={{ color: "#7c3aed", display: "flex", flex: "none", marginTop: 1 }}><Icon d={IC.wallet} size={18} /></span>
-            <span style={{ fontSize: 13, color: "#5b6576", lineHeight: 1.45 }}>Your managers approve it, one after the other, up to the CEO — his approval verifies it.</span>
+            <span style={{ fontSize: 13, color: "#5b6576", lineHeight: 1.45 }}>Your managers approve it, one after the other, up to the GM — then Accounts pays it.</span>
           </div>
           {error && <Note>{error}</Note>}
         </div>

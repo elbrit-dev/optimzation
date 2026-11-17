@@ -122,7 +122,7 @@ export function PaymentsPanel({ conn, role, desk, onDone, onError }) {
           ) : (
             <>
               <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
-                <span style={{ flex: 1, fontSize: 13, color: "#5b6576" }}>{employees.length} {employees.length === 1 ? "employee" : "employees"} · {inr(employees.reduce((s, e) => s + e.total, 0))} approved by the CEO, not paid yet</span>
+                <span style={{ flex: 1, fontSize: 13, color: "#5b6576" }}>{employees.length} {employees.length === 1 ? "employee" : "employees"} · {inr(employees.reduce((s, e) => s + e.total, 0))} approved, not paid yet</span>
                 {role.accounts && (
                   <button type="button" className="ec-ghost" onClick={() => setPicked(picked.size === employees.length ? new Set() : new Set(employees.map((e) => e.employee)))} style={{ ...btn.ghost, height: 34, fontSize: 12.5 }}>
                     {picked.size === employees.length ? "Clear" : "Select all"}

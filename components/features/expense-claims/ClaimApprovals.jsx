@@ -172,7 +172,10 @@ export default function ClaimApprovals({ url, token, mode = "auto", verifiers = 
         const [settle, cars, pay] = await extra;
         // paying (17 Nov 2026): Accounts, the CEO and IT, once it is set up
         if (pay?.ready && (pay.accounts || pay.ceo || pay.it)) out.pay = pay;
-        if (settle && (settle.waiting.length || settle.team.length || settle.decided.length || settle.overview)) out.settle = settle;
+        // the CEO approves payments, not bills (17 Nov 2026: the GM's approval
+        // is final): his Bills tab only when a bill waits on him (a GM's own)
+        const ceoOnly = pay?.ceo && !(settle?.waiting || []).length;
+        if (settle && !ceoOnly && (settle.waiting.length || settle.team.length || settle.decided.length || settle.overview)) out.settle = settle;
         if (cars) {
           out.cars = cars.pending;
           out.carsRecent = cars.recent;
