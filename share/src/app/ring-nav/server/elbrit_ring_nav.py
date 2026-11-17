@@ -332,6 +332,14 @@ EXTRA_USERS = ["kamesh@elbrit.org", "ramu@elbrit.org", "rahulbhargav@elbrit.org"
 # ...and EVERY RBM AND SM: anyone whose own seat is an RBM or SM seat (RBM-,
 # SRBM-, Deputy RBM, SM-) is an extra user too, for their whole team.
 EXTRA_SEATS = ["RBM", "SRBM", "Deputy RBM", "SM"]
+# FULL ENTRY SEATS: the CRM Manager's seat enters AND approves Secondary and
+# Doctor Support for every seat (Elbrit Secondary Entry / Add and Elbrit
+# Doctor Support Entry / Add carry the same list; the workflow already lets
+# it decide through its ABM..CEO and MIS roles). Its Secondary and Support
+# approval tiles show on every day, not only in the entry window
+# (approval_tile). Change the lists together.
+FULL_ENTRY_SEATS = ["BO-MIS-CRMM1"]
+full_entry = seat in FULL_ENTRY_SEATS
 if (me in EXTRA_USERS or (seat or "").split("-")[0] in EXTRA_SEATS) and seat:
     frontier = [seat]
     reached = {seat: 1}
@@ -791,7 +799,7 @@ def approval_tile(task):
     # IT role profile gets it, as the overview of every tracker. Only in the
     # window: past the due day nobody does, IT included.
     win = window_of(task)
-    if not win["open"]:
+    if not win["open"] and not (full_entry and task["id"] in ["secondary", "doctor-support"]):
         return
     counted = month_people(task)
     waiting = counted[0]
