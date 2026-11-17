@@ -2,7 +2,7 @@
 
 import { Fragment, useCallback, useEffect, useRef, useState } from 'react';
 import { Button, Card, Icon, ProgressRing, StatusPill, cx } from '@/design-system';
-import { CHECKS, isBlocking, runAllChecks } from '../lib/checks';
+import { CHECKS, isBlocking, isDesktopSite, readEnv, runAllChecks } from '../lib/checks';
 import { instructionsFor } from '../lib/instructions';
 
 /* DeviceCheck — a checklist that confirms this browser can run Elbrit One
@@ -112,6 +112,27 @@ function Trailing({ status, expandable, expanded }) {
   );
 }
 
+/* With "Desktop site" on, Chrome ignores the viewport meta and lays the page
+   out ~980px wide, then shrinks it onto the phone: this screen — the one
+   telling them to fix exactly that — came out at a third of its size. Scale
+   it back by the same factor (layout width ÷ screen width). 1 everywhere else. */
+export function desktopSiteZoom(env, innerWidth) {
+  if (!isDesktopSite(env) || !env.screenW || !innerWidth) return 1;
+  const ratio = innerWidth / env.screenW;
+  return ratio < 1.2 ? 1 : Math.min(ratio, 4);
+}
+
+function useDesktopSiteZoom() {
+  const [zoom, setZoom] = useState(1);
+  useEffect(() => {
+    const update = () => setZoom(desktopSiteZoom(readEnv(), window.innerWidth));
+    update();
+    window.addEventListener('resize', update);
+    return () => window.removeEventListener('resize', update);
+  }, []);
+  return zoom;
+}
+
 function Summary({ list, running, done, failing, warnings }) {
   const total = list.length;
   const passed = list.filter((c) => c.r?.status === 'pass').length;
@@ -185,6 +206,7 @@ export function DeviceCheck({
   const passedRef = useRef(false);
   const site = typeof window !== 'undefined' ? window.location.host : 'this site';
   const running = current !== null;
+  const zoom = useDesktopSiteZoom();
 
   const proceed = useCallback(
     (all) => {
@@ -252,7 +274,7 @@ export function DeviceCheck({
   return (
     <section
       className={cx('mx-auto flex w-full max-w-md flex-col gap-3 px-4 pb-6 pt-5', className)}
-      style={{ paddingBottom: 'calc(24px + env(safe-area-inset-bottom))', ...style }}
+      style={{ paddingBottom: 'calc(24px + env(safe-area-inset-bottom))', ...(zoom !== 1 ? { zoom } : null), ...style }}
     >
       <Summary list={list} running={running} done={done} failing={failing} warnings={warnings} />
 
