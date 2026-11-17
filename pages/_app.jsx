@@ -8,6 +8,7 @@ import PwaBackGuard from '../components/PwaBackGuard';
 import UpdateCheck from '../components/UpdateCheck';
 import { CORE_VERSION, plasmicVersionOf } from '../lib/coreVersion';
 import MaintenanceGate from '../components/MaintenanceGate';
+import DeviceCheckGate, { DONE_EVENT as DEVICE_CHECK_DONE } from '../components/DeviceCheckGate';
 import { useEffect, useState, useCallback, useMemo } from 'react';
 import Head from 'next/head';
 import { Roboto, Work_Sans } from 'next/font/google';
@@ -413,6 +414,19 @@ function MyApp({ Component, pageProps }) {
     if (loadingScreen && loadingGif) {
       let animationCompleted = false;
       let appReady = false;
+      let hidden = false;
+      // DeviceCheckGate checks the browser behind the splash, so a phone that
+      // can't run the app goes straight to its checklist instead of flashing
+      // the login page first. Its effect runs before this one (child first),
+      // so it may already be done; and the splash never waits past the cap.
+      const DEVICE_CHECK_CAP = 3000;
+      let deviceChecked = Boolean(window.__elbritDeviceCheckDone);
+      const onDeviceChecked = () => {
+        deviceChecked = true;
+        checkAndHideLoader();
+      };
+      window.addEventListener(DEVICE_CHECK_DONE, onDeviceChecked, { once: true });
+      setTimeout(onDeviceChecked, DEVICE_CHECK_CAP);
       
       // Long enough for the logo to register, short enough not to hide a
       // ready home: at 3000 ms the first screen sat finished under the splash
@@ -430,7 +444,9 @@ function MyApp({ Component, pageProps }) {
       }, MIN_DISPLAY_TIME);
       
       function checkAndHideLoader() {
-        if (animationCompleted && appReady) {
+        if (animationCompleted && appReady && deviceChecked && !hidden) {
+          hidden = true;
+          window.removeEventListener(DEVICE_CHECK_DONE, onDeviceChecked);
           loadingScreen.classList.add('loading-hidden');
           document.body.classList.add('loaded');
           setTimeout(() => {
@@ -506,7 +522,12 @@ function MyApp({ Component, pageProps }) {
         <UpdateCheck plasmicVersion={plasmicVersionOf(pageProps)} />
 
         <MaintenanceGate>
-          <Component {...pageProps} />
+          {/* Once per launch, behind the splash: shows its checklist only when
+              this browser can't run the app (Desktop site, location blocked,
+              storage blocked or full). */}
+          <DeviceCheckGate>
+            <Component {...pageProps} />
+          </DeviceCheckGate>
         </MaintenanceGate>
       </DataProvider>
     </DataProvider>
