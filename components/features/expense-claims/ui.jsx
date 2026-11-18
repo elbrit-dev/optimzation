@@ -31,6 +31,7 @@ export const CSS = `
 .ec-root .ec-ghost:hover{background:#f2f4f7!important}
 .ec-root .ec-link:hover{background:#eef3fe!important}
 .ec-root .ec-cta:hover{background:#1d4ed8!important}
+.ec-root .ec-row:hover td{background:#f9fafb}
 .ec-root .ec-marq:hover{animation-play-state:paused!important}
 }
 @media (prefers-reduced-motion:reduce){.ec-root *{animation:none!important;transition:none!important}}`;

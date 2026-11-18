@@ -265,6 +265,18 @@ function roleOf(data) {
 export const toCeo = (r) => r.status === "waiting" && r.steps[r.step + 1]?.level === "CEO";
 const clean = (r) => r.kind === "cash" || r.bills.every((b) => b.score != null && b.score >= 90);
 const sumOf = (rs) => rs.reduce((s, r) => s + r.amount, 0);
+// desktop table pieces (18 Nov 2026)
+const ageDays = (s) => { const d = new Date(String(s || "").replace(" ", "T")); return isNaN(d) ? null : Math.max(0, Math.floor((Date.now() - d) / 864e5)); };
+const arrivedOf = (r) => (r.step > 0 && r.steps[r.step - 1]?.at) || r.created; // when it reached the current approver
+const needsLook = (r) => r.kind === "bills" && r.bills.some((b) => b.score == null || b.score < 90);
+const TH = { textAlign: "left", fontSize: 11.5, fontWeight: 600, color: "#667085", padding: "10px 12px", background: "#f9fafb", borderBottom: "1px solid #eaecf0", whiteSpace: "nowrap" };
+const TD = { padding: "11px 12px", borderBottom: "1px solid #f2f4f7", verticalAlign: "middle" };
+const TD2 = { ...TD, padding: "8px 12px", fontSize: 12.5 };
+const CHK = { width: 16, height: 16, accentColor: "#2563eb", cursor: "pointer", display: "block", margin: "0 auto" };
+const ROWBTN = { border: 0, background: "transparent", padding: 0, display: "inline-flex", alignItems: "center", gap: 8, cursor: "pointer", color: "#0b1220", fontSize: 13, textAlign: "left" };
+const Caret = ({ open }) => (
+  <span aria-hidden style={{ width: 18, height: 18, display: "grid", placeItems: "center", color: "#667085", transform: open ? "rotate(90deg)" : "none", transition: "transform .15s" }}><Icon d={IC.next} size={13} sw={2.4} /></span>
+);
 
 function QueueCard({ r, act, picked, onPick, onOpen, mine }) {
   const look = r.kind === "bills" && r.bills.some((b) => b.score != null && b.score < 90);
@@ -384,6 +396,173 @@ export function SettleQueue({ conn, data, desk, onOpen, onDone, onError }) {
   };
   const grid = { display: "grid", gridTemplateColumns: desk ? "repeat(auto-fill,minmax(320px,1fr))" : "minmax(0,1fr)", gap: 8 };
   const EMPTY = { waiting: "Nothing waits on you.", moving: "Nothing you approved is still going up.", approved: "Nothing approved yet.", rejected: "Nothing rejected.", history: "You have not approved or rejected anything yet." };
+
+  /* Desktop (18 Nov 2026, the user: "a business-level page, not cards"): a
+     summary line, then ONE table -- Team (or HQ) > employee > bills -- with
+     the selection in a bar that stays at the bottom. Phones keep the cards. */
+  if (desk) {
+    const people = new Set(shown.map((r) => r.employee)).size;
+    const look = shown.filter(needsLook).length;
+    const oldest = shown.reduce((m, r) => Math.max(m, ageDays(arrivedOf(r)) ?? 0), 0);
+    const pickedAmt = sumOf(waiting.filter((r) => picked.has(r.id)));
+    const allCeo = picked.size > 0 && [...picked].every((id) => toCeo(waiting.find((r) => r.id === id) || {}));
+    const setMany = (list, on) => setPicked((s) => { const n = new Set(s); for (const r of list) { if (on) n.add(r.id); else n.delete(r.id); } return n; });
+    const COLS = cur.act ? 7 : 6;
+    const figs = [
+      [cur.act ? "Waiting on you" : cur.t, inr(sumOf(shown)), true],
+      ["Bills", String(shown.length), false],
+      ["People", `${people} in ${hqs.length} ${byTeam ? (hqs.length === 1 ? "team" : "teams") : hqs.length === 1 ? "HQ" : "HQs"}`, false],
+      ...(cur.act ? [["Oldest waiting", oldest ? `${oldest} ${oldest === 1 ? "day" : "days"}` : "Today", false], ["Needs a look", String(look), false]] : []),
+    ];
+    return (
+      <>
+        <div style={{ display: "flex", alignItems: "flex-end", gap: 12, borderBottom: "1px solid #e4e7ec" }}>
+          <div role="tablist" style={{ display: "flex", gap: 20, flex: 1, minWidth: 0, overflowX: "auto" }}>
+            {tabs.map((x) => (
+              <button key={x.k} type="button" role="tab" aria-selected={tab === x.k} onClick={() => { setTab(x.k); setPicked(new Set()); setFlip(new Set()); }}
+                style={{ height: 40, padding: 0, border: 0, borderBottom: `2px solid ${tab === x.k ? "#2563eb" : "transparent"}`, marginBottom: -1, background: "transparent", fontSize: 13.5, fontWeight: 600, color: tab === x.k ? "#0b1220" : "#667085", cursor: "pointer", whiteSpace: "nowrap", display: "inline-flex", alignItems: "center", gap: 7 }}>
+                {x.t}
+                <span style={{ minWidth: 20, height: 20, padding: "0 6px", borderRadius: 10, display: "inline-grid", placeItems: "center", fontSize: 11.5, background: x.act && x.list.length ? "#fef0c7" : "#f2f4f7", color: x.act && x.list.length ? "#b54708" : "#667085", ...tabNum }}>{x.list.length}</span>
+              </button>
+            ))}
+          </div>
+          <label style={{ flex: "0 1 280px", display: "flex", alignItems: "center", gap: 8, height: 34, padding: "0 10px", marginBottom: 6, borderRadius: 8, background: "#fff", boxShadow: "0 0 0 1px #d0d5dd", color: "#667085" }}>
+            <Icon d={IC.search} size={14} />
+            <input value={q} onChange={(e) => setQ(e.target.value)} placeholder={byTeam ? "Search employee, team or HQ" : "Search employee or HQ"} aria-label="Search" style={{ flex: 1, minWidth: 0, border: 0, outline: 0, background: "transparent", fontSize: 13 }} />
+          </label>
+        </div>
+
+        {cur.list.length > 0 && (
+          <div style={{ ...card, borderRadius: 12, display: "grid", gridTemplateColumns: `1.3fr repeat(${figs.length - 1}, 1fr)` }}>
+            {figs.map(([l, v, lead], i) => (
+              <div key={l} style={{ padding: "14px 18px", borderLeft: i ? "1px solid #f2f4f7" : 0, display: "flex", flexDirection: "column", gap: 3 }}>
+                <span style={{ fontSize: 12, fontWeight: 500, color: lead ? "#1d4ed8" : "#667085" }}>{l}</span>
+                <b style={{ fontSize: lead ? 24 : 18, fontWeight: 700, letterSpacing: "-0.01em", color: l === "Needs a look" && look ? "#b54708" : "#0b1220", ...tabNum }}>{v}</b>
+              </div>
+            ))}
+          </div>
+        )}
+
+        {cur.act && cleanOnes.length > 1 && !picked.size && (
+          <div style={{ display: "flex", alignItems: "center", gap: 10, fontSize: 13, color: "#475467" }}>
+            <span>{cleanOnes.length} of {shown.length} bills match their photo with no issues.</span>
+            <button type="button" className="ec-link" disabled={!!busy} onClick={() => setPicked(new Set(cleanOnes.map((r) => r.id)))} style={{ border: 0, background: "transparent", padding: "4px 6px", borderRadius: 6, color: "#1d4ed8", fontSize: 13, fontWeight: 600, cursor: "pointer" }}>Select them</button>
+          </div>
+        )}
+
+        <div style={{ ...card, borderRadius: 12, overflow: "hidden" }}>
+          <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 13 }}>
+            <thead>
+              <tr>
+                {cur.act && <th style={{ ...TH, width: 44 }} />}
+                <th style={TH}>{byTeam ? "Team / employee" : "HQ / employee"}</th>
+                <th style={{ ...TH, textAlign: "right" }}>Bills</th>
+                <th style={TH}>Bill check</th>
+                <th style={TH}>{cur.act ? "Waiting" : cur.history ? "Your decision" : "Where it is"}</th>
+                <th style={{ ...TH, textAlign: "right" }}>Amount</th>
+                <th style={{ ...TH, width: cur.act ? 190 : 40 }} />
+              </tr>
+            </thead>
+            <tbody>
+              {!shown.length && <tr><td colSpan={COLS} style={{ padding: "36px 16px", textAlign: "center", color: "#5b6576", fontSize: 14 }}>{cur.list.length ? `No one matches “${q}”.` : EMPTY[cur.k]}</td></tr>}
+              {hqs.map((h) => {
+                const all = h.people.flatMap((p) => p.list);
+                const gk = `h:${h.name}`;
+                const gOpen = isOpen(gk, true);
+                return [
+                  <tr key={gk} style={{ background: "#f9fafb" }}>
+                    {cur.act && <td style={{ ...TD, background: "#f9fafb" }}><input type="checkbox" disabled={!!busy} aria-label={`Select all of ${h.name}`} checked={all.every((r) => picked.has(r.id))} onChange={(e) => setMany(all, e.target.checked)} style={CHK} /></td>}
+                    <td style={{ ...TD, background: "#f9fafb" }} colSpan={1}>
+                      <button type="button" onClick={() => toggle(gk)} aria-expanded={gOpen} style={{ ...ROWBTN, fontSize: 13.5, fontWeight: 700 }}>
+                        <Caret open={gOpen} />{h.name}<span style={{ fontWeight: 500, color: "#8a93a3", fontSize: 12.5 }}>{h.people.length} {h.people.length === 1 ? "person" : "people"}</span>
+                      </button>
+                    </td>
+                    <td style={{ ...TD, background: "#f9fafb", textAlign: "right", fontWeight: 600, ...tabNum }}>{all.length}</td>
+                    <td style={{ ...TD, background: "#f9fafb" }} colSpan={2} />
+                    <td style={{ ...TD, background: "#f9fafb", textAlign: "right", fontWeight: 700, ...tabNum }}>{inr(sumOf(all))}</td>
+                    <td style={{ ...TD, background: "#f9fafb" }} />
+                  </tr>,
+                  ...(!gOpen ? [] : h.people.flatMap((p) => {
+                    const k = `p:${h.name}:${p.id}`;
+                    const open = isOpen(k, nPeople === 1);
+                    const looks = p.list.filter(needsLook).length;
+                    const cash = p.list.filter((r) => r.kind === "cash").length;
+                    const age = p.list.reduce((m, r) => Math.max(m, ageDays(arrivedOf(r)) ?? 0), 0);
+                    const sel = p.list.every((r) => picked.has(r.id));
+                    const mine = cur.history ? myStep(p.list[0]) : null;
+                    const lead = [
+                      <tr key={k} style={{ background: sel && cur.act ? "#f5f8ff" : "#fff" }}>
+                        {cur.act && <td style={TD}><input type="checkbox" disabled={!!busy} aria-label={`Select all of ${p.name}'s bills`} checked={sel} onChange={(e) => setMany(p.list, e.target.checked)} style={CHK} /></td>}
+                        <td style={TD}>
+                          <button type="button" onClick={() => toggle(k)} aria-expanded={open} style={{ ...ROWBTN, paddingLeft: 18 }}>
+                            <Caret open={open} /><span style={{ fontWeight: 600 }}>{p.name}</span>{p.hq && byTeam ? <span style={{ color: "#8a93a3", fontWeight: 400 }}>{p.hq}</span> : null}
+                          </button>
+                        </td>
+                        <td style={{ ...TD, textAlign: "right", ...tabNum }}>{p.list.length}</td>
+                        <td style={TD}>
+                          {looks ? <span style={{ color: "#b54708", fontWeight: 600 }}>{looks} {looks === 1 ? "needs" : "need"} a look</span>
+                            : <span style={{ color: "#067647", fontWeight: 600 }}>{cash === p.list.length ? "Cash request" : "All bills match"}</span>}
+                        </td>
+                        <td style={{ ...TD, color: "#475467" }}>
+                          {cur.act ? (age ? `${age} ${age === 1 ? "day" : "days"}` : "Today")
+                            : mine ? <span style={{ color: mine.decision === "Rejected" ? "#b42318" : "#067647", fontWeight: 600 }}>{mine.decision === "Rejected" ? "Sent back" : "Approved"}{mine.at ? ` · ${when(mine.at)}` : ""}</span>
+                            : p.list.length === 1 ? (p.list[0].status === "waiting" ? waitingOn(p.list[0]) : <StatusPill r={p.list[0]} />) : `${p.list.length} bills`}
+                        </td>
+                        <td style={{ ...TD, textAlign: "right", fontWeight: 700, ...tabNum }}>{inr(sumOf(p.list))}</td>
+                        <td style={{ ...TD, textAlign: "right" }}>
+                          {cur.act && (
+                            <button type="button" className={sure === p.id ? "ec-cta" : "ec-ghost"} disabled={!!busy}
+                              onClick={() => (sure === p.id ? approveMany(p.list.map((r) => r.id)) : setSure(p.id))}
+                              onBlur={() => setSure((x) => (x === p.id ? "" : x))}
+                              style={{ ...(sure === p.id ? btn.primary : btn.ghost), height: 32, padding: "0 12px", borderRadius: 8, fontSize: 12.5, whiteSpace: "nowrap" }}>
+                              {sure === p.id ? `Confirm · ${inr(sumOf(p.list))}` : p.list.every(toCeo) ? (p.list.length === 1 ? "Send to the CEO" : `Send ${p.list.length} to the CEO`) : p.list.length === 1 ? "Approve" : `Approve all ${p.list.length}`}
+                            </button>
+                          )}
+                        </td>
+                      </tr>,
+                    ];
+                    if (!open) return lead;
+                    return lead.concat(p.list.map((r) => {
+                      const b = r.bills[0];
+                      const m = cur.history ? myStep(r) : null;
+                      return (
+                        <tr key={r.id} style={{ background: "#fcfcfd" }}>
+                          {cur.act && <td style={TD2}><input type="checkbox" disabled={!!busy} aria-label={`Select ${r.id}`} checked={picked.has(r.id)} onChange={(e) => setMany([r], e.target.checked)} style={CHK} /></td>}
+                          <td style={{ ...TD2, paddingLeft: 58 }}>
+                            <button type="button" onClick={() => onOpen(r, !!cur.act)} style={{ border: 0, background: "transparent", padding: 0, textAlign: "left", cursor: "pointer", color: "#0b1220" }}>
+                              <span style={{ fontWeight: 500 }}>{r.kind === "cash" ? `Cash request · ${r.purpose}` : b?.title || "Bill"}</span>
+                              <span style={{ color: "#8a93a3" }}> · {b ? shortDate(b.date) : when(r.created)}{r.resent ? " · sent again" : ""}</span>
+                            </button>
+                          </td>
+                          <td style={TD2} />
+                          <td style={TD2}>{b ? <RiskBadge ai={{ risk: b.risk || (b.score >= 90 ? "Low" : b.score >= 70 ? "Medium" : "High"), score: b.score, reason: b.reason }} small /> : <span style={{ color: "#8a93a3" }}>No bill</span>}</td>
+                          <td style={TD2}>{m ? <span style={{ color: m.decision === "Rejected" ? "#b42318" : "#067647", fontWeight: 600 }}>{m.decision === "Rejected" ? `Sent back${m.note ? ` — ${m.note}` : ""}` : "Approved"}</span> : <ChainTrack r={r} compact />}</td>
+                          <td style={{ ...TD2, textAlign: "right", ...tabNum }}>{inr(r.amount)}</td>
+                          <td style={{ ...TD2, textAlign: "right" }}>
+                            <button type="button" className="ec-link" onClick={() => onOpen(r, !!cur.act)} style={{ border: 0, background: "transparent", padding: "4px 6px", borderRadius: 6, color: "#1d4ed8", fontSize: 12.5, fontWeight: 600, cursor: "pointer" }}>{cur.act ? "Open" : "View"}</button>
+                          </td>
+                        </tr>
+                      );
+                    }));
+                  })),
+                ];
+              })}
+            </tbody>
+          </table>
+        </div>
+
+        {cur.act && picked.size > 0 && (
+          <div style={{ position: "sticky", bottom: 12, zIndex: 5, display: "flex", alignItems: "center", gap: 10, padding: "10px 12px 10px 18px", borderRadius: 12, background: "#0b1220", color: "#fff", boxShadow: "0 12px 30px -10px rgba(16,24,40,.45)" }}>
+            <span style={{ flex: 1, fontSize: 13.5 }}><b>{picked.size} {picked.size === 1 ? "bill" : "bills"}</b> selected · <b style={tabNum}>{inr(pickedAmt)}</b>{allCeo ? <span style={{ color: "#98a2b3" }}> — goes to the CEO as one batch</span> : null}</span>
+            <button type="button" disabled={!!busy} onClick={() => setPicked(new Set())} style={{ height: 34, padding: "0 12px", borderRadius: 8, border: "1px solid #344054", background: "transparent", color: "#fff", fontSize: 13, fontWeight: 600, cursor: "pointer" }}>Clear</button>
+            <button type="button" className="ec-cta" disabled={!!busy} onClick={() => approveMany()} style={{ ...btn.primary, height: 34, borderRadius: 8, fontSize: 13, display: "inline-flex", alignItems: "center", gap: 6 }}>
+              {busy ? <><Spinner size={12} />{busy}</> : allCeo ? `Send ${picked.size} to the CEO` : `Approve ${picked.size}`}
+            </button>
+          </div>
+        )}
+      </>
+    );
+  }
 
   return (
     <>

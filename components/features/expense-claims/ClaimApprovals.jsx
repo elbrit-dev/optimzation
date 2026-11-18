@@ -356,7 +356,7 @@ export default function ClaimApprovals({ url, token, mode = "auto", verifiers = 
         {lists.status === "loading" && <div aria-busy="true" style={{ ...card, height: 180, display: "grid", placeItems: "center" }}><Spinner size={24} /></div>}
 
         {lists.status === "ready" && cars && <CarQueue pending={lists.cars || []} recent={lists.carsRecent || []} desk={desk} onOpen={setOpenCar} />}
-        {lists.status === "ready" && settleTab && lists.ceo && <CeoBatches conn={conn} data={lists.ceo} desk={desk} onDone={done} onError={(m) => say(m, "error")} onChanged={() => {}} />}
+        {lists.status === "ready" && settleTab && lists.ceo && <CeoBatches conn={conn} data={lists.ceo} desk={desk} onDone={done} onError={(m) => say(m, "error")} onChanged={() => setTick((t) => t + 1)} />}
         {lists.status === "ready" && settleTab && !lists.ceo && <SettleQueue conn={conn} data={lists.settle} desk={desk} onOpen={(r, act) => setOpenSettle({ r, act })} onDone={done} onError={(m) => { say(m, "error"); setTick((t) => t + 1); }} />}
 
         {lists.status === "ready" && !beIdle && !cars && !settleTab && (
