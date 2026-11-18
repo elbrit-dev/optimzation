@@ -60,7 +60,7 @@ export function buildMockRows() {
       posting_date: '2026-11-05',
       leave_approver__name: 'ravi.abm@example.org', leave_approver_name: 'Ravi Shankar',
     }),
-    /* Already decided — the Decided tab. */
+    /* Already decided — the History tab. */
     leave('HR-LAP-2026-00490', {
       employee__name: 'E01106', employee_name: 'Lakshmi N', employee_email: 'lakshmi.be@example.org',
       leave_type__name: 'Casual Leave', from_date: '2026-11-13', to_date: '2026-11-13', total_leave_days: 1,
@@ -80,4 +80,22 @@ export function buildMockRows() {
       modified: '2026-10-31 11:05:00', modified_by__name: MOCK_ABM,
     }),
   ];
+}
+
+/* Leave balances for the Mock mode, in get_leave_details' shape. */
+const MOCK_LEFT = {
+  E01101: { 'Casual Leave': 6, 'Sick Leave': 1, 'Privilege Leave': 0 },
+  E01102: { 'Casual Leave': 4, 'Sick Leave': 5, 'Privilege Leave': 3 },
+  E01103: { 'Casual Leave': 1, 'Sick Leave': 6, 'Privilege Leave': 0 },
+  E01104: { 'Casual Leave': 8, 'Sick Leave': 6, 'Privilege Leave': 2 },
+  E01105: { 'Casual Leave': 7, 'Sick Leave': 4, 'Privilege Leave': 12 },
+  E01106: { 'Casual Leave': 3, 'Sick Leave': 6, 'Privilege Leave': 0 },
+  E01201: { 'Casual Leave': 0, 'Sick Leave': 0, 'Probation Leave': 1 },
+};
+export function mockBalances(employee) {
+  const left = MOCK_LEFT[employee] ?? {};
+  return {
+    leave_allocation: Object.fromEntries(Object.entries(left).map(([t, n]) => [t, { remaining_leaves: n }])),
+    lwps: ['Leave Without Pay'],
+  };
 }

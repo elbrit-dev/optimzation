@@ -169,6 +169,28 @@ export function LeaveApproval({
     [sourceRows, done, today, viewer],
   );
   const { waiting, others, decided } = useMemo(() => shapeLeaves(rows, { viewer, today }), [rows, viewer, today]);
+
+  /* Each person's leave balances (one read per employee, kept for the visit),
+     shown on their cards under the reason. */
+  const balSource = writerProp?.balances ? writerProp : erp?.balances ? erp : null;
+  const [balances, setBalances] = useState(() => new Map());
+  const asked = useRef(new Set());
+  useEffect(() => {
+    if (!balSource) return;
+    const need = [...new Set([...waiting, ...others, ...decided].map((l) => l.employee).filter(Boolean))].filter((e) => !asked.current.has(e));
+    if (!need.length) return;
+    need.forEach((e) => asked.current.add(e));
+    let i = 0;
+    const next = async () => {
+      while (i < need.length) {
+        const e = need[i++];
+        const b = await balSource.balances(e, today).catch(() => null);
+        setBalances((m) => new Map(m).set(e, b));
+      }
+    };
+    for (let k = 0; k < 4; k++) next();
+  }, [balSource, waiting, others, decided, today]);
+  const balOf = (e) => (balSource ? balances.get(e) : null);
   const groups = useMemo(() => groupWaiting(waiting), [waiting]);
   const otherGroups = useMemo(() => groupWaiting(others), [others]);
 
@@ -277,7 +299,7 @@ export function LeaveApproval({
             onChange={setTab}
             items={[
               { id: 'waiting', label: `Waiting${waiting.length + others.length ? ` · ${waiting.length + others.length}` : ''}` },
-              { id: 'decided', label: 'Decided' },
+              { id: 'decided', label: 'History' },
             ]}
           />
 
@@ -300,6 +322,7 @@ export function LeaveApproval({
                         <LeaveCard
                           key={l.name}
                           leave={l}
+                          balance={balOf(l.employee)}
                           canDecide={canDecide}
                           selected={selected.has(l.name)}
                           onToggle={() => toggle(l.name)}
@@ -325,7 +348,7 @@ export function LeaveApproval({
                     <div key={g.id} className="flex flex-col gap-2">
                       <GroupTitle group={g} />
                       {g.items.map((l) => (
-                        <LeaveCard key={l.name} leave={l} viewer={viewer} />
+                        <LeaveCard key={l.name} leave={l} viewer={viewer} balance={balOf(l.employee)} />
                       ))}
                     </div>
                   ))}
@@ -334,7 +357,7 @@ export function LeaveApproval({
             </>
           ) : (
             decided.length ? (
-              decided.map((l) => <LeaveCard key={l.name} leave={l} viewer={viewer} />)
+              decided.map((l) => <LeaveCard key={l.name} leave={l} viewer={viewer} balance={balOf(l.employee)} />)
             ) : (
               <Card className="py-6 text-center text-12 text-ds-secondary">Nothing decided in the last 30 days.</Card>
             )

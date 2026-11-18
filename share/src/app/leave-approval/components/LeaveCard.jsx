@@ -36,12 +36,64 @@ function Fact({ icon, tone = 'muted', children }) {
   );
 }
 
+/* Short names for the leave types, as the HR dashboard's playground writes them. */
+const ABBR = {
+  'Casual Leave': 'CL',
+  'Sick Leave': 'SL',
+  'Privilege Leave': 'PL',
+  'Earned Leave': 'EL',
+  'Compensatory Off': 'CO',
+  'Leave Without Pay': 'LWP',
+  'Probation Leave': 'PROB',
+};
+export const typeAbbr = (t) =>
+  ABBR[t] ??
+  (String(t ?? '')
+    .split(/\s+/)
+    .filter((w) => w && !/^leave$/i.test(w))
+    .map((w) => w[0].toUpperCase())
+    .join('') ||
+    t);
+const num = (n) => String(Math.round(n * 10) / 10);
+
+/* Every leave balance in one line; on a waiting leave its own type shows
+   what it becomes if approved (red below zero). An unpaid type with no
+   allocation shows the days this leave adds. */
+function Balances({ balance, leave: l, waiting }) {
+  if (balance === undefined) return <div className="h-4 w-40 rounded bg-sunken" aria-label="Loading leave balances" />;
+  if (!balance) return null;
+  const items = balance.types.map((b) => ({ ...b, after: waiting && b.type === l.leaveType ? b.left - (l.days || 0) : null }));
+  if (waiting && !items.some((b) => b.type === l.leaveType)) items.push({ type: l.leaveType, add: l.days || 0 });
+  if (!items.length) return null;
+  return (
+    <div className="flex flex-wrap items-baseline gap-x-3 gap-y-1 text-11 tabular-nums" aria-label="Leave balances">
+      {items.map((b) => {
+        const mine = b.type === l.leaveType;
+        return (
+          <span key={b.type} title={b.type} className={cx('whitespace-nowrap', mine ? 'text-heading' : 'text-ds-muted')}>
+            <span className={cx('mr-1 font-semibold', mine ? 'text-heading' : 'text-ds-secondary')}>{typeAbbr(b.type)}</span>
+            {b.add != null ? (
+              <>+{num(b.add)}</>
+            ) : b.after != null ? (
+              <>
+                {num(b.left)} → <span className={cx('font-semibold', b.after < 0 ? 'text-danger-text' : 'text-heading')}>{num(b.after)}</span>
+              </>
+            ) : (
+              num(b.left)
+            )}
+          </span>
+        );
+      })}
+    </div>
+  );
+}
+
 /* One request: who, what and when — and its two buttons. Ticking it adds
  * it to the pinned bar's batch. A leave waiting on SOMEONE ELSE (role
  * 'watcher') has no checkbox or buttons, and says who it waits on. A DECIDED leave (`viewer` given, status not
  * Open) is the same card with its decision in place of the checkbox and
  * buttons: the status, who decided and when. */
-export function LeaveCard({ leave: l, selected, onToggle, onApprove, onReject, busy, canDecide, viewer }) {
+export function LeaveCard({ leave: l, selected, onToggle, onApprove, onReject, busy, canDecide, viewer, balance }) {
   const decided = l.status === 'Approved' || l.status === 'Rejected';
   const watching = l.role === 'watcher';
   const actionable = canDecide && !decided && !watching;
@@ -82,6 +134,8 @@ export function LeaveCard({ leave: l, selected, onToggle, onApprove, onReject, b
       </div>
 
       {l.reason ? <p className="text-12 leading-snug text-body">“{l.reason}”</p> : <p className="text-12 italic text-ds-muted">No reason given</p>}
+
+      <Balances balance={balance} leave={l} waiting={!decided} />
 
       <div className="flex flex-col gap-1.5">
         {decided ? (

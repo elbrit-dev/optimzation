@@ -3,7 +3,7 @@
  *
  * READ — the elbrit_leave_approvals server script (server/): every Open
  *   leave the user may see, and every one ending within the last
- *   RECENT_DAYS (the Decided tab, and who is off) — HR, IT and the CEO
+ *   RECENT_DAYS (the History tab, and who is off) — HR, IT and the CEO
  *   everyone's, anyone else their team's down the Role Profile tree. Rows
  *   in the GraphQL shape (links as `x__name`). Without the script, GraphQL
  *   LeaveApplications: what the ERP lets the user read.
@@ -84,6 +84,16 @@ export function createErpLeaveSource({ endpointUrl, token, fetchImpl = fetch }) 
   return {
     whoAmI: () => method('frappe.auth.get_logged_user'),
 
+    /* An employee's leave balances today, every leave type they hold an
+       allocation for (HRMS's own get_leave_details, the one the leave form
+       uses): { types: [{ type, left }], lwps: ['Leave Without Pay'] }. */
+    async balances(employee, date) {
+      const m = await method(
+        `hrms.hr.doctype.leave_application.leave_application.get_leave_details?employee=${encodeURIComponent(employee)}&date=${encodeURIComponent(date)}`,
+      );
+      return shapeBalances(m);
+    },
+
     /* The leaves the caller may see — the ERP decides who sees whose
        (elbrit_leave_approvals: HR, IT and the CEO everyone's; anyone else
        their team's, down the Role Profile tree). Where that script is not
@@ -147,10 +157,19 @@ export function createErpLeaveSource({ endpointUrl, token, fetchImpl = fetch }) 
   }
 }
 
+export function shapeBalances(m) {
+  const alloc = m?.leave_allocation ?? {};
+  return {
+    types: Object.entries(alloc).map(([type, a]) => ({ type, left: Number(a?.remaining_leaves ?? 0) })),
+    lwps: Array.isArray(m?.lwps) ? m.lwps : [],
+  };
+}
+
 /* The Mock mode's writer: plays the workflow on the seeded rows. */
-export function createMockLeaveSource({ getRows, setRows, viewer }) {
+export function createMockLeaveSource({ getRows, setRows, viewer, balances }) {
   return {
     whoAmI: async () => viewer,
+    balances: balances ? async (employee) => shapeBalances(balances(employee)) : undefined,
     load: async () => getRows(),
     async decide(decisions) {
       await new Promise((r) => setTimeout(r, 450));

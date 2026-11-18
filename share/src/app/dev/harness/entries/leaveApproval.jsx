@@ -4,7 +4,7 @@ import { useMemo, useRef, useState } from 'react';
 import { SegmentedControl } from '@/design-system';
 import { LeaveApproval } from '@/app/leave-approval/components/LeaveApproval';
 import { leaveApprovalMeta } from '@/app/leave-approval/plasmic.meta';
-import { MOCK_ABM, MOCK_RBM, MOCK_TODAY, buildMockRows } from '@/app/leave-approval/data/mockData';
+import { MOCK_ABM, MOCK_RBM, MOCK_TODAY, buildMockRows, mockBalances } from '@/app/leave-approval/data/mockData';
 import { createErpLeaveSource, createMockLeaveSource } from '@/app/leave-approval/data/erp';
 import { RailSection } from '../components/RailSection';
 import { dryRunWrites } from '../addons/dryRunWrites';
@@ -27,7 +27,7 @@ const mockMode = {
     const [rows, setRows] = useState(buildMockRows);
     const rowsRef = useRef(rows);
     rowsRef.current = rows;
-    const writer = useMemo(() => createMockLeaveSource({ getRows: () => rowsRef.current, setRows, viewer }), [viewer]);
+    const writer = useMemo(() => createMockLeaveSource({ getRows: () => rowsRef.current, setRows, viewer, balances: mockBalances }), [viewer]);
     return {
       panel: (
         <RailSection title="Mock data">
