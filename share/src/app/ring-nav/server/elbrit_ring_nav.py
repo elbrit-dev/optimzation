@@ -1263,10 +1263,10 @@ if frappe.db.exists("Workflow", "Expense Claim Approval"):
 #   badge     how many wait on the caller
 #   caption   "Today" when one has started, else the soonest first day
 #   ring      started (red) / in the next LEAVE_SOON_DAYS days (amber) / later
-# For now ONLY the IT department gets it (LEAVE_DEPARTMENTS); set
-# LEAVE_TILE_FOR_ALL = True to give it to every approver with work waiting.
+# Everyone gets it (user, 18 Nov 2026: "visible to all, not only IT"), showing
+# "Clear" when nothing waits; LEAVE_TILE_FOR_ALL = False limits it to LEAVE_DEPARTMENTS again.
 HREFS["leave-approval"] = "/leave/approval"
-LEAVE_TILE_FOR_ALL = False
+LEAVE_TILE_FOR_ALL = True
 LEAVE_DEPARTMENTS = ["IT - ELPL"]
 LEAVE_ESCALATE_AFTER = 2
 LEAVE_SOON_DAYS = 3
@@ -1306,7 +1306,7 @@ def leave_tile():
         else:
             later = later + 1
     waiting = started + soon + later
-    if not waiting and not leave_team:
+    if not waiting and not (leave_team or LEAVE_TILE_FOR_ALL):
         return
     caption = "Clear"
     tone = "success"
