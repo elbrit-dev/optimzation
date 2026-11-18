@@ -58,3 +58,6 @@ tools/auth-audit-dashboard/lib/auth-secrets.mjs
 
 # Local render of components/DoctorDetail for eyeballing — see scripts/preview-doctor-detail.cjs
 .preview/
+
+# generated per run by .github/workflows/branch-previews.yml
+firebase.json
