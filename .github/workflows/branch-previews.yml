@@ -1,0 +1,170 @@
+# Branch previews for Firebase App Hosting (elbrit-preview)
+# Lives in the app repo at .github/workflows/branch-previews.yml
+#
+#  push to any branch except main/uat → backend pv-<slug> is created (first push only), given access
+#                                        to the secrets in apphosting.yaml, deployed from source and
+#                                        listed in the preview shell (app-preview.elbrit.org)
+#  PR closed / branch deleted /
+#  branch merged into main or uat      → backend and shell entry removed
+#  nightly 02:00 IST                    → sweep for anything missed
+#
+# Sign-in addresses (app-pv-<slug>, app-t<N>-…) are registered in Firebase Auth by the
+# elbrit-preview Worker when first opened, so this workflow needs no Firebase Auth rights.
+# Only ever touches backends whose id starts with "pv-".
+#
+# Secrets:   FIREBASE_PREVIEW_SA   JSON key of branch-previews@elbrit-sso-d01d9 (App Hosting Admin,
+#                                  Storage Admin, Service Account User, Secret Manager Admin)
+#            CLOUDFLARE_API_TOKEN  Cloudflare token with "Workers KV Storage: Edit"
+# Variables: CLOUDFLARE_ACCOUNT_ID, PREVIEW_KV_ID, FIREBASE_WEB_APP_ID (optional)
+
+name: Branch previews
+
+on:
+  push:
+  pull_request:
+    types: [closed]
+  delete:
+  schedule:
+    - cron: "30 20 * * *" # 02:00 IST
+  workflow_dispatch:
+
+concurrency:
+  group: branch-previews-${{ github.event.pull_request.head.ref || github.ref_name }}
+  cancel-in-progress: false
+
+env:
+  PROJECT: elbrit-sso-d01d9
+  REGION: asia-southeast1
+  ROOT_DIR: "."
+  BASE_BRANCHES: "main uat" # app-prod deploys main, app-uat deploys uat
+  PREVIEW_DOMAIN: elbrit.org
+  FIREBASE_TOOLS: firebase-tools@15.36.0
+  WRANGLER: wrangler@4.163.0
+
+jobs:
+  deploy:
+    if: >-
+      github.event_name == 'push' && !github.event.deleted &&
+      github.ref_name != 'main' && github.ref_name != 'uat'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with: { fetch-depth: 0 }
+      - uses: actions/setup-node@v4
+        with: { node-version: 22 }
+      - uses: google-github-actions/auth@v2
+        with: { credentials_json: "${{ secrets.FIREBASE_PREVIEW_SA }}" }
+      - uses: google-github-actions/setup-gcloud@v2
+
+      - name: Work out names
+        id: n
+        run: |
+          slug=$(echo "$GITHUB_REF_NAME" | tr '[:upper:]' '[:lower:]' | sed -E 's/[^a-z0-9]+/-/g; s/^-+|-+$//g')
+          if [ ${#slug} -gt 27 ]; then
+            slug="${slug:0:22}-$(echo -n "$GITHUB_REF_NAME" | sha1sum | cut -c1-4)"; slug=$(echo "$slug" | sed -E 's/-+/-/g')
+          fi
+          ahead=999999
+          for b in $BASE_BRANCHES; do
+            git rev-parse -q --verify "origin/$b" >/dev/null || continue
+            c=$(git rev-list --count "origin/$b..HEAD"); [ "$c" -lt "$ahead" ] && ahead=$c
+          done
+          {
+            echo "backend=pv-$slug"
+            echo "host=app-pv-$slug.$PREVIEW_DOMAIN"
+            echo "ahead=$ahead"
+          } >> $GITHUB_OUTPUT
+
+      - name: Create backend if missing
+        env: { BACKEND: "${{ steps.n.outputs.backend }}" }
+        run: |
+          TOKEN=$(gcloud auth print-access-token)
+          code=$(curl -s -o /dev/null -w '%{http_code}' -H "Authorization: Bearer $TOKEN" \
+            "https://firebaseapphosting.googleapis.com/v1/projects/$PROJECT/locations/$REGION/backends/$BACKEND")
+          if [ "$code" = "404" ]; then
+            npx -y $FIREBASE_TOOLS apphosting:backends:create --project "$PROJECT" --non-interactive \
+              --backend "$BACKEND" --primary-region "$REGION" --root-dir "$ROOT_DIR" \
+              ${{ vars.FIREBASE_WEB_APP_ID && format('--app {0}', vars.FIREBASE_WEB_APP_ID) || '' }}
+            # Let the new backend read every secret apphosting.yaml references.
+            for s in $(grep -E '^\s*secret:' "$ROOT_DIR/apphosting.yaml" | awk '{print $2}' | sort -u); do
+              npx -y $FIREBASE_TOOLS apphosting:secrets:grantaccess "$s" --backend "$BACKEND" \
+                --location "$REGION" --project "$PROJECT" --non-interactive
+            done
+          elif [ "$code" != "200" ]; then
+            echo "::error::Backend lookup returned HTTP $code"; exit 1
+          fi
+
+      - name: Deploy this commit
+        env: { BACKEND: "${{ steps.n.outputs.backend }}" }
+        run: |
+          # Generated only for this run; never committed.
+          cat > firebase.json <<JSON
+          { "apphosting": [ { "backendId": "$BACKEND", "rootDir": "$ROOT_DIR",
+              "ignore": ["node_modules", ".git", ".next", "firebase-debug.log"] } ] }
+          JSON
+          npx -y $FIREBASE_TOOLS deploy --only "apphosting:$BACKEND" --project "$PROJECT" --non-interactive --force
+
+      - name: List it in the preview shell
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ vars.CLOUDFLARE_ACCOUNT_ID }}
+          BACKEND: ${{ steps.n.outputs.backend }}
+          HOST: ${{ steps.n.outputs.host }}
+          AHEAD: ${{ steps.n.outputs.ahead }}
+        run: |
+          meta=$(jq -nc --arg id "$BACKEND" --arg label "$GITHUB_REF_NAME" --arg url "https://$HOST" \
+            --arg branch "$GITHUB_REF_NAME" --arg repo "$GITHUB_REPOSITORY" --arg sha "${GITHUB_SHA:0:7}" \
+            --arg updated "$(date -u +%FT%TZ)" --argjson ahead "$AHEAD" \
+            '{id:$id,label:$label,group:"Branch previews",url:$url,branch:$branch,repo:$repo,sha:$sha,updated:$updated,ahead:$ahead}')
+          npx -y $WRANGLER kv key put --remote --namespace-id "${{ vars.PREVIEW_KV_ID }}" "$BACKEND" "1" --metadata "$meta"
+          {
+            echo "### Preview ready"
+            echo "- App: https://$HOST"
+            echo "- In the shell: https://app-preview.$PREVIEW_DOMAIN/#w=$BACKEND.0.android"
+          } >> $GITHUB_STEP_SUMMARY
+
+  cleanup:
+    if: >-
+      github.event_name != 'push' ||
+      github.ref_name == 'main' || github.ref_name == 'uat' || github.event.deleted
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with: { fetch-depth: 0 }
+      - uses: actions/setup-node@v4
+        with: { node-version: 22 }
+      - uses: google-github-actions/auth@v2
+        with: { credentials_json: "${{ secrets.FIREBASE_PREVIEW_SA }}" }
+      - uses: google-github-actions/setup-gcloud@v2
+
+      - name: Remove previews that are merged, closed or deleted
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ vars.CLOUDFLARE_ACCOUNT_ID }}
+          KV: ${{ vars.PREVIEW_KV_ID }}
+          CLOSED_BRANCH: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.ref || '' }}
+        run: |
+          git fetch --prune origin '+refs/heads/*:refs/remotes/origin/*'
+
+          remove() { # $1 backend  $2 reason
+            [[ "$1" == pv-* ]] || return 0
+            echo "Removing $1 ($2)"
+            npx -y $FIREBASE_TOOLS apphosting:backends:delete "$1" --project "$PROJECT" --force || true
+            # Its sign-in addresses are dropped by the Worker's daily sweep once the entry is gone.
+            npx -y $WRANGLER kv key delete --remote --namespace-id "$KV" "$1" || true
+            echo "- Removed \`$1\` ($2)" >> $GITHUB_STEP_SUMMARY
+          }
+
+          npx -y $WRANGLER kv key list --remote --namespace-id "$KV" --prefix pv- \
+            | jq -c --arg repo "$GITHUB_REPOSITORY" '.[] | select(.metadata.repo == $repo) | .metadata' \
+            | while read -r m; do
+                id=$(jq -r .id <<<"$m"); branch=$(jq -r .branch <<<"$m"); ahead=$(jq -r .ahead <<<"$m")
+                if [ -n "$CLOSED_BRANCH" ] && [ "$branch" = "$CLOSED_BRANCH" ]; then remove "$id" "PR closed"; continue; fi
+                if ! git rev-parse -q --verify "origin/$branch" >/dev/null; then remove "$id" "branch deleted"; continue; fi
+                # A branch that never had its own commits can't be told apart from "merged"; keep it.
+                [ "$ahead" -gt 0 ] || continue
+                for b in $BASE_BRANCHES; do
+                  if git rev-parse -q --verify "origin/$b" >/dev/null && git merge-base --is-ancestor "origin/$branch" "origin/$b"; then
+                    remove "$id" "merged into $b"; break
+                  fi
+                done
+              done
