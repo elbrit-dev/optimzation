@@ -85,7 +85,7 @@ jobs:
               --backend "$BACKEND" --primary-region "$REGION" --root-dir "$ROOT_DIR" \
               ${{ vars.FIREBASE_WEB_APP_ID && format('--app {0}', vars.FIREBASE_WEB_APP_ID) || '' }}
             # Let the new backend read every secret apphosting.yaml references.
-            for s in $(grep -E '^\s*secret:' "$ROOT_DIR/apphosting.yaml" | awk '{print $2}' | sort -u); do
+            for s in $(grep -E '^\s*secret:' "$ROOT_DIR/apphosting.yaml" | awk '{print $2}' | tr -d "\"'" | sed 's/@.*//' | sort -u); do
               npx -y $FIREBASE_TOOLS apphosting:secrets:grantaccess "$s" --backend "$BACKEND" \
                 --location "$REGION" --project "$PROJECT" --non-interactive
             done
