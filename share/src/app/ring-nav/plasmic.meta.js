@@ -62,6 +62,17 @@ export const ringNavMeta = {
       type: 'number',
       description: 'ERP tiles: how often (ms) to refetch — default 300000 (5 min), at least 10000. Tiles you set with functions: how often to re-resolve them (they also re-resolve at midnight).',
     },
+    surveys: {
+      type: 'boolean',
+      defaultValue: true,
+      description:
+        "ERP tiles: also show one circle per survey sent to the signed-in person (survey_my_list, as them), right after the entry tiles, up to its due date. Off: no survey circles. Nobody without a survey sees one.",
+    },
+    surveyHref: {
+      type: 'string',
+      defaultValue: '/survey',
+      description: 'A survey circle links to <surveyHref>/<campaign> — the page with a Survey Page on it (e.g. /survey/[campaign]).',
+    },
     now: {
       type: 'string',
       description: 'Preview the strip at this moment (YYYY-MM-DD or an ISO date-time). Leave empty in production.',

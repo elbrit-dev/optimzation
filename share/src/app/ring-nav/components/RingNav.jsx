@@ -6,6 +6,8 @@ import { RingNav as DsRingNav, cx } from '@/design-system';
 import { normalizeRingNavItems } from '../utils/normalizeRingNavItems';
 import { compileTiles, isDynamic, resolveTiles, tileContext } from '../utils/resolveTiles';
 import { useErpTiles } from '../data/useErpTiles';
+import { useSurveyTiles } from '@/app/survey/data/useSurveyTiles';
+import { withSurveyTiles } from '@/app/survey/data/tiles';
 
 /* RingNav — the field app's task strip as a row of shortcuts. Each tile
    links to its task's own page; tapping one navigates there.
@@ -21,6 +23,11 @@ import { useErpTiles } from '../data/useErpTiles';
      work with the ERP's own permissions (data/useErpTiles.js). Refetched
      every `refreshEvery` ms (default 5 minutes) and on return to the app.
      `hrefs` re-points a tile by id: { 'secondary-entry': '/secondary/entry' }.
+   - SURVEY CIRCLES, with the ERP tiles: one per survey sent to the person
+     (survey_my_list, as them), right after the entry tiles, each linking
+     <surveyHref>/<campaign>. `surveys` off drops them. These used to come
+     from the "Surveys" wrapper (SurveyHome) with the home page in its slot;
+     since 18 Nov 2026 Ring Nav draws them itself and is the strip again.
    - DYNAMIC TILES, for `items` given here instead. Any field may be a
      function of { data, now, today, day, weekday, month } — its caption,
      count, segments — and `show` says whether it is on the strip at all (see
@@ -72,6 +79,8 @@ export default function RingNav({
   data,
   now: nowProp,
   refreshEvery,
+  surveys = true,
+  surveyHref = '/survey',
   onItemClick,
   stickyBar = false,
   inset = true,
@@ -84,13 +93,16 @@ export default function RingNav({
      and due date are the ERP's to work out. */
   const previewDay = nowProp ? String(nowProp).slice(0, 10) : undefined;
   const remote = useErpTiles({ enabled: fromErp, gqlEnvironment, gqlToken, month, today: previewDay, refreshEvery });
+  const surveyItems = useSurveyTiles({ enabled: fromErp && surveys !== false, gqlEnvironment, gqlToken, today: previewDay, refreshEvery, hrefBase: surveyHref });
   const source = fromErp ? remote.items : items;
 
   const defs = useMemo(() => {
-    const list = typeof source === 'string' ? compileTiles(source) : source;
+    let list = typeof source === 'string' ? compileTiles(source) : source;
+    /* Survey circles only join tiles the ERP sent: none until those arrive. */
+    if (fromErp && Array.isArray(list) && surveyItems.length) list = withSurveyTiles(list, surveyItems);
     if (!hrefs || !Array.isArray(list)) return list;
     return list.map((t) => (t && typeof t === 'object' && hrefs[t.id] ? { ...t, href: hrefs[t.id] } : t));
-  }, [source, hrefs]);
+  }, [source, hrefs, fromErp, surveyItems]);
   const dynamic = useMemo(() => isDynamic(defs), [defs]);
 
   const pinned = pinnedTime(nowProp);
