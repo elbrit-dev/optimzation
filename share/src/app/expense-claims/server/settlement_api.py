@@ -1,9 +1,15 @@
 # Server Script "Settlement API" -- type API, method settlement (16 Nov 2026).
 # Settlement approval: a request goes up the requester's reporting line --
-# BE > ABM > RBM > SM/ZSM > GM -- one approver at a time; the GM's approval
-# is final (17 Nov 2026, the user: "the validation ends with the GM"; the CEO
-# approves only the PAYMENT, as a batch -- Settlement Pay API). A line with
-# no GM above (a GM's own bills, back office under the CEO) ends at the CEO. Every action goes through here (reps and approvers have
+# BE > ABM > RBM > SM/ZSM > GM > CEO -- one approver at a time.
+#
+# THE CEO GETS BATCHES (18 Nov 2026, management): the approver right before
+# the CEO (the GM; the SM where no GM is above) sends the bills they approve
+# to the CEO as ONE BATCH per send (Settlement Batch, SB-#####). The CEO
+# approves the batch -- or sends single bills back with a reason, the rest
+# approved. The CEO's approval is final: the bills are booked in the ledger
+# at once, and Accounts pays them with no further approval (Settlement Pay
+# API). A request that reaches the CEO any other way (a GM's own bill, one
+# sent again to a CEO who rejected it) gets a batch of its own. Every action goes through here (reps and approvers have
 # no DocType permission on Settlement Request), with the caller's own token.
 #
 #   A BILLS request: ONE bill (16 Nov 2026) on the rep's open settlement
@@ -22,7 +28,8 @@
 #                Employee; the bill photo attached; the employee's open cash
 #                advances deducted first. Workflow state "Booked". -> booked
 #     cash    -> the Employee Advance submitted on "Employee Expense
-#                Advances", unspent amount repaid from salary
+#                Advances"; unspent cash is paid back by the employee to the
+#                bank (no salary recovery)
 #   A booking that fails stops the approval too (nothing half done): the CEO
 #   sees why. Accounts then pays the Unpaid claims / advances in batches.
 #   A REJECT, at any step, needs a reason: the request goes back to the rep
@@ -49,11 +56,14 @@
 #   GET  action=queue                        waiting on me / my team / decided by me
 #                                            (overview: IT department, System Manager)
 #   POST action=decide       name, decision (Approve | Reject), note
+#   POST action=approve_many names=a,b       approve them all; those that reach the CEO go as ONE batch
+#   GET  action=ceo_batches                  the CEO's batches (waiting, and the last 30 days)
+#   POST action=decide_batch name            the CEO approves what is still waiting in a batch
 #
 # The chain: Employee.reports_to from the requester up, skipping anyone not
-# Active, with no enabled login, or a "Vacant" placeholder, up to the first
-# GM (the last step). A line that never reaches a GM ends at the CEO, added
-# last if the line never reaches him either.
+# Active, with no enabled login, or a "Vacant" placeholder, until the CEO. A
+# line that never reaches the CEO gets the CEO added last: the CEO always
+# decides last, on a batch.
 #
 # safe_exec: no import, no .format(), no set literals, no tuple unpacking,
 # no underscore-prefixed names, no frappe.parse_json -- the chain and the
@@ -117,8 +127,8 @@ def chain_of(emp_name, ceo_user, ceo_designation, levels):
         if live:
             lv = level_of(m.custom_role_profile, m.designation, m.user_id, ceo_user, ceo_designation, levels)
             out.append({"user": m.user_id, "name": m.employee_name, "level": lv})
-            if lv == "CEO" or lv == "GM":
-                ceo = True          # the last step: the GM (or the CEO, with no GM above)
+            if lv == "CEO":
+                ceo = True
         cur = m.reports_to
     if not ceo:
         name = frappe.db.get_value("Employee", {"user_id": ceo_user, "status": "Active"}, "employee_name") or "CEO"
@@ -137,12 +147,26 @@ def shape(d):
                       "bill": b.bill or "", "score": b.ai_score, "risk": b.ai_risk or "", "reason": b.ai_reason or ""})
     # the requester's HQ = their seat's territory (17 Nov 2026: the approvers'
     # list goes HQ > employee), "HQ-Trichy" -> "Trichy"
+    # and the TEAM = the seat's department (18 Nov 2026: SM, GM and the CEO
+    # see Team > employee): Role Profile.custom_department; an SM-type seat
+    # lists several (custom_departments) -> the first; none -> the
+    # Employee's own. "Elbrit Trichy - ELPL" -> "Elbrit Trichy"
     hq = ""
+    team = ""
     seat = frappe.db.get_value("Employee", d.employee, "custom_role_profile", cache=True)
     if seat:
-        hq = str(frappe.db.get_value("Role Profile", seat, "custom_territory", cache=True) or "")
+        rp = frappe.db.get_value("Role Profile", seat, ["custom_territory", "custom_department"], as_dict=True) or {}
+        hq = str(rp.get("custom_territory") or "")
+        team = str(rp.get("custom_department") or "")
+        if not team:
+            team = str(frappe.db.get_value("Department Multiselect", {"parent": seat, "parenttype": "Role Profile", "parentfield": "custom_departments"},
+                                           "department", order_by="idx asc") or "")
+    if not team:
+        team = str(frappe.db.get_value("Employee", d.employee, "department", cache=True) or "")
     if hq[:3].upper() == "HQ-":
         hq = hq[3:]
+    if team[-7:] == " - ELPL":
+        team = team[:-7]
     resent = None
     if d.get("resent_from"):
         pv = frappe.db.get_value("Settlement Request", d.resent_from, ["note", "decided_by"], as_dict=True)
@@ -158,7 +182,7 @@ def shape(d):
         ad = frappe.db.get_value("Employee Advance", d.advance, ["status", "paid_amount", "docstatus"], as_dict=True)
         if ad and ad.docstatus == 1:
             booked = {"advance": d.advance, "status": ad.status or "", "paid": ad.paid_amount}
-    return {"name": d.name, "hq": hq, "resent": resent, "booked": booked, "employee": d.employee, "employee_name": d.employee_name, "user": d.user,
+    return {"name": d.name, "hq": hq, "team": team, "resent": resent, "booked": booked, "batch": d.get("batch") or "", "employee": d.employee, "employee_name": d.employee_name, "user": d.user,
             "kind": d.kind, "status": d.status, "amount": d.amount, "claim": d.claim or "", "advance": d.advance or "",
             "purpose": d.purpose or "", "step": d.step, "next_approver": d.next_approver or "", "next_label": d.next_label or "",
             "note": d.note or "", "decided_by": d.decided_by or "", "decided_on": str(d.decided_on or ""),
@@ -327,7 +351,7 @@ def book_cash(d, cfg):
         return ea.name
     ea.advance_account = cfg["advance"]
     if frappe.get_meta("Employee Advance").has_field("repay_unclaimed_amount_from_salary"):
-        ea.repay_unclaimed_amount_from_salary = 1      # unspent cash comes back from salary (the user)
+        ea.repay_unclaimed_amount_from_salary = 0      # NOT from salary (user 2026-11-18): the employee pays unspent cash back to the bank; Accounts record it with the advance's Return
     ea.flags.ignore_permissions = True
     ea.flags.settlement = True
     ea.submit()
@@ -335,7 +359,7 @@ def book_cash(d, cfg):
 
 
 def finalize(d, by, cfg, book):
-    # the LAST step approved (the GM; the CEO where no GM is above): the bill
+    # the LAST step approved (the CEO, on a batch): the bill
     # is Verified and booked in the accounts (or the cash advance submitted),
     # to be paid in a payment batch the CEO approves
     d.status = "Approved"
@@ -366,6 +390,79 @@ def finalize(d, by, cfg, book):
             frappe.throw("Not approved: it could not be booked in the accounts (" + str(err)[:300] + "). Nothing was changed -- tell IT.")
     notify(d.user, ("Your bill is approved -- it will be paid in the next payment run" if d.kind == "Bills" else "Your cash request is approved -- it will be paid in the next payment run")
            + " (" + frappe.utils.fmt_money(d.amount, currency="INR") + ")", d.name)
+
+
+def make_batch(reqs, by, ceo_user):
+    # the requests that just reached the CEO -> ONE Settlement Batch for him
+    if not reqs:
+        return None
+    who = frappe.db.get_value("Employee", {"user_id": by, "status": "Active"}, "employee_name") or by
+    items = []
+    total = 0
+    for d in reqs:
+        items.append({"request": d.name, "employee": d.employee, "employee_name": d.employee_name,
+                      "amount": d.amount, "title": str(d.purpose or "")[:140]})
+        total = total + frappe.utils.flt(d.amount)
+    sb = frappe.get_doc({"doctype": "Settlement Batch", "status": "Waiting", "made_by": by, "made_by_name": who,
+                         "amount": total, "count": len(items), "lines": items})
+    sb.insert(ignore_permissions=True)
+    for d in reqs:
+        d.batch = sb.name
+    notify(ceo_user, "Batch to approve from " + str(who) + ": " + str(len(items)) + (" bill" if len(items) == 1 else " bills")
+           + " · " + frappe.utils.fmt_money(total, currency="INR"), sb.name)
+    return sb.name
+
+
+def close_batch(name, by):
+    # a batch with nothing left waiting is Done
+    if not name:
+        return
+    left = frappe.get_all("Settlement Request", filters={"batch": name, "status": "Waiting"}, pluck="name", limit_page_length=1)
+    if not left and frappe.db.get_value("Settlement Batch", name, "status") == "Waiting":
+        frappe.db.set_value("Settlement Batch", name, {"status": "Done", "decided_by": by, "decided_on": frappe.utils.now()})
+
+
+def approve_one(d, me, cfg, book):
+    # the caller's step approved -> "ceo" when the request now waits on the CEO
+    # (it needs a batch), "done" when it was the last step, else ""
+    i = frappe.utils.cint(d.step)
+    step = d.steps[i]
+    step.decided_on = frappe.utils.now()
+    step.decision = "Approved"
+    if i + 1 < len(d.steps):
+        d.step = i + 1
+        d.next_approver = d.steps[i + 1].user
+        d.next_label = d.steps[i + 1].level
+        # the next approver on leave or gone: straight past them (17 Nov 2026)
+        sweep(d, frappe.utils.now(), False)
+        if d.next_label == "CEO":
+            return "ceo"
+        notify(d.next_approver, ("Settlement" if d.kind == "Bills" else "Cash request") + " to approve: " + str(d.employee_name)
+               + " · " + frappe.utils.fmt_money(d.amount, currency="INR"), d.name)
+        return ""
+    finalize(d, me, cfg, book)
+    return "done"
+
+
+def reject_one(d, me, who, note):
+    i = frappe.utils.cint(d.step)
+    step = d.steps[i]
+    step.decided_on = frappe.utils.now()
+    step.note = note
+    step.decision = "Rejected"
+    d.status = "Rejected"
+    d.note = note
+    d.next_approver = None
+    d.next_label = None
+    d.decided_by = me
+    d.decided_on = frappe.utils.now()
+    for b in d.bills or []:
+        frappe.db.set_value("Expense Claim Detail", b.row, {"custom_bill_status": "Checked", "custom_settlement": None,
+                                                           "custom_review_note": ("Returned by " + who + ": " + note)[:500]})
+    if d.advance and frappe.db.get_value("Employee Advance", d.advance, "docstatus") == 0:
+        frappe.delete_doc("Employee Advance", d.advance, ignore_permissions=True, force=True)
+        d.advance = None
+    notify(d.user, "Sent back by " + who + ": " + note, d.name)
 
 
 def booking_ready(cfg):
@@ -482,7 +579,13 @@ elif action == "send_bills":
             if str(prev.bill or "") == str(r.custom_bill or "") and frappe.utils.flt(r.amount) <= frappe.utils.flt(prev.amount) + 0.5:
                 carry(d, prev.parent)
             changed = True
-        if sweep(d, now, False) or changed:
+        moved = sweep(d, now, False)
+        # straight to the CEO (a GM's own bill; sent again to the CEO who
+        # rejected it): a batch of its own
+        if d.next_label == "CEO" and not d.get("batch"):
+            make_batch([d], me, CEO_USER)
+            moved = True
+        if moved or changed:
             d.save(ignore_permissions=True)
         frappe.db.set_value("Expense Claim Detail", r.name, {"custom_bill_status": "In Approval", "custom_settlement": d.name, "custom_review_note": None})
         made.append(d)
@@ -525,6 +628,9 @@ elif action == "send_cash":
     ea.flags.settlement = True       # "Employee Advance Task" makes no Accounts Task for it
     ea.insert(ignore_permissions=True)
     d = new_request(emp, me, "Cash", amount, purpose, None, ea.name, [], chain)
+    if d.next_label == "CEO":
+        make_batch([d], me, CEO_USER)
+        d.save(ignore_permissions=True)
     notify(chain[0]["user"], "Cash request to approve: " + str(emp.employee_name) + " · " + frappe.utils.fmt_money(amount, currency="INR"), d.name)
     frappe.response["message"] = {"request": shape(d)}
 
@@ -583,44 +689,91 @@ elif action == "decide":
         frappe.throw("This request is already " + str(d.status).lower() + ".")
     if d.next_approver != me:
         frappe.throw("This request is waiting on someone else.", frappe.PermissionError)
-    i = frappe.utils.cint(d.step)
-    step = d.steps[i]
-    step.decided_on = frappe.utils.now()
-    step.note = note
     who = str((emp and emp.employee_name) or me)
+    batch = d.get("batch")
     if decision == "Approve":
-        step.decision = "Approved"
-        if i + 1 < len(d.steps):
-            d.step = i + 1
-            d.next_approver = d.steps[i + 1].user
-            d.next_label = d.steps[i + 1].level
-            # the next approver on leave or gone: straight past them (17 Nov 2026)
-            if not sweep(d, frappe.utils.now(), True):
-                notify(d.next_approver, ("Settlement" if d.kind == "Bills" else "Cash request") + " to approve: " + str(d.employee_name) + " · " + frappe.utils.fmt_money(d.amount, currency="INR"), d.name)
-        else:
-            # the last step (the GM): approved and booked -- or not at all
-            finalize(d, me, BOOKING, BOOK)
+        d.steps[frappe.utils.cint(d.step)].note = note
+        if approve_one(d, me, BOOKING, BOOK) == "ceo":
+            make_batch([d], me, CEO_USER)          # one bill sent on its own: a batch of one
     elif decision == "Reject":
         if not note:
             frappe.throw("Say why it is rejected -- the requester sees it.")
-        step.decision = "Rejected"
-        d.status = "Rejected"
-        d.note = note
-        d.next_approver = None
-        d.next_label = None
-        d.decided_by = me
-        d.decided_on = frappe.utils.now()
-        for b in d.bills or []:
-            frappe.db.set_value("Expense Claim Detail", b.row, {"custom_bill_status": "Checked", "custom_settlement": None,
-                                                               "custom_review_note": ("Returned by " + who + ": " + note)[:500]})
-        if d.advance and frappe.db.get_value("Employee Advance", d.advance, "docstatus") == 0:
-            frappe.delete_doc("Employee Advance", d.advance, ignore_permissions=True, force=True)
-            d.advance = None
-        notify(d.user, "Sent back by " + who + ": " + note, d.name)
+        reject_one(d, me, who, note)
     else:
         frappe.throw("Approve or Reject?")
     d.save(ignore_permissions=True)
+    close_batch(batch, me)
     frappe.response["message"] = {"request": shape(d)}
+
+elif action == "approve_many":
+    # 18 Nov 2026: the approver's selection in one go -- what reaches the CEO
+    # goes to him as ONE batch
+    names = []
+    for x in str(fd.get("names") or "").split(","):
+        if x.strip() and x.strip() not in names:
+            names.append(x.strip())
+    to_ceo = []
+    done = 0
+    skipped = []
+    batches = []
+    for name in names:
+        d = frappe.get_doc("Settlement Request", name) if frappe.db.exists("Settlement Request", name) else None
+        if not d or d.status != "Waiting" or d.next_approver != me:
+            skipped.append(name)
+            continue
+        if d.get("batch") and d.get("batch") not in batches:
+            batches.append(d.get("batch"))
+        r = approve_one(d, me, BOOKING, BOOK)
+        if r == "ceo":
+            to_ceo.append(d)
+        else:
+            d.save(ignore_permissions=True)
+        done = done + 1
+    sb = make_batch(to_ceo, me, CEO_USER)
+    for d in to_ceo:
+        d.save(ignore_permissions=True)
+    for b in batches:
+        close_batch(b, me)
+    frappe.response["message"] = {"approved": done, "batch": sb, "to_ceo": len(to_ceo), "skipped": skipped}
+
+elif action == "ceo_batches":
+    if me != CEO_USER and not overview:
+        frappe.throw("Batches are for the CEO.", frappe.PermissionError)
+    since = frappe.utils.add_days(frappe.utils.today(), -30)
+    out = []
+    names = frappe.get_all("Settlement Batch", filters={"status": "Waiting"}, pluck="name", order_by="creation asc", limit_page_length=200)
+    for x in frappe.get_all("Settlement Batch", filters={"status": "Done", "modified": [">=", since]}, pluck="name", order_by="modified desc", limit_page_length=100):
+        names.append(x)
+    for n in names:
+        sb = frappe.get_doc("Settlement Batch", n)
+        reqs = []
+        for it in sb.lines or []:
+            if frappe.db.exists("Settlement Request", it.request):
+                reqs.append(shape(frappe.get_doc("Settlement Request", it.request)))
+        out.append({"name": sb.name, "status": sb.status, "made_by": sb.made_by, "made_by_name": sb.made_by_name, "amount": sb.amount,
+                    "count": sb.count, "creation": str(sb.creation), "decided_on": str(sb.decided_on or ""), "requests": reqs})
+    frappe.response["message"] = {"batches": out, "ceo": me == CEO_USER}
+
+elif action == "decide_batch":
+    # the CEO approves what is still waiting on him in the batch (bills he
+    # sent back one by one are already back with the rep): booked, final
+    if me != CEO_USER:
+        frappe.throw("Only the CEO approves a batch.", frappe.PermissionError)
+    name = str(fd.get("name") or "")
+    if not frappe.db.exists("Settlement Batch", name):
+        frappe.throw("No such batch.")
+    if frappe.db.get_value("Settlement Batch", name, "status") != "Waiting":
+        frappe.throw("This batch is already decided.")
+    n = 0
+    total = 0
+    for r in frappe.get_all("Settlement Request", filters={"batch": name, "status": "Waiting", "next_approver": me}, pluck="name", limit_page_length=500):
+        d = frappe.get_doc("Settlement Request", r)
+        approve_one(d, me, BOOKING, BOOK)
+        d.save(ignore_permissions=True)
+        n = n + 1
+        total = total + frappe.utils.flt(d.amount)
+    close_batch(name, me)
+    frappe.response["message"] = {"approved": n, "amount": total, "batch": name}
 
 else:
     frappe.throw("Unknown action.")

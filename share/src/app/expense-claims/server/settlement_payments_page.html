@@ -1,0 +1,84 @@
+<div id="sp" class="sp">
+  <header class="sp-top">
+    <div>
+      <h1>Settlement Payments</h1>
+      <p class="sp-muted" data-sub>Loading…</p>
+    </div>
+    <div class="sp-top-links">
+      <a class="sp-btn sp-ghost" href="/app/query-report/Settlement%20To%20Pay" target="_blank">Excel report</a>
+      <a class="sp-btn sp-ghost" href="/app/payment-entry?party_type=Employee" target="_blank">All payment entries</a>
+      <button class="sp-btn sp-ghost" data-reload>Refresh</button>
+    </div>
+  </header>
+
+  <section class="sp-kpis">
+    <div class="sp-kpi sp-kpi-main"><span>To pay now</span><b data-k="total">–</b><small data-k="total_sub"></small></div>
+    <div class="sp-kpi"><span>Bills waiting</span><b data-k="bills">–</b><small data-k="bills_sub"></small></div>
+    <div class="sp-kpi"><span>Cash advances to pay</span><b data-k="adv">–</b><small data-k="adv_sub"></small></div>
+    <div class="sp-kpi"><span>Paid this month</span><b data-k="paid">–</b><small data-k="paid_sub"></small></div>
+  </section>
+
+  <section class="sp-card">
+    <div class="sp-card-head">
+      <h2>Pay employees</h2>
+      <ol class="sp-steps">
+        <li><b>1</b>Tick who you pay</li>
+        <li><b>2</b>Download the bank file &amp; pay at the bank</li>
+        <li><b>3</b>Enter the UTR &amp; record the payment</li>
+      </ol>
+    </div>
+
+    <div class="sp-controls">
+      <label>Paid from<select data-bank></select></label>
+      <label>Payment date<input type="date" data-date></label>
+      <label class="sp-grow">UTR for all<input data-utr placeholder="bank reference of the bulk upload (or one per employee below)"></label>
+      <label>Search<input data-q placeholder="name, ID or HQ"></label>
+    </div>
+
+    <div class="sp-scroll">
+      <table class="sp-table">
+        <thead>
+          <tr>
+            <th class="c"><input type="checkbox" data-all title="Tick all"></th>
+            <th>Employee</th>
+            <th>HQ</th>
+            <th class="r">Bills</th>
+            <th class="r">Cash advance</th>
+            <th class="r">To pay</th>
+            <th>Waiting since</th>
+            <th>Bank account</th>
+            <th>UTR (if different)</th>
+          </tr>
+        </thead>
+        <tbody data-rows><tr><td colspan="9" class="sp-empty">Loading…</td></tr></tbody>
+      </table>
+    </div>
+
+    <div class="sp-bar">
+      <span data-selinfo>Tick the employees to pay</span>
+      <button class="sp-btn sp-ghost" data-csv disabled>Download bank file</button>
+      <button class="sp-btn sp-primary" data-pay disabled>Record payment</button>
+    </div>
+  </section>
+
+  <section class="sp-card">
+    <div class="sp-card-head"><h2>Paid in the last 30 days</h2></div>
+    <div class="sp-scroll">
+      <table class="sp-table">
+        <thead><tr><th>Date</th><th>Employee</th><th>For</th><th class="r">Amount</th><th>UTR</th><th>Payment entry</th></tr></thead>
+        <tbody data-paid></tbody>
+      </table>
+    </div>
+  </section>
+
+  <div class="sp-modal" data-modal hidden>
+    <div class="sp-dialog">
+      <h3 data-mtitle></h3>
+      <div data-mbody></div>
+      <div class="sp-mfoot">
+        <button class="sp-btn sp-ghost" data-mno>Cancel</button>
+        <button class="sp-btn sp-primary" data-myes>OK</button>
+      </div>
+    </div>
+  </div>
+</div>

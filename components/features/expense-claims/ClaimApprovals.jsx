@@ -1,9 +1,9 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { addClaimComment, adjustTripTA, applyAction, decideCarRequest, decideTrip, fetchCarQueue, fetchClaimDepartments, fetchClaimVisits, fetchMe, fetchPayRole, fetchQueue, fetchSettlementQueue, makeConn, saveSanctioned, withTripMarks } from "./data/claimsApi";
+import { addClaimComment, adjustTripTA, applyAction, decideCarRequest, decideTrip, fetchCarQueue, fetchClaimDepartments, fetchClaimVisits, fetchCeoBatches, fetchMe, fetchQueue, fetchSettlementQueue, makeConn, saveSanctioned, withTripMarks } from "./data/claimsApi";
 import { SettleQueue, SettleSheet } from "./settlement";
-import { PaymentsPanel } from "./payments";
+import { CeoBatches } from "./ceoBatches";
 import { tripsOf } from "./fieldTrips";
 import { eachByGroup } from "../../../lib/limit";
 import { loggedUser } from "../support-report/data/erpClient";
@@ -108,7 +108,7 @@ export default function ClaimApprovals({ url, token, mode = "auto", verifiers = 
   const [tab, setTab] = useState(() => {
     if (mode !== "auto") return mode;
     const v = typeof window !== "undefined" ? new URLSearchParams(window.location.search).get("view") : null;
-    return v === "verify" ? "verify" : v === "cars" ? "cars" : v === "settle" ? "settle" : v === "pay" ? "pay" : v === "history" ? "history" : "approve";
+    return v === "verify" ? "verify" : v === "cars" ? "cars" : v === "settle" ? "settle" : v === "history" ? "history" : "approve";
   });
   const [fromLink] = useState(() => typeof window !== "undefined" && /[?&]view=/.test(window.location.search));
   const [open, setOpen] = useState(null);
@@ -138,7 +138,7 @@ export default function ClaimApprovals({ url, token, mode = "auto", verifiers = 
       // settlement requests (16 Nov 2026) and own-car requests (12 Nov 2026),
       // asked for at the same time as the claim lists (17 Nov 2026)
       const extra = mode === "auto" && !be
-        ? Promise.all([fetchSettlementQueue(conn).catch(() => null), fetchCarQueue(conn).catch(() => null), fetchPayRole(conn)])
+        ? Promise.all([fetchSettlementQueue(conn).catch(() => null), fetchCarQueue(conn).catch(() => null), fetchCeoBatches(conn).catch(() => null)])
         : Promise.resolve([null, null, null]);
       await Promise.all(
         want.map(async (m) => {
@@ -169,13 +169,12 @@ export default function ClaimApprovals({ url, token, mode = "auto", verifiers = 
       // own-car requests (12 Nov 2026): the GM's queue, when this person decides them
       {
         // settlement: shown to anyone it waits on, with one in their chain, or who decided one
-        const [settle, cars, pay] = await extra;
-        // paying (17 Nov 2026): Accounts, the CEO and IT, once it is set up
-        if (pay?.ready && (pay.accounts || pay.ceo || pay.it)) out.pay = pay;
-        // the CEO approves payments, not bills (17 Nov 2026: the GM's approval
-        // is final): his Bills tab only when a bill waits on him (a GM's own)
-        const ceoOnly = pay?.ceo && !(settle?.waiting || []).length;
-        if (settle && !ceoOnly && (settle.waiting.length || settle.team.length || settle.decided.length || settle.overview)) out.settle = settle;
+        const [settle, cars, batches] = await extra;
+        // 18 Nov 2026: the CEO decides on BATCHES the GM / SM send him. Paying
+        // is Accounts' work in the ERP (its "Employee Settlements" workspace),
+        // not in the app (management, 18 Nov 2026).
+        if (batches?.ceo) out.ceo = batches;
+        else if (settle && (settle.waiting.length || settle.team.length || settle.decided.length || settle.overview)) out.settle = settle;
         if (cars) {
           out.cars = cars.pending;
           out.carsRecent = cars.recent;
@@ -195,15 +194,15 @@ export default function ClaimApprovals({ url, token, mode = "auto", verifiers = 
   const has = {
     approve: (lists.approve || []).length,
     verify: (lists.verify || []).length,
-    settle: lists.settle ? 1 : 0,
-    pay: lists.pay ? 1 : 0,
+    settle: lists.settle || lists.ceo ? 1 : 0,
     cars: (lists.cars || []).length + (lists.carsRecent || []).length,
     history: (lists.history || []).length,
   };
-  const visible = mode === "auto" ? (["approve", "verify", "settle", "pay", "cars", "history"].filter((m) => has[m]).length ? ["approve", "verify", "settle", "pay", "cars", "history"].filter((m) => has[m]) : ["approve"]) : [mode];
+  const visible = mode === "auto" ? (["approve", "verify", "settle", "cars", "history"].filter((m) => has[m]).length ? ["approve", "verify", "settle", "cars", "history"].filter((m) => has[m]) : ["approve"]) : [mode];
   // a BE seat with nothing at all here: one line, not an empty approvals page
   const beIdle = lists.status === "ready" && !!lists.be && !(lists.approve || []).length && !(lists.verify || []).length && !(lists.history || []).length;
-  const workOf = (m) => (m === "settle" ? settleWaiting : m === "history" || m === "pay" ? 0 : (lists[m] || []).length);
+  const ceoWaiting = (lists.ceo?.batches || []).filter((b) => b.status === "waiting").length;
+  const workOf = (m) => (m === "settle" ? (lists.ceo ? ceoWaiting : settleWaiting) : m === "history" ? 0 : (lists[m] || []).length);
   useEffect(() => {
     // the tab with work first -- unless the link asked for a view that exists
     if (mode !== "auto" || lists.status !== "ready") return;
@@ -218,8 +217,7 @@ export default function ClaimApprovals({ url, token, mode = "auto", verifiers = 
   const current = mode === "auto" ? tab : mode;
   const cars = current === "cars";
   const settleTab = current === "settle";
-  const payTab = current === "pay";
-  const claims = useMemo(() => (cars || settleTab || payTab ? [] : lists[current] || []), [cars, settleTab, payTab, lists, current]);
+  const claims = useMemo(() => (cars || settleTab ? [] : lists[current] || []), [cars, settleTab, lists, current]);
   useEffect(() => {
     onCountChange?.((lists.approve || []).length + (lists.verify || []).length + (lists.cars || []).length + (lists.settle?.waiting || []).length);
   }, [lists, onCountChange]);
@@ -329,8 +327,8 @@ export default function ClaimApprovals({ url, token, mode = "auto", verifiers = 
                 ? " "
                 : cars
                   ? `${(lists.cars || []).length} car ${(lists.cars || []).length === 1 ? "request" : "requests"} waiting · ${inr((lists.cars || []).reduce((s, r) => s + r.asked, 0))} asked`
-                  : payTab
-                    ? (lists.pay?.ceo ? "Payment batches Accounts sends you" : "Pay what the CEO approved, in batches")
+                  : settleTab && lists.ceo
+                    ? (ceoWaiting ? `${ceoWaiting} ${ceoWaiting === 1 ? "batch" : "batches"} from your GMs waiting for you` : "No batch waits on you")
                   : settleTab
                     ? (settleWaiting ? `${settleWaiting} waiting for you · ${inr((lists.settle?.waiting || []).reduce((s, r) => s + r.amount, 0))}` : "Nothing waits on you")
                   : `${claims.length} ${claims.length === 1 ? "claim" : "claims"} · ${inr(total)}`}
@@ -343,7 +341,7 @@ export default function ClaimApprovals({ url, token, mode = "auto", verifiers = 
           <div role="tablist" style={{ display: "flex", gap: 4, padding: 4, borderRadius: 12, background: "#e9ecf1", alignSelf: "flex-start" }}>
             {visible.map((m) => (
               <button key={m} type="button" role="tab" aria-selected={tab === m} onClick={() => { setTab(m); setPicked(new Set()); }} style={{ height: 36, padding: "0 14px", borderRadius: 9, border: 0, background: tab === m ? "#fff" : "transparent", boxShadow: tab === m ? "0 1px 2px rgba(16,24,40,.12)" : "none", fontSize: 13, fontWeight: 600, cursor: "pointer" }}>
-                {m === "approve" ? "Claims" : m === "verify" ? "To verify" : m === "history" ? "History" : m === "settle" ? "Bills" : m === "pay" ? "Payments" : "Car requests"}{m !== "history" && m !== "pay" && <span style={{ color: workOf(m) ? "#b54708" : "#8a93a3" }}> {workOf(m)}</span>}
+                {m === "approve" ? "Claims" : m === "verify" ? "To verify" : m === "history" ? "History" : m === "settle" ? (lists.ceo ? "Batches" : "Bills") : "Car requests"}{m !== "history" && <span style={{ color: workOf(m) ? "#b54708" : "#8a93a3" }}> {workOf(m)}</span>}
               </button>
             ))}
           </div>
@@ -358,10 +356,10 @@ export default function ClaimApprovals({ url, token, mode = "auto", verifiers = 
         {lists.status === "loading" && <div aria-busy="true" style={{ ...card, height: 180, display: "grid", placeItems: "center" }}><Spinner size={24} /></div>}
 
         {lists.status === "ready" && cars && <CarQueue pending={lists.cars || []} recent={lists.carsRecent || []} desk={desk} onOpen={setOpenCar} />}
-        {lists.status === "ready" && payTab && lists.pay && <PaymentsPanel conn={conn} role={lists.pay} desk={desk} onDone={(m) => say(m)} onError={(m) => say(m, "error")} />}
-        {lists.status === "ready" && settleTab && <SettleQueue conn={conn} data={lists.settle} desk={desk} onOpen={(r, act) => setOpenSettle({ r, act })} onDone={done} onError={(m) => { say(m, "error"); setTick((t) => t + 1); }} />}
+        {lists.status === "ready" && settleTab && lists.ceo && <CeoBatches conn={conn} data={lists.ceo} desk={desk} onDone={done} onError={(m) => say(m, "error")} onChanged={() => {}} />}
+        {lists.status === "ready" && settleTab && !lists.ceo && <SettleQueue conn={conn} data={lists.settle} desk={desk} onOpen={(r, act) => setOpenSettle({ r, act })} onDone={done} onError={(m) => { say(m, "error"); setTick((t) => t + 1); }} />}
 
-        {lists.status === "ready" && !beIdle && !cars && !settleTab && !payTab && (
+        {lists.status === "ready" && !beIdle && !cars && !settleTab && (
           <>
             {current === "history" && claims.length > 0 && (
               <Note tone="info">What you already decided, newest first (the last {HISTORY_MAX}). Approved claims go on to the final check and payroll; a claim sent back is with the employee until they send it again.</Note>

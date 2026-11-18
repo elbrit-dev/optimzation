@@ -1,8 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { decideSettlement, withdrawSettlement } from "./data/claimsApi";
-import { eachByGroup } from "../../../lib/limit";
+import { approveSettlements, decideSettlement, withdrawSettlement } from "./data/claimsApi";
 import { inr, shortDate } from "./model";
 import { BillThumb, FilePreview, IC, Icon, Note, RiskBadge, Sheet, Spinner, billFile, btn, card, ell, label, tabNum } from "./ui";
 
@@ -248,7 +247,9 @@ function MyRequestSheet({ conn, r, onClose, onChanged }) {
  * The IT overview (not in any chain) gets In approval / Approved / Rejected
  * over everyone's requests, read-only.
  * Every tab lists HQ > employee > requests, each level folding (17 Nov 2026:
- * so the higher-ups can follow a whole region); one HQ skips that level. */
+ * so the higher-ups can follow a whole region); one HQ skips that level.
+ * SM/ZSM, GM and the CEO get Team (the seat's department) > employee
+ * instead, the HQ shown beside each name (18 Nov 2026). */
 
 /* the caller's place in the chain, from the requests they appear in */
 function roleOf(data) {
@@ -257,9 +258,11 @@ function roleOf(data) {
   for (const r of [...(data?.waiting || []), ...(data?.team || []), ...(data?.decided || [])])
     for (const s of r.steps) if (s.user === me) count[s.level] = (count[s.level] || 0) + 1;
   const level = Object.entries(count).sort((a, b) => b[1] - a[1])[0]?.[0] || "";
-  // the LAST step is the GM (17 Nov 2026), the CEO only where no GM is above
-  return { level, ceo: level === "CEO" || level === "GM", overview: !!data?.overview, approver: !!level };
+  // 18 Nov 2026: the chain ends with the CEO, who decides on batches
+  return { level, ceo: level === "CEO", overview: !!data?.overview, approver: !!level };
 }
+/* the request's next approver is the CEO: approving SENDS it to him, in a batch */
+export const toCeo = (r) => r.status === "waiting" && r.steps[r.step + 1]?.level === "CEO";
 const clean = (r) => r.kind === "cash" || r.bills.every((b) => b.score != null && b.score >= 90);
 const sumOf = (rs) => rs.reduce((s, r) => s + r.amount, 0);
 
@@ -342,18 +345,21 @@ export function SettleQueue({ conn, data, desk, onOpen, onDone, onError }) {
   const [busy, setBusy] = useState("");
   const [flip, setFlip] = useState(() => new Set()); // folds the user turned, against the default
   const needle = q.trim().toLowerCase();
-  const shown = cur.list.filter((r) => !needle || `${r.employeeName} ${r.hq}`.toLowerCase().includes(needle));
-  // HQ > employee > requests
+  const shown = cur.list.filter((r) => !needle || `${r.employeeName} ${r.hq} ${r.team}`.toLowerCase().includes(needle));
+  // HQ > employee > requests; SM/ZSM, GM and the CEO: Team > employee >
+  // requests (18 Nov 2026 -- they look after whole teams, not one region)
+  const byTeam = ["SM", "ZSM", "GM", "CEO"].includes(role.level);
+  const NONE = byTeam ? "No team" : "No HQ";
   const hqs = [...shown.reduce((m, r) => {
-    const h = r.hq || "No HQ";
+    const h = (byTeam ? r.team : r.hq) || NONE;
     if (!m.has(h)) m.set(h, new Map());
     const ps = m.get(h);
-    if (!ps.has(r.employee)) ps.set(r.employee, { id: r.employee, name: r.employeeName, list: [] });
+    if (!ps.has(r.employee)) ps.set(r.employee, { id: r.employee, name: r.employeeName, hq: r.hq, list: [] });
     ps.get(r.employee).list.push(r);
     return m;
   }, new Map()).entries()]
     .map(([name, ps]) => ({ name, people: [...ps.values()].sort((a, b) => a.name.localeCompare(b.name)) }))
-    .sort((a, b) => (a.name === "No HQ") - (b.name === "No HQ") || a.name.localeCompare(b.name));
+    .sort((a, b) => (a.name === NONE) - (b.name === NONE) || a.name.localeCompare(b.name));
   const nPeople = hqs.reduce((n, h) => n + h.people.length, 0);
   const isOpen = (k, def) => (flip.has(k) ? !def : def);
   const toggle = (k) => setFlip((f) => { const n = new Set(f); if (n.has(k)) n.delete(k); else n.add(k); return n; });
@@ -364,21 +370,17 @@ export function SettleQueue({ conn, data, desk, onOpen, onDone, onError }) {
   const approveMany = async (only) => {
     const ids = Array.isArray(only) ? only : [...picked];
     setSure("");
-    setBusy(`Approving 0 of ${ids.length}…`);
-    // 17 Nov 2026: different employees in parallel, at most 3 at a time; one
-    // employee's own requests one after another (they write to the same claim)
-    const byId = new Map([...waiting, ...others].map((r) => [r.id, r]));
-    let ok = 0;
-    const res = await eachByGroup(ids, (id) => byId.get(id)?.claim || byId.get(id)?.employee || id, 3, async (id) => {
-      await decideSettlement(conn, id, "Approve", "");
-      ok += 1;
-      setBusy(`Approving ${ok} of ${ids.length}…`);
-    });
-    const failed = res.filter((x) => !x.ok).map((x) => `${x.item}: ${x.error?.message || x.error}`);
+    setBusy(`Approving ${ids.length}…`);
+    // 18 Nov 2026: one server call -- what reaches the CEO goes to him as ONE batch
+    try {
+      const m = await approveSettlements(conn, ids);
+      setPicked(new Set());
+      if (m.skipped.length) onError?.(`${m.approved} approved; ${m.skipped.length} no longer waited on you`);
+      else onDone?.(m.toCeo ? `${m.toCeo} ${m.toCeo === 1 ? "bill" : "bills"} sent to the CEO as one batch` : `${m.approved} ${m.approved === 1 ? "request" : "requests"} approved — on to the next level`);
+    } catch (e) {
+      onError?.(e.message);
+    }
     setBusy("");
-    setPicked(new Set());
-    if (failed.length) onError?.(`${ok} approved, ${failed.length} failed — ${failed[0]}`);
-    else onDone?.(role.ceo ? `${ok} ${ok === 1 ? "bill" : "bills"} approved — booked for the next payment run` : `${ok} ${ok === 1 ? "request" : "requests"} approved — on to the next level`);
   };
   const grid = { display: "grid", gridTemplateColumns: desk ? "repeat(auto-fill,minmax(320px,1fr))" : "minmax(0,1fr)", gap: 8 };
   const EMPTY = { waiting: "Nothing waits on you.", moving: "Nothing you approved is still going up.", approved: "Nothing approved yet.", rejected: "Nothing rejected.", history: "You have not approved or rejected anything yet." };
@@ -400,7 +402,7 @@ export function SettleQueue({ conn, data, desk, onOpen, onDone, onError }) {
           {cur.list.length > 6 && (
             <label style={{ flex: desk ? "0 1 300px" : "1 1 100%", display: "flex", alignItems: "center", gap: 8, height: 38, padding: "0 12px", borderRadius: 10, background: "#fff", boxShadow: "0 0 0 1px #e4e7ec" }}>
               <Icon d={IC.search} size={15} />
-              <input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Search employee or HQ" aria-label="Search employee or HQ" style={{ flex: 1, minWidth: 0, border: 0, outline: 0, background: "transparent", fontSize: 13.5 }} />
+              <input value={q} onChange={(e) => setQ(e.target.value)} placeholder={byTeam ? "Search employee, team or HQ" : "Search employee or HQ"} aria-label={byTeam ? "Search employee, team or HQ" : "Search employee or HQ"} style={{ flex: 1, minWidth: 0, border: 0, outline: 0, background: "transparent", fontSize: 13.5 }} />
             </label>
           )}
           {cur.act && cleanOnes.length > 1 && (
@@ -410,7 +412,7 @@ export function SettleQueue({ conn, data, desk, onOpen, onDone, onError }) {
           )}
           {cur.act && picked.size > 0 && <>
             <button type="button" className="ec-cta" disabled={!!busy} onClick={() => approveMany()} style={{ ...btn.primary, height: 36, fontSize: 12.5, display: "inline-flex", alignItems: "center", gap: 6 }}>
-              {busy ? <><Spinner size={12} />{busy}</> : `Approve ${picked.size} selected`}
+              {busy ? <><Spinner size={12} />{busy}</> : [...picked].every((id) => toCeo(waiting.find((r) => r.id === id) || {})) ? `Send ${picked.size} to the CEO` : `Approve ${picked.size} selected`}
             </button>
             <button type="button" className="ec-ghost" disabled={!!busy} onClick={() => setPicked(new Set())} style={{ ...btn.ghost, height: 36, fontSize: 12.5 }}>Clear</button>
           </>}
@@ -435,7 +437,7 @@ export function SettleQueue({ conn, data, desk, onOpen, onDone, onError }) {
                     </label>
                   )}
                   <div style={{ flex: 1, minWidth: 0 }}>
-                    <Fold open={open} onClick={() => toggle(k)} title={p.name} sub={hqs.length === 1 && h.name !== "No HQ" ? h.name : ""}
+                    <Fold open={open} onClick={() => toggle(k)} title={p.name} sub={byTeam ? [hqs.length === 1 && h.name !== NONE ? h.name : "", p.hq].filter(Boolean).join(" · ") : hqs.length === 1 && h.name !== NONE ? h.name : ""}
                       n={p.list.length} amount={sumOf(p.list)} hot={cur.act} />
                   </div>
                   {cur.act && (
@@ -444,8 +446,8 @@ export function SettleQueue({ conn, data, desk, onOpen, onDone, onError }) {
                       onBlur={() => setSure((x) => (x === p.id ? "" : x))}
                       style={{ ...(sure === p.id ? btn.primary : btn.ghost), height: 34, padding: "0 12px", fontSize: 12.5, whiteSpace: "nowrap", marginLeft: desk ? 0 : 12, marginBottom: desk ? 0 : 10 }}>
                       {sure === p.id
-                        ? `Tap again: approve ${p.list.length} · ${inr(sumOf(p.list))}`
-                        : p.list.length === 1 ? "Approve" : `Approve all ${p.list.length}`}
+                        ? `Tap again: ${p.list.every(toCeo) ? "send to the CEO" : "approve"} ${p.list.length} · ${inr(sumOf(p.list))}`
+                        : p.list.every(toCeo) ? `Send ${p.list.length === 1 ? "" : `all ${p.list.length} `}to the CEO` : p.list.length === 1 ? "Approve" : `Approve all ${p.list.length}`}
                     </button>
                   )}
                 </div>
@@ -524,7 +526,7 @@ export function SettleSheet({ conn, req: r, canAct, desk, onClose, onDone, onBil
       </> : <>
         <button type="button" className="ec-ghost" disabled={!!busy} onClick={() => setRejecting(true)} style={{ ...btn.ghost, flex: 1, color: "#b42318" }}>Reject</button>
         <button type="button" className="ec-cta" disabled={!!busy} onClick={() => go("Approve")} style={{ ...btn.primary, flex: 1.4, display: "inline-flex", alignItems: "center", justifyContent: "center", gap: 8 }}>
-          {busy ? <><Spinner />{busy}</> : `Approve ${inr(r.amount)}`}
+          {busy ? <><Spinner />{busy}</> : toCeo(r) ? `Send ${inr(r.amount)} to the CEO` : `Approve ${inr(r.amount)}`}
         </button>
       </>}
     >
@@ -542,7 +544,7 @@ export function SettleSheet({ conn, req: r, canAct, desk, onClose, onDone, onBil
               <b>{s.name}</b> ({s.level}) {s.decision === "Approved" ? "approved" : s.decision === "Skipped" ? "skipped" : "sent it back"} · {when(s.at)}{s.note ? ` — ${s.note}` : ""}
             </span>
           ))}
-          {canAct && last && <span style={{ fontSize: 12.5, fontWeight: 600, color: "#067647" }}>You are the last step: approving books {r.kind === "bills" ? "the bill" : "the cash request"} for the next payment run.</span>}
+          {canAct && last && <span style={{ fontSize: 12.5, fontWeight: 600, color: "#067647" }}>You are the last step: approving books {r.kind === "bills" ? "the bill" : "the cash request"} for Accounts to pay.</span>}
         </div>
         {r.kind === "cash" ? (
           <div style={{ ...card, padding: 14, display: "flex", flexDirection: "column", gap: 4 }}>
