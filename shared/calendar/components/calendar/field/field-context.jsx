@@ -181,6 +181,12 @@ export function FieldExpensesProvider({ children }) {
       const moved = mine.filter((l) => l.adjusted);
       const taDelta = moved.filter((l) => TA_LINE.has(l.type)).reduce((a, l) => a + (l.final - l.amount), 0);
       const daDelta = moved.filter((l) => !TA_LINE.has(l.type)).reduce((a, l) => a + (l.final - l.amount), 0);
+      // the trip's lines as claimed and as they stand after any change
+      const now = (l) => (l.adjusted ? l.final : l.amount);
+      const lineTotals = {
+        taFinal: mine.filter((l) => TA_LINE.has(l.type)).reduce((a, l) => a + now(l), 0),
+        daFinal: mine.filter((l) => !TA_LINE.has(l.type)).reduce((a, l) => a + now(l), 0),
+      };
       // the claim it is in (the trip sheet shows where THAT claim is)
       return {
         ...claim,
@@ -189,6 +195,7 @@ export function FieldExpensesProvider({ children }) {
         changes,
         taDelta,
         daDelta,
+        lineTotals,
         holder: { name: holder.name, status: holder.status, open: holder.open },
       };
     };
@@ -197,7 +204,18 @@ export function FieldExpensesProvider({ children }) {
       const base = tripClaim(t, claim, ctx);
       const dTa = Math.round(claim.taDelta || 0);
       const dDa = Math.round(claim.daDelta || 0);
-      const calc = dTa || dDa ? { ...base, taClaimed: base.ta, daClaimed: base.da, ta: base.ta + dTa, da: base.da + dDa, total: base.total + dTa + dDa } : base;
+      // once a claim is approved, the dashboard writes its own amounts -- after
+      // any change -- into the days (fx-claims-paid, 13 Nov 2026): then the
+      // trip's figures already hold the change and it is not added twice
+      const lt = claim.lineTotals;
+      const inTa = !!(lt && dTa && Math.abs(base.ta - lt.taFinal) < 1);
+      const inDa = !!(lt && dDa && Math.abs(base.da - lt.daFinal) < 1);
+      const addTa = inTa ? 0 : dTa;
+      const addDa = inDa ? 0 : dDa;
+      const calc =
+        dTa || dDa
+          ? { ...base, taClaimed: base.ta - dTa + addTa, daClaimed: base.da - dDa + addDa, ta: base.ta + addTa, da: base.da + addDa, total: base.total + addTa + addDa }
+          : base;
       return { trip: t, claim, calc, checks: tripChecks(t, claim, calc) };
     });
     const byTrip = new Map(claimed.map((x) => [x.trip.id, x]));

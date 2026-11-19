@@ -74,7 +74,8 @@ export function carDayShares(trip, amount) {
    days it pays at 50 % without a bill. A day trip has none. */
 export function tripNights(trip) {
   if (!trip || trip.kind !== "tour") return [];
-  return trip.days.filter((d) => d.payable && AWAY_TYPES.has(d.dayType) && d.osDaFull > 0).map((d) => d.date);
+  // a stay the company paid (dashboard "Stay" mark) has no DA and takes no bill
+  return trip.days.filter((d) => d.payable && AWAY_TYPES.has(d.dayType) && d.osDaFull > 0 && d.company !== "Stay").map((d) => d.date);
 }
 
 /* An own-car request covering any day of the trip. */

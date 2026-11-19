@@ -79,7 +79,7 @@ export function tripClaimRows(trip, claim, calc, data) {
         type: "Travel",
         sub: "",
         note: `TA · ${dayLabel(d.date)} · ${stops(d) || DAY_TYPE_LABEL[d.dayType] || "field work"}${basis ? ` · ${basis}` : ""}${
-          d.flight ? ` · flight travel (company ticket)${d.flight.legs.length ? `: ${d.flight.legs.join(", ")}` : ""} at ₹0` : ""
+          d.flight ? ` · travel by company${d.flight.legs.length ? `: ${d.flight.legs.join(", ")}` : ""} at ₹0` : ""
         }`,
         amount: d.ta,
       });

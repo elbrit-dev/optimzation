@@ -111,7 +111,8 @@ function flightOf(d, x) {
 function placesOf(list) {
   const n = new Map();
   for (const v of list || []) {
-    const p = String(v?.[2] || "").replace(/\s+/g, " ").trim();
+    // the doctor's area (Locality / map town) when the dashboard has it, else his town
+    const p = String(v?.[10] || v?.[2] || "").replace(/\s+/g, " ").trim();
     if (!p) continue;
     const key = p.toLowerCase();
     // ALL CAPS and all-lower names read as Title Case
@@ -128,9 +129,18 @@ export function shapeDay(d) {
   const x = d.detail || {};
   const raw = x.dayType || d.day_type || "";
   const payable = !!x.payable;
+  const stops = routeStops(x.route_text || d.route);
+  const last = stops.length > 1 ? stops[stops.length - 1] : null;
+  // a day priced by the Locality rules (19 Nov 2026) is saved with its Local
+  // leg as "HQ X -> farthest visit" and its km rounded again; the route holds
+  // the real areas and the km paid ("Kumbakonam -> Sembanarkoil (67.4 km)")
+  const legs = (x.legs || []).map((l) =>
+    l.leg === "Local" && /^farthest visit$/i.test(String(l.to_place || "").trim())
+      ? { ...l, to_place: last?.place || l.to_place, rounded_km: last?.km ?? l.rounded_km }
+      : l
+  );
   // an HQ day that went ex-station (HQ-EQ), or a day in another HQ for a role
   // without outstation pay (EQ-HQ / EQ-EQ), is paid as an ex-HQ day out and back
-  const legs = x.legs || [];
   const local = legs.find((l) => l.leg === "Local") || null;
   const travel = legs.filter((l) => l.leg !== "Local");
   // a meeting day in another HQ with no BE under him (the dashboard's meetEq,
@@ -169,13 +179,22 @@ export function shapeDay(d) {
           : {}),
       }
     : null;
+  // before the Date of Joining (dashboard, 17 Nov 2026): not a day of his at all
+  const notJoined = d.day_type === "Not joined";
   return {
     date: String(d.date).slice(0, 10),
-    kind: KIND_OF[raw] || (payable || TRAVEL_TYPES.has(dayType) || dayType === "HQ" ? "working" : "unknown"),
-    label: KIND_OF[raw] ? raw : null,
+    kind: notJoined ? "notjoined" : KIND_OF[raw] || (payable || TRAVEL_TYPES.has(dayType) || dayType === "HQ" ? "working" : "unknown"),
+    label: notJoined ? "Not joined yet" : KIND_OF[raw] ? raw : null,
     // the build found nothing on record for this working day (no visit, no
     // other work): the rep can say what they did (19 Nov 2026)
     nonReported: d.day_type === "NON-Reported",
+    // a working day the dashboard did not pay (19 Nov 2026, its orange / red
+    // dot): "logged" = work is logged (a meeting) but not paid, "nothing" =
+    // nothing logged at all
+    unpaid: !payable && !notJoined && d.kind === "working" ? ((x.others || []).length ? "logged" : "nothing") : null,
+    // the dashboard already saw an HQ on the day's meeting (its row's 9th
+    // field): then what is missing is the HQ on the Employee record
+    otherHqSeen: (x.others || []).some((o) => o?.[8]),
     visits: d.visits || 0,
     dayType: dayType || null,
     payable,
@@ -187,7 +206,7 @@ export function shapeDay(d) {
     awayHq: away && local ? strip(local.from_place) || null : meetAway ? strip(x.osHq) || null : null,
     farthest: local && strip(local.to_place) !== strip(local.from_place) ? strip(local.to_place) : null,
     chart: local ? { town: strip(local.to_place) || null, km: local.rounded_km ?? local.km ?? null, hq: null } : null,
-    route: routeStops(x.route_text || d.route),
+    route: stops,
     routeKm: x.localKm ?? null,
     fieldType: null,
     // the ERP's own: outstation DA in full (paid at 50 % without a bill), the
@@ -197,6 +216,9 @@ export function shapeDay(d) {
     status: d.status || "Draft",
     legs,
     flags: x.flags || [],
+    // marked on the dashboard (16 Nov 2026): "Stay" = the company paid the
+    // stay, DA 0; "Travel" = the company paid the travel, TA 0
+    company: x.stay === "Stay" || x.stay === "Travel" ? x.stay : null,
     flight: flightOf(d, x),
     travelLegs,
     // the day's visits by town, and any other work (a meeting) -- 13 Nov 2026

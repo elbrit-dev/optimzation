@@ -66,7 +66,7 @@ export function tripDetails({ trip, calc, claim, emp }) {
     bits.push(`${d.visits || 0} visits${(d.visitPlaces || []).length ? ` (${d.visitPlaces.map(([p, n]) => `${p} ${n}`).join(", ")})` : ""}`);
     if ((d.otherWork || []).length) bits.push(`other work: ${d.otherWork.join("; ")}`);
     bits.push(`TA ${inr(d.ta)}`, `DA ${inr(d.da)}`);
-    if (d.flight) bits.push("flight");
+    if (d.flight) bits.push("travel by company");
     if ((d.flags || []).length) bits.push(`flags: ${d.flags.join(", ")}`);
     bits.push(d.status || "Draft");
     out.push(`- ${bits.join(" · ")}`);
@@ -74,8 +74,22 @@ export function tripDetails({ trip, calc, claim, emp }) {
   return out.join("\n");
 }
 
+/* A place to add to a day's route (19 Nov 2026): not a new trip -- an
+   in-between stop the day's route left out. The day, its route as it is, the
+   place and where it goes in it, rough extra km and why -> the request's
+   words, one line the TA/DA team can act on. */
+export function addRouteText({ date, route, place, after, km, why }) {
+  const stops = (route || []).filter(Boolean);
+  const bits = [`Add to route · ${dayLabel(date)}`];
+  if (stops.length) bits.push(`route now: ${stops.join(" → ")}`);
+  bits.push(`add ${String(place).trim()}${after ? ` after ${after}` : ""}`);
+  if (Number(km) > 0) bits.push(`about ${Math.round(Number(km))} km more`);
+  if (String(why || "").trim()) bits.push(String(why).trim());
+  return bits.join(" · ");
+}
+
 /* -> the new request ({ name, status, ... }, as listTripHelp's) */
-export async function sendTripHelp({ trip, calc, claim, emp, message }) {
+export async function sendTripHelp({ trip, calc, claim, emp, message, title }) {
   const text = String(message || "").trim();
   if (text.length < 5) throw new Error("Write what is wrong (a few words at least).");
   const r = await callHelp({
@@ -84,7 +98,8 @@ export async function sendTripHelp({ trip, calc, claim, emp, message }) {
     kind: KIND[trip.kind] || "",
     from: trip.from,
     to: trip.to,
-    title: trip.name,
+    // an add-to-route request names the place (19 Nov 2026), else the trip
+    title: String(title || trip.name).slice(0, 60),
     message: text,
     details: tripDetails({ trip, calc, claim, emp }),
   });

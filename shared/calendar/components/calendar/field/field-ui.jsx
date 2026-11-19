@@ -55,7 +55,7 @@ import { addTripToMonth, addTripsToMonth, monthWord, removeTripFromMonth, tripCl
 import { CarRequestSheet, KpiSheet, RequestSheet } from "@calendar/components/calendar/field/field-sheets";
 import { BILL_NAME, BillChip, BillEditor, ChipButton, ManualBill, useBillPicker } from "@calendar/components/calendar/field/field-bills";
 import { useTripBillViewer } from "@calendar/components/calendar/field/field-bill-view";
-import { HELP_STATUS, askedText, htmlText, listTripHelp, sendTripHelp } from "@calendar/lib/field-expenses/trip-help";
+import { HELP_STATUS, askedText, htmlText, listTripHelp, addRouteText, sendTripHelp } from "@calendar/lib/field-expenses/trip-help";
 import { NonReportCard, NonReportDayRow, NonReportSheet } from "@calendar/components/calendar/field/field-nonreport";
 
 const MONTH_LONG = ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"];
@@ -336,7 +336,7 @@ function LocalDaysSheet() {
                     {trip.kind === "day" ? `${trip.km}+${trip.km} km` : `${trip.km} km`} · TA{" "}
                     {calc.taClaimed != null && calc.taClaimed !== calc.ta && <s className="text-gray-400">{inr(calc.taClaimed)}</s>}{" "}
                     <span className={calc.taClaimed != null && calc.taClaimed !== calc.ta ? "font-bold text-amber-700" : ""}>{inr(calc.ta)}</span> · DA {inr(calc.da)}
-                    {trip.days.some((dd) => dd.flight) ? " · ✈ flight, TA by company" : ""}
+                    {trip.days.some((dd) => dd.flight) ? " · travel by company, TA ₹0 there" : ""}
                   </span>
                   {req?.status === "rejected" && <span className="w-fit rounded bg-rose-50 px-1.5 text-[10.5px] font-bold text-rose-700">Car not approved · fare paid</span>}
                 </span>
@@ -466,7 +466,7 @@ function TripCard({ item, onOpen }) {
     `${trip.km} km`,
     calc.nights.length ? `${calc.nights.length} night${calc.nights.length > 1 ? "s" : ""}` : null,
     calc.car ? "car" : null,
-    trip.days.some((d) => d.flight) ? "✈ flight" : null,
+    trip.days.some((d) => d.flight) ? "travel by company" : null,
   ]
     .filter(Boolean)
     .join(" · ");
@@ -515,10 +515,10 @@ function TripCard({ item, onOpen }) {
     )}
     {trip.flownFare > 0 && !calc.carBilled && (
       <div className="border-t border-gray-100 px-2 py-1">
-        <span className="flex w-full items-center gap-1 rounded-md bg-sky-50 px-1.5 py-0.5 text-[10.5px] font-extrabold text-sky-800" title={`Flown: ${trip.flights.map((l) => `${l.from} → ${l.to}`).join(", ")} -- company ticket`}>
+        <span className="flex w-full items-center gap-1 rounded-md bg-sky-50 px-1.5 py-0.5 text-[10.5px] font-extrabold text-sky-800" title={`Flown: ${trip.flights.map((l) => `${l.from} → ${l.to}`).join(", ")} -- paid by the company`}>
           <Plane className="h-3.5 w-3.5 shrink-0" aria-hidden />
           <span className="truncate">
-            Flight · TA <s className="font-semibold opacity-70">{inr((calc.taClaimed ?? calc.ta) + trip.flownFare)}</s> → {inr(calc.taClaimed ?? calc.ta)}
+            By company · TA <s className="font-semibold opacity-70">{inr((calc.taClaimed ?? calc.ta) + trip.flownFare)}</s> → {inr(calc.taClaimed ?? calc.ta)}
           </span>
         </span>
       </div>
@@ -541,6 +541,12 @@ function MonthCard({ month, stats, claimed, pulledAt, onOpen }) {
   const toClaim = by((c) => c.status === "unclaimed");
   // approved by the officer (waiting for the final check) or finalised
   const payroll = by((c) => c.status === "approved" || c.status === "paid");
+  // more to claim with stay / food bills (19 Nov 2026, as the dashboard's
+  // "paid / max"): each outstation day still to claim pays 50 % without a
+  // bill and up to its full outstation DA with one
+  const moreWithBills = claimed
+    .filter((x) => x.claim.status === "unclaimed" && x.calc.billsAllowed)
+    .reduce((s, x) => s + x.calc.nights.reduce((a, n) => a + (n.fullNoBill ? 0 : Math.max(0, n.full - n.paid)), 0), 0);
   // the prototype's k-grid: a small label, then its amount on the same line, never shortened
   const krow = (label, value, tone) => (
     <span
@@ -579,6 +585,11 @@ function MonthCard({ month, stats, claimed, pulledAt, onOpen }) {
         {krow("Approved", inr(payroll), payroll ? undefined : "muted")}
         {krow("To claim", inr(toClaim), toClaim ? "hi" : "muted")}
       </span>
+      {moreWithBills > 0 && (
+        <span className="mt-0.5 whitespace-nowrap text-[11px] font-semibold text-amber-700">
+          + up to {inr(moreWithBills)} more with stay / food bills
+        </span>
+      )}
     </button>
   );
 }
@@ -607,6 +618,28 @@ export function FieldDayChip({ date, className }) {
   );
 }
 
+/* ---------- a meeting day not paid for want of its HQ ---------- */
+
+/* The dashboard pays a meeting-only working day once the meeting has its Hq
+   Territory (and the person's Employee record has an HQ); without it the day
+   is "logged but not paid" (its orange dot, 19 Nov 2026). The app only says
+   why and asks the rep to add the HQ on the meeting -- nothing updates here;
+   the day is paid at the next TA/DA update. */
+function MeetingHqNote({ row }) {
+  const what = (row.otherWork || []).join(", ") || "other work";
+  return (
+    <p className="mx-4 mb-3 flex items-start gap-2 rounded-xl bg-orange-50 px-3 py-2 text-xs text-orange-900">
+      <Info className="mt-px h-3.5 w-3.5 shrink-0" aria-hidden />
+      <span className="min-w-0">
+        <b className="font-bold">No TA/DA for this day:</b> {what}
+        {row.otherHqSeen
+          ? " has its HQ, but your employee record has none. Ask HR to add your HQ."
+          : " has no HQ. Open the meeting in the calendar and add its HQ — the day is paid at the next TA/DA update."}
+      </span>
+    </p>
+  );
+}
+
 /* ---------- the day's row in the agenda list ---------- */
 
 export function FieldDayRow({ date }) {
@@ -615,15 +648,10 @@ export function FieldDayRow({ date }) {
   const row = f.dayOf(date);
   if (!row) return null;
 
+  // nothing on record (the dashboard's red dot): the rep says what was done
   if (row.nonReported) return <NonReportDayRow date={row.date} />;
-  if (row.kind === "working" && !row.payable) {
-    return (
-      <p className="mx-4 mb-3 flex items-center gap-2 rounded-xl bg-gray-50 px-3 py-2 text-xs text-gray-500">
-        <Info className="h-3.5 w-3.5 shrink-0" aria-hidden />
-        No visits logged on this working day — no TA/DA.
-      </p>
-    );
-  }
+  // work logged but no TA/DA (the orange dot, 19 Nov 2026): say why
+  if (row.unpaid === "logged") return <MeetingHqNote row={row} />;
   if (!row.payable) return null;
 
   const trip = f.tripOf(date);
@@ -831,7 +859,17 @@ function TripHelp({ item, day = false }) {
   // the rep's requests on this trip: null = loading, [] = none
   const [tasks, setTasks] = useState(null);
   const [loadError, setLoadError] = useState("");
-  const ready = text.trim().length >= 5;
+  // what kind of request (19 Nov 2026): "wrong" = free words, "place" = a
+  // place to add to a day's route (an in-between stop, not a new trip)
+  const [mode, setMode] = useState("wrong");
+  const firstDay = (trip.days.find((d) => d.payable) || trip.days[0])?.date || trip.from;
+  const [miss, setMiss] = useState({ date: firstDay, place: "", after: "", km: "", why: "" });
+  const setM = (k) => (e) => setMiss((m) => ({ ...m, [k]: e.target.value }));
+  // the chosen day's route as it is, stop by stop
+  const missDay = trip.days.find((d) => d.date === miss.date) || null;
+  const missStops = (missDay?.route || []).map((x) => x.place).filter(Boolean);
+  const missAfter = missStops.includes(miss.after) ? miss.after : missStops[0] || "";
+  const ready = mode === "place" ? miss.place.trim().length >= 2 && !!miss.date : text.trim().length >= 5;
   useEffect(() => {
     if (!open) return undefined;
     let alive = true;
@@ -850,9 +888,20 @@ function TripHelp({ item, day = false }) {
   const send = async () => {
     setBusy(true);
     try {
-      const t = await sendTripHelp({ trip, calc, claim, emp: f.emp, message: text });
+      const t =
+        mode === "place"
+          ? await sendTripHelp({
+              trip,
+              calc,
+              claim,
+              emp: f.emp,
+              message: addRouteText({ ...miss, route: missStops, after: missAfter }),
+              title: `Add to route · ${miss.place.trim()}`,
+            })
+          : await sendTripHelp({ trip, calc, claim, emp: f.emp, message: text });
       toast.success(`Request sent${t?.name ? ` · ${t.name}` : ""} — the reply shows here`);
       setText("");
+      setMiss((m) => ({ ...m, place: "", after: "", km: "", why: "" }));
       if (t) setTasks((cur) => [t, ...(cur || [])]);
     } catch (e) {
       toast.error(errText(e));
@@ -912,15 +961,79 @@ function TripHelp({ item, day = false }) {
             )}
             {loadError && <small className="text-[11.5px] font-semibold text-amber-700">Couldn&apos;t load your earlier requests: {loadError}</small>}
             {any && <b className="mt-1 text-[12.5px] font-bold text-gray-600">Raise another request</b>}
-            <textarea
-              autoFocus={!any}
-              rows={3}
-              value={text}
-              maxLength={1000}
-              onChange={(e) => setText(e.target.value)}
-              placeholder="What is wrong? e.g. 13 Oct shows local only — I went to Ottapalam and back (38 km)."
-              className="w-full shrink-0 resize-none rounded-xl border border-gray-300 bg-white px-3 py-2.5 text-[13.5px] text-gray-900 outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-100"
-            />
+            <span className="flex shrink-0 gap-1 rounded-xl bg-gray-100 p-1" role="tablist" aria-label="Kind of request">
+              {[
+                ["wrong", "Something wrong"],
+                ["place", "Add a place to the route"],
+              ].map(([k, label]) => (
+                <button
+                  key={k}
+                  type="button"
+                  role="tab"
+                  aria-selected={mode === k}
+                  onClick={() => setMode(k)}
+                  className={cn("flex-1 rounded-lg py-1.5 text-[12.5px] font-bold", mode === k ? "bg-white text-blue-700 shadow-sm" : "text-gray-500")}
+                >
+                  {label}
+                </button>
+              ))}
+            </span>
+            {mode === "place" ? (
+              <div className="flex shrink-0 flex-col gap-2">
+                <label className="flex flex-col gap-1 text-[11.5px] font-bold text-gray-600">
+                  Day
+                  <select value={miss.date} onChange={setM("date")} className={HELP_INPUT}>
+                    {trip.days.map((d) => (
+                      <option key={d.date} value={d.date}>
+                        {dayLabel(d.date)}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+                <span className="rounded-xl bg-gray-50 px-3 py-2 text-[12px] text-gray-600">
+                  <b className="font-bold text-gray-700">Route now: </b>
+                  {missStops.length ? missStops.join(" → ") : "no route on this day"}
+                </span>
+                <span className={cn("grid gap-2", missStops.length ? "grid-cols-2" : "grid-cols-1")}>
+                  <label className="flex min-w-0 flex-col gap-1 text-[11.5px] font-bold text-gray-600">
+                    Place to add
+                    <input value={miss.place} onChange={setM("place")} maxLength={80} placeholder="e.g. Ottapalam" className={HELP_INPUT} />
+                  </label>
+                  {missStops.length > 0 && (
+                    <label className="flex min-w-0 flex-col gap-1 text-[11.5px] font-bold text-gray-600">
+                      Comes after
+                      <select value={missAfter} onChange={setM("after")} className={HELP_INPUT}>
+                        {missStops.map((x) => (
+                          <option key={x} value={x}>
+                            {x}
+                          </option>
+                        ))}
+                      </select>
+                    </label>
+                  )}
+                </span>
+                <span className="grid grid-cols-[96px_minmax(0,1fr)] gap-2">
+                  <label className="flex min-w-0 flex-col gap-1 text-[11.5px] font-bold text-gray-600">
+                    Extra km
+                    <input type="number" inputMode="numeric" min="0" value={miss.km} onChange={setM("km")} placeholder="38" className={HELP_INPUT} />
+                  </label>
+                  <label className="flex min-w-0 flex-col gap-1 text-[11.5px] font-bold text-gray-600">
+                    Why (optional)
+                    <input value={miss.why} onChange={setM("why")} maxLength={300} placeholder="e.g. went to a stockist there" className={HELP_INPUT} />
+                  </label>
+                </span>
+              </div>
+            ) : (
+              <textarea
+                autoFocus={!any}
+                rows={3}
+                value={text}
+                maxLength={1000}
+                onChange={(e) => setText(e.target.value)}
+                placeholder="What is wrong? e.g. the DA on 14 Oct looks low."
+                className="w-full shrink-0 resize-none rounded-xl border border-gray-300 bg-white px-3 py-2.5 text-[13.5px] text-gray-900 outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-100"
+              />
+            )}
             <small className="text-[11.5px] text-gray-500">{trip.from === trip.to ? "This day's" : "This trip's"} details go with it, day by day.</small>
             <button
               type="button"
@@ -937,6 +1050,9 @@ function TripHelp({ item, day = false }) {
     </>
   );
 }
+
+const HELP_INPUT =
+  "w-full min-w-0 rounded-xl border border-gray-300 bg-white px-3 py-2 text-[13.5px] font-normal text-gray-900 outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-100";
 
 const UPLOAD_LABEL = { da: "Upload stay / food bill", car: "Upload fuel bill", all: "Upload stay / food / fuel bill" };
 
@@ -1132,7 +1248,7 @@ function TripSheet({ item }) {
       ? "no travel on an HQ day"
       : trip.kind === "day"
         ? `↑ ${trip.km} km ↓ ${trip.km} km`
-        : `fare · ${trip.km} km by road${trip.flownFare > 0 ? ` · flight ${inr(trip.flownFare)} off` : ""}`;
+        : `fare · ${trip.km} km by road${trip.flownFare > 0 ? ` · company travel ${inr(trip.flownFare)} off` : ""}`;
   const nN = calc.nights.length;
   const daBasis = calc.pool?.on
     ? `${nN} outstation day${nN > 1 ? "s" : ""} · stay + food bills`
@@ -1236,9 +1352,9 @@ function TripSheet({ item }) {
             <div className="flex items-start gap-1.5 rounded-xl bg-sky-50 px-2.5 py-2 text-[12.5px] leading-snug text-sky-900">
               <Plane className="mt-0.5 h-4 w-4 shrink-0" aria-hidden />
               <span className="min-w-0">
-                By road {inr((calc.taClaimed ?? calc.ta) + trip.flownFare)} − flight {trip.flights.map((l) => `${l.from} → ${l.to}`).join(", ")} {inr(trip.flownFare)} ={" "}
+                By road {inr((calc.taClaimed ?? calc.ta) + trip.flownFare)} − by company {trip.flights.map((l) => `${l.from} → ${l.to}`).join(", ")} {inr(trip.flownFare)} ={" "}
                 <b>TA {inr(calc.taClaimed ?? calc.ta)}</b>
-                <span className="block text-[11.5px] text-sky-700">The flight is the company&rsquo;s ticket, so its leg pays no TA.</span>
+                <span className="block text-[11.5px] text-sky-700">The company paid for this journey, so it pays no TA.</span>
               </span>
             </div>
           )}
@@ -1663,6 +1779,17 @@ function TripDay({ row, data, car, last, multi, night, bills, stayOff, billStrip
                       : "ex-HQ day · return to HQ"}
               </MoneyRow>
             )}
+            {/* marked on the dashboard: the company paid it, so nothing to claim */}
+            {row.company === "Stay" && (
+              <MoneyRow label="DA" amount={0}>
+                stay paid by the company · no DA
+              </MoneyRow>
+            )}
+            {row.company === "Travel" && (
+              <MoneyRow label="TA" amount={0}>
+                travel paid by the company · no TA
+              </MoneyRow>
+            )}
           </div>
         ) : (
           <span className="mt-0.5 block text-[13px] text-gray-500">{`${row.dayType || row.kind} · no TA`}</span>
@@ -1673,7 +1800,7 @@ function TripDay({ row, data, car, last, multi, night, bills, stayOff, billStrip
           <span className="mt-1.5 flex w-fit max-w-full items-center gap-1.5 rounded-xl bg-sky-50 px-2.5 py-1.5 text-[12px] font-semibold text-sky-800">
             <Plane className="h-3.5 w-3.5 shrink-0" aria-hidden />
             <span className="min-w-0">
-              Flight travel · company ticket · TA ₹0{row.flight.legs.length ? ` for ${row.flight.legs.join(", ")}` : ""}
+              Travel by company · TA ₹0{row.flight.legs.length ? ` for ${row.flight.legs.join(", ")}` : ""}
               {row.flight.notPaid > 0 ? ` (${inr(row.flight.notPaid)} not claimed)` : ""}
             </span>
           </span>
