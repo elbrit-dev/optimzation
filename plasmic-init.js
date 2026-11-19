@@ -279,7 +279,7 @@ PLASMIC.registerGlobalContext(Impersonation, {
     allowedDepartments: {
       type: "array",
       displayName: "Allowed departments",
-      description: "isAllowed(me) is true for these ERP departments (exact names).",
+      description: "isAllowed(me) is true for these ERP departments (exact names). This only SHOWS the Switch button; whether a switch is allowed must be enforced by the backend userToken (SECURITY_PERM_V2.md).",
       defaultValue: ["IT - ELPL", "MIS - ELPL", "Marketing - ELPL"],
     },
     allowedDesignations: {
@@ -304,6 +304,12 @@ PLASMIC.registerGlobalContext(Impersonation, {
     backToSelf: {
       displayName: "Back to me",
       description: "Returns to your own account and opens the home page.",
+      parameters: [],
+    },
+    dismissSwitchError: {
+      displayName: "Dismiss switch error",
+      description:
+        "Hides the \"Could not switch to ...\" message shown when the backend refused a switch ($ctx.impersonation.failedTarget).",
       parameters: [],
     },
   },

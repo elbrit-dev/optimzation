@@ -29,12 +29,25 @@ import app from '../firebase';
  *
  * Used by components/ImpersonateSwitch.jsx (the button and sheet) and by the
  * "Impersonation" global context below ($ctx.impersonation + global actions).
+ *
+ * WHO MAY SWITCH is decided by the BACKEND (SECURITY_PERM_V2.md, fix 5):
+ * isAllowed() below only decides whether the Switch button is SHOWN. The
+ * backend's `userToken` must refuse callers who may not impersonate. When it
+ * does, the Login page never stores a new token; this file notices (the token
+ * did not change), puts the previous state back and shows a clear message
+ * instead of silently landing the person back on their own account.
  */
 
 const STORE = 'elbrit.impersonation';
 const TOKEN = 'token';
 const LOGIN_PREFIX = '/login/';
 const PLACEHOLDER_ID = '[id]';
+// A switch that has not produced a new token after this long, while still on
+// the Login page, is reported as refused (it is still accepted if the token
+// turns up later). Generous: field sales are on slow mobile data.
+const SWITCH_WAIT_MS = 20_000;
+// Per tab, so the message survives the full-page loads around a switch.
+const FAILED = 'elbrit.impersonation.failed';
 
 export const DEFAULT_DEPARTMENTS = ['IT - ELPL', 'MIS - ELPL', 'Marketing - ELPL'];
 export const DEFAULT_DESIGNATIONS = ['Chief Executive Officer'];
@@ -115,17 +128,81 @@ function isActive(record) {
 function rememberSelf(target, reason) {
   const existing = readRecord();
   let record = existing?.originalToken ? existing : null;
+  const tokenBefore = readToken();
   if (!record) {
-    const token = readToken();
-    if (!token) return null; // not signed in to the ERP: nothing to come back to
-    record = { originalToken: token, actor: currentActor(), startedAt: new Date().toISOString(), switches: 0 };
+    if (!tokenBefore) return null; // not signed in to the ERP: nothing to come back to
+    record = { originalToken: tokenBefore, actor: currentActor(), startedAt: new Date().toISOString(), switches: 0 };
   }
+  // What to put back if the backend refuses: the token in use now, and (for a
+  // jump from A to B) who we were impersonating before.
+  record.pending = {
+    target: String(target),
+    tokenBefore,
+    previousTarget: existing?.originalToken ? existing.target ?? null : null,
+    previousReason: existing?.originalToken ? existing.reason ?? null : null,
+    at: Date.now(),
+  };
+  clearFailure();
   record.target = String(target);
   record.reason = reason || '';
   record.switchedAt = new Date().toISOString();
   record.switches = (record.switches || 0) + 1;
   writeRecord(record);
   return record;
+}
+
+/* ---------------------------------------------
+   REFUSED SWITCHES
+--------------------------------------------- */
+
+function readFailure() {
+  try {
+    const raw = sessionStorage.getItem(FAILED);
+    return raw ? JSON.parse(raw) : null;
+  } catch {
+    return null;
+  }
+}
+
+function clearFailure() {
+  try {
+    sessionStorage.removeItem(FAILED);
+  } catch {
+    // nothing to clear
+  }
+}
+
+/** Record a refused switch once (keyed by when it started), even if dismissed. */
+function noteFailure(record) {
+  const pending = record?.pending;
+  if (!pending) return;
+  if (readFailure()?.at === pending.at) return;
+  try {
+    sessionStorage.setItem(FAILED, JSON.stringify({ target: pending.target, at: pending.at }));
+  } catch {
+    // storage blocked: no message, but nothing else breaks
+  }
+  report('switch refused', record, { waitedMs: Date.now() - pending.at });
+}
+
+/**
+ * The switch did not take (the Login page left, or never wrote a new token):
+ * put back what was there before it. For a first switch the record goes; for a
+ * jump from A to B we are still A, so the record goes back to naming A.
+ */
+function undoPendingSwitch(record) {
+  const pending = record.pending;
+  noteFailure(record);
+  if (pending.previousTarget) {
+    record.target = pending.previousTarget;
+    record.reason = pending.previousReason;
+    record.switches = Math.max(1, (record.switches || 1) - 1);
+    delete record.pending;
+    writeRecord(record);
+    return record;
+  }
+  writeRecord(null);
+  return null;
 }
 
 /* ---------------------------------------------
@@ -172,7 +249,17 @@ function tagScope(record, active) {
    STORE (one per page, shared by every reader)
 --------------------------------------------- */
 
-const IDLE = Object.freeze({ active: false, target: null, reason: null, actor: null, startedAt: null, switches: 0 });
+const IDLE = Object.freeze({
+  active: false,
+  target: null,
+  reason: null,
+  actor: null,
+  startedAt: null,
+  switches: 0,
+  // Set when the backend refused a switch: who it was to, until dismissed.
+  failedTarget: null,
+  failedAt: null,
+});
 
 let snapshot = IDLE;
 const listeners = new Set();
@@ -180,14 +267,35 @@ let uninstall = null;
 
 function compute() {
   let record = readRecord();
+  const onLoginPage = Boolean(loginTarget(window.location.pathname));
+
+  if (record?.pending) {
+    if (readToken() !== record.pending.tokenBefore) {
+      // The Login page stored the new person's token: the switch took.
+      delete record.pending;
+      writeRecord(record);
+      clearFailure();
+    } else if (!onLoginPage) {
+      // Left the Login page without a new token: refused / failed.
+      record = undoPendingSwitch(record);
+    } else if (Date.now() - record.pending.at > SWITCH_WAIT_MS) {
+      // Still on the Login page and nothing yet: say so now.
+      noteFailure(record);
+    }
+  }
+
   // A switch that never took (unknown person, ERP error) leaves our own token
   // in place: forget it once we're off the Login page.
-  if (record && !isActive(record) && !loginTarget(window.location.pathname)) {
+  if (record && !isActive(record) && !onLoginPage) {
     writeRecord(null);
     record = null;
   }
   const active = isActive(record);
   tagScope(record, active);
+  const failure = readFailure();
+  const failed = failure?.target && !failure.dismissed
+    ? { failedTarget: String(failure.target), failedAt: Number(failure.at) || null }
+    : { failedTarget: null, failedAt: null };
   return active
     ? {
         active: true,
@@ -196,8 +304,11 @@ function compute() {
         actor: record.actor ?? null,
         startedAt: record.startedAt ?? null,
         switches: record.switches ?? 1,
+        ...failed,
       }
-    : IDLE;
+    : failed.failedTarget
+      ? { ...IDLE, ...failed }
+      : IDLE;
 }
 
 function refresh() {
@@ -227,12 +338,18 @@ function install() {
   Router.events.on('routeChangeComplete', refresh);
   window.addEventListener('storage', refresh);
   document.addEventListener('visibilitychange', onVisible);
+  // The Login page writes the token in THIS tab, which fires no 'storage'
+  // event: while a switch is pending there, look once a second.
+  const poll = window.setInterval(() => {
+    if (readRecord()?.pending && loginTarget(window.location.pathname)) refresh();
+  }, 1000);
   refresh();
   return () => {
     Router.events.off('routeChangeStart', onRouteStart);
     Router.events.off('routeChangeComplete', refresh);
     window.removeEventListener('storage', refresh);
     document.removeEventListener('visibilitychange', onVisible);
+    window.clearInterval(poll);
   };
 }
 
@@ -272,6 +389,30 @@ export function switchTo(id, reason, name) {
   const seg = (v) => encodeURIComponent(v == null || v === '' ? '-' : String(v));
   window.location.assign(`${LOGIN_PREFIX}${seg(target)}/${seg(who)}/${seg(reason)}`);
   return true;
+}
+
+/**
+ * Hide the "switch refused" message. Kept (as dismissed) rather than removed,
+ * so the same refused switch is not reported or shown a second time.
+ */
+export function dismissSwitchError() {
+  const failure = readFailure();
+  if (failure) {
+    try {
+      sessionStorage.setItem(FAILED, JSON.stringify({ ...failure, dismissed: true }));
+    } catch {
+      // storage blocked
+    }
+  }
+  refresh();
+}
+
+/** Give up on a switch the backend refused and go home as before. */
+function abandonSwitch() {
+  const record = readRecord();
+  if (record?.pending) undoPendingSwitch(record);
+  dismissSwitchError();
+  window.location.replace('/');
 }
 
 /** Back to the account you signed in with, on the home page. */
@@ -332,14 +473,73 @@ export function Impersonation({ children, allowedDepartments, allowedDesignation
     // eslint-disable-next-line react-hooks/exhaustive-deps
     [state, rulesKey]
   );
-  const actions = useMemo(() => ({ switchTo, backToSelf }), []);
+  const actions = useMemo(() => ({ switchTo, backToSelf, dismissSwitchError }), []);
 
   return (
     <GlobalActionsProvider contextName="Impersonation" actions={actions}>
       <DataProvider name="impersonation" data={data}>
         {children}
+        <SwitchRefusedBanner target={state.failedTarget} />
       </DataProvider>
     </GlobalActionsProvider>
+  );
+}
+
+/**
+ * Shown when the backend refused (or never answered) a switch. The person is
+ * still on their previous account; this says so instead of leaving them on a
+ * Login page that did nothing.
+ */
+function SwitchRefusedBanner({ target }) {
+  if (!target) return null;
+  const onLoginPage = typeof window !== 'undefined' && Boolean(loginTarget(window.location.pathname));
+  const button = {
+    border: 0,
+    borderRadius: 6,
+    padding: '6px 12px',
+    font: '600 13px/1.2 inherit',
+    cursor: 'pointer',
+  };
+  return (
+    <div
+      role="alert"
+      style={{
+        position: 'fixed',
+        left: 12,
+        right: 12,
+        bottom: 'calc(12px + env(safe-area-inset-bottom, 0px))',
+        zIndex: 2147483000,
+        maxWidth: 520,
+        margin: '0 auto',
+        padding: '12px 14px',
+        borderRadius: 10,
+        background: '#fff1f0',
+        border: '1px solid #f5c2bd',
+        color: '#7a1c12',
+        boxShadow: '0 6px 24px rgba(0,0,0,0.18)',
+        font: '500 14px/1.4 system-ui, sans-serif',
+      }}
+    >
+      <div style={{ fontWeight: 700, marginBottom: 4 }}>Could not switch to {target}</div>
+      <div>
+        The ERP refused it or did not answer: you may not have permission to sign in as this person, or they
+        were not found. You are still signed in as before.
+      </div>
+      <div style={{ display: 'flex', gap: 8, marginTop: 10, justifyContent: 'flex-end' }}>
+        {onLoginPage ? (
+          <button
+            type="button"
+            style={{ ...button, background: '#7a1c12', color: '#fff' }}
+            onClick={abandonSwitch}
+          >
+            Go back
+          </button>
+        ) : null}
+        <button type="button" style={{ ...button, background: '#f5c2bd', color: '#7a1c12' }} onClick={dismissSwitchError}>
+          Dismiss
+        </button>
+      </div>
+    </div>
   );
 }
 

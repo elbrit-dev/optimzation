@@ -133,3 +133,63 @@ Order: (1) backend accepts optional `idToken` (live on UAT, then prod);
 and rebuild UAT, test, then prod; (4) only after every client sends it, the
 backend may make `idToken` required. Turn the flag on ONLY after step 1 is live
 on the ERP that build talks to.
+
+## 5. Impersonation ("Switch to person")
+
+Not removed. What actually happens today:
+
+1. Who sees the Switch button: decided ONLY in the browser.
+   `components/Impersonation.jsx` `isAllowed(me)` - department in
+   `["IT - ELPL", "MIS - ELPL", "Marketing - ELPL"]` or designation
+   `"Chief Executive Officer"` (defaults also in `plasmic-init.js`, global
+   context props `allowedDepartments` / `allowedDesignations`), or already
+   impersonating. Anyone can bypass this by opening the URL in step 2.
+2. `switchTo(id, reason, name)` saves the person's own `token` in
+   localStorage `elbrit.impersonation` and loads
+   `/login/<id>/<name>/<reason>` (full page load). `id` = the target's ERP login
+   (User id / email) or phone (`components/ImpersonateSwitch.jsx` `personId`).
+3. That path is the Plasmic Studio **Login page**. On load it runs the backend
+   GraphQL query **`userToken`** with the route's `id`; the backend looks the
+   person up by User email / mobile_no / phone and returns THAT USER'S ERP API
+   token ("key:secret"). The page stores it as localStorage `token`. From then
+   on every ERP call is made as the target.
+   - The same page is the normal login page: on every ordinary sign-in it runs
+     `userToken("[id]")` (the literal placeholder) and fails with
+     "User not found in ERPNext" (see `instrumentation-client.js`). So
+     `userToken` is reachable BEFORE anyone has signed in, which means the
+     Studio data query does not carry a user's own token, or carries a shared
+     integration token. **Check in Studio which Authorization header the
+     `userToken` operation sends.**
+4. "Back to me" puts the saved own token back. Logout's
+   `localStorage.clear()` drops everything.
+
+What the backend must enforce (the browser cannot):
+- `userToken` must require an authenticated caller identified by THEIR OWN
+  credential - the caller's ERP token in Authorization (localStorage `token`)
+  and/or a verified Firebase ID token - never a shared integration token and
+  never anonymous.
+- The caller must hold an explicit impersonation permission checked server-side
+  (e.g. a dedicated role "Can Impersonate"); the department/designation list
+  above is UI only. Refuse impersonating System Managers / Administrator, and
+  log actor, target, reason on every call (the client already reports to
+  Sentry, but that is client-controlled and can be suppressed).
+- When the Studio query changes to send the caller's token, update the Login
+  page so `userToken` sends `Authorization: <localStorage token>` - for a jump
+  from A to B that is A's token, so the backend must resolve the REAL actor
+  (e.g. keep a server-side impersonation session, or require the Firebase ID
+  token, whose uid is the real person's) rather than trusting A.
+
+Client change in this branch (`components/Impersonation.jsx`): a switch now
+records what it is waiting for (`pending`: target, token before, previous
+target). If the Login page leaves without storing a new token, or after 20 s on
+the Login page with no new token, it:
+- shows a banner "Could not switch to <target> - The ERP refused it or did not
+  answer ... You are still signed in as before." with "Go back" (on the Login
+  page) and "Dismiss";
+- puts the previous state back (for a jump A -> B, still "impersonating A");
+- reports "Impersonation: switch refused" to Sentry once.
+A token that arrives after the 20 s still counts as a successful switch.
+`$ctx.impersonation.failedTarget` / `.failedAt` and the global action
+"Dismiss switch error" are available for a Studio-built message instead.
+Known edge: switching to the account you are already on looks like a refused
+switch (the token does not change).
