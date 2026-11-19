@@ -2,8 +2,9 @@
 
 /* Non-reported days (19 Nov 2026): the working days the Field Expense build
    found nothing on record for. A card beside the HQ & EQ days / OS cards, and
-   a sheet (the strip's own Modal, kind "nonreport") where the rep picks a day
-   and says what they did -- any mix of
+   a sheet (the strip's own Modal, kind "nonreport"), one screen: the days as
+   chips on top, the chosen day's form below (no pages, no back button), and
+   the rep ticks what they did -- any mix of
      - doctor visits: an HQ, then many doctors at once (the DR Tour Plan's
        doctor picker, the doctors mapped to the rep's seats at that HQ),
        and who they worked with
@@ -14,7 +15,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { toast } from "sonner";
-import { ArrowLeft, Briefcase, CalendarX2, ChevronRight, Loader2, Plus, Stethoscope, Trash2, Users } from "lucide-react";
+import { Briefcase, CalendarX2, Check, ChevronRight, Loader2, Stethoscope, Users } from "lucide-react";
 import { cn } from "@calendar/lib/utils";
 import { ModalTitle } from "@calendar/components/ui/responsive-modal";
 import { useCalendar } from "@calendar/components/calendar/contexts/calendar-context";
@@ -109,60 +110,85 @@ export function NonReportCard() {
 
 export function NonReportSheet() {
   const f = useFieldExpenses();
-  const [date, setDate] = useState(f.sheet?.date || null);
   const days = f.nonReported || [];
   const nr = useNonReportTasks(f.month, true);
   const map = useMemo(() => byDate(nr.tasks), [nr.tasks]);
-  if (date) return <DayForm date={date} tasks={map.get(date) || []} onBack={() => setDate(null)} />;
+  const isLeft = (d) => dayState(map.get(d)) === "none";
+  // the day on screen: the one asked for, else the first still to add
+  const [date, setDate] = useState(() => f.sheet?.date || (days.find((d) => isLeft(d.date)) || days[0])?.date || null);
+  // what the rep has typed, per day -- moving to another day keeps it
+  const [drafts, setDrafts] = useState({});
+  const draft = (date && drafts[date]) || EMPTY_DRAFT;
+  const setDraft = (p) => setDrafts((all) => ({ ...all, [date]: { ...(all[date] || EMPTY_DRAFT), ...p } }));
+  const left = days.filter((d) => isLeft(d.date)).length;
 
-  const left = days.filter((d) => dayState(map.get(d.date)) === "none").length;
+  // sent: clear the day and go on to the next one still to add
+  const sent = () => {
+    setDrafts((all) => ({ ...all, [date]: undefined }));
+    const next = days.find((d) => d.date > date && isLeft(d.date)) || days.find((d) => d.date !== date && isLeft(d.date));
+    if (next) setDate(next.date);
+  };
+
   return (
-    <div className="-mx-4 flex min-h-0 flex-1 flex-col gap-3 overflow-y-auto overscroll-contain px-4 pb-4 [&>*]:shrink-0">
-      <div className="pr-10">
-        <ModalTitle className="text-[22px] font-extrabold leading-tight tracking-tight text-gray-900">Non-reported days</ModalTitle>
-        <p className="mt-0.5 text-[14px] font-semibold text-gray-500">
-          {monthName(f.month)} · {plural(days.length, "day")} · {left ? `${left} to add` : "all sent"}
-        </p>
+    <div className="-mx-4 flex min-h-0 flex-1 flex-col overflow-hidden">
+      <div className="flex min-h-0 flex-1 flex-col gap-3 overflow-y-auto overscroll-contain px-4 pb-4 [&>*]:shrink-0">
+        <div className="pr-10">
+          <ModalTitle className="text-[22px] font-extrabold leading-tight tracking-tight text-gray-900">Non-reported days</ModalTitle>
+          <p className="mt-0.5 text-[13.5px] font-semibold text-gray-500">
+            {monthName(f.month)} · no visit on record · {left ? `${left} of ${days.length} to add` : "all sent"}
+          </p>
+        </div>
+        {nr.status === "error" && (
+          <button type="button" onClick={() => loadNonReport(f.month, true)} className="rounded-xl bg-rose-50 px-3 py-2 text-left text-[12px] font-semibold text-rose-700">
+            Couldn&apos;t load what you sent: {errText(nr.error)} — tap to try again
+          </button>
+        )}
+        {days.length === 0 ? (
+          <p className="py-6 text-center text-[13px] text-gray-500">Nothing here — every working day has something on record.</p>
+        ) : (
+          <>
+            {/* the days, as chips: tap one to fill it in -- no pages, no back */}
+            <div className="-mx-4 flex gap-1.5 overflow-x-auto px-4 pb-1 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden" role="tablist" aria-label="Days">
+              {days.map((r) => {
+                const st = dayState(map.get(r.date));
+                const d = new Date(`${r.date}T00:00:00`);
+                const on = r.date === date;
+                const typed = !!drafts[r.date] && KINDS.some((k) => drafts[r.date][k.type]);
+                return (
+                  <button
+                    key={r.date}
+                    type="button"
+                    role="tab"
+                    aria-selected={on}
+                    onClick={() => setDate(r.date)}
+                    className={cn(
+                      "relative flex w-12 shrink-0 flex-col items-center rounded-xl border py-1.5 leading-none",
+                      on ? "border-blue-600 bg-blue-600 text-white" : "border-gray-200 bg-white text-gray-900 active:bg-gray-50"
+                    )}
+                  >
+                    <small className={cn("text-[9.5px] font-bold uppercase", on ? "text-blue-100" : "text-gray-500")}>{d.toLocaleDateString("en-IN", { weekday: "short" })}</small>
+                    <b className="mt-0.5 text-[16px] font-extrabold">{d.getDate()}</b>
+                    <span
+                      className={cn(
+                        "mt-1 h-1.5 w-1.5 rounded-full",
+                        st === "done" ? "bg-green-500" : st === "open" ? "bg-amber-400" : typed ? "bg-blue-300" : "bg-rose-400"
+                      )}
+                      aria-hidden
+                    />
+                  </button>
+                );
+              })}
+            </div>
+            <p className="-mt-1 flex flex-wrap gap-x-3 text-[11px] font-semibold text-gray-500">
+              <span className="flex items-center gap-1"><i className="h-1.5 w-1.5 rounded-full bg-rose-400" /> to add</span>
+              <span className="flex items-center gap-1"><i className="h-1.5 w-1.5 rounded-full bg-amber-400" /> sent</span>
+              <span className="flex items-center gap-1"><i className="h-1.5 w-1.5 rounded-full bg-green-500" /> done</span>
+            </p>
+            {date && <DayBody key={date} date={date} tasks={map.get(date) || []} draft={draft} setDraft={setDraft} />}
+          </>
+        )}
       </div>
-      <p className="rounded-2xl bg-amber-50 px-3 py-2.5 text-[12.5px] leading-snug text-amber-900">
-        No visit or work is on record for these days. Tap a day and add what you did — doctor visits, meetings or other work. It goes to the
-        expense team, who put it in your calendar.
-      </p>
-      {nr.status === "error" && (
-        <button type="button" onClick={() => loadNonReport(f.month, true)} className="rounded-xl bg-rose-50 px-3 py-2 text-left text-[12px] font-semibold text-rose-700">
-          Couldn&apos;t load what you sent: {errText(nr.error)} — tap to try again
-        </button>
-      )}
-      {days.length === 0 ? (
-        <p className="py-6 text-center text-[13px] text-gray-500">Nothing here — every working day has something on record.</p>
-      ) : (
-        <ol className="flex flex-col divide-y divide-gray-100 rounded-2xl border border-gray-200 bg-white">
-          {days.map((r) => {
-            const list = map.get(r.date) || [];
-            const pill = dayPill(list);
-            const d = new Date(`${r.date}T00:00:00`);
-            const last = list[0];
-            return (
-              <li key={r.date}>
-                <button type="button" onClick={() => setDate(r.date)} className="flex w-full items-center gap-3 px-3 py-2.5 text-left active:bg-gray-50">
-                  <span className="flex w-10 shrink-0 flex-col items-center leading-none">
-                    <b className="text-[17px] font-extrabold text-gray-900">{d.getDate()}</b>
-                    <small className="mt-0.5 text-[10px] font-bold uppercase text-gray-500">{d.toLocaleDateString("en-IN", { weekday: "short" })}</small>
-                  </span>
-                  <span className="flex min-w-0 flex-1 flex-col gap-0.5">
-                    <b className="truncate text-[13.5px] font-bold text-gray-900">{last ? taskSummary(last) : "Nothing on record"}</b>
-                    <span className="truncate text-[11.5px] text-gray-500">
-                      {last ? `${last.name} · sent ${when(last.creation)}${last.replies?.length ? ` · ${last.replies.length} repl${last.replies.length === 1 ? "y" : "ies"}` : ""}` : "Add doctor visits, a meeting or other work"}
-                    </span>
-                  </span>
-                  <Pill tone={pill.tone} className="px-1.5 text-[9.5px]">{pill.label}</Pill>
-                  <ChevronRight className="h-4 w-4 shrink-0 text-gray-400" aria-hidden />
-                </button>
-              </li>
-            );
-          })}
-        </ol>
-      )}
+      {date && days.length > 0 && <SendBar date={date} tasks={map.get(date) || []} draft={draft} onSent={sent} />}
     </div>
   );
 }
@@ -222,150 +248,172 @@ function useHqDoctors(hq, rolesAt) {
   return state.key === key ? state : { list: [], loading: true };
 }
 
-/* ---------- one day's form ---------- */
+/* ---------- one day: what was done ---------- */
 
-let seq = 0;
-const newEntry = (type, hq) =>
+/* a day's draft: each kind on (its fields) or off (null) -- any mix */
+const EMPTY_DRAFT = { doctor_visit: null, meeting: null, other: null };
+const blank = (type, hq) =>
   type === "doctor_visit"
-    ? { id: ++seq, type, hq, doctors: [], joint_with: [], note: "" }
+    ? { hq, doctors: [], joint_with: [], note: "" }
     : type === "meeting"
-      ? { id: ++seq, type, hq, title: "", from: "10:00", to: "11:00", location: "", attendees: [], note: "" }
-      : { id: ++seq, type, other_type: "", hq, title: "", note: "" };
+      ? { hq, title: "", from: "10:00", to: "11:00", location: "", attendees: [], note: "" }
+      : { other_type: "", hq: "", title: "", note: "" };
 
-function entryError(e) {
-  if (e.type === "doctor_visit") {
-    if (!e.hq) return "Pick the HQ of the doctor visits";
-    if (!e.doctors.length) return "Pick the doctors you visited";
-  } else if (e.type === "meeting") {
-    if (e.title.trim().length < 3) return "Give the meeting a title";
-    if (!e.hq) return "Pick the HQ of the meeting";
-    if (!e.from || !e.to || e.to < e.from) return "Check the meeting's time";
+function entryError(type, e) {
+  if (type === "doctor_visit") {
+    if (!e.hq) return "Doctor visits: pick the HQ";
+    if (!e.doctors.length) return "Doctor visits: pick the doctors";
+  } else if (type === "meeting") {
+    if (e.title.trim().length < 3) return "Meeting: give it a title";
+    if (!e.hq) return "Meeting: pick the HQ";
+    if (!e.from || !e.to || e.to < e.from) return "Meeting: check the time";
   } else {
-    if (!e.other_type) return "Pick what kind of work it was";
-    if (e.other_type === "Conference" && e.title.trim().length < 3) return "Name the conference";
+    if (!e.other_type) return "Other work: pick the kind";
+    if (e.other_type === "Conference" && e.title.trim().length < 3) return "Other work: name the conference";
   }
   return null;
 }
+const picked = (draft) => KINDS.filter((k) => draft[k.type]).map((k) => ({ type: k.type, ...draft[k.type] }));
 
 const KINDS = [
-  { type: "doctor_visit", label: "Doctor visits", hint: "Pick many doctors", Icon: Stethoscope, tone: "text-blue-700 bg-blue-50 border-blue-200" },
-  { type: "meeting", label: "Meeting", hint: "Title, HQ, time", Icon: Users, tone: "text-violet-700 bg-violet-50 border-violet-200" },
-  { type: "other", label: "Other work", hint: "Admin, chemist…", Icon: Briefcase, tone: "text-emerald-700 bg-emerald-50 border-emerald-200" },
+  { type: "doctor_visit", label: "Doctor visits", hint: "Many doctors at once", Icon: Stethoscope, on: "border-blue-600 bg-blue-50 text-blue-800", dot: "bg-blue-600" },
+  { type: "meeting", label: "Meeting", hint: "Title, HQ, time", Icon: Users, on: "border-violet-600 bg-violet-50 text-violet-800", dot: "bg-violet-600" },
+  { type: "other", label: "Other work", hint: "Admin, chemist, conference", Icon: Briefcase, on: "border-emerald-600 bg-emerald-50 text-emerald-800", dot: "bg-emerald-600" },
 ];
 
-function DayForm({ date, tasks, onBack }) {
-  const f = useFieldExpenses();
+function DayBody({ date, tasks, draft, setDraft }) {
   const seat = useSeatHqs();
-  const [entries, setEntries] = useState([]);
+  const { employeeOptions } = useCalendar();
+  // colleagues to pick (not the rep: they are always in)
+  const people = useMemo(() => (employeeOptions || []).filter((o) => String(o.value) !== String(LOGGED_IN_USER.id)), [employeeOptions]);
+  const blocked = tasks.filter((t) => !DONE.has(t.status)).length >= 3;
+  const toggle = (type) => setDraft({ [type]: draft[type] ? null : blank(type, seat.own) });
+  const patch = (type) => (p) => setDraft({ [type]: { ...draft[type], ...p } });
+
+  return (
+    <>
+      {tasks.length > 0 && (
+        <div className="flex flex-col gap-2">
+          <b className="text-[12.5px] font-bold text-gray-600">Sent for {dayLabel(date)}</b>
+          {tasks.slice(0, 3).map((t) => (
+            <SentTask key={t.name} t={t} />
+          ))}
+        </div>
+      )}
+      {blocked ? (
+        <p className="rounded-xl bg-gray-50 px-3 py-2.5 text-[12.5px] text-gray-600">Three requests are already open for this day — wait for the team to finish those.</p>
+      ) : (
+        <>
+          <div className="flex flex-col gap-1.5">
+            <b className="text-[14px] font-extrabold text-gray-900">
+              {tasks.length ? "Anything else" : "What did you do"} on {dayLabel(date)}?
+            </b>
+            <small className="-mt-1 text-[12px] text-gray-500">Tick all that apply — visits and a meeting together is fine.</small>
+            <div className="grid grid-cols-3 gap-2">
+              {KINDS.map(({ type, label, hint, Icon, on }) => {
+                const active = !!draft[type];
+                return (
+                  <button
+                    key={type}
+                    type="button"
+                    aria-pressed={active}
+                    onClick={() => toggle(type)}
+                    className={cn(
+                      "relative flex flex-col items-start gap-1 rounded-2xl border-2 px-2.5 py-2.5 text-left transition-colors active:scale-[.98]",
+                      active ? on : "border-gray-200 bg-white text-gray-700"
+                    )}
+                  >
+                    <span className="flex w-full items-center justify-between">
+                      <Icon className="h-5 w-5" aria-hidden />
+                      <span className={cn("flex h-5 w-5 items-center justify-center rounded-md border-2", active ? "border-current bg-current" : "border-gray-300")}>
+                        {active && <Check className="h-3.5 w-3.5 text-white" strokeWidth={3} aria-hidden />}
+                      </span>
+                    </span>
+                    <b className="text-[13px] font-extrabold leading-tight">{label}</b>
+                    <small className="text-[10.5px] font-semibold leading-tight opacity-75">{hint}</small>
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+          {draft.doctor_visit && (
+            <Section kind={KINDS[0]}>
+              <DoctorFields e={draft.doctor_visit} seat={seat} people={people} onChange={patch("doctor_visit")} />
+            </Section>
+          )}
+          {draft.meeting && (
+            <Section kind={KINDS[1]}>
+              <MeetingFields e={draft.meeting} seat={seat} people={people} onChange={patch("meeting")} />
+            </Section>
+          )}
+          {draft.other && (
+            <Section kind={KINDS[2]}>
+              <OtherFields e={draft.other} seat={seat} onChange={patch("other")} />
+            </Section>
+          )}
+        </>
+      )}
+    </>
+  );
+}
+
+const Section = ({ kind, children }) => (
+  <section className="flex flex-col gap-2.5 rounded-2xl border border-gray-200 bg-white p-3">
+    <span className="flex items-center gap-2">
+      <i className={cn("h-2 w-2 rounded-full", kind.dot)} aria-hidden />
+      <b className="text-[13.5px] font-extrabold text-gray-900">{kind.label}</b>
+    </span>
+    {children}
+  </section>
+);
+
+/* the sticky bottom: what goes, and Send */
+function SendBar({ date, tasks, draft, onSent }) {
+  const f = useFieldExpenses();
   const [busy, setBusy] = useState(false);
   const [tried, setTried] = useState(false);
-  const open = tasks.filter((t) => !DONE.has(t.status)).length;
-  const blocked = open >= 3;
-
-  const add = (type) => setEntries((xs) => [...xs, newEntry(type, type === "other" ? "" : seat.own)]);
-  const patch = (id, p) => setEntries((xs) => xs.map((x) => (x.id === id ? { ...x, ...p } : x)));
-  const drop = (id) => setEntries((xs) => xs.filter((x) => x.id !== id));
-
-  const errors = entries.map(entryError);
-  const firstError = errors.find(Boolean);
-  const nDoc = entries.filter((e) => e.type === "doctor_visit").reduce((n, e) => n + e.doctors.length, 0);
-  const nMeet = entries.filter((e) => e.type === "meeting").length;
-  const nOther = entries.filter((e) => e.type === "other").length;
-  const summary = [nDoc ? plural(nDoc, "doctor") : null, nMeet ? plural(nMeet, "meeting") : null, nOther ? `${nOther} other work` : null].filter(Boolean).join(" + ");
-
+  useEffect(() => setTried(false), [date]);
+  if (tasks.filter((t) => !DONE.has(t.status)).length >= 3) return null;
+  const list = picked(draft);
+  const err = list.map((e) => entryError(e.type, e)).find(Boolean);
+  const nDoc = draft.doctor_visit?.doctors.length || 0;
+  const summary = [nDoc ? plural(nDoc, "doctor") : draft.doctor_visit ? "Doctor visits" : null, draft.meeting ? "Meeting" : null, draft.other ? draft.other.other_type || "Other work" : null]
+    .filter(Boolean)
+    .join(" + ");
   const send = async () => {
     setTried(true);
-    if (!entries.length || firstError) return;
+    if (!list.length || err) return;
     setBusy(true);
     try {
-      const payload = entries.map(({ id, ...e }) => ({ ...e, title: e.title?.trim?.() ?? e.title, note: e.note.trim() }));
-      const t = await sendNonReport({ month: f.month, date, entries: payload });
-      toast.success(`Sent for ${dayLabel(date)}${t?.name ? ` · ${t.name}` : ""} — replies show here`);
-      setEntries([]);
+      const entries = list.map((e) => ({ ...e, ...(e.title != null ? { title: e.title.trim() } : {}), note: e.note.trim() }));
+      const t = await sendNonReport({ month: f.month, date, entries });
+      toast.success(`${dayLabel(date)} sent${t?.name ? ` · ${t.name}` : ""}`);
       setTried(false);
-      onBack();
+      onSent();
     } catch (e) {
       toast.error(errText(e));
     } finally {
       setBusy(false);
     }
   };
-
   return (
-    <div className="-mx-4 flex min-h-0 flex-1 flex-col overflow-hidden">
-      <div className="flex min-h-0 flex-1 flex-col gap-3 overflow-y-auto overscroll-contain px-4 pb-4 [&>*]:shrink-0">
-        <div className="flex items-start gap-2 pr-10">
-          <button type="button" onClick={onBack} aria-label="Back to the days" className="-ml-1 mt-0.5 rounded-lg p-1 text-gray-600 hover:bg-gray-100">
-            <ArrowLeft className="h-5 w-5" />
-          </button>
-          <div className="min-w-0">
-            <ModalTitle className="text-[22px] font-extrabold leading-tight tracking-tight text-gray-900">{dayLabel(date)}</ModalTitle>
-            <p className="mt-0.5 text-[13.5px] font-semibold text-gray-500">What did you do this day?</p>
-          </div>
+    <div className="border-t border-gray-100 bg-white/95 px-4 pb-[max(16px,env(safe-area-inset-bottom))] pt-3">
+      {tried && (err || !list.length) && <p className="mb-2 text-[12px] font-semibold text-rose-700">{err || "Tick what you did that day"}</p>}
+      <div className="flex items-center justify-between gap-3">
+        <div className="min-w-0">
+          <span className="block text-[12.5px] text-gray-500">{dayLabel(date)}</span>
+          <b className="block truncate text-[15px] font-extrabold text-gray-900">{summary || "Nothing ticked yet"}</b>
         </div>
-
-        {tasks.length > 0 && (
-          <div className="flex flex-col gap-2">
-            <b className="text-[12.5px] font-bold text-gray-600">Sent for this day</b>
-            {tasks.slice(0, 3).map((t) => (
-              <SentTask key={t.name} t={t} />
-            ))}
-          </div>
-        )}
-
-        {blocked ? (
-          <p className="rounded-xl bg-gray-50 px-3 py-2.5 text-[12.5px] text-gray-600">Three requests are already open for this day — wait for the team to finish those.</p>
-        ) : (
-          <>
-            {entries.map((e, i) => (
-              <EntryCard key={e.id} entry={e} index={i} seat={seat} error={tried ? errors[i] : null} onChange={(p) => patch(e.id, p)} onRemove={() => drop(e.id)} />
-            ))}
-            <div className="flex flex-col gap-1.5">
-              <b className="text-[12.5px] font-bold text-gray-600">{entries.length ? "Add more" : tasks.length ? "Add something else" : "Add"}</b>
-              <div className="grid grid-cols-3 gap-2">
-                {KINDS.map(({ type, label, hint, Icon, tone }) => (
-                  <button
-                    key={type}
-                    type="button"
-                    onClick={() => add(type)}
-                    className={cn("flex flex-col items-start gap-1 rounded-2xl border px-2.5 py-2.5 text-left active:scale-[.98]", tone)}
-                  >
-                    <span className="flex w-full items-center justify-between">
-                      <Icon className="h-5 w-5" aria-hidden />
-                      <Plus className="h-4 w-4 opacity-60" aria-hidden />
-                    </span>
-                    <b className="text-[13px] font-extrabold leading-tight">{label}</b>
-                    <small className="text-[10.5px] font-semibold leading-tight opacity-80">{hint}</small>
-                  </button>
-                ))}
-              </div>
-            </div>
-          </>
-        )}
+        <button
+          type="button"
+          disabled={busy || !list.length}
+          onClick={send}
+          className="flex min-h-[48px] shrink-0 items-center justify-center gap-2 rounded-2xl bg-blue-600 px-6 text-[15px] font-bold text-white active:scale-[.98] disabled:bg-gray-200 disabled:text-gray-500"
+        >
+          {busy && <Loader2 className="h-4 w-4 animate-spin" aria-hidden />}
+          Send
+        </button>
       </div>
-
-      {!blocked && (
-        <div className="border-t border-gray-100 bg-white/95 px-4 pb-[max(16px,env(safe-area-inset-bottom))] pt-3">
-          {tried && (firstError || !entries.length) && (
-            <p className="mb-2 text-[12px] font-semibold text-rose-700">{firstError || "Add at least one thing you did"}</p>
-          )}
-          <div className="flex items-center justify-between gap-3">
-            <div className="min-w-0">
-              <span className="block text-[12.5px] text-gray-500">{dayLabel(date)}</span>
-              <b className="block truncate text-[15px] font-extrabold text-gray-900">{summary || "Nothing added yet"}</b>
-            </div>
-            <button
-              type="button"
-              disabled={busy || !entries.length}
-              onClick={send}
-              className="flex min-h-[48px] shrink-0 items-center justify-center gap-2 rounded-2xl bg-blue-600 px-5 text-[15px] font-bold text-white active:scale-[.98] disabled:bg-gray-200 disabled:text-gray-500"
-            >
-              {busy && <Loader2 className="h-4 w-4 animate-spin" aria-hidden />}
-              Send
-            </button>
-          </div>
-        </div>
-      )}
     </div>
   );
 }
@@ -448,97 +496,79 @@ const Chip = ({ on, onClick, children }) => (
   </button>
 );
 
-function EntryCard({ entry: e, seat, error, onChange, onRemove }) {
-  const kind = KINDS.find((k) => k.type === e.type);
-  const { employeeOptions } = useCalendar();
-  // colleagues to pick (not the rep: they are always in)
-  const people = useMemo(() => (employeeOptions || []).filter((o) => String(o.value) !== String(LOGGED_IN_USER.id)), [employeeOptions]);
+function MeetingFields({ e, seat, people, onChange }) {
   return (
-    <div className={cn("flex flex-col gap-2.5 rounded-2xl border bg-white p-3", error ? "border-rose-300" : "border-gray-200")}>
-      <span className="flex items-center gap-2">
-        <span className={cn("flex h-7 w-7 items-center justify-center rounded-lg border", kind.tone)}>
-          <kind.Icon className="h-4 w-4" aria-hidden />
-        </span>
-        <b className="flex-1 text-[14px] font-extrabold text-gray-900">{kind.label}</b>
-        <button type="button" onClick={onRemove} aria-label={`Remove ${kind.label}`} className="rounded-lg p-1.5 text-gray-400 hover:bg-gray-100 hover:text-rose-600">
-          <Trash2 className="h-4 w-4" />
-        </button>
-      </span>
-
-      {e.type === "doctor_visit" && <DoctorFields e={e} seat={seat} people={people} onChange={onChange} />}
-
-      {e.type === "meeting" && (
-        <>
-          <label className="flex flex-col gap-1">
-            <Label>Title</Label>
-            <input value={e.title} maxLength={140} onChange={(x) => onChange({ title: x.target.value })} placeholder="e.g. Cycle meeting with ABM" className={inputCls} />
-          </label>
-          <div className="flex flex-col gap-1">
-            <Label>HQ</Label>
-            <HqPicker value={e.hq} onChange={(hq) => onChange({ hq })} seat={seat} />
-          </div>
-          <div className="grid grid-cols-2 gap-2">
-            <label className="flex flex-col gap-1">
-              <Label>From</Label>
-              <input type="time" value={e.from} onChange={(x) => onChange({ from: x.target.value })} className={inputCls} />
-            </label>
-            <label className="flex flex-col gap-1">
-              <Label>To</Label>
-              <input type="time" value={e.to} onChange={(x) => onChange({ to: x.target.value })} className={inputCls} />
-            </label>
-          </div>
-          <label className="flex flex-col gap-1">
-            <Label optional>Venue</Label>
-            <input value={e.location} maxLength={140} onChange={(x) => onChange({ location: x.target.value })} placeholder="e.g. Hotel name, office" className={inputCls} />
-          </label>
-          <div className="flex flex-col gap-1">
-            <Label optional>Who else attended</Label>
-            <RHFCombobox
-              value={e.attendees}
-              onChange={(v) => onChange({ attendees: Array.isArray(v) ? v : [] })}
-              options={people}
-              multiple
-              placeholder="Pick colleagues"
-              searchPlaceholder="Search colleague"
-              selectionLabel="colleague"
-            />
-          </div>
-        </>
-      )}
-
-      {e.type === "other" && (
-        <>
-          <div className="flex flex-col gap-1">
-            <Label>Kind of work</Label>
-            <div className="flex flex-wrap gap-1.5">
-              {OTHER_KINDS.map((k) => (
-                <Chip key={k} on={e.other_type === k} onClick={() => onChange({ other_type: k })}>
-                  {k}
-                </Chip>
-              ))}
-            </div>
-          </div>
-          {e.other_type === "Conference" && (
-            <label className="flex flex-col gap-1">
-              <Label>Conference</Label>
-              <input value={e.title} maxLength={140} onChange={(x) => onChange({ title: x.target.value })} placeholder="Name of the conference" className={inputCls} />
-            </label>
-          )}
-          <div className="flex flex-col gap-1">
-            <Label optional>HQ</Label>
-            <HqPicker value={e.hq} onChange={(hq) => onChange({ hq })} seat={seat} optional />
-          </div>
-        </>
-      )}
-
+    <>
       <label className="flex flex-col gap-1">
-        <Label optional>Note</Label>
-        <textarea rows={2} value={e.note} maxLength={600} onChange={(x) => onChange({ note: x.target.value })} placeholder="Anything the team should know" className={cn(inputCls, "resize-none")} />
+        <Label>Title</Label>
+        <input value={e.title} maxLength={140} onChange={(x) => onChange({ title: x.target.value })} placeholder="e.g. Cycle meeting with ABM" className={inputCls} />
       </label>
-      {error && <small className="text-[12px] font-semibold text-rose-700">{error}</small>}
-    </div>
+      <div className="flex flex-col gap-1">
+        <Label>HQ</Label>
+        <HqPicker value={e.hq} onChange={(hq) => onChange({ hq })} seat={seat} />
+      </div>
+      <div className="grid grid-cols-2 gap-2">
+        <label className="flex flex-col gap-1">
+          <Label>From</Label>
+          <input type="time" value={e.from} onChange={(x) => onChange({ from: x.target.value })} className={inputCls} />
+        </label>
+        <label className="flex flex-col gap-1">
+          <Label>To</Label>
+          <input type="time" value={e.to} onChange={(x) => onChange({ to: x.target.value })} className={inputCls} />
+        </label>
+      </div>
+      <label className="flex flex-col gap-1">
+        <Label optional>Venue</Label>
+        <input value={e.location} maxLength={140} onChange={(x) => onChange({ location: x.target.value })} placeholder="e.g. Hotel name, office" className={inputCls} />
+      </label>
+      <div className="flex flex-col gap-1">
+        <Label optional>Who else attended</Label>
+        <RHFCombobox
+          value={e.attendees}
+          onChange={(v) => onChange({ attendees: Array.isArray(v) ? v : [] })}
+          options={people}
+          multiple
+          placeholder="Pick colleagues"
+          searchPlaceholder="Search colleague"
+          selectionLabel="colleague"
+        />
+      </div>
+      <NoteField e={e} onChange={onChange} />
+    </>
   );
 }
+
+function OtherFields({ e, seat, onChange }) {
+  return (
+    <>
+      <div className="flex flex-wrap gap-1.5">
+        {OTHER_KINDS.map((k) => (
+          <Chip key={k} on={e.other_type === k} onClick={() => onChange({ other_type: k })}>
+            {k}
+          </Chip>
+        ))}
+      </div>
+      {e.other_type === "Conference" && (
+        <label className="flex flex-col gap-1">
+          <Label>Conference</Label>
+          <input value={e.title} maxLength={140} onChange={(x) => onChange({ title: x.target.value })} placeholder="Name of the conference" className={inputCls} />
+        </label>
+      )}
+      <div className="flex flex-col gap-1">
+        <Label optional>HQ</Label>
+        <HqPicker value={e.hq} onChange={(hq) => onChange({ hq })} seat={seat} optional />
+      </div>
+      <NoteField e={e} onChange={onChange} />
+    </>
+  );
+}
+
+const NoteField = ({ e, onChange }) => (
+  <label className="flex flex-col gap-1">
+    <Label optional>Note</Label>
+    <textarea rows={2} value={e.note} maxLength={600} onChange={(x) => onChange({ note: x.target.value })} placeholder="Anything the team should know" className={cn(inputCls, "resize-none")} />
+  </label>
+);
 
 function DoctorFields({ e, seat, people, onChange }) {
   const docs = useHqDoctors(e.hq, seat.rolesAt);
@@ -583,6 +613,7 @@ function DoctorFields({ e, seat, people, onChange }) {
           selectionLabel="colleague"
         />
       </div>
+      <NoteField e={e} onChange={onChange} />
     </>
   );
 }
