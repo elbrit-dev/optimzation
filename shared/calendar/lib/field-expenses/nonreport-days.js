@@ -48,18 +48,21 @@ const monthEnd = (ym) => {
 
 /* ---------- a tiny store: the month's Tasks, shared by the card and the sheet ---------- */
 
-const state = new Map(); // month -> { status: "loading" | "ready" | "error", tasks, error }
+const state = new Map(); // month -> { status: "loading" | "ready" | "error", tasks, error, at }
+// read again when older than this: a day the team marks done leaves the card
+// the next time the strip or the sheet opens, no reload needed
+const STALE_MS = 60 * 1000;
 const subs = new Set();
 const emit = () => subs.forEach((f) => f());
 const EMPTY = { status: "idle", tasks: [], error: null };
 
 export function loadNonReport(month, force = false) {
   const cur = state.get(month);
-  if (!force && cur && cur.status !== "error") return;
+  if (!force && cur && (cur.status === "loading" || (cur.status === "ready" && Date.now() - (cur.at || 0) < STALE_MS))) return;
   state.set(month, { status: "loading", tasks: cur?.tasks || [], error: null });
   emit();
   call({ action: "list", from: `${month}-01`, to: monthEnd(month) })
-    .then((r) => state.set(month, { status: "ready", tasks: r.tasks || [], error: null }))
+    .then((r) => state.set(month, { status: "ready", tasks: r.tasks || [], error: null, at: Date.now() }))
     .catch((error) => state.set(month, { status: "error", tasks: cur?.tasks || [], error }))
     .finally(emit);
 }
@@ -88,7 +91,7 @@ export async function sendNonReport({ month, date, entries }) {
   const task = r.task || null;
   if (task && month) {
     const cur = state.get(month) || EMPTY;
-    state.set(month, { ...cur, status: "ready", tasks: [task, ...(cur.tasks || [])] });
+    state.set(month, { ...cur, status: "ready", tasks: [task, ...(cur.tasks || [])], at: cur.at || Date.now() });
     emit();
   }
   return task;

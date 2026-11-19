@@ -56,6 +56,10 @@ const byDate = (tasks) => {
   for (const t of tasks || []) m.set(t.date, [...(m.get(t.date) || []), t]);
   return m;
 };
+/* the days still to show: a day whose request the team marked Completed is
+   gone at once (19 Nov 2026), without waiting for the month's rebuild */
+const openDays = (days, map) => (days || []).filter((d) => dayState(map.get(d.date)) !== "done");
+
 /* what the day shows: not added yet / sent (the latest open Task's state) / done */
 function dayPill(list) {
   const st = dayState(list);
@@ -70,10 +74,11 @@ function dayPill(list) {
 
 export function NonReportCard() {
   const f = useFieldExpenses();
-  const days = f.nonReported || [];
-  const { status, tasks } = useNonReportTasks(f.month, days.length > 0);
-  if (!days.length) return null;
+  const all = f.nonReported || [];
+  const { status, tasks } = useNonReportTasks(f.month, all.length > 0);
   const map = byDate(tasks);
+  const days = openDays(all, map);
+  if (!days.length) return null;
   const left = days.filter((d) => dayState(map.get(d.date)) === "none").length;
   const sent = days.length - left;
   return (
@@ -110,12 +115,14 @@ export function NonReportCard() {
 
 export function NonReportSheet() {
   const f = useFieldExpenses();
-  const days = f.nonReported || [];
   const nr = useNonReportTasks(f.month, true);
   const map = useMemo(() => byDate(nr.tasks), [nr.tasks]);
+  const days = openDays(f.nonReported, map);
   const isLeft = (d) => dayState(map.get(d)) === "none";
-  // the day on screen: the one asked for, else the first still to add
-  const [date, setDate] = useState(() => f.sheet?.date || (days.find((d) => isLeft(d.date)) || days[0])?.date || null);
+  // the day on screen: the one asked for, else the first still to add (and
+  // never one that has just been marked done)
+  const [picked, setDate] = useState(() => f.sheet?.date || null);
+  const date = days.some((d) => d.date === picked) ? picked : (days.find((d) => isLeft(d.date)) || days[0])?.date || null;
   // what the rep has typed, per day -- moving to another day keeps it
   const [drafts, setDrafts] = useState({});
   const draft = (date && drafts[date]) || EMPTY_DRAFT;
@@ -144,7 +151,7 @@ export function NonReportSheet() {
           </button>
         )}
         {days.length === 0 ? (
-          <p className="py-6 text-center text-[13px] text-gray-500">Nothing here — every working day has something on record.</p>
+          <p className="py-6 text-center text-[13px] text-gray-500">Nothing left here — every day is sorted.</p>
         ) : (
           <>
             {/* the days, as chips: tap one to fill it in -- no pages, no back */}
@@ -182,7 +189,6 @@ export function NonReportSheet() {
             <p className="-mt-1 flex flex-wrap gap-x-3 text-[11px] font-semibold text-gray-500">
               <span className="flex items-center gap-1"><i className="h-1.5 w-1.5 rounded-full bg-rose-400" /> to add</span>
               <span className="flex items-center gap-1"><i className="h-1.5 w-1.5 rounded-full bg-amber-400" /> sent</span>
-              <span className="flex items-center gap-1"><i className="h-1.5 w-1.5 rounded-full bg-green-500" /> done</span>
             </p>
             {date && <DayBody key={date} date={date} tasks={map.get(date) || []} draft={draft} setDraft={setDraft} />}
           </>
@@ -674,6 +680,7 @@ export function NonReportDayRow({ date }) {
   const f = useFieldExpenses();
   const { tasks } = useNonReportTasks(f.month, true);
   const list = tasks.filter((t) => t.date === date);
+  if (dayState(list) === "done") return null;
   const pill = dayPill(list);
   return (
     <button
