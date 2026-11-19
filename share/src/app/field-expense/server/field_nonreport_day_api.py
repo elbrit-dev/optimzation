@@ -11,12 +11,12 @@
 # ignore_permissions):
 #
 #   action=raise   date (yyyy-mm-dd), entries (JSON list, 1..10), each one of
-#       { type: "doctor_visit", hq, doctors: [lead name, ...] (1..80),
-#         joint_with: [employee, ...], note }
-#       { type: "meeting", hq, title, from: "HH:MM", to: "HH:MM", location,
-#         attendees: [employee, ...], note }
+#       { type: "doctor_visit", hq, doctors: [lead name, ...] (1..80), note }
+#       { type: "meeting", hq, title, note }
 #       { type: "other", other_type: Admin Day | Chemist Day | Conference,
-#         hq, title, note }
+#         hq, title (Conference), note }
+#     HQ is required for every entry (19 Nov 2026: no joint working, venue,
+#     time or attendees asked -- the meeting is the day, the rep alone).
 #     -> { ok: 1, task: { name, status, date, subject, creation, description, replies } }
 #        The day must be the rep's own NON-Reported Field Expense Day. At most
 #        MAX_OPEN unfinished Tasks per day. The Task's description carries the
@@ -51,13 +51,6 @@ def esc(s):
 def iso(s):
     s = str(s or "")[:10]
     if len(s) == 10 and s[4] == "-" and s[7] == "-" and s[:4].isdigit() and s[5:7].isdigit() and s[8:].isdigit():
-        return s
-    return None
-
-
-def hhmm(s):
-    s = str(s or "").strip()[:5]
-    if len(s) == 5 and s[2] == ":" and s[:2].isdigit() and s[3:].isdigit() and int(s[:2]) < 24 and int(s[3:]) < 60:
         return s
     return None
 
@@ -103,7 +96,6 @@ if action == "raise":
     if len(entries) > MAX_ENTRIES:
         frappe.throw("Too many entries for one day (" + str(MAX_ENTRIES) + " at most).")
 
-    emp_names = {}
     lines = []        # for a person, one per entry
     sections = []     # the description's HTML, one per entry
     drafts = []       # the events to make, in the planner's Event fields
@@ -135,13 +127,6 @@ if action == "raise":
                     missing.append(d)
             if missing:
                 frappe.throw("Doctor not found: " + ", ".join(missing[:3]))
-            joint = []
-            for x in ids(e.get("joint_with"), 10):
-                nm = frappe.db.get_value("Employee", x, "employee_name")
-                if not nm:
-                    frappe.throw("Unknown employee: " + x)
-                emp_names[x] = nm
-                joint.append(x)
             docs_out = []
             lis = ""
             for d in docs:
@@ -149,50 +134,25 @@ if action == "raise":
                 docs_out.append({"id": d, "name": r.lead_name, "code": r.custom_doctor_code, "city": r.city})
                 lis = lis + "<li>" + esc(r.lead_name) + " <small>(" + esc(d) + (" · " + esc(r.custom_doctor_code) if r.custom_doctor_code else "") + (" · " + esc(r.city) if r.city else "") + ")</small></li>"
                 drafts.append({"tag": "Doctor Visit plan", "date": day, "hqTerritory": hq, "doctor": d,
-                               "employees": [emp.name] + joint, "description": note})
+                               "employees": [emp.name], "description": note})
             n_doctors = n_doctors + len(docs)
-            jn = []
-            for x in joint:
-                jn.append(emp_names[x])
-            jt = (" · with " + ", ".join(jn)) if joint else ""
-            lines.append("Doctor visits · " + hq + " · " + str(len(docs)) + " doctor" + ("s" if len(docs) > 1 else "") + jt + (" — " + note if note else ""))
-            sections.append("<p><b>Doctor visits</b> · " + esc(hq) + " · " + str(len(docs)) + esc(jt) + "</p><ol>" + lis + "</ol>"
+            lines.append("Doctor visits · " + hq + " · " + str(len(docs)) + " doctor" + ("s" if len(docs) > 1 else "") + (" — " + note if note else ""))
+            sections.append("<p><b>Doctor visits</b> · " + esc(hq) + " · " + str(len(docs)) + "</p><ol>" + lis + "</ol>"
                             + ("<p>Note: " + esc(note) + "</p>" if note else ""))
-            clean_entries.append({"type": kind, "hq": hq, "doctors": docs_out, "joint_with": joint, "note": note})
+            clean_entries.append({"type": kind, "hq": hq, "doctors": docs_out, "note": note})
         elif kind == "meeting":
             title = clean(e.get("title"), 140)
             if len(title) < 3:
                 frappe.throw("Give the meeting a title.")
             if not hq:
                 frappe.throw("Pick the HQ of the meeting.")
-            t_from = hhmm(e.get("from")) or "10:00"
-            t_to = hhmm(e.get("to")) or t_from
-            if t_to < t_from:
-                frappe.throw("The meeting ends before it starts.")
-            loc = clean(e.get("location"), 140)
-            att = []
-            for x in ids(e.get("attendees"), 40):
-                nm = frappe.db.get_value("Employee", x, "employee_name")
-                if not nm:
-                    frappe.throw("Unknown employee: " + x)
-                emp_names[x] = nm
-                att.append(x)
-            if emp.name not in att:
-                att = [emp.name] + att
-                emp_names[emp.name] = emp.employee_name
-            an = []
-            for x in att:
-                an.append(emp_names.get(x) or x)
-            names = ", ".join(an)
             n_meet = n_meet + 1
-            lines.append("Meeting · " + title + " · " + hq + " · " + t_from + "–" + t_to + (" · " + loc if loc else "") + " · " + str(len(att)) + " attending" + (" — " + note if note else ""))
-            sections.append("<p><b>Meeting</b> · " + esc(title) + "<br>HQ " + esc(hq) + " · " + t_from + "–" + t_to
-                            + (" · " + esc(loc) if loc else "") + "<br>Attending: " + esc(names)
+            lines.append("Meeting · " + title + " · " + hq + (" — " + note if note else ""))
+            sections.append("<p><b>Meeting</b> · " + esc(title) + "<br>HQ " + esc(hq)
                             + ("<br>Note: " + esc(note) if note else "") + "</p>")
-            drafts.append({"tag": "Meeting", "title": title, "start": day + " " + t_from + ":00", "end": day + " " + t_to + ":00",
-                           "hqTerritory": hq, "meetingLocation": loc, "employees": att, "description": note})
-            clean_entries.append({"type": kind, "hq": hq, "title": title, "from": t_from, "to": t_to, "location": loc,
-                                  "attendees": att, "note": note})
+            drafts.append({"tag": "Meeting", "title": title, "date": day, "allDay": 1,
+                           "hqTerritory": hq, "employees": [emp.name], "description": note})
+            clean_entries.append({"type": kind, "hq": hq, "title": title, "note": note})
         elif kind == "other":
             ot = str(e.get("other_type") or "")
             if ot not in OTHER_TYPES:
@@ -200,9 +160,11 @@ if action == "raise":
             title = clean(e.get("title"), 140)
             if ot == "Conference" and len(title) < 3:
                 frappe.throw("Name the conference.")
+            if not hq:
+                frappe.throw("Pick the HQ of the " + ot.lower() + ".")
             n_other = n_other + 1
-            lines.append(ot + (" · " + title if title else "") + (" · " + hq if hq else "") + (" — " + note if note else ""))
-            sections.append("<p><b>" + esc(ot) + "</b>" + (" · " + esc(title) if title else "") + (" · HQ " + esc(hq) if hq else "")
+            lines.append(ot + (" · " + title if title else "") + " · " + hq + (" — " + note if note else ""))
+            sections.append("<p><b>" + esc(ot) + "</b>" + (" · " + esc(title) if title else "") + " · HQ " + esc(hq)
                             + ("<br>Note: " + esc(note) if note else "") + "</p>")
             drafts.append({"tag": "Other", "otherType": ot, "date": day, "hqTerritory": hq, "title": title,
                            "employees": [emp.name], "description": note})

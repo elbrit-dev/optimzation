@@ -6,10 +6,10 @@
    chips on top, the chosen day's form below (no pages, no back button), and
    the rep ticks what they did -- any mix of
      - doctor visits: an HQ, then many doctors at once (the DR Tour Plan's
-       doctor picker, the doctors mapped to the rep's seats at that HQ),
-       and who they worked with
-     - meetings: title, HQ, time, venue, who attended
-     - other work: Admin Day / Chemist Day / Conference
+       doctor picker, the doctors mapped to the rep's seats at that HQ)
+     - a meeting: title and HQ
+     - other work: Admin Day / Chemist Day / Conference, and its HQ
+   (19 Nov 2026: no joint working, venue, time or attendees -- HQ always)
    -- sent as one ERP Task (lib/field-expenses/nonreport-days.js). The team
    makes the events from it; the rep follows it and its replies here. */
 
@@ -21,10 +21,8 @@ import { ModalTitle } from "@calendar/components/ui/responsive-modal";
 import { useCalendar } from "@calendar/components/calendar/contexts/calendar-context";
 import { useFieldExpenses } from "@calendar/components/calendar/field/field-context";
 import { RHFDoctorCardSelector } from "@calendar/components/RHFDoctorCardSelector";
-import { RHFCombobox } from "@calendar/components/ui/RHFCombobox";
 import { fetchDoctorsByRoles } from "@calendar/components/calendar/module/event/services/master-data.service";
 import { resolveLoggedInRoleId, resolveSeatHqs } from "@calendar/lib/employeeHeirachy";
-import { LOGGED_IN_USER } from "@calendar/components/auth/calendar-users";
 import { dayLabel } from "@calendar/lib/field-expenses/field-days";
 import { DONE, OTHER_KINDS, dayState, loadNonReport, sendNonReport, useNonReportTasks } from "@calendar/lib/field-expenses/nonreport-days";
 import { HELP_STATUS, askedText, htmlText } from "@calendar/lib/field-expenses/trip-help";
@@ -260,10 +258,10 @@ function useHqDoctors(hq, rolesAt) {
 const EMPTY_DRAFT = { doctor_visit: null, meeting: null, other: null };
 const blank = (type, hq) =>
   type === "doctor_visit"
-    ? { hq, doctors: [], joint_with: [], note: "" }
+    ? { hq, doctors: [], note: "" }
     : type === "meeting"
-      ? { hq, title: "", from: "10:00", to: "11:00", location: "", attendees: [], note: "" }
-      : { other_type: "", hq: "", title: "", note: "" };
+      ? { hq, title: "", note: "" }
+      : { other_type: "", hq, title: "", note: "" };
 
 function entryError(type, e) {
   if (type === "doctor_visit") {
@@ -272,10 +270,10 @@ function entryError(type, e) {
   } else if (type === "meeting") {
     if (e.title.trim().length < 3) return "Meeting: give it a title";
     if (!e.hq) return "Meeting: pick the HQ";
-    if (!e.from || !e.to || e.to < e.from) return "Meeting: check the time";
   } else {
     if (!e.other_type) return "Other work: pick the kind";
     if (e.other_type === "Conference" && e.title.trim().length < 3) return "Other work: name the conference";
+    if (!e.hq) return "Other work: pick the HQ";
   }
   return null;
 }
@@ -283,15 +281,12 @@ const picked = (draft) => KINDS.filter((k) => draft[k.type]).map((k) => ({ type:
 
 const KINDS = [
   { type: "doctor_visit", label: "Doctor visits", hint: "Many doctors at once", Icon: Stethoscope, on: "border-blue-600 bg-blue-50 text-blue-800", dot: "bg-blue-600" },
-  { type: "meeting", label: "Meeting", hint: "Title, HQ, time", Icon: Users, on: "border-violet-600 bg-violet-50 text-violet-800", dot: "bg-violet-600" },
+  { type: "meeting", label: "Meeting", hint: "Title and HQ", Icon: Users, on: "border-violet-600 bg-violet-50 text-violet-800", dot: "bg-violet-600" },
   { type: "other", label: "Other work", hint: "Admin, chemist, conference", Icon: Briefcase, on: "border-emerald-600 bg-emerald-50 text-emerald-800", dot: "bg-emerald-600" },
 ];
 
 function DayBody({ date, tasks, draft, setDraft }) {
   const seat = useSeatHqs();
-  const { employeeOptions } = useCalendar();
-  // colleagues to pick (not the rep: they are always in)
-  const people = useMemo(() => (employeeOptions || []).filter((o) => String(o.value) !== String(LOGGED_IN_USER.id)), [employeeOptions]);
   const blocked = tasks.filter((t) => !DONE.has(t.status)).length >= 3;
   const toggle = (type) => setDraft({ [type]: draft[type] ? null : blank(type, seat.own) });
   const patch = (type) => (p) => setDraft({ [type]: { ...draft[type], ...p } });
@@ -344,12 +339,12 @@ function DayBody({ date, tasks, draft, setDraft }) {
           </div>
           {draft.doctor_visit && (
             <Section kind={KINDS[0]}>
-              <DoctorFields e={draft.doctor_visit} seat={seat} people={people} onChange={patch("doctor_visit")} />
+              <DoctorFields e={draft.doctor_visit} seat={seat} onChange={patch("doctor_visit")} />
             </Section>
           )}
           {draft.meeting && (
             <Section kind={KINDS[1]}>
-              <MeetingFields e={draft.meeting} seat={seat} people={people} onChange={patch("meeting")} />
+              <MeetingFields e={draft.meeting} seat={seat} onChange={patch("meeting")} />
             </Section>
           )}
           {draft.other && (
@@ -457,17 +452,12 @@ const Label = ({ children, optional }) => (
   </span>
 );
 
-function HqPicker({ value, onChange, seat, optional }) {
+function HqPicker({ value, onChange, seat }) {
   const { hqs } = seat;
   if (!hqs.length) return <small className="text-[12px] text-gray-500">{seat.ready ? "No HQ found for your seat" : "Loading your HQs…"}</small>;
   if (hqs.length <= 6) {
     return (
       <div className="flex flex-wrap gap-1.5">
-        {optional && (
-          <Chip on={!value} onClick={() => onChange("")}>
-            None
-          </Chip>
-        )}
         {hqs.map((hq) => (
           <Chip key={hq} on={value === hq} onClick={() => onChange(hq)}>
             {hqName(hq)}
@@ -478,7 +468,7 @@ function HqPicker({ value, onChange, seat, optional }) {
   }
   return (
     <select value={value || ""} onChange={(e) => onChange(e.target.value)} className={inputCls}>
-      <option value="">{optional ? "No HQ" : "Pick the HQ"}</option>
+      <option value="">Pick the HQ</option>
       {hqs.map((hq) => (
         <option key={hq} value={hq}>
           {hqName(hq)}
@@ -502,7 +492,7 @@ const Chip = ({ on, onClick, children }) => (
   </button>
 );
 
-function MeetingFields({ e, seat, people, onChange }) {
+function MeetingFields({ e, seat, onChange }) {
   return (
     <>
       <label className="flex flex-col gap-1">
@@ -512,32 +502,6 @@ function MeetingFields({ e, seat, people, onChange }) {
       <div className="flex flex-col gap-1">
         <Label>HQ</Label>
         <HqPicker value={e.hq} onChange={(hq) => onChange({ hq })} seat={seat} />
-      </div>
-      <div className="grid grid-cols-2 gap-2">
-        <label className="flex flex-col gap-1">
-          <Label>From</Label>
-          <input type="time" value={e.from} onChange={(x) => onChange({ from: x.target.value })} className={inputCls} />
-        </label>
-        <label className="flex flex-col gap-1">
-          <Label>To</Label>
-          <input type="time" value={e.to} onChange={(x) => onChange({ to: x.target.value })} className={inputCls} />
-        </label>
-      </div>
-      <label className="flex flex-col gap-1">
-        <Label optional>Venue</Label>
-        <input value={e.location} maxLength={140} onChange={(x) => onChange({ location: x.target.value })} placeholder="e.g. Hotel name, office" className={inputCls} />
-      </label>
-      <div className="flex flex-col gap-1">
-        <Label optional>Who else attended</Label>
-        <RHFCombobox
-          value={e.attendees}
-          onChange={(v) => onChange({ attendees: Array.isArray(v) ? v : [] })}
-          options={people}
-          multiple
-          placeholder="Pick colleagues"
-          searchPlaceholder="Search colleague"
-          selectionLabel="colleague"
-        />
       </div>
       <NoteField e={e} onChange={onChange} />
     </>
@@ -561,8 +525,8 @@ function OtherFields({ e, seat, onChange }) {
         </label>
       )}
       <div className="flex flex-col gap-1">
-        <Label optional>HQ</Label>
-        <HqPicker value={e.hq} onChange={(hq) => onChange({ hq })} seat={seat} optional />
+        <Label>HQ</Label>
+        <HqPicker value={e.hq} onChange={(hq) => onChange({ hq })} seat={seat} />
       </div>
       <NoteField e={e} onChange={onChange} />
     </>
@@ -579,7 +543,7 @@ const NoteField = ({ e, onChange }) => (
 /* Doctor visits: the HQ, then the doctors as ONE compact row -- the long list
    (200+ doctors at an HQ) opens in its own panel over the sheet, so a meeting
    ticked with the visits sits right below and nobody scrolls past the list. */
-function DoctorFields({ e, seat, people, onChange }) {
+function DoctorFields({ e, seat, onChange }) {
   const docs = useHqDoctors(e.hq, seat.rolesAt);
   const [picking, setPicking] = useState(false);
   const byId = useMemo(() => new Map(docs.list.map((d) => [d.value, d])), [docs.list]);
@@ -658,18 +622,6 @@ function DoctorFields({ e, seat, people, onChange }) {
           </div>
         </div>
       )}
-      <div className="flex flex-col gap-1">
-        <Label optional>Worked with</Label>
-        <RHFCombobox
-          value={e.joint_with}
-          onChange={(v) => onChange({ joint_with: Array.isArray(v) ? v : [] })}
-          options={people}
-          multiple
-          placeholder="Manager / colleague on the visits"
-          searchPlaceholder="Search colleague"
-          selectionLabel="colleague"
-        />
-      </div>
       <NoteField e={e} onChange={onChange} />
     </>
   );
