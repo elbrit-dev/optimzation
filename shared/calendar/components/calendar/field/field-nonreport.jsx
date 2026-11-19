@@ -570,8 +570,15 @@ const NoteField = ({ e, onChange }) => (
   </label>
 );
 
+/* Doctor visits: the HQ, then the doctors as ONE compact row -- the long list
+   (200+ doctors at an HQ) opens in its own panel over the sheet, so a meeting
+   ticked with the visits sits right below and nobody scrolls past the list. */
 function DoctorFields({ e, seat, people, onChange }) {
   const docs = useHqDoctors(e.hq, seat.rolesAt);
+  const [picking, setPicking] = useState(false);
+  const byId = useMemo(() => new Map(docs.list.map((d) => [d.value, d])), [docs.list]);
+  const names = e.doctors.map((id) => byId.get(id)?.label || id);
+  const SHOW = 4;
   return (
     <>
       <div className="flex flex-col gap-1">
@@ -581,15 +588,50 @@ function DoctorFields({ e, seat, people, onChange }) {
       </div>
       {e.hq && (
         <div className="flex flex-col gap-1">
-          <span className="flex items-center gap-2">
-            <Label>Doctors visited</Label>
-            {e.doctors.length > 0 && <Pill tone="blue">{e.doctors.length} picked</Pill>}
-          </span>
+          <Label>Doctors visited</Label>
           {docs.error ? (
             <small className="text-[12px] font-semibold text-rose-700">Couldn&apos;t load the doctors of {hqName(e.hq)} — close and open again.</small>
           ) : !docs.loading && !docs.list.length ? (
             <small className="text-[12px] text-gray-500">No doctors are mapped to your seat at {hqName(e.hq)}.</small>
           ) : (
+            <button
+              type="button"
+              onClick={() => setPicking(true)}
+              className={cn(
+                "flex w-full items-center gap-2.5 rounded-xl border px-3 py-2.5 text-left active:bg-gray-50",
+                e.doctors.length ? "border-blue-200 bg-blue-50/60" : "border-dashed border-blue-400 bg-white"
+              )}
+            >
+              <Stethoscope className="h-4 w-4 shrink-0 text-blue-600" aria-hidden />
+              <span className="min-w-0 flex-1">
+                <b className="block text-[13.5px] font-bold text-gray-900">
+                  {e.doctors.length ? `${plural(e.doctors.length, "doctor")} picked` : docs.loading ? "Loading doctors…" : `Pick doctors · ${docs.list.length} at ${hqName(e.hq)}`}
+                </b>
+                {names.length > 0 && (
+                  <small className="block truncate text-[11.5px] text-gray-600">
+                    {names.slice(0, SHOW).join(", ")}
+                    {names.length > SHOW ? ` +${names.length - SHOW} more` : ""}
+                  </small>
+                )}
+              </span>
+              <span className="shrink-0 text-[12.5px] font-extrabold text-blue-700">{e.doctors.length ? "Change" : "Pick"}</span>
+            </button>
+          )}
+        </div>
+      )}
+      {picking && (
+        // fixed inside the sheet (its panel is transformed): covers the sheet only
+        <div className="fixed inset-0 z-30 flex flex-col bg-white" role="dialog" aria-label="Pick doctors">
+          <div className="flex items-center gap-2 border-b border-gray-100 px-4 py-3">
+            <span className="min-w-0 flex-1">
+              <b className="block text-[16px] font-extrabold text-gray-900">Doctors visited</b>
+              <small className="block text-[12px] font-semibold text-gray-500">
+                {hqName(e.hq)} · tick everyone you met
+              </small>
+            </span>
+            {e.doctors.length > 0 && <Pill tone="blue">{e.doctors.length} picked</Pill>}
+          </div>
+          <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain px-4 py-3">
             <RHFDoctorCardSelector
               value={e.doctors}
               onChange={(v) => onChange({ doctors: Array.isArray(v) ? v : v ? [v] : [] })}
@@ -598,7 +640,16 @@ function DoctorFields({ e, seat, people, onChange }) {
               hqTerritory={e.hq}
               multiple
             />
-          )}
+          </div>
+          <div className="border-t border-gray-100 px-4 pb-[max(16px,env(safe-area-inset-bottom))] pt-3">
+            <button
+              type="button"
+              onClick={() => setPicking(false)}
+              className="flex min-h-[48px] w-full items-center justify-center rounded-2xl bg-blue-600 text-[15px] font-bold text-white active:scale-[.98]"
+            >
+              {e.doctors.length ? `Done · ${plural(e.doctors.length, "doctor")}` : "Done"}
+            </button>
+          </div>
         </div>
       )}
       <div className="flex flex-col gap-1">
