@@ -193,3 +193,17 @@ A token that arrives after the 20 s still counts as a successful switch.
 "Dismiss switch error" are available for a Studio-built message instead.
 Known edge: switching to the account you are already on looks like a refused
 switch (the token does not change).
+
+## 6. `elbrit-users.json` (Firebase user export) removed from git
+
+The file (Firebase Auth export with phone numbers and emails, ~63 KB, first
+committed in `457c90f`) was tracked. `.gitignore` already listed it, but an
+ignore rule does nothing for a file that is already tracked. Now
+`git rm --cached` (the local copy is kept), so the existing ignore rule takes
+effect. Nothing in the app imports it.
+
+History is NOT rewritten: the file stays readable in every past commit and in
+every existing clone/fork of `elbrit-dev/optimzation`. Purging it
+(git filter-repo / BFG + force-push + everyone re-cloning + GitHub support for
+cached views) is a separate decision. Treat the data as already exposed to
+anyone who had repo access.
