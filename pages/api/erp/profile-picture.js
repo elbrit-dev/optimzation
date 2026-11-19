@@ -9,14 +9,55 @@
 //
 // This runs server-side so the endpoint and token are read from env here rather
 // than passed in from Studio the way HelpSupport does it.
+//
+// WHO MAY DO WHAT (SECURITY_PERM_V2.md, fix 2). Both methods need the caller's
+// own ERP token in `x-erp-token`, checked with frappe.auth.get_logged_user:
+//   GET  any signed-in caller may read any user's picture (avatars are shown
+//        for other people too). The read itself still uses the service token,
+//        because a normal user cannot read another User doc.
+//   POST only for the caller's OWN User, or by a System Manager. The Employee
+//        mirror is only written when that Employee's user_id is the same User.
+//        The writes use the service token (a normal user cannot write the
+//        Employee doc), but only after those checks.
 
 import {
   absoluteFileUrl,
+  callerErpToken,
   erpConfig,
+  ErpError,
   isSameOrigin,
   readErpError,
+  resolveCaller,
   runGraphQL,
+  sameUser,
+  userRoles,
 } from "../../../lib/erpServer";
+
+/** The caller per their own token, or a response already sent (returns null). */
+async function requireCaller(req, res, erp) {
+  try {
+    return await resolveCaller(new URL(erp.endpointUrl).origin, callerErpToken(req));
+  } catch (error) {
+    const status = error instanceof ErpError && error.status === 401 ? 401 : 502;
+    res.status(status).json({ error: error?.message || "Could not check who is asking." });
+    return null;
+  }
+}
+
+/** Employee.user_id, read with the service token; "" when it cannot be read. */
+async function employeeUserId(employee, erp) {
+  try {
+    const response = await fetch(
+      `${new URL(erp.endpointUrl).origin}/api/resource/Employee/${encodeURIComponent(employee)}`,
+      { headers: { Accept: "application/json", Authorization: erp.authToken }, redirect: "manual" }
+    );
+    if (!response.ok) return "";
+    const payload = await response.json().catch(() => ({}));
+    return String(payload?.data?.user_id || "");
+  } catch {
+    return "";
+  }
+}
 
 // `modified` rides along as a cache-buster: Frappe can hand back a file URL it
 // has reused, and without a changing query string the browser would keep
@@ -220,6 +261,10 @@ async function handleRead(req, res) {
   const user = validatedUser.user;
   const employee = String(req.query?.employee || "").trim().slice(0, 140);
 
+  if (!callerErpToken(req)) {
+    return res.status(401).json({ error: "Sign in again to see profile pictures." });
+  }
+
   let erp;
   try {
     erp = erpConfig(String(req.query?.endpointKey || "").trim());
@@ -227,6 +272,9 @@ async function handleRead(req, res) {
     console.error("Profile picture: ERP config missing", error);
     return res.status(500).json({ error: error?.message || "The ERP connection is not configured." });
   }
+
+  // Any signed-in person may read; nobody else.
+  if (!(await requireCaller(req, res, erp))) return undefined;
 
   let data;
   try {
@@ -272,7 +320,11 @@ export default async function handler(req, res) {
   const decoded = decodeDataUrl(req.body?.dataUrl);
   if (decoded.error) return res.status(400).json({ error: decoded.error });
 
-  const employee = String(req.body?.employee || "").trim().slice(0, 140);
+  const requestedEmployee = String(req.body?.employee || "").trim().slice(0, 140);
+
+  if (!callerErpToken(req)) {
+    return res.status(401).json({ error: "Sign in again to change your picture." });
+  }
 
   let erp;
   try {
@@ -280,6 +332,30 @@ export default async function handler(req, res) {
   } catch (error) {
     console.error("Profile picture: ERP config missing", error);
     return res.status(500).json({ error: error?.message || "The ERP connection is not configured." });
+  }
+
+  const caller = await requireCaller(req, res, erp);
+  if (!caller) return undefined;
+
+  // Your own picture, or anyone's if you are a System Manager.
+  if (!sameUser(caller, user)) {
+    const roles = await userRoles(new URL(erp.endpointUrl).origin, erp.authToken, caller);
+    if (!roles.includes("System Manager")) {
+      console.warn("Profile picture: refused", caller, "->", user);
+      return res.status(403).json({ error: "You can only change your own profile picture." });
+    }
+  }
+
+  // The Employee mirror only for the Employee that belongs to this User, so the
+  // request cannot repaint some other person's HR record.
+  let employee = "";
+  let employeeWarning = "";
+  if (requestedEmployee) {
+    if (sameUser(await employeeUserId(requestedEmployee, erp), user)) {
+      employee = requestedEmployee;
+    } else {
+      employeeWarning = "Your picture was saved, but the Employee record was not updated (it is not linked to this user).";
+    }
   }
 
   let uploaded;
@@ -313,7 +389,7 @@ export default async function handler(req, res) {
 
   // The Employee record is a nice-to-have mirror: HR screens read `image` from
   // there. A failure leaves the User picture correct, so it is only a warning.
-  let warning = "";
+  let warning = employeeWarning;
   if (employee) {
     try {
       await runGraphQL(

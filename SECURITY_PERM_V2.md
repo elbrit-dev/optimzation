@@ -39,3 +39,28 @@ read and print their OWN Salary Slip with their own token (Salary Slip read via
 the Employee user permission). If the ERP role setup does not allow it,
 payslip download breaks for those users until the ERP permission is added - do
 not "fix" that by going back to the service token.
+
+## 2. `/api/erp/profile-picture`
+
+Before: GET read any user's picture for anyone; POST uploaded a file and
+rewrote `User.user_image` (and `Employee.image`) for whatever `user` /
+`employee` the request body named, using the service token. The only guard was
+a same-origin check, which does not stop a signed-in (or not signed-in) person
+on our own origin from replacing anyone's picture, or repainting any Employee
+record's image.
+
+Now (both methods need `x-erp-token`, resolved with `get_logged_user`):
+- GET: any valid signed-in caller may read any user's picture (avatars of other
+  people are legitimate). No token / bad token -> 401. The read still uses the
+  service token, because a normal user cannot read another User doc.
+- POST: allowed only when the caller IS the target `user` (case-insensitive),
+  or the caller has the System Manager role (roles read from the caller's User
+  doc with the service token; a failed read grants nothing). Otherwise 403
+  "You can only change your own profile picture."
+- The Employee mirror is written only when that Employee's `user_id` equals the
+  target user; otherwise the User picture is still saved and a warning comes
+  back. The writes themselves still use the service token (a normal user cannot
+  write the Employee doc), but only after these checks. Same-origin check kept.
+- Client (`pictureClient.js`, `useProfilePicture.js`): sends the token. With no
+  token at all the avatar read is skipped (initials, as before for a failed
+  read) and a save shows "Your sign-in has expired...".

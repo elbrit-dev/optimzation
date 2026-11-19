@@ -1244,6 +1244,7 @@ export default function MyProfileExperience({
     user: erpUserOf(data.employee, data.personalInfo.contact),
     employee: data.employee.id || data.employee.employeeCode,
     endpointKey: erpEndpointKey,
+    token,
     onChange: onPictureChange,
   });
 

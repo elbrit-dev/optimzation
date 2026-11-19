@@ -14,7 +14,7 @@ import { fetchProfilePicture, resolvePictureUrl, saveProfilePicture } from "./pi
  *   erpUrl   - what the ERP reports, fetched here so no prop has to supply it
  *   propUrl  - profile.employee.imageUrl, if a query happens to bind one
  */
-export function useProfilePicture({ imageUrl, baseUrl, user, employee, endpointKey, onChange }) {
+export function useProfilePicture({ imageUrl, baseUrl, user, employee, endpointKey, token, onChange }) {
   const [erpUrl, setErpUrl] = useState("");
   const [savedUrl, setSavedUrl] = useState("");
   const [image, setImage] = useState(null);
@@ -35,8 +35,10 @@ export function useProfilePicture({ imageUrl, baseUrl, user, employee, endpointK
       user: String(user || "").trim(),
       employee: String(employee || "").trim(),
       endpointKey: String(endpointKey || "").trim(),
+      // The caller's own ERP token; empty falls back to localStorage "token".
+      token: String(token || "").trim(),
     }),
-    [user, employee, endpointKey]
+    [user, employee, endpointKey, token]
   );
 
   const propUrl = resolvePictureUrl(imageUrl, baseUrl);
