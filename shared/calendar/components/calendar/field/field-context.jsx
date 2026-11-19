@@ -238,6 +238,8 @@ export function FieldExpensesProvider({ children }) {
       // nothing to show for someone the ERP has no field days for (office staff)
       enabled: viewingSelf && !(state.status === "ready" && !state.data?.employee),
       rows,
+      // working days with nothing on record, for the Non-reported card
+      nonReported: rows.filter((r) => r.nonReported),
       trips,
       claimed,
       claimFor: (id) => byTrip.get(id) || null,
@@ -267,6 +269,8 @@ export function FieldExpensesProvider({ children }) {
   const openCarRequest = useCallback((opts = {}) => setSheet({ kind: "car", ...(typeof opts === "string" ? { tripId: opts } : opts || {}) }), []);
   const openRequest = useCallback((id) => setSheet({ kind: "request", id }), []);
   const openKpi = useCallback(() => setSheet({ kind: "kpi" }), []);
+  // date: open straight on that day's form
+  const openNonReport = useCallback((date) => setSheet({ kind: "nonreport", ...(date ? { date } : {}) }), []);
   const closeSheet = useCallback(() => setSheet((s) => (s?.from === "local" ? { kind: "local" } : null)), []);
   const toggleStrip = useCallback(() => setStripOpen((v) => !v), []);
 
@@ -292,7 +296,7 @@ export function FieldExpensesProvider({ children }) {
   );
 
   return (
-    <FieldContext.Provider value={{ ...value, actions, openTrip, openLocal, openCarRequest, openRequest, openKpi, closeSheet, toggleStrip }}>
+    <FieldContext.Provider value={{ ...value, actions, openTrip, openLocal, openCarRequest, openRequest, openKpi, openNonReport, closeSheet, toggleStrip }}>
       {children}
     </FieldContext.Provider>
   );
@@ -302,6 +306,6 @@ export function FieldExpensesProvider({ children }) {
    simply off, so the shared month cell and agenda list keep working. */
 export function useFieldExpenses() {
   return (
-    useContext(FieldContext) || { enabled: false, dayOf: () => null, tripOf: () => null, claimFor: () => null, trips: [], rows: [], claimed: [], requests: [] }
+    useContext(FieldContext) || { enabled: false, dayOf: () => null, tripOf: () => null, claimFor: () => null, trips: [], rows: [], claimed: [], requests: [], nonReported: [] }
   );
 }

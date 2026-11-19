@@ -56,6 +56,7 @@ import { CarRequestSheet, KpiSheet, RequestSheet } from "@calendar/components/ca
 import { BILL_NAME, BillChip, BillEditor, ChipButton, ManualBill, useBillPicker } from "@calendar/components/calendar/field/field-bills";
 import { useTripBillViewer } from "@calendar/components/calendar/field/field-bill-view";
 import { HELP_STATUS, askedText, htmlText, listTripHelp, sendTripHelp } from "@calendar/lib/field-expenses/trip-help";
+import { NonReportCard, NonReportDayRow, NonReportSheet } from "@calendar/components/calendar/field/field-nonreport";
 
 const MONTH_LONG = ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"];
 const monthName = (ym) => MONTH_LONG[Number(ym.slice(5, 7)) - 1];
@@ -167,6 +168,8 @@ export function FieldStrip() {
                 outstation by date (earliest first), an EQ day with its own car
                 after them, the month's summary last; each card says OS / EQ */}
             {f.claimed.some(isLocalTrip) && <LocalCard items={f.claimed.filter(isLocalTrip)} onOpen={f.openLocal} />}
+            {/* the working days with nothing on record (19 Nov 2026): say what was done */}
+            <NonReportCard />
             {[(x) => x.trip.kind === "tour", (x) => x.trip.kind !== "tour"].flatMap((pick) =>
               f.claimed
                 .filter((x) => !isLocalTrip(x) && pick(x))
@@ -612,6 +615,7 @@ export function FieldDayRow({ date }) {
   const row = f.dayOf(date);
   if (!row) return null;
 
+  if (row.nonReported) return <NonReportDayRow date={row.date} />;
   if (row.kind === "working" && !row.payable) {
     return (
       <p className="mx-4 mb-3 flex items-center gap-2 rounded-xl bg-gray-50 px-3 py-2 text-xs text-gray-500">
@@ -701,6 +705,9 @@ function FieldSheets() {
       </Modal>
       <Modal side={side} open={kind === "local"} onOpenChange={close}>
         <ModalContent className={cls}>{kind === "local" && <LocalDaysSheet />}</ModalContent>
+      </Modal>
+      <Modal side={side} open={kind === "nonreport"} onOpenChange={close}>
+        <ModalContent className={cls}>{kind === "nonreport" && <NonReportSheet key={f.sheet?.date || "list"} />}</ModalContent>
       </Modal>
       <Modal side={side} open={kind === "kpi"} onOpenChange={close}>
         <ModalContent className={cls}>{kind === "kpi" && <KpiSheet />}</ModalContent>

@@ -173,6 +173,9 @@ export function shapeDay(d) {
     date: String(d.date).slice(0, 10),
     kind: KIND_OF[raw] || (payable || TRAVEL_TYPES.has(dayType) || dayType === "HQ" ? "working" : "unknown"),
     label: KIND_OF[raw] ? raw : null,
+    // the build found nothing on record for this working day (no visit, no
+    // other work): the rep can say what they did (19 Nov 2026)
+    nonReported: d.day_type === "NON-Reported",
     visits: d.visits || 0,
     dayType: dayType || null,
     payable,
