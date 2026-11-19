@@ -7,6 +7,7 @@ import {
   Card,
   DisclosureRow,
   StatusPill,
+  toneText,
 } from '@/design-system';
 import { childrenOf, kidsOf, rollupFor } from '../data/selectors';
 import { GeoBar } from './GeoBar';
@@ -244,7 +245,15 @@ function TreeNode({ member, team, rows, pob, depth, open, toggle, onDoctorPlan, 
               phrase with it ("12/14 reported · No plan"), which invited the
               two to be parsed as a single claim about the branch. */}
           {showNoPlan ? (
-            <span className="shrink-0 text-10 text-ds-muted">{emptyRowLabel(member, state, overRange)}</span>
+            /* Non-field work wears its pill's colour (Other Work, leave,
+               holiday), so it stands apart from a plain grey "No plan". */
+            ['otherWork', 'onLeave', 'holiday'].includes(state) ? (
+              <span className="shrink-0 text-10 font-semibold" style={{ color: toneText(ATTENDANCE_TONE[state]) }}>
+                {emptyRowLabel(member, state, overRange)}
+              </span>
+            ) : (
+              <span className="shrink-0 text-10 text-ds-muted">No plan</span>
+            )
           ) : null}
         </span>
       </div>
