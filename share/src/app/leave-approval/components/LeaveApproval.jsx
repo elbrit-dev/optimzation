@@ -6,7 +6,7 @@ import { getEndpointConfigFromUrlKeyAsync } from '@/app/graphql-playground/const
 import { PinnedBar, PinnedBarSpacer } from '@/app/secondary-entry/components/PinnedBar';
 import { groupWaiting, rangeLabel, shapeLeaves } from '../data/shape';
 import { createErpLeaveSource } from '../data/erp';
-import { LeaveCard } from './LeaveCard';
+import { DecidedNotice, LeaveCard } from './LeaveCard';
 
 /* Leave approvals — every leave waiting on the signed-in approver, in one
  * place, decided like the other approvals: a card per request, Approve /
@@ -93,17 +93,12 @@ function RejectSheet({ open, leaves, busy, error, onClose, onConfirm }) {
   );
 }
 
-function SectionTitle({ children }) {
-  return <h2 className="px-1 pt-1 text-13 font-semibold text-heading">{children}</h2>;
-}
-
-function GroupTitle({ group: g }) {
+/* "Waiting on you · 3      Oldest first" — the list's heading, as in the design. */
+function ListHeading({ children, hint }) {
   return (
-    <div className="flex items-baseline justify-between px-1">
-      <span className={cx('text-11 font-semibold uppercase tracking-wide', g.tone === 'danger' ? 'text-danger-text' : g.tone === 'warning' ? 'text-pending-text' : 'text-ds-muted')}>
-        {g.title}
-      </span>
-      <span className="text-11 text-ds-muted">{g.items.length}</span>
+    <div className="flex items-baseline justify-between px-1 pt-1">
+      <h2 className="text-16 font-semibold leading-6 text-heading">{children}</h2>
+      {hint ? <span className="text-12 font-medium text-ds-muted">{hint}</span> : null}
     </div>
   );
 }
@@ -192,7 +187,6 @@ export function LeaveApproval({
   }, [balSource, waiting, others, decided, today]);
   const balOf = (e) => (balSource ? balances.get(e) : null);
   const groups = useMemo(() => groupWaiting(waiting), [waiting]);
-  const otherGroups = useMemo(() => groupWaiting(others), [others]);
 
   const [tab, setTab] = useState('waiting');
   const [selected, setSelected] = useState(() => new Set());
@@ -211,7 +205,11 @@ export function LeaveApproval({
   const [busy, setBusy] = useState(null);
   const [error, setError] = useState(null);
   const [notice, setNotice] = useState(null);
-  const [rejecting, setRejecting] = useState(null); // names
+  const [rejecting, setRejecting] = useState(null); // names, for the bulk sheet
+  const [rejectingOne, setRejectingOne] = useState(null); // one card's name, rejected on the card
+  /* Decided on this screen: shown in the card's place until the next read. */
+  const [justDone, setJustDone] = useState([]);
+  const [othersOpen, setOthersOpen] = useState(false);
   const timer = useRef(null);
   useEffect(() => () => clearTimeout(timer.current), []);
 
@@ -225,6 +223,18 @@ export function LeaveApproval({
         const results = await writer.decide(names.map((name) => ({ name, action, reason })));
         const okd = results.filter((r) => r.ok);
         setDone((m) => new Map([...m, ...okd.map((r) => [r.name, r.status])]));
+        setJustDone((list) => [
+          ...okd
+            .map((r) => {
+              const l = waiting.find((w) => w.name === r.name);
+              if (!l) return null;
+              const own = balOf(l.employee)?.types?.find((b) => b.type === l.leaveType);
+              const status = r.status ?? (action === 'approve' ? 'Approved' : 'Rejected');
+              return { leave: l, status, reason, balanceAfter: own && status === 'Approved' ? own.left - (l.days || 0) : null };
+            })
+            .filter(Boolean),
+          ...list,
+        ]);
         const failed = results.filter((r) => !r.ok);
         if (failed.length) setError(`${failed.length} not ${action === 'approve' ? 'approved' : 'rejected'}: ${failed[0].error}`);
         if (okd.length) {
@@ -243,7 +253,8 @@ export function LeaveApproval({
         setBusy(null);
       }
     },
-    [writer, waiting, onDecided],
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [writer, waiting, onDecided, balances],
   );
 
   const rootRef = useRef(null);
@@ -251,11 +262,11 @@ export function LeaveApproval({
   const barGap = bottomGap ?? 'var(--space-12)';
   const loading = sourceRows == null && !loaded.error;
   const sel = [...selected];
-  const showBar = canDecide && tab === 'waiting' && waiting.length > 0 && !rejecting;
+  const showBar = canDecide && tab === 'waiting' && waiting.length > 0 && !rejecting && !rejectingOne;
   const rejectLeaves = (rejecting ?? []).map((n) => waiting.find((l) => l.name === n)).filter(Boolean);
 
   return (
-    <section ref={rootRef} className={cx('flex w-full flex-col gap-3', className)}>
+    <section ref={rootRef} className={cx('@container/leave flex w-full flex-col gap-3', className)}>
       <header className="flex items-center gap-2">
         {onBack ? (
           <button type="button" onClick={onBack} aria-label="Back" className="flex shrink-0 items-center text-heading">
@@ -312,46 +323,64 @@ export function LeaveApproval({
 
           {tab === 'waiting' ? (
             <>
+              {justDone.length ? (
+                <div className="flex flex-col gap-2">
+                  {justDone.map((d) => (
+                    <DecidedNotice key={d.leave.name} {...d} />
+                  ))}
+                </div>
+              ) : null}
               {waiting.length ? (
                 <>
-                  {others.length ? <SectionTitle>Waiting on you · {waiting.length}</SectionTitle> : null}
-                  {groups.map((g) => (
-                    <div key={g.id} className="flex flex-col gap-2">
-                      <GroupTitle group={g} />
-                      {g.items.map((l) => (
-                        <LeaveCard
-                          key={l.name}
-                          leave={l}
-                          balance={balOf(l.employee)}
-                          canDecide={canDecide}
-                          selected={selected.has(l.name)}
-                          onToggle={() => toggle(l.name)}
-                          busy={busy}
-                          onApprove={() => decide([l.name], 'approve')}
-                          onReject={() => setRejecting([l.name])}
-                        />
-                      ))}
-                    </div>
+                  <ListHeading hint="Oldest first">Waiting on you · {waiting.length}</ListHeading>
+                  {waiting.map((l) => (
+                    <LeaveCard
+                      key={l.name}
+                      leave={l}
+                      balance={balOf(l.employee)}
+                      canDecide={canDecide}
+                      selected={selected.has(l.name)}
+                      onToggle={() => toggle(l.name)}
+                      busy={busy}
+                      onApprove={() => decide([l.name], 'approve')}
+                      rejecting={rejectingOne === l.name}
+                      rejectError={rejectingOne === l.name ? error : null}
+                      onStartReject={() => {
+                        setError(null);
+                        setRejectingOne(l.name);
+                      }}
+                      onCancelReject={() => {
+                        setError(null);
+                        setRejectingOne(null);
+                      }}
+                      onConfirmReject={async (reason) => {
+                        const ok = await decide([l.name], 'reject', reason);
+                        if (ok) setRejectingOne(null);
+                      }}
+                    />
                   ))}
                 </>
-              ) : (
+              ) : !justDone.length ? (
                 <Card className="flex flex-col items-center gap-2 py-8 text-center">
                   <Icon name="check-circle" size="xl" className="text-success" />
                   <span className="text-14 font-semibold text-heading">No leave waiting on you</span>
                   <span className="text-12 text-ds-secondary">New requests from your team show up here and on the strip.</span>
                 </Card>
-              )}
+              ) : null}
               {others.length ? (
                 <>
-                  <SectionTitle>Waiting on others · {others.length}</SectionTitle>
-                  {otherGroups.map((g) => (
-                    <div key={g.id} className="flex flex-col gap-2">
-                      <GroupTitle group={g} />
-                      {g.items.map((l) => (
-                        <LeaveCard key={l.name} leave={l} viewer={viewer} balance={balOf(l.employee)} />
-                      ))}
-                    </div>
-                  ))}
+                  <button
+                    type="button"
+                    aria-expanded={othersOpen}
+                    onClick={() => setOthersOpen((v) => !v)}
+                    className="mt-3 flex h-12 items-center justify-between rounded-lg px-1 text-16 font-semibold text-heading hover:bg-sunken"
+                  >
+                    <span>Waiting on others · {others.length}</span>
+                    <Icon name={othersOpen ? 'chevron-up' : 'chevron-down'} />
+                  </button>
+                  {othersOpen
+                    ? others.map((l) => <LeaveCard key={l.name} leave={l} viewer={viewer} balance={balOf(l.employee)} />)
+                    : null}
                 </>
               ) : null}
             </>

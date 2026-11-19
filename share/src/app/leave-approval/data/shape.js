@@ -45,6 +45,27 @@ export function rangeLabel(from, to) {
   const b = parts(to);
   return a.m === b.m ? `${a.d} – ${b.d} ${b.m}` : `${a.d} ${a.m} – ${b.d} ${b.m}`;
 }
+/* The card's big date, with the year: "Fri 19 Jun 2026" · "19 – 21 Jun 2026"
+   · "30 Nov – 2 Dec 2026" · "30 Dec 2026 – 2 Jan 2027". */
+export function fullRangeLabel(from, to) {
+  const y = (iso) => String(iso).slice(0, 4);
+  const a = parts(from);
+  if (!to || to === from) return `${a.wd} ${a.d} ${a.m} ${y(from)}`;
+  const b = parts(to);
+  if (y(from) !== y(to)) return `${a.d} ${a.m} ${y(from)} – ${b.d} ${b.m} ${y(to)}`;
+  return a.m === b.m ? `${a.d} – ${b.d} ${b.m} ${y(to)}` : `${a.d} ${a.m} – ${b.d} ${b.m} ${y(to)}`;
+}
+
+/* "applied 16 Jun, 3 days in advance" · "applied 20 Jun, 1 day after it started". */
+export function appliedLabel(l) {
+  if (!l.appliedOn) return null;
+  const gap = dayNumber(l.from) - dayNumber(l.appliedOn);
+  const n = Math.abs(gap);
+  const days = `${n} day${n === 1 ? '' : 's'}`;
+  const when = gap > 0 ? `, ${days} in advance` : gap < 0 ? `, ${days} after it started` : ', the same day';
+  return `applied ${shortDay(l.appliedOn)}${when}`;
+}
+
 export function shortDay(iso) {
   const p = parts(iso);
   return `${p.d} ${p.m}`;
@@ -94,6 +115,7 @@ export function normalizeLeave(row) {
     approverName: clean(row.leave_approver_name),
     escalationApprover: lower(row.custom_escalation_approver__name ?? row.custom_escalation_approver),
     attachment: clean(row.custom_attachement),
+    employeeStatus: clean(row.employee_status),
     decidedOn: clean(String(row.modified ?? '').slice(0, 10)),
     decidedBy: lower(row.modified_by__name ?? row.modified_by),
     /* The ERP's live answer (elbrit_leave_approvals): who decides, and may
@@ -119,7 +141,11 @@ export function normalizeLeave(row) {
 export function shapeLeaves(rows, { viewer, today }) {
   const me = lower(viewer);
   const t = dayNumber(today);
-  const all = (rows ?? []).map(normalizeLeave).filter(Boolean);
+  /* People who have LEFT: their requests are history nobody can act on (an
+     Open one from a leaver is a request that was never closed), so they are
+     not listed at all. The ERP's script drops them too; this catches a row
+     that still carries the status. */
+  const all = (rows ?? []).map(normalizeLeave).filter((l) => l && l.employeeStatus !== 'Left');
 
   const waitedOf = (l) => (l.appliedOn ? Math.max(0, t - dayNumber(l.appliedOn)) : 0);
   /* The ERP's live rule when the row carries it; else (mock, older ERP) the
