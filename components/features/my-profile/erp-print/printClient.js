@@ -2,9 +2,12 @@
  * Pulls a payslip PDF from the ERP through our own route, so what downloads is
  * the document Frappe prints from the desk rather than a rebuilt lookalike.
  *
- * The ERP endpoint and token stay server-side; the browser only ever calls
- * /api/erp/print.
+ * The ERP endpoint stays server-side; the browser only ever calls
+ * /api/erp/print, sending the signed-in person's own ERP token (x-erp-token)
+ * so the ERP decides which payslips they may download (SECURITY_PERM_V2.md).
  */
+
+import { userErpTokenHeaders } from "../../../../lib/userErpToken";
 
 export const ERP_PRINT_ENDPOINT = "/api/erp/print";
 
@@ -65,7 +68,7 @@ function fileNameFor(slip, employee) {
  * Downloads one payslip. Throws with the ERP's own message so the caller can
  * put it in front of the user instead of failing silently.
  */
-export async function downloadErpPayslip({ slip, employee, endpointKey, latest = false }) {
+export async function downloadErpPayslip({ slip, employee, endpointKey, token, latest = false }) {
   if (!employee) {
     throw new Error("This profile has no ERP employee id, so the payslip cannot be fetched.");
   }
@@ -75,10 +78,18 @@ export async function downloadErpPayslip({ slip, employee, endpointKey, latest =
   for (const [key, value] of Object.entries(slipParams)) params.set(key, value);
   if (endpointKey) params.set("endpointKey", endpointKey);
 
-  const response = await fetch(`${ERP_PRINT_ENDPOINT}?${params}`);
+  const authHeaders = userErpTokenHeaders(token);
+  if (!authHeaders["x-erp-token"]) {
+    throw new Error("Your sign-in has expired. Sign in again to download payslips.");
+  }
+
+  const response = await fetch(`${ERP_PRINT_ENDPOINT}?${params}`, { headers: authHeaders });
 
   if (!response.ok) {
     const payload = await response.json().catch(() => ({}));
+    if (response.status === 401) {
+      throw new Error(payload?.error || "Your sign-in has expired. Sign in again to download payslips.");
+    }
     throw new Error(payload?.error || `The payslip could not be downloaded (HTTP ${response.status}).`);
   }
 

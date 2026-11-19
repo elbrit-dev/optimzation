@@ -9,7 +9,7 @@ import { downloadErpPayslip, slipKey } from "./printClient";
  * browser, so it can be slow or fail outright - both of which have to be
  * visible, or a click looks like it did nothing.
  */
-export function usePayslipPrint({ employee, endpointKey }) {
+export function usePayslipPrint({ employee, endpointKey, token }) {
   const [pending, setPending] = useState("");
   const [error, setError] = useState("");
   const mounted = useRef(true);
@@ -30,7 +30,7 @@ export function usePayslipPrint({ employee, endpointKey }) {
       setError("");
 
       try {
-        await downloadErpPayslip({ slip, employee: erpEmployee, endpointKey, latest });
+        await downloadErpPayslip({ slip, employee: erpEmployee, endpointKey, token, latest });
       } catch (downloadError) {
         if (!mounted.current) return;
         setError(downloadError?.message || "The payslip could not be downloaded.");
@@ -38,7 +38,7 @@ export function usePayslipPrint({ employee, endpointKey }) {
         if (mounted.current) setPending("");
       }
     },
-    [erpEmployee, endpointKey]
+    [erpEmployee, endpointKey, token]
   );
 
   const isPending = useCallback((slip) => pending !== "" && pending === slipKey(slip), [pending]);

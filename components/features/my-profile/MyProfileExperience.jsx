@@ -1250,6 +1250,9 @@ export default function MyProfileExperience({
   const payslipPrint = usePayslipPrint({
     employee: data.employee.id || data.employee.employeeCode,
     endpointKey: erpEndpointKey,
+    // The caller's own ERP token (falls back to localStorage "token"): the
+    // route prints with it, so the ERP decides. SECURITY_PERM_V2.md.
+    token,
   });
 
   // The outer breadcrumb/notification/settings header duplicated chrome the

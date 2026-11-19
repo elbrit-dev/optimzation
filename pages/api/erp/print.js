@@ -9,8 +9,16 @@
 //
 // The rows on the payslips table carry only display text ("July 2026"), so a
 // docname is resolved here from the employee plus that month.
+//
+// WHO MAY PRINT (SECURITY_PERM_V2.md, fix 1): the caller sends their OWN ERP
+// token in `x-erp-token`. The route checks it with the ERP
+// (frappe.auth.get_logged_user) and then makes BOTH the slip lookup and the PDF
+// download with that token, so the ERP's own Salary Slip permissions decide -
+// an employee gets their own slips, HR whatever HR may see. The server's
+// service token is no longer used to read or print anything here; it was what
+// let anyone with an employee id download that person's payslip.
 
-import { erpConfig, runGraphQL } from "../../../lib/erpServer";
+import { callerErpToken, erpConfig, ErpError, resolveCaller, runGraphQL } from "../../../lib/erpServer";
 
 // Only doctypes listed here can be printed. Without this the route would
 // happily render any document in the ERP to anyone who can reach it.
@@ -116,27 +124,53 @@ export default async function handler(req, res) {
   const wantLatest = String(req.query.latest || "") === "1";
   const format = String(req.query.format || "").trim();
 
+  const callerToken = callerErpToken(req);
+  if (!callerToken) {
+    return res.status(401).json({ error: "Sign in again to download payslips." });
+  }
+
   let erp;
   try {
-    erp = erpConfig(String(req.query.endpointKey || "").trim());
+    // Only the ENDPOINT is taken from here; the service token it also carries
+    // is replaced by the caller's own below.
+    const resolved = erpConfig(String(req.query.endpointKey || "").trim());
+    erp = { endpointUrl: resolved.endpointUrl, authToken: callerToken };
   } catch (error) {
     console.error("Print: ERP config missing", error);
     return res.status(500).json({ error: error?.message || "The ERP connection is not configured." });
   }
+  const erpOrigin = new URL(erp.endpointUrl).origin;
+
+  let caller;
+  try {
+    caller = await resolveCaller(erpOrigin, callerToken);
+  } catch (error) {
+    const status = error instanceof ErpError && error.status === 401 ? 401 : 502;
+    return res.status(status).json({ error: error?.message || "Could not check who is asking." });
+  }
 
   // Always resolve against the employee's own slips, so a guessed docname
-  // cannot pull down somebody else's payslip.
+  // cannot pull down somebody else's payslip. Run as the caller: the ERP only
+  // lists slips this person may read.
   let slips;
   try {
     const data = await runGraphQL(SALARY_SLIPS_QUERY, { employee }, erp);
     slips = (data?.SalarySlips?.edges || []).map((edge) => edge.node).filter(Boolean);
   } catch (error) {
-    console.error("Print: slip lookup failed", error);
+    console.error("Print: slip lookup failed", caller, error?.message);
+    if (error instanceof ErpError && (error.status === 401 || error.status === 403)) {
+      return res.status(403).json({ error: "You do not have access to these payslips." });
+    }
+    if (/permission|not permitted|not allowed/i.test(String(error?.message || ""))) {
+      return res.status(403).json({ error: "You do not have access to these payslips." });
+    }
     return res.status(502).json({ error: error?.message || "The ERP would not list the payslips." });
   }
 
   if (!slips.length) {
-    return res.status(404).json({ error: "This employee has no payslips in the ERP." });
+    // Also what a caller with no right to this employee's slips sees: the ERP
+    // filters the list by permission rather than refusing it.
+    return res.status(404).json({ error: "No payslips you can open were found for this employee." });
   }
 
   slips.sort(byStartDateDesc);
@@ -171,7 +205,7 @@ export default async function handler(req, res) {
 
   let response;
   try {
-    response = await fetch(url, { headers: { Authorization: erp.authToken } });
+    response = await fetch(url, { headers: { Authorization: callerToken } });
   } catch (error) {
     console.error("Print: download failed", error);
     return res.status(502).json({ error: "The ERP could not be reached for the PDF." });
@@ -179,6 +213,11 @@ export default async function handler(req, res) {
 
   const contentType = response.headers.get("content-type") || "";
   const body = Buffer.from(await response.arrayBuffer());
+
+  if (response.status === 401 || response.status === 403) {
+    console.error("Print: ERP refused the PDF for", caller, response.status);
+    return res.status(403).json({ error: "You do not have access to that payslip." });
+  }
 
   // Frappe answers a failed print with HTML or JSON, not a PDF - passing that
   // through as a .pdf would hand the user a file that will not open.
