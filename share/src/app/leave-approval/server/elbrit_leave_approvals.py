@@ -20,7 +20,10 @@
 #             theirs in the Role Profile tree (ROLE PROFILE ALONE, not reports_to): an ABM their
 #             BEs, an RBM their ABMs and BEs, an SM their whole region — and
 #             any leave they are the approver or escalation approver of
-# Never the caller's own leaves.
+# Never the caller's own leaves, and never the leaves of anyone who has LEFT
+# (Employee.status "Left"): an Open one is a request nobody will ever act on,
+# and a decided one is history of someone no longer here. Each row carries
+# employee_status so the screen can tell.
 # Which leaves: every Open one, and every one ending within the last
 # RECENT_DAYS (the Decided tab, and who is off this week).
 #
@@ -125,13 +128,31 @@ else:
         if me in rr.get("approvers") or me in rr.get("escalation"):
             found[r.get("name")] = r
 
+# Who has left, among the employees these rows belong to.
+seen = {}
+emps = []
+for n in found:
+    e = found[n].get("employee")
+    if e and not seen.get(e):
+        seen[e] = 1
+        emps.append(e)
+status_of = {}
+i = 0
+while i < len(emps):
+    for e in frappe.get_all("Employee", filters=[["name", "in", emps[i:i + 500]]],
+                            fields=["name", "status"], limit_page_length=0):
+        status_of[e.get("name")] = e.get("status")
+    i = i + 500
+
 LINKS = ["employee", "department", "leave_type", "leave_approver", "custom_escalation_approver", "modified_by"]
 rows = []
 for n in found:
     r = found[n]
     if my_emp and r.get("employee") == my_emp:
         continue
-    out = {}
+    if status_of.get(r.get("employee")) == "Left":
+        continue
+    out = {"employee_status": status_of.get(r.get("employee"))}
     for f in FIELDS:
         v = r.get(f)
         if v is not None and f in ["from_date", "to_date", "half_day_date", "posting_date", "modified"]:
