@@ -2,6 +2,19 @@ import {
   GOOGLE_CALENDAR,
   SAVE_GOOGLE_CALENDAR,
 } from "@calendar/components/calendar/google-auth/queries";
+import { allowedErpHosts } from "../../../lib/erpServer";
+
+// SECURITY_PERM_V2.md (fix 3): `erpUrl` arrives from the browser. Without this
+// check the server would POST the caller's token and a Google refresh token to
+// any URL it was given (SSRF / credential exfiltration). Only our own ERP hosts.
+function isAllowedErpUrl(value) {
+  try {
+    const url = new URL(String(value || ""));
+    return url.protocol === "https:" && allowedErpHosts().has(url.host.toLowerCase());
+  } catch {
+    return false;
+  }
+}
 
 // Host-owned route — lives in root pages/ so `npm run copy-shared` never
 // touches it. It only imports queries.js, which IS part of the synced shared
@@ -36,6 +49,17 @@ export default async function handler(req, res) {
   try {
     const { code, email, authToken, erpUrl, redirectUri: bodyRedirectUri } =
       req.body || {};
+
+    if (!isAllowedErpUrl(erpUrl)) {
+      return res
+        .status(400)
+        .json({ success: false, message: "That ERP is not one this app talks to." });
+    }
+    if (!authToken) {
+      return res
+        .status(401)
+        .json({ success: false, message: "Sign in again to connect Google Calendar." });
+    }
 
     // Must match the redirect_uri from the authorization request exactly. Prefer
     // the value sent by the callback page (always the real origin); fall back to

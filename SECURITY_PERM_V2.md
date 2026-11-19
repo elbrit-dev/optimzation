@@ -64,3 +64,39 @@ Now (both methods need `x-erp-token`, resolved with `get_logged_user`):
 - Client (`pictureClient.js`, `useProfilePicture.js`): sends the token. With no
   token at all the avatar read is skipped (initials, as before for a failed
   read) and a save shows "Your sign-in has expired...".
+
+## 3. Inventory: API routes and the ERP service token
+
+`app/api/**` does not exist in this repo; all routes are `pages/api/**`.
+"Service token" = `lib/erpServer.js` `resolveErpCredentials` / `erpConfig`
+(env `ERP_API_TOKEN` or `NEXT_PUBLIC_GRAPHQL_AUTH_TOKEN_<TARGET>`), or a token
+handed in from Plasmic props (`erpUrl` + `authToken` in the request body).
+
+| Route | What it does | ERP credential | Checks the caller now? | Risk / note |
+|---|---|---|---|---|
+| `GET /api/erp/print` | Payslip PDF from ERP | Caller's token only (was: service) | Yes - fix 1 | Was HIGH (anyone's payslip). Fixed. |
+| `GET/POST /api/erp/profile-picture` | Read / replace a user's avatar (+ Employee image) | Service token, after caller checks | Yes - fix 2 | Was HIGH (overwrite anyone's picture / Employee image). Fixed. |
+| `GET /api/erp/claim-file` | Proxy an Expense Claim attachment | Caller's token (`x-erp-token`) | ERP decides | OK. Host allowlist, Frappe file path only. |
+| `POST /api/claims/check` | AI-check bills on a claim, write scores | Reads with caller's token + Firebase ID token; writes with `ERP_AI_CHECKER_TOKEN[_UAT]` | Yes (claim must be readable by caller) | OK by design: the checker login is the only one the ERP lets write scores. Caller can trigger a re-check only of a claim they can read. |
+| `POST /api/hr/login-help` | Pre-login "Can't log in?" ticket: reads Employee + User, creates/assigns an ERP Task | Service token (or Plasmic-prop pair) | No (pre-login by definition) | MEDIUM: public write (Task creation) gated only by an in-memory per-IP rate limit and dedupe. Response does not echo the Employee/User diagnosis. Not changed: there is no user token before login. Backend-side rate limiting / a captcha would be the real fix. |
+| `POST /api/hr/ticket-status` | Pre-login: is there an open ticket for this employee id? | Service token (or Plasmic-prop pair) | No (pre-login) | LOW-MEDIUM: for an id with an open login ticket it returns the Task subject, which contains the employee's NAME ("Cannot log in: E0xxxx - Name") - an id-to-name oracle, rate limited per IP. Not changed (the form shows it); consider dropping `subject` from `publicTicket` for the login variant. |
+| `POST /api/hr/designations` | Designation names for the login-help dropdown | Service token (or Plasmic-prop pair) | No (pre-login) | LOW: job titles only, cached, rate limited. |
+| `POST /api/google-calendar/connect` | Exchanges a Google OAuth code, saves refresh token on the user's ERP "Google Calendar" doc | Caller's token, passed in the body (from the OAuth `state`) | ERP decides on the write | Was MEDIUM: `erpUrl` was unrestricted, so the server would POST the caller's token + Google refresh token to any URL (SSRF / exfiltration). Fixed here: `erpUrl` must be https on an allowed ERP host; missing token -> 401. Remaining: the user's ERP token travels inside the OAuth `state` parameter through Google (browser history, Google logs) - move to a server-side nonce later. |
+| `GET /api/maintenance` | Maintenance switch from the Plasmic preview bundle | None (Plasmic project token) | n/a | LOW. Plasmic public project token has a hard-coded fallback in source (it is a public loader token anyway). |
+| `GET /api/version` | Running core + Plasmic version | None (Plasmic project token) | n/a | LOW, same note. |
+| `GET /api/manifest` | PWA manifest | None | n/a | None. |
+| `GET /api/hello` | Next.js sample | None | n/a | None; can be deleted. |
+
+Plasmic-prop tokens (`erpUrl` + `authToken` in the body of the three `hr/*`
+routes): the host must be an allowed ERP host (`resolveErpCredentials`), so this
+is not an SSRF. But any token bound to those props on a PUBLIC (pre-login) page
+is shipped in the page to every visitor - keep those props EMPTY in Studio so
+the env credential is used.
+
+Outside `pages/api` but worth a separate decision (not changed here):
+- The Firestore-backed `/tokens` registry (used by `components/DoctorPobDialog.jsx`
+  `getEndpointConfigFromUrlKeyAsync`, the doctor pages and home overview) hands
+  a shared ERP service credential to the BROWSER at runtime. Whatever that
+  account may do, any signed-in user can do from devtools, and every POB it
+  writes is owned by the integration account. Move those writes behind an API
+  route using the caller-token pattern.
