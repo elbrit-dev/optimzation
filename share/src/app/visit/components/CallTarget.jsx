@@ -65,7 +65,7 @@ export function CallTarget({ calls, className }) {
       {daysOtherWork > 0 ? (
         <>
           <span aria-hidden="true">·</span>
-          <span className="text-status-info-text" title="Other Work days (meeting, admin day…); still counted in the target">
+          <span className="text-status-info-text" title="Other Work days (meeting, admin day…) with no visits, taken off the target">
             {daysOtherWork} other work
           </span>
         </>

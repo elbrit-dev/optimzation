@@ -97,6 +97,20 @@ function rowFlags(member, roll) {
   };
 }
 
+/* WHY THE ROW IS EMPTY, in the slot that used to say only "No plan". A
+   manager on a Meeting or an Admin Day gets no pill (pills are leaves only,
+   see RoleLine), so without this the row read "No plan" — true, but it hid
+   the one thing worth knowing: they were doing non-field work, not nothing.
+   Same labels the pill uses on a rep's row. */
+function emptyRowLabel(member, state, overRange) {
+  if (state === 'otherWork') {
+    return (!overRange && member.otherWorkToday?.type) || ATTENDANCE_LABEL.otherWork;
+  }
+  if (state === 'holiday') return (!overRange && member.holidayToday) || ATTENDANCE_LABEL.holiday;
+  if (state === 'onLeave') return ATTENDANCE_LABEL.onLeave;
+  return 'No plan';
+}
+
 function RoleLine({ member, roll, overRange = false }) {
   /* The pill is STILL LEAVES ONLY, even though the attendance card now counts
      managers too. A manager who made no call of their own is the ordinary
@@ -157,7 +171,7 @@ function TreeNode({ member, team, rows, pob, depth, open, toggle, onDoctorPlan, 
   const roll = rollupFor(member, team, rows, pob, overRange, monthDays, today);
   const kids = childrenOf(team, member.id);
   const isOpen = open.has(member.id);
-  const { showNoPlan } = rowFlags(member, roll);
+  const { showNoPlan, state } = rowFlags(member, roll);
 
   /* The SECOND thing you want from a tree row. Expanding answers "which of
      my people", this answers "which of their calls" — two different questions
@@ -230,7 +244,7 @@ function TreeNode({ member, team, rows, pob, depth, open, toggle, onDoctorPlan, 
               phrase with it ("12/14 reported · No plan"), which invited the
               two to be parsed as a single claim about the branch. */}
           {showNoPlan ? (
-            <span className="shrink-0 text-10 text-ds-muted">No plan</span>
+            <span className="shrink-0 text-10 text-ds-muted">{emptyRowLabel(member, state, overRange)}</span>
           ) : null}
         </span>
       </div>
