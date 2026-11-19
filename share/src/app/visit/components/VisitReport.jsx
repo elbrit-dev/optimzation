@@ -3,10 +3,8 @@
 import { useMemo, useState } from 'react';
 import { useVisitKpi } from '../data/useVisitKpi';
 import {
-  activeReps,
   attendance,
   byHq,
-  callAverage,
   geoSplit,
   happened,
   holidayOn,
@@ -17,7 +15,7 @@ import {
   everyonePicks,
   subtreeOf,
   visitsByHour,
-  workingDaysPerRep,
+  teamCallAverage,
 } from '../data/selectors';
 import {
   daySuffix,
@@ -342,31 +340,19 @@ export function VisitReport({ gqlEnvironment, gqlToken } = {}) {
          callAverage below -- a rupee figure over zero completed visits is
          not "infinite per call", it is not a figure at all yet. */
       pobPerCall: pobAmount != null && happenedCount > 0 ? pobAmount / happenedCount : null,
-      /* Per rep PER DAY, so the month view is comparable to the daily standard
-         of 12 rather than reporting five days' work as one rep's score.
-
-         The divisor is everyone who reported — see activeReps, which counts
-         the whole roster now rather than the BEs among them, so the visits on
-         top and the people underneath are the same population. My Report
-         states the one person directly rather than deriving them: a viewer
-         with no call logged yet is still one person, not zero, and their
-         average is "nothing yet" rather than an em dash. */
-      /* The days are each rep's OWN — the window's working days less the
-         holidays on their list, averaged over the reps who reported (see
-         workingDaysPerRep) — so a state's holiday does not lower the
-         average of the people who had it off. */
-      callAverage: callAverage(
-        scoped.rows,
-        isMine ? (happenedCount > 0 ? 1 : 0) : activeReps(scoped.rows, scoped.team),
-        workingDaysPerRep(scoped.rows, scoped.team, workingDaysBetween(win.from, win.to)),
-      ),
+      /* Calls per FIELD DAY, pooled over everyone in scope — the same rule
+         each tree row uses (see fieldDaysOf), so the card is the combined
+         figure of the rows under it. Holidays, leave and Other Work days with
+         no visit are not field days; silent days are; today counts for a
+         person once they have logged a call today. */
+      callAverage: teamCallAverage(scoped.rows, scoped.team, calendar, today),
       /* "Planned across N reps" — the same population as the divisor above
          and as the attendance card, because managers carry plans of their own
          (their joint calls) and counting the plan without counting them
          spreads it across fewer people than it actually covers. */
       repCount: scoped.team.filter((m) => !m.vacant).length,
     };
-  }, [scoped, attendanceRows, overRange, calendar, pob, ready.pob, hq, isMine, win.from, win.to]);
+  }, [scoped, attendanceRows, overRange, calendar, pob, ready.pob, hq, today]);
 
 
   /* THE ROWS BEHIND AN OPEN LIST, live. The numbers above are server-side

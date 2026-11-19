@@ -206,17 +206,74 @@ export function callAverage(rows, workingCount, workingDays = 1) {
    what each person's monthly target is built from. */
 export const CALL_STANDARD = 12;
 
+/* ONE PERSON'S FIELD DAYS: the divisor of every call average on this screen,
+ * the top card's and each tree row's alike, so the two cannot disagree.
+ *
+ * A day in `calendar` (Mon-Sat working days of the window) is a field day
+ * unless it was excused AND nothing was logged on it:
+ *   - a holiday on their Holiday List
+ *   - approved leave
+ *   - Other Work (Meeting, Admin Day...) with no visit that day
+ * A day with calls always counts, whatever else was filed for it, and so
+ * does a Sunday they worked.
+ *
+ * A SILENT DAY COUNTS. A field day with zero calls stays in the divisor:
+ * leaving it out would make a rep who skipped half the month look as good as
+ * one who worked all of it.
+ *
+ * TODAY COUNTS ONCE THEY HAVE LOGGED A CALL TODAY. Month-to-date includes
+ * today, but a rep with 4 calls by 10 AM is not marked down for a full day
+ * they are still working; a rep silent all day is caught tomorrow, when
+ * today becomes a past day. Days after today are never counted. */
+export function fieldDaysOf(member, ownRows, calendar = [], today = null) {
+  if (!member || member.vacant) return 0;
+  const called = new Set();
+  for (const r of ownRows) if (r.visitTime && weightOf(r) > 0) called.add(r.plannedDate);
+  let days = 0;
+  for (const date of calendar) {
+    if (called.has(date)) days += 1;
+    else if (today && date >= today) continue;
+    else if (!excusedOn(member, date)) days += 1;
+  }
+  const inCalendar = new Set(calendar);
+  for (const date of called) if (!inCalendar.has(date)) days += 1;
+  return days;
+}
+
+/* The team's call average: everyone's calls over everyone's field days,
+   POOLED (sum over sum), not an average of averages, so a rep with three
+   field days does not weigh as much as one with twenty. For one person it is
+   exactly the average on their tree row. Null when there is no field day yet
+   (this morning, before anyone has logged a call). */
+export function teamCallAverage(rows, team, calendar = [], today = null) {
+  const byEmployee = new Map();
+  for (const r of rows) {
+    const list = byEmployee.get(r.employeeId);
+    if (list) list.push(r);
+    else byEmployee.set(r.employeeId, [r]);
+  }
+  let calls = 0;
+  let days = 0;
+  for (const m of team) {
+    if (m.vacant) continue;
+    const own = byEmployee.get(m.id) ?? [];
+    calls += happened(own);
+    days += fieldDaysOf(m, own, calendar, today);
+  }
+  return days > 0 ? calls / days : null;
+}
+
 /* ONE PERSON'S CALLS AGAINST THE MONTH: what the reporting officer checks
  * before asking a rep why the calls are not done.
  *
  *   target  standard × the working days they were AVAILABLE — holidays on
- *           their Holiday List and approved leave come off, so four days of
- *           leave does not read as 48 calls
- *           missed. Other Work days do NOT come off: they are working days,
- *           counted and shown as Other Work, not as days off.
- *   average calls ÷ COMPLETED available days, i.e. before today. Today is
- *           still being worked; counting it made every rep's average drop
- *           each morning and recover by evening.
+ *           their Holiday List, approved leave, and Other Work days with no
+ *           visit come off, so four days of leave does not read as 48 calls
+ *           missed. An Other Work day WITH visits stays: they were in the
+ *           field that day too.
+ *   average calls ÷ field days to date (see fieldDaysOf) — the same rule as
+ *           the top Call average card. Silent days count; today counts once
+ *           they have logged a call today.
  *   left    target − done, and how many a day that needs over the available
  *           days still to come, today included.
  *
@@ -233,6 +290,7 @@ export function callTarget(member, ownRows, monthDays = [], today, standard = CA
   let leave = 0;
   let otherWork = 0;
   let holidays = 0;
+  const called = new Set(ownRows.filter((r) => r.visitTime).map((r) => r.plannedDate));
   for (const date of monthDays) {
     const why = excusedOn(member, date);
     /* A holiday on their list comes off the target: it is not one of their
@@ -242,19 +300,22 @@ export function callTarget(member, ownRows, monthDays = [], today, standard = CA
       holidays += 1;
       continue;
     }
-    /* Only approved LEAVE comes off the target. An Other Work day (meeting,
-       admin day…) is still a working day that owes calls; it is counted so
-       the line can say so, never subtracted. */
     if (why === 'leave') {
       leave += 1;
       continue;
     }
-    if (why === 'otherWork' && (!today || date <= today)) otherWork += 1;
+    /* An Other Work day (meeting, admin day…) with NO visit comes off too:
+       there was no field work to do. One with visits is a field day like any
+       other and owes its calls (see fieldDaysOf). */
+    if (why === 'otherWork' && !called.has(date) && (!today || date <= today)) {
+      otherWork += 1;
+      continue;
+    }
     if (today && date < today) past += 1;
     else ahead += 1;
   }
   const done = happened(ownRows);
-  const donePast = today ? happened(ownRows.filter((r) => r.plannedDate < today)) : done;
+  const fieldDays = fieldDaysOf(member, ownRows, monthDays, today);
   const target = standard * (past + ahead);
   const left = Math.max(0, target - done);
   return {
@@ -266,7 +327,7 @@ export function callTarget(member, ownRows, monthDays = [], today, standard = CA
     daysOtherWork: otherWork,
     daysHoliday: holidays,
     daysAhead: ahead,
-    average: past > 0 ? donePast / past : null,
+    average: fieldDays > 0 ? done / fieldDays : null,
     perDayNeeded: ahead > 0 ? left / ahead : null,
   };
 }
