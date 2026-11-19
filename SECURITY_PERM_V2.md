@@ -207,3 +207,36 @@ every existing clone/fork of `elbrit-dev/optimzation`. Purging it
 (git filter-repo / BFG + force-push + everyone re-cloning + GitHub support for
 cached views) is a separate decision. Treat the data as already exposed to
 anyone who had repo access.
+
+## Test steps (UAT, before merge)
+
+Not run here: dependencies are not installed in this worktree, so no lint /
+build. Changed `.js` files pass `node --check`; changed `.jsx` files parse with
+acorn-jsx.
+
+1. Payslip, own: sign in as a plain field-sales Employee -> My Profile ->
+   Payslips -> download latest and one older month. Expect the same PDF as
+   before. If 404/403 here, the ERP Salary Slip permission for the Employee
+   role is missing - fix it in the ERP, not here.
+2. Payslip, someone else's: `curl -H "x-erp-token: <your key:secret>"
+   "/api/erp/print?employee=<other id>&latest=1"` -> 404/403. Without the
+   header -> 401. With a garbage token -> 401.
+3. Avatar read: My Profile shows the ERP picture as before. `GET
+   /api/erp/profile-picture?user=<x>` without header -> 401; with any valid
+   token -> 200 for any user.
+4. Avatar write: change your own picture -> saved (User + Employee image).
+   POST with your token but `user` = someone else -> 403. As a System Manager
+   -> allowed. POST with your own user but another person's `employee` ->
+   picture saved, warning, that Employee's image untouched.
+5. Google Calendar connect from the planner still completes; a POST with
+   `erpUrl` on another host -> 400.
+6. Login with the flag unset: phone and Google sign-in work exactly as before.
+   After the backend change + Studio two-step change, build UAT with
+   `NEXT_PUBLIC_SEND_ID_TOKEN=true` and repeat; check the backend received
+   `idToken`.
+7. Impersonation: allowed user switches and returns as before. Switch to an
+   unknown id (or, after the backend change, as a user without the
+   permission) -> banner "Could not switch to ..." within 20 s or on leaving
+   the Login page, still signed in as yourself; Sentry shows one
+   "Impersonation: switch refused". A jump A -> B that fails leaves you as A.
+8. `git status` in a clone: `elbrit-users.json` stays untracked/ignored.
