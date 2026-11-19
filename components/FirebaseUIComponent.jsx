@@ -64,6 +64,31 @@ const CLICK_BUSY_TIMEOUT_MS = 25_000;
 // Bounded so a page that never navigates still ends in a readable state.
 const SUCCESS_GRACE_MS = 6_000;
 
+// SECURITY_PERM_V2.md (fix 4): hand the Firebase ID token to the host's ERP
+// login so the backend can verify WHO signed in instead of trusting a phone /
+// email sent by the browser. OFF by default: the backend `login` mutation only
+// accepts `idToken` once its change is live. Turn this on (build-time, it is
+// inlined) only after that. Referenced literally so Next.js inlines it.
+const SEND_ID_TOKEN = /^(1|true|yes|on)$/i.test(String(process.env.NEXT_PUBLIC_SEND_ID_TOKEN || "").trim());
+
+/**
+ * What the host's onSuccess receives. `firebaseUser` as before. With the flag
+ * on, also `idToken` (fresh Firebase ID token) and `sendIdToken: true`; with it
+ * off, `sendIdToken: false` and no `idToken`, so a Studio login step gated on
+ * `$data.sendIdToken` keeps running the old mutation. A failed getIdToken()
+ * leaves `idToken` empty rather than blocking sign-in.
+ */
+async function successPayload(user) {
+  if (!SEND_ID_TOKEN) return { firebaseUser: user, sendIdToken: false };
+  let idToken = "";
+  try {
+    idToken = (await user?.getIdToken?.()) || "";
+  } catch (error) {
+    console.error("Could not read the Firebase ID token for the ERP login:", error);
+  }
+  return { firebaseUser: user, idToken, sendIdToken: Boolean(idToken) };
+}
+
 // Firebase error codes people actually hit here, in words they can act on.
 // Anything unmapped falls through to the raw Firebase message.
 const ERROR_MESSAGES = {
@@ -269,7 +294,8 @@ const FirebaseUIComponent = ({
       try {
         // Awaiting covers a Plasmic interaction that returns a promise; a plain
         // handler resolves at once and we fall straight through to the toast.
-        await Promise.resolve(onSuccessRef.current?.({ firebaseUser: user }));
+        const payload = await successPayload(user);
+        await Promise.resolve(onSuccessRef.current?.(payload));
         // Before the mounted check: a successful host step navigates away.
         loginErpDone();
         if (!mountedRef.current) return;

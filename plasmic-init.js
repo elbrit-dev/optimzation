@@ -590,7 +590,7 @@ PLASMIC.registerComponent(FirebaseUIComponent, {
       type: "eventHandler",
       argTypes: [{ name: "data", type: "object" }],
       description:
-        "Runs after Firebase authenticates. The overlay stays up until this finishes, so if it fails the user gets an error toast and the sign-in form back.",
+        "Runs after Firebase authenticates. The overlay stays up until this finishes, so if it fails the user gets an error toast and the sign-in form back. data = { firebaseUser, sendIdToken, idToken? }. sendIdToken is true only when the build has NEXT_PUBLIC_SEND_ID_TOKEN on AND a Firebase ID token was read; then data.idToken holds it. Gate the ERP login step on it: run the login mutation WITH idToken: $data.idToken only when $data.sendIdToken, and the old mutation otherwise (see SECURITY_PERM_V2.md).",
     },
     onError: {
       type: "eventHandler",

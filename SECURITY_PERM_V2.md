@@ -100,3 +100,36 @@ Outside `pages/api` but worth a separate decision (not changed here):
   account may do, any signed-in user can do from devtools, and every POB it
   writes is owned by the integration account. Move those writes behind an API
   route using the caller-token pattern.
+
+## 4. Login: send the Firebase ID token (flag `NEXT_PUBLIC_SEND_ID_TOKEN`, default OFF)
+
+Where the login happens: the GraphQL `login` mutation is NOT in this repo's
+code. It is the Plasmic Studio interaction bound to `FirebaseUIComponent`'s
+`onSuccess` on the Login page; that step calls the backend `login` mutation
+and stores the returned ERP key as localStorage `token`
+(`lib/loginTelemetry.js` `loginErpDone` relies on that).
+
+Code change (`components/FirebaseUIComponent.jsx`): `onSuccess` now receives
+`{ firebaseUser, sendIdToken, idToken? }`.
+- Flag off (default, and any value other than 1/true/yes/on): exactly
+  `{ firebaseUser, sendIdToken: false }` - no ID token is read, nothing else
+  changes. This build works against the current backend.
+- Flag on: `idToken` = `await user.getIdToken()` and `sendIdToken: true`. A
+  failed `getIdToken()` gives `sendIdToken: false` instead of blocking sign-in.
+- Flag is build-time (`NEXT_PUBLIC_`, inlined); documented in `.env.example`,
+  NOT added to `apphosting*.yaml`.
+
+Studio change still needed (cannot be done from this repo): on the Login page
+`onSuccess`, add a second login step that calls
+`login(..., idToken: $data.idToken)` with "run only when" `$data.sendIdToken`,
+and set "run only when" `!$data.sendIdToken` on the existing step. A static
+GraphQL document that names `idToken` fails validation on the old backend even
+with a null value, which is why it is two steps rather than one with an
+optional variable. Publishing that Studio change is safe at any time because
+the flag decides which step runs.
+
+Order: (1) backend accepts optional `idToken` (live on UAT, then prod);
+(2) Studio two-step change published; (3) set `NEXT_PUBLIC_SEND_ID_TOKEN=true`
+and rebuild UAT, test, then prod; (4) only after every client sends it, the
+backend may make `idToken` required. Turn the flag on ONLY after step 1 is live
+on the ERP that build talks to.
