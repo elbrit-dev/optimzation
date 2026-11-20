@@ -119,7 +119,9 @@ async function tripBillStep({ origin, userErp, body, type, read, tripBill, given
     headers: { ...auth, "Content-Type": "application/x-www-form-urlencoded", Accept: "application/json" },
     body: new URLSearchParams({
       action: "claim",
-      kind: verdict.kind,
+      // a cab bill (the managers' cab card) is registered as a general "Bill" --
+      // the register knows Stay / Food / Fuel / Toll / Bill (20 Nov 2026)
+      kind: verdict.kind === "Cab" ? "Bill" : verdict.kind,
       trip: tripBill.trip.id,
       bill_date: verdict.kind === "Stay" ? verdict.checkIn : verdict.date,
       amount: String(verdict.billed),
@@ -152,7 +154,10 @@ async function tripBillStep({ origin, userErp, body, type, read, tripBill, given
   }
   if (!fp.ok) {
     await dropFile();
-    return { verdict: { ok: false, reason: `${fp.reason} This attempt is recorded for your reporting officer.`, duplicate: true } };
+    // a cab bill is registered as a general "Bill" (20 Nov 2026), so the register words its own
+    // earlier ones as "settlement bills" -- say what they are on the cab card
+    const why = tripBill.slot === "cabs" ? String(fp.reason || "").replace(/on your settlement bills/i, "as one of your cab or settlement bills") : fp.reason;
+    return { verdict: { ok: false, reason: `${why} This attempt is recorded for your reporting officer.`, duplicate: true } };
   }
 
   const signedRead = {
@@ -236,7 +241,7 @@ export default async function handler(req, res) {
           .catch(() => null);
         if (!proofFile?.file_url) return res.status(200).json({ verdict: { ok: false, reason: "The payment proof could not be stored in the ERP — try again." } });
       }
-      const TITLE = { Stay: "Hotel bill", Food: "Food bill", Fuel: "Fuel bill", Toll: "Toll" };
+      const TITLE = { Stay: "Hotel bill", Food: "Food bill", Fuel: "Fuel bill", Toll: "Toll", Cab: "Cab bill" };
       const read = {
         manual: true,
         title: TITLE[given.kind],

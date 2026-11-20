@@ -1,61 +1,8 @@
-# =====================================================================
-# SERVER SCRIPT — the source of truth for the ERP's copy. Keep in step.
-#
-#   Name           : Expense Claim Route
-#   Script Type    : DocType Event
-#   Reference Doc  : Expense Claim
-#   Event          : After Save
-#
-# Moves a claim along after each workflow step ("Expense Claim Approval"):
-#
-#   -> Waiting for Approval   share the claim (read + write) with the
-#                             reporting officer that "Expense Claim
-#                             Approver" (Before Save) put in expense_approver
-#   -> Approved               the reporting officer approved. The AI score
-#                             (custom_ai_score, 0-100) decides:
-#                               >= AUTO_SCORE  -> Verified (+ payroll
-#                                                  when PAYROLL is on)
-#                               below / none   -> In Review + a Task in the
-#                                 "Expense claim" project for VERIFIER
-#   In Review -> Verified     VERIFIER verified it -> Task closed (+ payroll
-#                             when PAYROLL is on)
-#   In Review -> Rejected     Task closed
-#
-# PAYROLL is OFF since 27 Oct 2026: a verified bill is paid instantly (outside
-# payroll), and until that payment step exists the flow ends at Verified or
-# the review Task. With it on:
-# Payroll = one submitted Additional Salary (COMPONENT) for the claim's
-# non-Advance rows (sanctioned amount, else amount), on the last day of next
-# month, linked back in custom_additional_salary. If the Additional Salary is
-# refused (e.g. no salary structure), the claim goes to In Review with a
-# Task saying so -- never lost.
-#
-# Advances (an office float, e.g. HR gets 10k for office spends; no deadline):
-#   - an advance claim (Advance rows only) is released by VERIFIER (always In
-#     Review: it has no bills to score) and never goes to payroll; on Verified
-#     its custom_advance_balance opens at the full amount
-#   - spends are ordinary claims with custom_advance = that advance, a bill
-#     on every row, through the same approval + AI score; on Verified the
-#     advance's balance covers them first (custom_advance_covered on the
-#     spend, custom_advance_spent / _balance on the advance) and only what
-#     goes beyond the balance is paid through payroll
-#
-# The claim itself is never submitted (no ledger entry from the claim):
-# payroll books the cost, so booking the claim too would count it twice.
-#
-# Replaces "Expense Claim Task" (a Task on every new claim). Installed by
-# expense_claim_workflow_console.py. Added 21 Oct 2026.
-#
-# safe_exec: no import, no .format(), no set literals, no tuple
-# unpacking, no underscore-prefixed names, no def (DocType Event
-# functions cannot see top-level names).
-# =====================================================================
 
 VERIFIER = "sathish.admin@elbrit.org"     # Sathishkumar Kumaresan
 PROJECT = "PROJ-2026-2027-0016"           # "Expense claim"
 COMPONENT = "Field Expenses Reimbursement"
 NO_PAYROLL = ["Advance"]
-PAYROLL = False   # Additional Salary on Verified -- off: payment is instant, built later
 AUTO_SCORE = 90
 
 old = doc.get_doc_before_save()
@@ -69,7 +16,7 @@ if now and now != was:
     # 1. Sent: let the reporting officer open and act on it.
     if now == "Waiting for Approval" and doc.expense_approver:
         if not frappe.db.exists("DocShare", {"share_doctype": "Expense Claim", "share_name": doc.name, "user": doc.expense_approver}):
-            frappe.get_doc({
+            sh = frappe.get_doc({
                 "doctype": "DocShare",
                 "share_doctype": "Expense Claim",
                 "share_name": doc.name,
@@ -78,16 +25,35 @@ if now and now != was:
                 "write": 1,
                 "share": 0,
                 "notify_by_email": 0,
-            }).insert(ignore_permissions=True)
+            })
+            sh.flags.ignore_share_permission = True   # the user acting has no Share right (12 Nov 2026)
+            sh.insert(ignore_permissions=True)
 
     # 2. Reporting officer approved: the AI score routes it.
     route = None
     note = ""
-    if now == "Approved":
+    # A planner field claim (remark "Field TA/DA · ") waits for the final check
+    # on the field-expenses dashboard (12 Nov 2026): it stays Approved, and the
+    # check there makes the Additional Salary for the whole month at once.
+    # A manager's cab bills (remark "Field Cab · ", 20 Nov 2026) are a record
+    # only: the officer's approval is final and Accounts pays it outside
+    # payroll -- no AI routing, no Verified, no Additional Salary.
+    if now == "Approved" and not str(doc.remark or "").startswith("Field TA/DA · ") and not str(doc.remark or "").startswith("Field Cab · "):
         # Checked = the AI wrote its summary (an empty score reads back as 0).
         scored = bool(doc.get("custom_ai_summary"))
         score = frappe.utils.flt(doc.get("custom_ai_score"))
-        if scored and score >= AUTO_SCORE:
+        # The planner's monthly field TA/DA claim with no bill on it (12 Nov
+        # 2026): every line was priced by the ERP itself, so the reporting
+        # officer's approval is final -- no AI score, no Accounts review.
+        # Its stay / food / fuel / toll bills are checked when scanned (type,
+        # date, read, not a repeat): a bill row counts only once the AI
+        # checker scored it AUTO_SCORE+ (a possible repeat scores 85 and
+        # still goes to Accounts).
+        field = str(doc.remark or "").startswith("Field TA/DA · ")
+        for r in doc.expenses or []:
+            if r.get("custom_bill") and (not r.get("custom_ai_reason") or frappe.utils.flt(r.get("custom_ai_score")) < AUTO_SCORE):
+                field = False
+        if field or (scored and score >= AUTO_SCORE):
             route = "Verified"
         else:
             route = "In Review"
@@ -129,8 +95,8 @@ if now and now != was:
                 frappe.db.set_value("Expense Claim", doc.name, "custom_advance_covered", covered)
                 pay = pay - covered
 
-        # 3c. Payroll for next month (only while PAYROLL is on).
-        if PAYROLL and pay > 0 and not doc.get("custom_additional_salary"):
+        # 3c. Payroll for next month.
+        if pay > 0 and not doc.get("custom_additional_salary"):
             try:
                 ads = frappe.get_doc({
                     "doctype": "Additional Salary",
@@ -196,7 +162,7 @@ if now and now != was:
             todo.flags.ignore_permissions = True
             todo.insert()
         if not frappe.db.exists("DocShare", {"share_doctype": "Expense Claim", "share_name": doc.name, "user": VERIFIER}):
-            frappe.get_doc({
+            sh = frappe.get_doc({
                 "doctype": "DocShare",
                 "share_doctype": "Expense Claim",
                 "share_name": doc.name,
@@ -205,7 +171,9 @@ if now and now != was:
                 "write": 1,
                 "share": 0,
                 "notify_by_email": 0,
-            }).insert(ignore_permissions=True)
+            })
+            sh.flags.ignore_share_permission = True   # the user acting has no Share right (12 Nov 2026)
+            sh.insert(ignore_permissions=True)
 
     # 5. VERIFIER decided: close the claim's Task and its assignment.
     if was == "In Review" and now in ["Verified", "Rejected"]:

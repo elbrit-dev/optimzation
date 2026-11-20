@@ -69,6 +69,9 @@ export const VERIFIERS = ["sathish.admin@elbrit.org"];
  * bill still goes to Accounts after it ("Expense Claim Route"). */
 const FIELD = "Field TA/DA \u00b7 ";
 export const isField = (c) => String(c?.remark || "").startsWith(FIELD);
+// a manager's (SM / ZSM) cab bills of the month (20 Nov 2026): approval is final, record only
+const CAB = "Field Cab · ";
+export const isCab = (c) => String(c?.remark || "").startsWith(CAB);
 const fieldMonth = (c) => {
   const m = String(c.remark).slice(FIELD.length, FIELD.length + 7);
   return /^\d{4}-\d{2}$/.test(m) ? `${MON[Number(m.slice(5, 7)) - 1]} ${m.slice(0, 4)}` : "";
@@ -400,7 +403,18 @@ export default function ClaimApprovals({ url, token, mode = "auto", verifiers = 
                     desk={desk}
                   >
                     {p.claims.map((c) =>
-                      isField(c) && (current === "approve" || current === "history") ? (
+                      isCab(c) && (current === "approve" || current === "history") ? (
+                        <CabClaimPanel
+                          key={c.id}
+                          conn={conn}
+                          claim={c}
+                          history={current === "history"}
+                          canAct={canAct(c, current)}
+                          desk={desk}
+                          onBill={(file, files) => setPreview({ file, files })}
+                          onDone={done}
+                        />
+                      ) : isField(c) && (current === "approve" || current === "history") ? (
                         <FieldClaimPanel
                           key={c.id}
                           conn={conn}
@@ -556,9 +570,10 @@ function PersonSection({ person: p, open, onToggle, desk, children }) {
             {p.team && p.team !== "Other" ? `${p.team} · ` : ""}{plural(p.claims.length, "claim")}{p.bills ? ` · ${plural(p.bills, "bill")}` : ""}{p.flags ? ` · ${p.flags} to look at` : ""}
           </span>
         </span>
-        {desk && <Progress st={p} />}
+        {/* trips for a field claim; a cab / other claim is counted as a claim (20 Nov 2026) */}
+        {desk && <Progress st={p} unit={p.claims.some(isField) ? "trip" : "claim"} />}
         <b style={{ fontSize: 15, ...tabNum }}>{inr(p.amount)}</b>
-        {!desk && <span style={{ width: "100%", display: "flex" }}><Progress st={p} wide /></span>}
+        {!desk && <span style={{ width: "100%", display: "flex" }}><Progress st={p} wide unit={p.claims.some(isField) ? "trip" : "claim"} /></span>}
       </button>
       {open && <div style={{ borderTop: "1px solid #eef0f3", padding: desk ? 12 : 8, display: "flex", flexDirection: "column", gap: 10 }}>{children}</div>}
     </div>
@@ -595,6 +610,119 @@ function billsOf(t) {
     b.amount += l.amount;
   }
   return [...m.values()];
+}
+
+/* A manager's cab bills of the month (20 Nov 2026): one claim (remark
+   "Field Cab · YYYY-MM"), its bills listed -- date, cab, amount, the bill
+   check, the bill itself -- decided as ONE: Approve (final; a record only,
+   Accounts pays it outside payroll, never TA/DA) or Send back with a reason. */
+function CabClaimPanel({ conn, claim: c, canAct, history, desk, onBill, onDone }) {
+  const [busy, setBusy] = useState("");
+  const [error, setError] = useState("");
+  const [rejecting, setRejecting] = useState(false);
+  const [confirming, setConfirming] = useState(false);
+  const [reason, setReason] = useState("");
+  const lines = [...c.lines].sort((a, b) => a.date.localeCompare(b.date));
+  const total = lines.reduce((s, l) => s + (Number(l.amount) || 0), 0);
+  const files = lines.filter((l) => l.bill).map((l) => billFile(l.bill));
+  const flagged = lines.filter((l) => checkOf(l.ai)[0] !== "checked").length;
+  const first = String(c.employeeName || "the employee").split(" ")[0];
+  const month = (() => {
+    const m = /(\d{4})-(\d{2})$/.exec(c.remark || "");
+    return m ? `${MON[+m[2] - 1]} ${m[1]}` : "";
+  })();
+  const act = async (what, fn) => {
+    setError("");
+    setBusy(what);
+    try {
+      await fn();
+    } catch (e) {
+      setBusy("");
+      setError(/modified after/i.test(e.message) ? "The claim changed meanwhile. Refresh and try again." : e.message);
+    }
+  };
+  const approve = () =>
+    act("Approving…", async () => {
+      await applyAction(conn, c.id, "Approve");
+      onDone(`${c.employeeName || c.id}: cab bills approved — ${inr(total)}, a record for Accounts (not TA/DA, not payroll)`);
+    });
+  const sendBack = () => {
+    if (!reason.trim()) return setError("Say why — the employee sees this.");
+    return act("Sending back…", async () => {
+      await addClaimComment(conn, c.id, reason.trim());
+      await applyAction(conn, c.id, "Reject");
+      onDone(`${c.employeeName || c.id}: cab bills sent back`);
+    });
+  };
+  const pad = desk ? "10px 14px" : "10px 10px";
+  return (
+    <div style={{ borderRadius: 12, background: "#fcfcfd", boxShadow: "0 0 0 1px #eaecf0", display: "flex", flexDirection: "column" }}>
+      <div style={{ display: "flex", alignItems: "center", gap: 10, padding: pad, flexWrap: "wrap" }}>
+        <span style={{ fontSize: 11, fontWeight: 700, padding: "2px 8px", borderRadius: 99, background: "#fef0c7", color: "#93370d" }}>🚕 Cab bills · {month}</span>
+        {history ? <Chip claim={c} /> : flagged ? <span style={{ fontSize: 11, fontWeight: 700, color: "#b54708" }}>{plural(flagged, "bill")} to look at</span> : <span style={{ fontSize: 11, fontWeight: 700, color: "#067647" }}>all bills checked</span>}
+        <span style={{ marginLeft: "auto", fontSize: 12.5, color: "#5b6576" }}>{plural(lines.length, "bill")}</span>
+        <b style={{ fontSize: 15, ...tabNum }}>{inr(total)}</b>
+      </div>
+      <div style={{ display: "flex", flexDirection: "column", borderTop: "1px solid #eaecf0" }}>
+        {lines.map((l) => {
+          const [word, color] = checkOf(l.ai);
+          const f = l.bill ? billFile(l.bill) : null;
+          return (
+            <div key={l.id} style={{ display: "grid", gridTemplateColumns: "48px minmax(0,1fr) auto", columnGap: 10, alignItems: "center", padding: "8px 12px", borderBottom: "1px solid #f2f4f7" }}>
+              <span style={{ textAlign: "center", lineHeight: 1.1 }}>
+                <b style={{ display: "block", fontSize: 16 }}>{+l.date.slice(8, 10)}</b>
+                <small style={{ fontSize: 10, fontWeight: 700, color: "#667085", textTransform: "uppercase" }}>{MON[+l.date.slice(5, 7) - 1]}</small>
+              </span>
+              <span style={{ minWidth: 0, display: "flex", flexDirection: "column", gap: 1 }}>
+                <b style={{ fontSize: 13.5, ...ell }}>{l.ai?.vendor || String(l.note || "").split(" · ")[1] || "Cab"}</b>
+                <span style={{ fontSize: 11.5, color, ...(desk ? ell : {}) }}>
+                  {word === "checked" ? "✓ checked — cab, date and bill read" : l.ai?.reason ? `${word} · ${l.ai.reason}` : word}
+                </span>
+              </span>
+              <span style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                <b style={{ fontSize: 13.5, ...tabNum }}>{inr(l.amount)}</b>
+                {f && (
+                  <button type="button" onClick={() => onBill(f, files)} style={{ height: 28, padding: "0 10px", borderRadius: 8, border: "1px solid #d0d5dd", background: "#fff", color: "#344054", fontSize: 12, fontWeight: 600, cursor: "pointer" }}>
+                    View bill
+                  </button>
+                )}
+              </span>
+            </div>
+          );
+        })}
+      </div>
+      {!history && (
+        <div style={{ padding: pad, display: "flex", flexDirection: "column", gap: 8 }}>
+          <span style={{ fontSize: 12, color: "#5b6576" }}>Not TA/DA. Your approval is final — it is a record for Accounts, who pay it outside payroll.</span>
+          {error && <span style={{ fontSize: 12.5, color: "#b42318" }}>{error}</span>}
+          {canAct &&
+            (rejecting ? (
+              <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+                <textarea value={reason} onChange={(e) => setReason(e.target.value)} rows={2} placeholder="Why? e.g. 18 Nov: two bills for one ride" style={{ width: "100%", borderRadius: 10, border: "1px solid #fda29b", padding: "8px 10px", fontSize: 13, fontFamily: "inherit", resize: "vertical" }} />
+                <span style={{ display: "flex", gap: 8, justifyContent: "flex-end" }}>
+                  <button type="button" disabled={!!busy} onClick={() => { setRejecting(false); setError(""); }} style={{ ...btn.ghost, height: 38 }}>Cancel</button>
+                  <button type="button" disabled={!!busy} onClick={sendBack} style={{ ...btn.primary, height: 38, background: "#d92d20", display: "inline-flex", alignItems: "center", gap: 6 }}>{busy ? <><Spinner />{busy}</> : `Send back to ${first}`}</button>
+                </span>
+              </div>
+            ) : confirming ? (
+              <div style={{ display: "flex", flexDirection: "column", gap: 6, padding: 10, borderRadius: 10, background: "#eff4ff", boxShadow: "inset 0 0 0 1px #c7d7fe" }}>
+                <b style={{ fontSize: 13.5 }}>Approve {first}&apos;s {plural(lines.length, "cab bill")} · {inr(total)}?</b>
+                <span style={{ fontSize: 12.5, color: "#475467" }}>Final — Accounts pays it outside payroll.</span>
+                <span style={{ display: "flex", gap: 8, justifyContent: "flex-end" }}>
+                  <button type="button" disabled={!!busy} onClick={() => setConfirming(false)} style={{ ...btn.ghost, height: 38 }}>Cancel</button>
+                  <button type="button" disabled={!!busy} onClick={approve} style={{ ...btn.primary, height: 38, background: "#16a34a", display: "inline-flex", alignItems: "center", gap: 6 }}>{busy ? <><Spinner />{busy}</> : `Yes, approve · ${inr(total)}`}</button>
+                </span>
+              </div>
+            ) : (
+              <span style={{ display: "flex", gap: 8, justifyContent: "flex-end", flexWrap: "wrap" }}>
+                <button type="button" onClick={() => setRejecting(true)} style={{ ...btn.ghost, height: 38, borderColor: "#fecdca", color: "#b42318" }}>Send back</button>
+                <button type="button" onClick={() => setConfirming(true)} style={{ ...btn.primary, height: 38, background: "#16a34a" }}>Approve · {inr(total)}</button>
+              </span>
+            ))}
+        </div>
+      )}
+    </div>
+  );
 }
 
 /* One planner field claim (the rep's month): its trips, each decided on its

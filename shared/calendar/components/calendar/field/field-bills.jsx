@@ -156,8 +156,8 @@ export function BillEditor({ bill, kind, onRemove }) {
 
 /* ------------------------------ by hand ------------------------------ */
 
-const KIND_SLOT = { Stay: "stays", Food: "foods", Fuel: "fuels", Toll: "tolls" };
-const KIND_WORD = { Stay: "Stay (hotel)", Food: "Food", Fuel: "Fuel", Toll: "Toll" };
+const KIND_SLOT = { Stay: "stays", Food: "foods", Fuel: "fuels", Toll: "tolls", Cab: "cabs" };
+const KIND_WORD = { Stay: "Stay (hotel)", Food: "Food", Fuel: "Fuel", Toll: "Toll", Cab: "Cab ride" };
 
 /* A HANDWRITTEN bill (every one, 16 Nov 2026), or one the reader could not
    read (faded, no bill no or date):

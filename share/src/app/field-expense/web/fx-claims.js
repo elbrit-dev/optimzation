@@ -75,6 +75,13 @@
       // 13 Nov 2026: every claim of the month (any state), everyone with paid
       // field days (for "no claim yet"), and the approved own-car requests
       M.all = m.claims || []; M.people = m.people || []; M.cars = m.cars || [];
+      // fx-cab (20 Nov 2026): a manager's cab bills of the month -- their own claim
+      // ("Field Cab · YYYY-MM"), approved by the reporting officer, record only
+      M.cabs = {};
+      (m.cabs || []).forEach(function (c) {
+        c.lines = (m.cab_lines || []).filter(function (l) { return l.parent === c.name; });
+        (M.cabs[c.employee] = M.cabs[c.employee] || []).push(c);
+      });
       (m.claims || []).forEach(function (c) { if (!SHOWN[c.workflow_state]) (M.notYet[c.employee] = M.notYet[c.employee] || []).push(c); });
       // 13 Nov 2026: only what the reporting officer has APPROVED comes here
       // (and, as a record, what is already finalised) -- a claim still with
@@ -172,7 +179,7 @@
       var word = w0 === 'Rejected' ? ['sent back', '#b42318'] : w0 === 'Draft' ? ['claim not sent', 'var(--ink-3)'] : ['claim with approver', 'var(--ink-3)'];
       out += ' <span style="display:inline-block;font-size:10.5px;font-weight:700;line-height:16px;padding:0 7px;border-radius:9px;color:' + word[1] + ';border:1px solid var(--line)">' + word[0] + '</span>';
     }
-    return out;
+    return out + cabPill(code);
   };
   /* a handwritten bill (it could not be read, the rep typed it in): the line
      carries "… · handwritten: <reason> · proof: <payment proof file>" */
@@ -182,6 +189,7 @@
     var w = / · handwritten: ([^·]*)/.exec(d), p = / · proof: (\S+)/.exec(d);
     return { why: w ? w[1].trim() : '', proof: p ? p[1] : '', cash: / · paid in cash/.test(d) };
   };
+  M.isHand = isHand; M.handOf = handOf;   // for the Anomalies tab (2026-11-17)
   // the description without the parts shown on their own
   // (the proof first: removing the reason takes the space before its " · ")
   var plainNote = function (l) { return String(l.description || '').replace(/ · proof: \S+/, '').replace(/ · paid in cash/, '').replace(/ · handwritten: [^·]*/, '').trim(); };
@@ -448,7 +456,8 @@
   };
 
   /* the employee's claims, under their day table: one row each, with its risk */
-  M.foot = function (a) {
+  M.foot = function (a) { return footClaims(a) + cabFoot(a); };
+  var footClaims = function (a) {
     var emp = (a && a.rows && a.rows[0] && a.rows[0].emp) || '';
     var list = M.byEmp[emp] || [];
     var style = 'padding:8px 10px;border-top:2px solid var(--line);font-size:12.5px;background:var(--surface-2)';
@@ -553,7 +562,8 @@
       b = document.createElement('button');
       b.id = 'fx-claims-final';
       b.type = 'button';
-      b.style.cssText = 'padding:5px 12px;border-radius:8px;border:0;font-weight:600;cursor:pointer;background:var(--brand, #2563eb);color:#fff';
+      // last on the header row, beside the claims chips (2026-11-13)
+      b.style.cssText = 'padding:5px 12px;border-radius:8px;border:0;font-weight:600;cursor:pointer;background:var(--brand, #2563eb);color:#fff;order:3;flex:none;white-space:nowrap';
       b.onclick = finalise;
       host.appendChild(b);
     }
@@ -599,7 +609,8 @@
     if (!el) {
       el = document.createElement('div');
       el.id = 'fx-claims-track';
-      el.style.cssText = 'display:flex;align-items:center;gap:6px;flex-wrap:wrap;font-size:12px;width:100%;margin-top:6px';
+      // on the header row, not a row of its own (2026-11-13). Was: ...flex-wrap:wrap;font-size:12px;width:100%;margin-top:6px
+      el.style.cssText = 'display:flex;align-items:center;gap:6px;flex-wrap:nowrap;font-size:12px;order:1;flex:none';
       host.appendChild(el);
     }
     var t = trackOf();
@@ -653,7 +664,7 @@
     if (!r) {
       r = document.createElement('span');
       r.id = 'fx-claims-risk';
-      r.style.cssText = 'display:inline-flex;align-items:center;gap:6px;flex-wrap:wrap;font-size:12px;margin-left:8px';
+      r.style.cssText = 'display:inline-flex;align-items:center;gap:6px;flex-wrap:nowrap;font-size:12px;order:2;flex:none';
       host.appendChild(r);
     }
     var chip = function (k) {
@@ -711,6 +722,80 @@
         .catch(function (e) { o.querySelector('[data-fxerr]').textContent = e.message; btn.disabled = false; btn.textContent = 'Finalise'; });
     };
   }
+
+  /* ---------- fx-cab: a manager's cab bills (20 Nov 2026) ----------
+     SM / ZSM scan the month's cab bills in the planner on a card of their own
+     (no day asked, never TA/DA); the claim (remark "Field Cab · YYYY-MM") goes
+     to the reporting officer, whose approval is final. It is a record only --
+     Accounts pays it, outside payroll -- so it is shown per employee, not per
+     day: a pill by the name and a row under the days, both open the bills. */
+  var CAB_STATE = {
+    'Approved': ['approved · record only', '#067647'],
+    'Verified': ['approved · record only', '#067647'],
+    'Waiting for Approval': ['with officer', 'var(--ink-3)'],
+    'Rejected': ['sent back', '#b42318'],
+    'Draft': ['not sent', 'var(--ink-3)'],
+  };
+  var cabSum = function (c) { return (c.lines || []).reduce(function (s, l) { return s + (Number(l.amount) || 0); }, 0); };
+  var cabDate = function (d) { d = String(d || '').slice(0, 10); return d ? Number(d.slice(8, 10)) + ' ' + MON[Number(d.slice(5, 7)) - 1] : ''; };
+  var cabVendor = function (l) { return l.custom_bill_vendor || String(l.description || '').split(' · ')[1] || 'Cab'; };
+  var CAB_BTN = 'cursor:pointer;display:inline-flex;align-items:center;gap:4px;font:inherit;font-size:10.5px;font-weight:800;line-height:16px;padding:0 7px;border-radius:9px;color:#1d4ed8;background:#eef4ff;border:1px solid #b2ccff';
+  function cabPill(code) {
+    var list = (M.cabs || {})[code] || [];
+    if (!list.length) return '';
+    var n = 0, amt = 0;
+    list.forEach(function (c) { n += c.lines.length; amt += cabSum(c); });
+    return ' <button type="button" data-fxcab="' + esc(code) + '" title="Cab bills: ' + n + ' bill' + (n === 1 ? '' : 's') + ', ' + inr(amt) + ' -- not TA/DA, open to see them" style="' + CAB_BTN + '">🚕 Cab ' + inr(amt) + '</button>';
+  }
+  function cabFoot(a) {
+    var emp = (a && a.rows && a.rows[0] && a.rows[0].emp) || '';
+    var list = (M.cabs || {})[emp] || [];
+    var style = 'padding:8px 10px;border-top:1px solid var(--line);font-size:12.5px;background:var(--surface-2)';
+    return list.map(function (c) {
+      var st = CAB_STATE[c.workflow_state] || [c.workflow_state || 'not sent', 'var(--ink-3)'];
+      return '<tr><td colspan="99" style="' + style + '">🚕 <b>Cab bills ' + esc(c.name) + '</b> ' + pill(st) +
+        ' · ' + c.lines.length + ' bill' + (c.lines.length === 1 ? '' : 's') + ' · <b>' + inr(cabSum(c)) + '</b>' +
+        ' · <span style="color:var(--ink-3)">not TA/DA · paid by Accounts, not payroll</span>' +
+        ' <button type="button" data-fxcab="' + esc(emp) + '" style="' + CAB_BTN + ';margin-left:6px">View bills</button></td></tr>';
+    }).join('');
+  }
+  function openCab(code) {
+    var list = (M.cabs || {})[code] || [];
+    if (!list.length) return;
+    var TH = 'text-align:left;padding:5px 8px;font-size:10.5px;letter-spacing:.06em;text-transform:uppercase;color:var(--ink-3);border-bottom:1px solid var(--line)';
+    var TD = 'padding:6px 8px;border-bottom:1px solid var(--surface-2);vertical-align:top';
+    var total = 0;
+    var blocks = list.map(function (c) {
+      var st = CAB_STATE[c.workflow_state] || [c.workflow_state || 'not sent', 'var(--ink-3)'];
+      total += cabSum(c);
+      var rows = c.lines.slice().sort(function (p, q) { return String(p.expense_date).localeCompare(String(q.expense_date)); }).map(function (l) {
+        var sc = Number(l.custom_ai_score) || 0;
+        var chk = l.custom_ai_reason ? '<span style="color:' + (sc >= 90 ? 'var(--ok, #16a34a)' : 'var(--warn, #b45309)') + '">' + esc(l.custom_ai_reason) + '</span>' : '<span style="color:var(--ink-3)">not checked</span>';
+        return '<tr><td style="' + TD + ';white-space:nowrap">' + esc(cabDate(l.expense_date)) + '</td><td style="' + TD + '"><b>' + esc(cabVendor(l)) + '</b><div style="font-size:11.5px">' + chk + '</div></td>' +
+          '<td style="' + TD + ';text-align:right;white-space:nowrap;font-weight:600">' + inr(l.amount) + '</td>' +
+          '<td style="' + TD + ';white-space:nowrap">' + (l.custom_bill ? '<a href="' + esc(l.custom_bill) + '" target="_blank" rel="noopener">View bill</a>' : '') + '</td></tr>';
+      }).join('');
+      var head = '<table style="width:100%;border-collapse:collapse;font-size:12.5px"><thead><tr>' +
+        '<th style="' + TH + '">Date</th><th style="' + TH + '">Cab · bill check</th><th style="' + TH + ';text-align:right">Amount</th><th style="' + TH + '"></th></tr></thead>';
+      return '<div style="margin-top:10px"><div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:4px"><b>' + esc(c.name) + '</b> ' + pill(st) +
+        (c.expense_approver ? '<span style="color:var(--ink-3)">· officer ' + esc(M.names[c.expense_approver] || c.expense_approver) + '</span>' : '') +
+        '<span style="margin-left:auto;font-weight:700">' + inr(cabSum(c)) + '</span></div>' + head + '<tbody>' + rows + '</tbody></table></div>';
+    }).join('');
+    var o = overlay('<b style="font-size:15px">Cab bills · ' + esc(list[0].employee_name || code) + ' · ' + esc(monthWord(M.month)) + '</b>' +
+      '<div style="margin:4px 0 2px;color:var(--ink-3)">Kept apart from TA/DA: the reporting officer&#39;s approval is final and Accounts pays it outside payroll. ' +
+      list.reduce(function (s, c) { return s + c.lines.length; }, 0) + ' bills · <b style="color:var(--ink)">' + inr(total) + '</b></div>' + blocks +
+      '<div style="display:flex;justify-content:flex-end;margin-top:12px"><button type="button" data-fxcancel style="padding:6px 14px;border:1px solid var(--line);border-radius:8px;background:var(--surface);color:inherit;cursor:pointer">Close</button></div>');
+    o.querySelector('[data-fxcancel]').onclick = function () { o.remove(); };
+  }
+  // the cab pill / View bills: open the list, and never also open or fold the employee's row
+  document.addEventListener('click', function (ev) {
+    var t = ev.target && ev.target.closest && ev.target.closest('[data-fxcab]');
+    if (!t) return;
+    ev.preventDefault();
+    ev.stopPropagation();
+    openCab(t.getAttribute('data-fxcab'));
+  }, true);
+  /* ---------- /fx-cab ---------- */
 
   // a ✎ in a day row opens the check panel -- and must not also open the day
   document.addEventListener('click', function (ev) {

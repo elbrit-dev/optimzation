@@ -114,9 +114,28 @@ if action == "month" or action == "mine":
                                 group_by="employee, employee_name", limit_page_length=0)
         if frappe.db.exists("DocType", "Car Request"):
             cars = frappe.get_all("Car Request", filters={"status": "Approved", "from_date": ["<=", last], "to_date": [">=", first]},
-                                  fields=["name", "employee", "from_date", "to_date", "approved_amount", "places"], limit_page_length=0)
+                                  fields=["name", "employee", "employee_name", "from_date", "to_date", "approved_amount", "places",
+                                          "km", "fuel", "suggested", "ask"], limit_page_length=0)
+    # 20 Nov 2026: a manager's (SM / ZSM) cab bills of the month -- their own
+    # claim, remark "Field Cab · YYYY-MM", approved by the reporting officer and
+    # kept as a record (Accounts pays it; not TA/DA, no payroll). The dashboard
+    # shows them per employee, not per day.
+    cabs = []
+    cab_lines = []
+    if action == "month":
+        cabs = frappe.get_all("Expense Claim", filters={"remark": "Field Cab · " + month, "docstatus": ["<", 2]}, fields=CLAIM_COLS, order_by="employee_name asc", limit_page_length=0)
+        cab_names = []
+        for c in cabs:
+            cab_names.append(c.name)
+            if c.expense_approver and not who.get(c.expense_approver):
+                who[c.expense_approver] = frappe.db.get_value("User", c.expense_approver, "full_name") or c.expense_approver
+        if cab_names:
+            cab_lines = frappe.get_all("Expense Claim Detail", filters={"parent": ["in", cab_names], "parenttype": "Expense Claim"},
+                                       fields=["name", "parent", "idx", "expense_date", "expense_type", "custom_sub_type", "description", "amount",
+                                               "custom_bill", "custom_bill_vendor", "custom_ai_score", "custom_ai_reason"],
+                                       order_by="parent asc, expense_date asc", limit_page_length=0)
     frappe.response["message"] = {"month": month, "verifier": verifier, "claims": claims, "lines": lines, "names": who, "km": km,
-                                  "people": people, "cars": cars}
+                                  "people": people, "cars": cars, "cabs": cabs, "cab_lines": cab_lines}
 
 elif action == "adjust":
     if not verifier:

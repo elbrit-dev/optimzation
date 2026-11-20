@@ -28,6 +28,9 @@ export const SLOTS = {
   foods: { kind: "Food", title: "Food bill", word: "food" },
   fuels: { kind: "Fuel", title: "Fuel bill", word: "fuel" },
   tolls: { kind: "Toll", title: "Toll", word: "toll" },
+  // a manager's (SM / ZSM) cab bills of the month, kept apart from TA/DA (20 Nov
+  // 2026): any cab ride dated inside the month; registered as kind "Bill"
+  cabs: { kind: "Cab", title: "Cab bill", word: "cab" },
 };
 const SLOT_OF_TITLE = Object.fromEntries(Object.entries(SLOTS).map(([k, s]) => [s.title, k]));
 
@@ -38,7 +41,7 @@ const MANUAL = "This bill couldn't be read (handwritten, faded, or no bill no / 
    whatever was read. */
 function unreadable(read, slotKind, reason = MANUAL) {
   const v = read?.values || {};
-  const guess = slotKind || { "Hotel bill": "Stay", "Food bill": "Food", "Fuel bill": "Fuel", Toll: "Toll" }[read?.title] || null;
+  const guess = slotKind || { "Hotel bill": "Stay", "Food bill": "Food", "Fuel bill": "Fuel", Toll: "Toll", "Cab bill": "Cab" }[read?.title] || null;
   return {
     ok: false,
     manual: true,
@@ -139,6 +142,11 @@ export function tripBillVerdict(read, slot, trip) {
   if (read.title === "Not a bill") return { ok: false, reason: NOT_BILL };
   if (read.title !== s.title) {
     const other = SLOT_OF_TITLE[read.title];
+    // the cab card takes cab bills only, whatever else it is (20 Nov 2026)
+    if (slot === "cabs") {
+      const t = String(read.title).toLowerCase();
+      return { ok: false, reason: `This is ${/^[aeiou]/.test(t) ? "an" : "a"} ${t} — only cab bills (Ola, Uber, taxi) go here.` };
+    }
     return {
       ok: false,
       reason: other
@@ -150,7 +158,7 @@ export function tripBillVerdict(read, slot, trip) {
   // a date read clearly and outside the trip: refused, whatever else could
   // not be read (13 Nov 2026)
   if (slot !== "stays" && ISO.test(String(v.date || "")) && sure(conf.date) && (v.date < trip.from || v.date > trip.to)) {
-    return { ok: false, reason: `This bill is dated ${shortDate(v.date)} — outside this trip (${span(trip.from, trip.to)}).` };
+    return { ok: false, reason: `This bill is dated ${shortDate(v.date)} — outside ${slot === "cabs" ? "the claim's month" : "this trip"} (${span(trip.from, trip.to)}).` };
   }
   if (slot === "stays") {
     const ci = ISO.test(String(v.check_in || "")) && sure(conf.check_in) ? v.check_in : null;
@@ -191,7 +199,7 @@ export function tripBillVerdict(read, slot, trip) {
   }
 
   if (!ISO.test(String(v.date || "")) || !sure(conf.date)) return unreadable(read, s.kind);
-  if (v.date < trip.from || v.date > trip.to) return { ok: false, reason: `This bill is dated ${shortDate(v.date)} — outside this trip (${span(trip.from, trip.to)}).` };
+  if (v.date < trip.from || v.date > trip.to) return { ok: false, reason: `This bill is dated ${shortDate(v.date)} — outside ${slot === "cabs" ? "the claim's month" : "this trip"} (${span(trip.from, trip.to)}).` };
   return { ...base, amount: billed, date: v.date, nights: [] };
 }
 
@@ -202,7 +210,7 @@ export function tripBillVerdict(read, slot, trip) {
    entry: { kind, date, checkIn, checkOut, amount, vendor }
    -> { ok: false, reason } | the same as tripBillVerdict, with manual: true */
 // tolls are not paid (13 Nov 2026): never offered for hand entry on a trip
-export const MANUAL_KINDS = { da: ["Stay", "Food"], car: ["Fuel"], all: ["Stay", "Food", "Fuel"], stays: ["Stay"], foods: ["Food"], fuels: ["Fuel"], tolls: ["Toll"] };
+export const MANUAL_KINDS = { da: ["Stay", "Food"], car: ["Fuel"], all: ["Stay", "Food", "Fuel"], stays: ["Stay"], foods: ["Food"], fuels: ["Fuel"], tolls: ["Toll"], cabs: ["Cab"] };
 export function manualBillVerdict(entry, slot, trip) {
   const e = entry || {};
   const kinds = MANUAL_KINDS[slot] || [];
@@ -231,6 +239,6 @@ export function manualBillVerdict(entry, slot, trip) {
     return { ...base, amount: Math.round((billed * nights.length) / all.length), date: nights[0], nights, checkIn, checkOut };
   }
   if (!ISO.test(String(e.date || ""))) return { ok: false, reason: "Enter the bill's date." };
-  if (e.date < trip.from || e.date > trip.to) return { ok: false, reason: `${shortDate(e.date)} is outside this trip (${span(trip.from, trip.to)}).` };
+  if (e.date < trip.from || e.date > trip.to) return { ok: false, reason: `${shortDate(e.date)} is outside ${slot === "cabs" ? "the claim's month" : "this trip"} (${span(trip.from, trip.to)}).` };
   return { ...base, amount: billed, date: e.date, nights: [] };
 }

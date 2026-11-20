@@ -57,6 +57,7 @@ import { BILL_NAME, BillChip, BillEditor, ChipButton, ManualBill, useBillPicker 
 import { useTripBillViewer } from "@calendar/components/calendar/field/field-bill-view";
 import { HELP_STATUS, askedText, htmlText, listTripHelp, addRouteText, sendTripHelp } from "@calendar/lib/field-expenses/trip-help";
 import { NonReportCard, NonReportDayRow, NonReportSheet } from "@calendar/components/calendar/field/field-nonreport";
+import { CabCard, CabSheet } from "@calendar/components/calendar/field/field-cab";
 
 const MONTH_LONG = ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"];
 const monthName = (ym) => MONTH_LONG[Number(ym.slice(5, 7)) - 1];
@@ -189,6 +190,8 @@ export function FieldStrip() {
             {f.claimed.some(isLocalTrip) && <LocalCard items={f.claimed.filter(isLocalTrip)} onOpen={f.openLocal} />}
             {/* the working days with nothing on record (19 Nov 2026): say what was done */}
             <NonReportCard />
+            {/* SM / ZSM: the month's cab bills, apart from TA/DA (20 Nov 2026) */}
+            <CabCard />
             {[(x) => x.trip.kind === "tour", (x) => x.trip.kind !== "tour"].flatMap((pick) =>
               f.claimed
                 .filter((x) => !isLocalTrip(x) && pick(x))
@@ -789,6 +792,9 @@ function FieldSheets() {
       </Modal>
       <Modal side={side} open={kind === "nonreport"} onOpenChange={close}>
         <ModalContent className={cls}>{kind === "nonreport" && <NonReportSheet key={f.sheet?.date || "list"} />}</ModalContent>
+      </Modal>
+      <Modal side={side} open={kind === "cab"} onOpenChange={close}>
+        <ModalContent className={cls}>{kind === "cab" && <CabSheet />}</ModalContent>
       </Modal>
       <Modal side={side} open={kind === "kpi"} onOpenChange={close}>
         <ModalContent className={cls}>{kind === "kpi" && <KpiSheet />}</ModalContent>

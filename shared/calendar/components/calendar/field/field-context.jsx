@@ -10,7 +10,7 @@ import { format } from "date-fns";
 import { useCalendar } from "@calendar/components/calendar/contexts/calendar-context";
 import { LOGGED_IN_USER } from "@calendar/components/auth/calendar-users";
 import { buildTrips, fetchFieldMonth, monthStats } from "@calendar/lib/field-expenses/field-days";
-import { CAR_APPROVER, canUseCar, claimsStays, payrollOf, plannedTrips, tripChecks, tripClaim } from "@calendar/lib/field-expenses/claim-rules";
+import { CAR_APPROVER, canClaimCabs, canUseCar, claimsStays, payrollOf, plannedTrips, tripChecks, tripClaim } from "@calendar/lib/field-expenses/claim-rules";
 import { TAG_IDS } from "@calendar/components/calendar/constants";
 import * as store from "@calendar/lib/field-expenses/trip-claims-store";
 import * as monthErp from "@calendar/lib/field-expenses/erp-claim";
@@ -248,6 +248,8 @@ export function FieldExpensesProvider({ children }) {
       emp,
       role,
       canCar: canUseCar(role),
+      // SM / ZSM: the month's cab bills on a card of their own, apart from TA/DA (20 Nov 2026)
+      canCab: canClaimCabs(role, state.data?.employee?.seat),
       // who says yes to a car request
       carApprover: `the ${CAR_APPROVER}`,
       // stay and food bills start at RBM; the designation is the ERP's
@@ -290,6 +292,7 @@ export function FieldExpensesProvider({ children }) {
   const openKpi = useCallback(() => setSheet({ kind: "kpi" }), []);
   // date: open straight on that day's form
   const openNonReport = useCallback((date) => setSheet({ kind: "nonreport", ...(date ? { date } : {}) }), []);
+  const openCab = useCallback(() => setSheet({ kind: "cab" }), []);
   const closeSheet = useCallback(() => setSheet((s) => (s?.from === "local" ? { kind: "local" } : null)), []);
   const toggleStrip = useCallback(() => setStripOpen((v) => !v), []);
 
@@ -315,7 +318,7 @@ export function FieldExpensesProvider({ children }) {
   );
 
   return (
-    <FieldContext.Provider value={{ ...value, actions, openTrip, openLocal, openCarRequest, openRequest, openKpi, openNonReport, closeSheet, toggleStrip }}>
+    <FieldContext.Provider value={{ ...value, actions, openTrip, openLocal, openCarRequest, openRequest, openKpi, openNonReport, openCab, closeSheet, toggleStrip }}>
       {children}
     </FieldContext.Provider>
   );

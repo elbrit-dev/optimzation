@@ -40,6 +40,10 @@ const roleKey = (role) => {
   return SENIOR_ROLES.includes(r) ? r : r.split("-")[0].replace(/[0-9]/g, "").trim();
 };
 export const canUseCar = (role) => CAR_ROLES.includes(roleKey(role));
+/* 20 Nov 2026: the month's cab bills, kept apart from TA/DA (lib/field-expenses/cab-claims.js),
+   are for SM and ZSM only -- by the rate-card role, or the seat ("SM-ELB_AURA_KA") */
+export const CAB_ROLES = ["SM", "ZSM"];
+export const canClaimCabs = (role, seat) => [role, seat].some((r) => r && CAB_ROLES.includes(roleKey(r)));
 export const carPreapproved = (role) => CAR_PREAPPROVED_ROLES.includes(roleKey(role));
 export const claimsStays = (role) => SENIOR_ROLES.includes(roleKey(role));
 

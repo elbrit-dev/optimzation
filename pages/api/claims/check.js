@@ -175,7 +175,9 @@ function scoreTripRow(row, read) {
   const why = [];
   if (!vd.ok) why.push("the bill did not pass its checks when scanned");
   if (row.custom_bill !== tb.file_url) why.push("the row's bill is not the one that was checked");
-  if (row.expense_type !== vd.kind) why.push(`a ${String(vd.kind || "?").toLowerCase()} bill on a ${row.expense_type} row`);
+  // a manager's cab bill sits on a Travel row with sub type Cab (20 Nov 2026)
+  const kindOk = row.expense_type === vd.kind || (vd.kind === "Cab" && row.expense_type === "Travel" && String(row.custom_sub_type || "") === "Cab");
+  if (!kindOk) why.push(`a ${String(vd.kind || "?").toLowerCase()} bill on a ${row.expense_type} row`);
   if (!(row.expense_date >= tb.trip?.from && row.expense_date <= tb.trip?.to)) why.push("the row is dated outside the trip");
   if (claimed > flt(vd.billed) + 1) why.push(`₹${Math.round(claimed)} claimed on a ₹${Math.round(flt(vd.billed))} bill`);
   const ok = !why.length;
