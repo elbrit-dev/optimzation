@@ -108,6 +108,69 @@ function isActive(record) {
   return Boolean(record?.originalToken && token && token !== record.originalToken);
 }
 
+/* ---------------------------------------------
+   ONE RELOAD AFTER A SWITCH (20 Nov 2026)
+   After the token swap the first page still showed the previous person: the
+   greeting ("Good morning, <you>"), and the planner's logged-in user, so its
+   Field strip vanished and "your manager" came from the wrong person. The
+   app's cached "Me" record catches up a few seconds later, but what was
+   already rendered does not. So a switch (or Back to me) leaves a mark; once
+   off the Login page and "Me" has turned into someone else, the page reloads
+   once, the same as the manual reload that fixed it in testing.
+--------------------------------------------- */
+
+const RELOAD_KEY = 'elbrit.identity.reload';
+const RELOAD_WAIT_MS = 25000;
+
+function meCode() {
+  try {
+    return JSON.parse(localStorage.getItem('Me') || '{}').employee || null;
+  } catch {
+    return null;
+  }
+}
+
+function markReload() {
+  try {
+    localStorage.setItem(RELOAD_KEY, JSON.stringify({ before: meCode(), at: Date.now() }));
+  } catch {
+    // storage blocked: no reload, the old behaviour
+  }
+}
+
+let reloadWatch = null;
+function watchReload() {
+  if (reloadWatch || loginTarget(window.location.pathname)) return; // the Login page is still swapping
+  let mark = null;
+  try {
+    mark = JSON.parse(localStorage.getItem(RELOAD_KEY) || 'null');
+  } catch {
+    mark = null;
+  }
+  if (!mark) return;
+  const drop = () => {
+    try {
+      localStorage.removeItem(RELOAD_KEY);
+    } catch {
+      // nothing to drop
+    }
+  };
+  if (Date.now() - (mark.at || 0) > 2 * 60 * 1000) return drop(); // stale mark
+  const started = Date.now();
+  reloadWatch = setInterval(() => {
+    const now = meCode();
+    if (now && now !== mark.before) {
+      clearInterval(reloadWatch);
+      drop();
+      window.location.reload();
+    } else if (Date.now() - started > RELOAD_WAIT_MS) {
+      clearInterval(reloadWatch);
+      reloadWatch = null;
+      drop();
+    }
+  }, 500);
+}
+
 /**
  * Save the own token before the Login page swaps it. Only the FIRST switch
  * saves: during a jump from A to B the token in use is A's, not yours.
@@ -125,6 +188,7 @@ function rememberSelf(target, reason) {
   record.switchedAt = new Date().toISOString();
   record.switches = (record.switches || 0) + 1;
   writeRecord(record);
+  markReload();
   return record;
 }
 
@@ -223,14 +287,20 @@ function install() {
   if (opened && !readRecord()) rememberSelf(opened, null);
 
   const onVisible = () => document.visibilityState === 'visible' && refresh();
+  // the Login page hands over to "/" by route change or a full load: watch either way
+  const onRouteDone = () => {
+    refresh();
+    watchReload();
+  };
   Router.events.on('routeChangeStart', onRouteStart);
-  Router.events.on('routeChangeComplete', refresh);
+  Router.events.on('routeChangeComplete', onRouteDone);
   window.addEventListener('storage', refresh);
   document.addEventListener('visibilitychange', onVisible);
   refresh();
+  watchReload();
   return () => {
     Router.events.off('routeChangeStart', onRouteStart);
-    Router.events.off('routeChangeComplete', refresh);
+    Router.events.off('routeChangeComplete', onRouteDone);
     window.removeEventListener('storage', refresh);
     document.removeEventListener('visibilitychange', onVisible);
   };
@@ -284,6 +354,7 @@ export function backToSelf() {
       return;
     }
     report('back to self', record);
+    markReload();
   }
   writeRecord(null);
   window.location.replace('/');

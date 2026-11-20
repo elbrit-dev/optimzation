@@ -265,7 +265,8 @@ export function FieldExpensesProvider({ children }) {
       plans,
       manager,
       approverId: approverEmail || null,
-      payroll: payrollOf(month),
+      // which payroll: the month after it is finalised, as the ERP's Finalise sets it
+      payroll: payrollOf(month, { finalisedOn: monthClaim.month === month ? monthClaim.claim?.finalisedOn : null }),
       stats: monthStats(rows, trips),
       // the month on screen is not where this TA/DA lives: the strip says
       // where it is, and the calendar's days carry none of it

@@ -174,6 +174,8 @@ export async function loadMonthClaim(employee, month) {
     final: fin ? fin.final : null,
     adjustments: fin ? fin.adjustments : [],
     finalisedBy: fin ? fin.finalisedBy : null,
+    // when it was finalised: the payroll is the month after (payrollOf)
+    finalisedOn: fin ? fin.finalisedOn : null,
     additionalSalary: fin ? fin.additionalSalary : null,
   };
 }

@@ -615,7 +615,9 @@ export function SettleQueue({ conn, data, desk, onOpen, onDone, onError }) {
                         style={{ width: 18, height: 18, accentColor: "#2563eb" }} />
                     </label>
                   )}
-                  <div style={{ flex: 1, minWidth: 0 }}>
+                  {/* on a phone the name keeps its room and the wider "Tap again" button
+                      wraps under it (20 Nov 2026: the button squeezed the name away) */}
+                  <div style={{ flex: desk ? 1 : "1 1 170px", minWidth: desk ? 0 : 170 }}>
                     <Fold open={open} onClick={() => toggle(k)} title={p.name} sub={byTeam ? [hqs.length === 1 && h.name !== NONE ? h.name : "", p.hq].filter(Boolean).join(" · ") : hqs.length === 1 && h.name !== NONE ? h.name : ""}
                       n={p.list.length} amount={sumOf(p.list)} hot={cur.act} />
                   </div>

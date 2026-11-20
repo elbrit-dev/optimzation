@@ -233,7 +233,8 @@ export default function ClaimApprovals({ url, token, mode = "auto", verifiers = 
   // team (the claim's department) -> employee -> claims, after the search
   // employee by employee (their team shown on the row), after the search
   const people = useMemo(() => teamsOf(claims, q).flatMap((t) => t.people.map((x) => ({ ...x, team: t.name }))).sort((a, b) => a.name.localeCompare(b.name)), [claims, q]);
-  const total = claims.reduce((s, c) => s + c.claimed, 0);
+  // after the officer's TA changes (20 Nov 2026: the header kept the claimed total)
+  const total = claims.reduce((s, c) => s + owedOf(c), 0);
   // ready to approve in bulk: a field claim whose bills all passed their
   // check (or that has none) and no trip rejected, any other claim the AI
   // rated low risk
@@ -452,12 +453,16 @@ const plural = (n, one, many = `${one}s`) => `${n} ${n === 1 ? one : many}`;
 const DONE = ["Approved", "In Review", "Verified", "Paid"];
 // a claim already decided: its trips without their own decision take the claim's
 const claimWord = (c) => (DONE.includes(c.status) ? "approved" : c.status === "Rejected" ? "rejected" : "pending");
+/* What a claim comes to now: a field claim after the officer's / final check's
+   line changes, any other claim as claimed. */
+const owedOf = (c) => (isField(c) && Array.isArray(c.lines) && c.lines.length ? c.lines.reduce((s, l) => s + (Number(l.adjusted ? l.final : l.amount) || 0), 0) : c.claimed);
+
 const tripDecision = (c, t) => (t.decision === "pending" ? claimWord(c) : t.decision);
 
 function statsOf(p) {
   const st = { amount: 0, approved: 0, rejected: 0, pending: 0, bills: 0, flags: 0 };
   for (const c of p.claims) {
-    st.amount += c.claimed;
+    st.amount += owedOf(c);
     if (isField(c)) {
       for (const t of tripsOf(c.lines)) st[tripDecision(c, t)] += 1;
       const fc = fieldCheck(c);
@@ -614,6 +619,10 @@ function FieldClaimPanel({ conn, claim: c, canAct, history, desk, picked, canPic
   const fc = fieldCheck(c);
   const n = { approved: 0, rejected: 0, pending: 0 };
   for (const t of trips) n[t.decision] += 1;
+  // what the still-undecided trips add up to (after the officer's changes)
+  const pendingTotal = trips
+    .filter((t) => t.decision === "pending")
+    .reduce((s, t) => s + t.lines.reduce((a, l) => a + (Number(l.adjusted ? l.final : l.amount) || 0), 0), 0);
   const days = new Set(c.lines.map((l) => l.date)).size;
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
@@ -640,7 +649,8 @@ function FieldClaimPanel({ conn, claim: c, canAct, history, desk, picked, canPic
     : n.pending === trips.length
       ? `Approve all ${plural(trips.length, "trip")} · ${inr(total)}`
       : n.pending
-        ? `Approve the other ${plural(n.pending, "trip")} · ${inr(total)}`
+        ? // the amount of the trips this approves, not the whole claim (20 Nov 2026)
+          `Approve the other ${plural(n.pending, "trip")} · ${inr(pendingTotal)}`
         : `Approve claim · ${inr(total)}`;
   return (
     <div style={{ borderRadius: 12, background: picked ? "#f5f8ff" : "#fcfcfd", boxShadow: picked ? "0 0 0 1px #b2c8f7" : "0 0 0 1px #eaecf0", display: "flex", flexDirection: "column" }}>
@@ -732,7 +742,7 @@ const DAY_RE = /^(Mon|Tue|Wed|Thu|Fri|Sat|Sun) \d{1,2} [A-Z][a-z]{2}$/;
 const unshout = (t) => (/[a-z]/.test(t) || !/[A-Z]{3}/.test(t) ? t : t.toLowerCase().replace(/\b\w/g, (c) => c.toUpperCase()));
 const rs = (n) => inr(Number(String(n).replace(/[^\d.]/g, "")) || 0);
 const isTopUp = (l) => l.type === "Daily Allowance" && /top-up/i.test(l.note || "");
-function lineText(l) {
+function lineText(l, bill) {
   const note = String(l.note || "");
   const parts = note.split(" · ").map((x) => x.trim()).filter(Boolean);
   const rest = parts.slice(1).filter((x) => !DAY_RE.test(x));
@@ -745,7 +755,12 @@ function lineText(l) {
   }
   if (l.type === "Stay") {
     const m = note.match(/(\d+) of (\d+) (working )?nights of a ₹([\d,]+) bill/);
-    return { main: unshout(rest[0] || vendor || "Hotel"), sub: [m ? `${m[3] ? "working " : ""}night ${m[1]} of ${m[2]} · bill ${rs(m[4])}` : "", capText].filter(Boolean).join(" · ") };
+    // the note is each night's SHARE ("1 of 2 nights of a ₹2,961 bill"), not its
+    // number -- it read "night 1 of 2" on both nights (20 Nov 2026). The night's
+    // number is its place among the bill's dates.
+    const dates = bill && bill.dates ? [...new Set(bill.dates)].sort() : [];
+    const nth = dates.indexOf(l.date) + 1;
+    return { main: unshout(rest[0] || vendor || "Hotel"), sub: [m ? `${m[3] ? "working " : ""}night ${nth > 0 ? nth : m[1]} of ${m[2]} · bill ${rs(m[4])}` : "", capText].filter(Boolean).join(" · ") };
   }
   if (l.type === "Food") return { main: unshout(rest[0] && !/^capped/.test(rest[0]) ? rest[0] : vendor || "Food bill"), sub: capText };
   if (isTopUp(l)) {
@@ -764,7 +779,9 @@ const TA_TYPES = ["Travel", "Fuel", "Toll"];
 const LOW_VISITS = 4;
 const lowVisitDay = (visits, date, ls) => {
   const v = visits[date];
-  return !!v && ls.some((l) => TA_TYPES.includes(l.type)) && (v.visits || 0) <= LOW_VISITS;
+  // a day with Other Work (a meeting, admin) is accounted for -- it showed
+  // "No visits · fewer than expected" on a team-meeting day (20 Nov 2026)
+  return !!v && !v.other && ls.some((l) => TA_TYPES.includes(l.type)) && (v.visits || 0) <= LOW_VISITS;
 };
 const ORDER = { Travel: 0, Fuel: 1, Toll: 2, "Daily Allowance": 3, Stay: 4, Food: 5 };
 
@@ -831,8 +848,9 @@ function TripRow({ conn, trip: t, claim: c, canAct, desk, open, onToggle, onDeci
         <button type="button" aria-expanded={open} onClick={onToggle} style={{ flex: 1, minWidth: 0, display: "flex", alignItems: "center", gap: 10, border: 0, background: "transparent", padding: 0, cursor: "pointer", textAlign: "left" }}>
           <Chevron open={open} />
           <span style={{ flex: 1, minWidth: 0, display: "flex", flexDirection: "column", gap: 1 }}>
-            <span style={{ fontSize: 13.5, fontWeight: 700, ...ell }}>{t.name ? <>{t.name} <span style={{ fontWeight: 500, color: "#5b6576" }}>· {spanLabel(t.from, t.to)}</span></> : spanLabel(t.from, t.to)}</span>
-            <span style={{ fontSize: 11.5, color: "#5b6576", ...ell }}>
+            {/* on a phone the trip and its dates wrap instead of being cut (20 Nov 2026: "Dharapuram …" hid the date) */}
+            <span style={{ fontSize: 13.5, fontWeight: 700, ...(desk ? ell : { lineHeight: 1.3, overflowWrap: "anywhere" }) }}>{t.name ? <>{t.name} <span style={{ fontWeight: 500, color: "#5b6576" }}>· {spanLabel(t.from, t.to)}</span></> : spanLabel(t.from, t.to)}</span>
+            <span style={{ fontSize: 11.5, color: "#5b6576", ...(desk ? ell : { lineHeight: 1.35 }) }}>
               {plural(t.days, "day")} · {plural(t.lines.length, "line")}
               {bills.length ? ` · ${plural(bills.length, "bill")}` : " · no bills"}
               {hand.length ? <span style={{ color: "#b54708", fontWeight: 700 }}> · ✍ {hand.length} handwritten</span> : null}
@@ -952,6 +970,11 @@ function TripRow({ conn, trip: t, claim: c, canAct, desk, open, onToggle, onDeci
                     })()}
                   </div>
                   {/* the day's visits, town by town -- what the travel was for */}
+                  {visits[date] && !visits[date].visits && visits[date].other && (
+                    <span style={{ fontSize: 12, color: "#475467" }}>
+                      <b style={{ color: "#1d4ed8" }}>{visits[date].other.replace(/ - /, " · ")}</b>
+                    </span>
+                  )}
                   {visits[date] && (visits[date].visits > 0 || lowVisitDay(visits, date, ls)) && (
                     <span style={{ fontSize: 12, color: "#475467", display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap" }}>
                       {lowVisitDay(visits, date, ls) ? (
@@ -975,7 +998,7 @@ function TripRow({ conn, trip: t, claim: c, canAct, desk, open, onToggle, onDeci
                     const col = typeColor(l.type);
                     const b = l.bill ? bills.find((x) => x.url === l.bill) : null;
                     const [word, color] = b ? checkOf(l.ai) : [];
-                    const { main, sub } = lineText(l);
+                    const { main, sub } = lineText(l, b);
                     const loud = b && (word === "handwritten" || word === "possible repeat");
                     return (
                       <div key={l.id} style={{ display: "grid", gridTemplateColumns: "54px minmax(0,1fr) auto", columnGap: 10, alignItems: "start" }}>

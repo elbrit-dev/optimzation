@@ -280,21 +280,32 @@ const fmt = (n) => new Intl.NumberFormat("en-IN").format(Math.round(n || 0));
 
 /* ---------- payroll ---------- */
 
-/* Field claims ride the monthly payroll; a month's claims must be in by this
-   day of that month (prototype: Wed 28 Oct). Placeholder until HR confirms. */
-export const PAYROLL_CUTOFF_DAY = 28;
+/* Which payroll a month's field claim lands in (20 Nov 2026). The ERP's
+   Finalise (field_expense_claims, action=finalize) makes the Additional Salary
+   for the LAST DAY OF THE MONTH AFTER the day it is finalised -- finalised in
+   Nov goes into the Dec payroll, whatever month the claim is for. So:
+     finalised   -> that payroll, paid on its last day
+     not yet     -> the payroll it reaches if finalised this month (never
+                    earlier than the month after the claim's own month)
+   The old fixed "claim month, by the 28th" was a prototype placeholder: it said
+   "Oct payroll (by Wed 28 Oct)" for an October claim finalised into December. */
 const MON = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
-const DOW = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
+const lastDayOf = (y, m0) => new Date(y, m0 + 1, 0).getDate();
 
-/* "2026-10" -> { name: "Oct payroll", cutoff: "Wed 28 Oct", cutoffDate: "2026-10-28" } */
-export function payrollOf(month) {
+/* ("2026-10", { finalisedOn: "2026-11-20 11:29" }) -> { name: "Dec payroll", when: "paid 31 Dec", final: true }
+   ("2026-10", { today: 20 Nov 2026 })               -> { name: "Dec payroll", when: "if finalised by 30 Nov", final: false } */
+export function payrollOf(month, { finalisedOn = null, today = new Date() } = {}) {
   const [y, m] = month.split("-").map(Number);
-  const d = new Date(y, m - 1, PAYROLL_CUTOFF_DAY);
-  return {
-    name: `${MON[m - 1]} payroll`,
-    cutoff: `${DOW[d.getDay()]} ${PAYROLL_CUTOFF_DAY} ${MON[m - 1]}`,
-    cutoffDate: `${month}-${String(PAYROLL_CUTOFF_DAY).padStart(2, "0")}`,
-  };
+  const fin = finalisedOn ? new Date(String(finalisedOn).slice(0, 10) + "T00:00:00") : null;
+  const base = fin && !isNaN(fin) ? fin : today;
+  // months since year 0: the payroll is the month after the base, and after the claim's month
+  const idx = Math.max(base.getFullYear() * 12 + base.getMonth() + 1, y * 12 + (m - 1) + 1);
+  const py = Math.floor(idx / 12), pm = idx % 12;
+  const name = `${MON[pm]} payroll`;
+  if (fin && !isNaN(fin)) return { name, when: `paid ${lastDayOf(py, pm)} ${MON[pm]}`, final: true };
+  // finalised by the last day of the month before the payroll month
+  const by = new Date(py, pm, 0);
+  return { name, when: `if finalised by ${by.getDate()} ${MON[by.getMonth()]}`, final: false };
 }
 
 /* ---------- planned trips (for an own-car request) ---------- */

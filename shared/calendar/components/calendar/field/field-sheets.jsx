@@ -13,7 +13,7 @@ import { BedDouble, Car, ChevronRight, Info, Loader2, Route, Undo2, Zap } from "
 import { cn } from "@calendar/lib/utils";
 import { ModalTitle } from "@calendar/components/ui/responsive-modal";
 import { useFieldExpenses } from "@calendar/components/calendar/field/field-context";
-import { inr, rangeLabel } from "@calendar/lib/field-expenses/field-days";
+import { dayLabel, inr, rangeLabel } from "@calendar/lib/field-expenses/field-days";
 import { FUEL_PRICE, MILEAGE_KM_PER_L, fuelCost, tripRoute } from "@calendar/lib/field-expenses/claim-rules";
 
 const MONTH_LONG = ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"];
@@ -146,7 +146,7 @@ export function KpiSheet() {
           <div>
             <h3 className="text-[16px] font-extrabold text-gray-900">{m} summary</h3>
             <p className="text-[13px] leading-snug text-gray-600">
-              {daysWorked} days worked · {f.stats.km} km · into {f.payroll.name} (by {f.payroll.cutoff})
+              {daysWorked} days worked · {f.stats.km} km · into {f.payroll.name} ({f.payroll.when})
             </p>
           </div>
         </div>
@@ -248,14 +248,18 @@ export function KpiSheet() {
             </b>
           </span>
         ) : null}
-        {/* what the final check changed, who changed it and why */}
+        {/* what was changed -- by the reporting officer or on the final check --
+            who changed it and why (20 Nov 2026: the officer's change sat under
+            "Changed on the final check", dates read "01/10") */}
         {mc?.adjustments?.length > 0 && (
           <div className="flex flex-col gap-1.5 rounded-xl bg-amber-50 px-3 py-2 text-[12.5px] leading-snug text-amber-900">
-            <b className="text-[11px] font-extrabold uppercase tracking-wider text-amber-700">Changed on the final check</b>
+            <b className="text-[11px] font-extrabold uppercase tracking-wider text-amber-700">
+              {mc.adjustments.every((a) => a.byOfficer) ? "Changed by your manager" : mc.adjustments.some((a) => a.byOfficer) ? "Changes to this claim" : "Changed on the final check"}
+            </b>
             {mc.adjustments.map((a, i) => (
               <span key={i}>
-                {a.type} · {a.date.slice(8)}/{a.date.slice(5, 7)}: <s>{inr(a.amount)}</s> → <b>{inr(a.final)}</b>
-                {a.by ? ` · by ${a.by}` : ""}
+                {a.type === "Travel" ? "TA" : a.type} · {dayLabel(a.date)}: <s>{inr(a.amount)}</s> → <b>{inr(a.final)}</b>
+                {a.by ? ` · ${a.byOfficer ? "manager" : "final check"}, ${a.by}` : ""}
                 {a.reason ? ` — “${a.reason}”` : ""}
               </span>
             ))}
@@ -315,7 +319,7 @@ export function KpiSheet() {
           </span>
         </button>
       )}
-      <SheetFoot label="Field claims go into" value={`${f.payroll.name} · by ${f.payroll.cutoff}`}>
+      <SheetFoot label={f.payroll.final ? "This claim goes into" : "Field claims go into"} value={`${f.payroll.name} · ${f.payroll.when}`}>
         {(claimState === "open" || claimState === "rejected") && mc?.lines.length ? (
           <FootBtn disabled={confirm} busy={busy === "send"} onClick={() => setConfirm(true)}>
             Send {m}

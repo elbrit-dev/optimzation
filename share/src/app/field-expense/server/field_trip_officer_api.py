@@ -22,7 +22,9 @@
 #        The visits behind each day of the claim, from the rep's Field Expense
 #        Day (the officer has no permission on that DocType): per date, how
 #        many and in which towns.
-#        -> {claim, days: {date: {visits, places: {town: n}}}}
+#        -> {claim, days: {date: {visits, places: {town: n}, other}}}
+#        other = the day's Other Work ("Meeting - Team Meeting"), so a meeting day
+#        is not flagged as a travel day with no visits (20 Nov 2026).
 #
 # Who: the claim's own approver (expense_approver) or a System Manager.
 # safe_exec: plain loops only, no defs, no comprehensions over top-level names.
@@ -95,7 +97,7 @@ elif action == "visits":
             dates.append(d)
     out = {}
     if dates and c.employee:
-        for d in frappe.get_all("Field Expense Day", filters={"employee": c.employee, "date": ["in", dates]}, fields=["date", "visits", "detail_json"], limit_page_length=0):
+        for d in frappe.get_all("Field Expense Day", filters={"employee": c.employee, "date": ["in", dates]}, fields=["date", "visits", "other_work", "detail_json"], limit_page_length=0):
             places = {}
             det = {}
             if d.detail_json:
@@ -106,7 +108,7 @@ elif action == "visits":
                     p = " ".join(str(v[2] or "").split())
                 if p:
                     places[p] = places.get(p, 0) + 1
-            out[str(d.date)[:10]] = {"visits": d.visits or 0, "places": places}
+            out[str(d.date)[:10]] = {"visits": d.visits or 0, "places": places, "other": d.other_work or ""}
     frappe.response["message"] = {"claim": name, "days": out}
 
 else:

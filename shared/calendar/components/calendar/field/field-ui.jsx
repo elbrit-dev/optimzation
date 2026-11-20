@@ -122,8 +122,13 @@ export function FieldStrip() {
     );
   }
   const toClaim = f.claimed.filter((x) => x.claim.status === "unclaimed");
-  const awaiting = f.claimed.filter((x) => ["submitted", "sent", "review"].includes(x.claim.status)).length;
+  // sent back by the officer: still the rep's to fix (20 Nov 2026 -- it read
+  // "nothing to claim · all in" while a rejected trip waited to be fixed)
+  const toFix = f.claimed.filter((x) => x.claim.status === "rejected");
+  // with the officer -- "okd" is a trip they approved while the claim is still with them
+  const awaiting = f.claimed.filter((x) => ["submitted", "sent", "review", "okd"].includes(x.claim.status)).length;
   const canOpen = f.status === "ready";
+  const sum = (xs) => xs.reduce((a, x) => a + x.calc.total, 0);
 
   // the tile's two halves: what is left to claim, and what is waiting on someone else
   let left;
@@ -131,11 +136,25 @@ export function FieldStrip() {
   if (f.status === "loading" || f.status === "idle") left = "loading…";
   else if (f.status === "error") left = f.error?.code === "no-month" ? `${m} not built yet` : f.error?.status === 401 || f.error?.status === 403 ? "sign in again" : "TA/DA unavailable";
   else {
-    left = toClaim.length ? `${toClaim.length} to claim` : f.claimed.length ? "nothing to claim" : `nothing in ${m.slice(0, 3)}`;
-    right = awaiting ? `${awaiting} awaiting` : f.claimed.length && !toClaim.length ? "all in" : toClaim.length ? inr(toClaim.reduce((a, x) => a + x.calc.total, 0)) : null;
+    left = toClaim.length
+      ? `${toClaim.length} to claim`
+      : toFix.length
+        ? `${toFix.length} sent back to fix`
+        : f.claimed.length
+          ? "nothing to claim"
+          : `nothing in ${m.slice(0, 3)}`;
+    right = toClaim.length
+      ? inr(sum(toClaim))
+      : toFix.length
+        ? inr(sum(toFix))
+        : awaiting
+          ? `${awaiting} awaiting`
+          : f.claimed.length
+            ? "all in"
+            : null;
   }
-  // the fill: how many trips are past "to claim"
-  const done = f.claimed.length ? (f.claimed.length - toClaim.length) / f.claimed.length : 0;
+  // the fill: how many trips are past "to claim" (a trip sent back is not)
+  const done = f.claimed.length ? (f.claimed.length - toClaim.length - toFix.length) / f.claimed.length : 0;
 
   return (
     <div className="shrink-0 bg-white px-3 pb-2 pt-1.5">
@@ -154,7 +173,7 @@ export function FieldStrip() {
           <b className="font-extrabold text-gray-900">Field</b>
           {/* which month: in the current month's view it is last month's claim */}
           <span className="shrink-0 rounded-md bg-blue-50 px-1.5 py-px text-[11px] font-extrabold text-blue-700">{m.slice(0, 3)}</span>
-          <span className="truncate">· {left}</span>
+          <span className={cn("truncate", !toClaim.length && toFix.length > 0 && "text-rose-700")}>· {left}</span>
         </span>
         {right && <b className="relative shrink-0 text-[12.5px] font-extrabold text-gray-900">{right}</b>}
         {canOpen && <ChevronDown className={cn("relative h-4 w-4 shrink-0 text-gray-400 transition-transform", f.stripOpen && "rotate-180")} aria-hidden />}
@@ -176,7 +195,7 @@ export function FieldStrip() {
                 .sort((p, q) => p.trip.from.localeCompare(q.trip.from))
                 .map((x) => <TripCard key={x.trip.id} item={x} onOpen={() => f.openTrip(x.trip.id)} />)
             )}
-            <MonthCard month={m} stats={f.stats} claimed={f.claimed} pulledAt={f.data?.pulledAt} onOpen={f.openKpi} />
+            <MonthCard month={m} closed={f.month < thisMonth()} stats={f.stats} claimed={f.claimed} pulledAt={f.data?.pulledAt} onOpen={f.openKpi} />
           </div>
           {PREVIEW && (
             <p className="mt-1.5 flex items-center gap-1.5 text-[10.5px] text-amber-700">
@@ -261,6 +280,8 @@ function LocalDaysSheet() {
   const open = items.filter((x) => x.claim.status === "unclaimed" && x.calc.total > 0 && !x.calc.carBlock);
   const openTotal = open.reduce((a, x) => a + x.calc.total, 0);
   const allTotal = items.reduce((a, x) => a + x.calc.total, 0);
+  // sent back by the officer: the footer says so instead of "Nothing left to claim"
+  const backItems = items.filter((x) => x.claim.status === "rejected");
   const [confirming, setConfirming] = useState(false);
   const [busy, setBusy] = useState(false);
   const [expanded, setExpanded] = useState(() => new Set());
@@ -338,7 +359,18 @@ function LocalDaysSheet() {
                     <span className={calc.taClaimed != null && calc.taClaimed !== calc.ta ? "font-bold text-amber-700" : ""}>{inr(calc.ta)}</span> · DA {inr(calc.da)}
                     {trip.days.some((dd) => dd.flight) ? " · travel by company, TA ₹0 there" : ""}
                   </span>
-                  {req?.status === "rejected" && <span className="w-fit rounded bg-rose-50 px-1.5 text-[10.5px] font-bold text-rose-700">Car not approved · fare paid</span>}
+                  {req?.status === "rejected" && (
+                    <span className="w-fit max-w-full rounded bg-rose-50 px-1.5 text-[10.5px] font-bold text-rose-700">
+                      Car not approved · fare paid{req.note ? <span className="font-medium"> — “{req.note}”</span> : null}
+                    </span>
+                  )}
+                  {/* sent back: say why without opening the row (20 Nov 2026) */}
+                  {!on && claim.officer?.decision === "rejected" && (
+                    <span className="line-clamp-2 text-[11px] leading-snug text-rose-800">
+                      <b className="font-bold">Sent back</b>
+                      {claim.officer.note ? ` — “${claim.officer.note}”` : " — open to see the details"}
+                    </span>
+                  )}
                 </span>
                 <span className="flex shrink-0 flex-col items-end gap-1">
                   <span className="flex items-baseline gap-1">
@@ -431,8 +463,14 @@ function LocalDaysSheet() {
         ) : (
           <div className="flex items-center justify-between gap-3">
             <div className="min-w-0">
-              <span className="block text-[13px] text-gray-500">{open.length ? `To claim · ${nDays}` : "Nothing left to claim"}</span>
-              <b className="block text-[22px] font-extrabold tracking-tight text-gray-900">{inr(open.length ? openTotal : allTotal)}</b>
+              <span className={cn("block text-[13px]", !open.length && backItems.length ? "font-semibold text-rose-700" : "text-gray-500")}>
+                {open.length
+                  ? `To claim · ${nDays}`
+                  : backItems.length
+                    ? `${backItems.length} sent back · open it to recall and fix`
+                    : "Nothing left to claim"}
+              </span>
+              <b className="block text-[22px] font-extrabold tracking-tight text-gray-900">{inr(open.length ? openTotal : backItems.length ? backItems.reduce((a, x) => a + x.calc.total, 0) : allTotal)}</b>
             </div>
             {open.length ? (
               <button type="button" onClick={() => setConfirming(true)} className="flex min-h-[52px] shrink-0 items-center justify-center rounded-2xl bg-blue-600 px-6 text-[16px] font-bold text-white active:scale-[.98]">
@@ -455,16 +493,22 @@ const rank = (c) => ({ unclaimed: 0, rejected: 0, review: 1, submitted: 2, sent:
 
 /* Every card is fixed-width and clips: each line has its own slot, long text
    ends in "…" instead of running into the next line or past the border. */
+// the day ends at home: its fare legs include the journey home
+const cameHome = (row) => !!row && (row.legs || []).some((l) => l.leg === "Home");
+
 const CARD = "flex shrink-0 flex-col gap-0.5 overflow-hidden rounded-xl border border-l-[3px] px-2.5 py-2 text-left shadow-sm active:opacity-80";
 
 /* A trip card; an RBM, ZSM or SM asks for the car from here, and the card
    says where that request stands. */
 function TripCard({ item, onOpen }) {
   const { trip, claim, calc } = item;
+  const stays = calc.nights.filter((n) => !cameHome(trip.days.find((d) => d.date === (n.date || n)))).length;
   const meta = [
     rangeLabel(trip.from, trip.to),
     `${trip.km} km`,
-    calc.nights.length ? `${calc.nights.length} night${calc.nights.length > 1 ? "s" : ""}` : null,
+    // nights actually away: an outstation day that ends with the journey home is
+    // not one (20 Nov 2026: a 22-24 Oct trip home on the 24th read "3 nights")
+    stays ? `${stays} night${stays > 1 ? "s" : ""}` : null,
     calc.car ? "car" : null,
     trip.days.some((d) => d.flight) ? "travel by company" : null,
   ]
@@ -536,11 +580,20 @@ const Amount = ({ label, value, hint }) => (
   </span>
 );
 
-function MonthCard({ month, stats, claimed, pulledAt, onOpen }) {
+// "2026-11" for today (local time)
+const thisMonth = () => {
+  const d = new Date();
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
+};
+
+function MonthCard({ month, closed, stats, claimed, pulledAt, onOpen }) {
   const by = (pred) => claimed.filter((x) => pred(x.claim)).reduce((s, x) => s + x.calc.total, 0);
-  const toClaim = by((c) => c.status === "unclaimed");
-  // approved by the officer (waiting for the final check) or finalised
-  const payroll = by((c) => c.status === "approved" || c.status === "paid");
+  // still to claim, or sent back by the officer to fix
+  const toClaim = by((c) => c.status === "unclaimed" || c.status === "rejected");
+  // approved: by the officer trip by trip ("okd", the claim still with them),
+  // the claim approved (waiting for the final check), or finalised -- it read
+  // "Approved ₹0" while 3 of 4 trips were approved (20 Nov 2026)
+  const payroll = by((c) => c.status === "okd" || c.status === "approved" || c.status === "paid");
   // more to claim with stay / food bills (19 Nov 2026, as the dashboard's
   // "paid / max"): each outstation day still to claim pays 50 % without a
   // bill and up to its full outstation DA with one
@@ -574,7 +627,7 @@ function MonthCard({ month, stats, claimed, pulledAt, onOpen }) {
       className="flex w-max min-w-[244px] shrink-0 flex-col gap-1 rounded-2xl border border-l-4 border-blue-100 border-l-slate-800 bg-blue-50 px-3 py-2.5 text-left shadow-sm active:opacity-80"
     >
       <span className="flex min-w-0 items-center gap-2">
-        <b className="flex-1 whitespace-nowrap text-[14px] font-extrabold text-gray-900">{month} so far</b>
+        <b className="flex-1 whitespace-nowrap text-[14px] font-extrabold text-gray-900">{closed ? month : `${month} so far`}</b>
         <span className="shrink-0 whitespace-nowrap rounded-full bg-white px-2 py-0.5 text-[10.5px] font-bold text-blue-700">
           {stats.trips} trips · {stats.km} km
         </span>
@@ -1248,7 +1301,8 @@ function TripSheet({ item }) {
       ? "no travel on an HQ day"
       : trip.kind === "day"
         ? `↑ ${trip.km} km ↓ ${trip.km} km`
-        : `fare · ${trip.km} km by road${trip.flownFare > 0 ? ` · company travel ${inr(trip.flownFare)} off` : ""}`;
+        : // not "by road": the journeys are paid the rail fare, local runs per km (each day's line says which)
+          `fare · ${trip.km} km${trip.flownFare > 0 ? ` · company travel ${inr(trip.flownFare)} off` : ""}`;
   const nN = calc.nights.length;
   const daBasis = calc.pool?.on
     ? `${nN} outstation day${nN > 1 ? "s" : ""} · stay + food bills`
@@ -1673,7 +1727,8 @@ function TripDay({ row, data, car, last, multi, night, bills, stayOff, billStrip
   const dow = ["SUN", "MON", "TUE", "WED", "THU", "FRI", "SAT"][d.getDay()];
   const stops = (row.route || []).map((s) => s.place).filter(Boolean);
   const basis = fareBasis(row, data);
-  const route = stops.length ? stops.join(" → ") + (night ? " (stay)" : "") : DAY_TYPE_LABEL[row.dayType] || row.dayType || row.kind;
+  // "(stay)" only when the night is spent away -- not on the day of the journey home
+  const route = stops.length ? stops.join(" → ") + (night && !cameHome(row) ? " (stay)" : "") : DAY_TYPE_LABEL[row.dayType] || row.dayType || row.kind;
   const nightLabel = `outstation ${dayLabel(row.date)}`;
   // the day's TA in parts, as the console shows it: the local run (km × rate,
   // each way) and, on a day that also moves between HQs, the train fare; the

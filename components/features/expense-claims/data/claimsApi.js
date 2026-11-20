@@ -753,6 +753,8 @@ export async function fetchMyFieldClaim(conn, month) {
       reason: l.custom_adjust_reason || "",
       by: names[l.custom_adjusted_by] || l.custom_adjusted_by || "",
       on: l.custom_adjusted_on || null,
+      // the reporting officer's own change (he writes the same fields), not the final check's
+      byOfficer: !!l.custom_officer_by && l.custom_adjusted_by === l.custom_officer_by,
     }));
   return {
     name: c.name,
