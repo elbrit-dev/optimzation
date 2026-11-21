@@ -1734,7 +1734,9 @@ function TripDay({ row, data, car, last, multi, night, bills, stayOff, billStrip
   const basis = fareBasis(row, data);
   // the night away is named on its own line, not as "(stay)" after the route (21 Nov 2026) --
   // not on the day of the journey home
-  const route = stops.length ? stops.join(" → ") : DAY_TYPE_LABEL[row.dayType] || row.dayType || row.kind;
+  // a day with nothing paid on it is named, not shown as "—" (21 Nov 2026)
+  const unpaidName = row.nonReported ? "Non-reported day" : row.hqless ? "Meeting with no HQ" : null;
+  const route = stops.length ? stops.join(" → ") : unpaidName || DAY_TYPE_LABEL[row.dayType] || row.label || row.dayType || row.kind;
   const stayAt = night && !cameHome(row) ? row.awayHq || stops[stops.length - 1] || null : null;
   const nightLabel = `outstation ${dayLabel(row.date)}`;
   // the day's TA in parts, as the console shows it: the local run (km × rate,
@@ -1866,7 +1868,9 @@ function TripDay({ row, data, car, last, multi, night, bills, stayOff, billStrip
             )}
           </div>
         ) : (
-          <span className="mt-0.5 block pl-12 text-[13px] text-gray-500">{`${row.dayType || row.kind} · no TA`}</span>
+          <span className="mt-0.5 block pl-12 text-[13px] text-gray-500">
+            {unpaidName ? "Not paid yet · add it on the Non-reported days card" : `${row.label || row.dayType || row.kind} · no TA`}
+          </span>
         )}
         {/* a flight (marked on the field-expenses dashboard): the flown legs pay
             no TA -- the company books the ticket -- the rest are paid */}
