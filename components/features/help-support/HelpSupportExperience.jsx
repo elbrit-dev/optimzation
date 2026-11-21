@@ -75,6 +75,10 @@ const GENERAL_ONLY_DESIGNATIONS = new Set([
   "trainee business executive",
 ]);
 const GENERAL_COLLECTION = "general";
+// Collections everyone sees, whatever their department or designation. Expense is
+// here for now (21 Nov 2026, the user: "show for all for now"); take it out to
+// limit it to Sales again through DEPARTMENT_RESTRICTED_COLLECTIONS.
+const OPEN_COLLECTIONS = new Set([GENERAL_COLLECTION, "expense"]);
 
 function cx(...classes) {
   return classes.filter(Boolean).join(" ");
@@ -101,11 +105,12 @@ function canViewCollection(categoryName, employee) {
   const collection = String(categoryName || "").trim().toLowerCase();
   // No confirmed Active employee means we cannot tell who this is, so they get the
   // narrowest view rather than the widest.
-  if (!employee) return collection === GENERAL_COLLECTION;
+  if (OPEN_COLLECTIONS.has(collection)) return true;
+  if (!employee) return false;
   const requiredDepartment = DEPARTMENT_RESTRICTED_COLLECTIONS.get(collection);
   if (requiredDepartment) return inDepartment(employee, requiredDepartment);
   if (GENERAL_ONLY_DESIGNATIONS.has(String(employee.designation || "").trim().toLowerCase())) {
-    return collection === GENERAL_COLLECTION;
+    return false;
   }
   return true;
 }
