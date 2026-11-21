@@ -1,9 +1,11 @@
-/* Non-reported days (19 Nov 2026). A day the Field Expense build marked
-   NON-Reported (no visit, no other work on record): the rep says what they
-   did -- doctor visits (many doctors at once, at an HQ), meetings, other work,
-   any mix -- and it becomes an ERP Task in the "Expense claim" project, like
-   the TA/DA help requests. The team makes the real events from it (the Task
-   carries them as event drafts) and rebuilds the day.
+/* Non-reported days (19 Nov 2026; manager approval 21 Nov 2026). A working day
+   the Field Expense build paid nothing on -- NON-Reported (no visit, no other
+   work), or only a meeting with no HQ -- the rep says what they did (doctor
+   visits, many doctors at once at an HQ; meetings; other work; the HQ for the
+   HQ-less meeting -- any mix). It goes to their manager (the direct parent seat,
+   a vacant seat passing it up; the next person up after 2 days). On Approve the
+   ERP makes the events in the rep's name and the engine service re-runs the
+   month; on Reject the rep sees why and may send again.
    ERP side: Server Script "Field Non-Reported Day API" (method
    field_nonreport_day, share/src/app/field-expense/server/field_nonreport_day_api.py),
    called with the rep's own token. */
@@ -82,9 +84,23 @@ export function useNonReportTasks(month, enabled = true) {
   );
 }
 
-/* entries: [{ type: "doctor_visit", hq, doctors: [id], joint_with: [emp], note }
-            | { type: "meeting", hq, title, from, to, location, attendees: [emp], note }
-            | { type: "other", other_type, hq, title, note }]
+/* the rep's meetings with no HQ on a day -> [{ name, type, subject }] */
+export async function fetchHqless(date) {
+  const r = await call({ action: "hqless", date });
+  return r.events || [];
+}
+
+/* who approves the rep's requests -> { approver_names, escalation_names } (once per session) */
+let routeP = null;
+export function fetchRoute() {
+  if (!routeP) routeP = call({ action: "route" }).catch((e) => ((routeP = null), Promise.reject(e)));
+  return routeP;
+}
+
+/* entries: [{ type: "doctor_visit", hq, doctors: [id], note }
+            | { type: "meeting", hq, title, note }
+            | { type: "other", other_type, hq, title, note }
+            | { type: "meeting_hq", event, hq }]
    -> the new Task (also put into the month's list) */
 export async function sendNonReport({ month, date, entries }) {
   const r = await call({ action: "raise", date, entries: JSON.stringify(entries) });
@@ -97,12 +113,14 @@ export async function sendNonReport({ month, date, entries }) {
   return task;
 }
 
-/* the day's status from its Tasks: none | open | done */
+/* the day's status from its requests: none | open (waiting for the manager) |
+   done (approved) | rejected (the latest was rejected -- it may be sent again) */
 export const DONE = new Set(["Completed", "Cancelled"]);
 export function dayState(tasks) {
   if (!tasks?.length) return "none";
   if (tasks.some((t) => !DONE.has(t.status))) return "open";
-  return tasks.some((t) => t.status === "Completed") ? "done" : "none";
+  if (tasks.some((t) => t.status === "Completed")) return "done";
+  return "rejected";
 }
 
 export const OTHER_KINDS = ["Admin Day", "Chemist Day", "Conference"];

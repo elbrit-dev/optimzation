@@ -195,6 +195,9 @@ export function shapeDay(d) {
     // the dashboard already saw an HQ on the day's meeting (its row's 9th
     // field): then what is missing is the HQ on the Employee record
     otherHqSeen: (x.others || []).some((o) => o?.[8]),
+    // only work with no HQ on it (a meeting nobody gave an HQ): reported like a
+    // non-reported day -- the rep picks the HQ, the manager approves (21 Nov 2026)
+    hqless: !payable && !notJoined && d.kind === "working" && (x.others || []).length > 0 && !(x.others || []).some((o) => o?.[8]),
     visits: d.visits || 0,
     dayType: dayType || null,
     payable,

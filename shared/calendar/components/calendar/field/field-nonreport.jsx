@@ -10,8 +10,10 @@
      - a meeting: title and HQ
      - other work: Admin Day / Chemist Day / Conference, and its HQ
    (19 Nov 2026: no joint working, venue, time or attendees -- HQ always)
-   -- sent as one ERP Task (lib/field-expenses/nonreport-days.js). The team
-   makes the events from it; the rep follows it and its replies here. */
+   -- sent as one request (lib/field-expenses/nonreport-days.js) to the rep's
+   manager. On approval the ERP makes the events and the day is recalculated;
+   a rejection says why and the day can be sent again (21 Nov 2026). A day
+   whose only work is a meeting with no HQ is here too: the rep gives it its HQ. */
 
 import { useEffect, useMemo, useState } from "react";
 import { toast } from "sonner";
@@ -24,7 +26,7 @@ import { RHFDoctorCardSelector } from "@calendar/components/RHFDoctorCardSelecto
 import { fetchDoctorsByRoles } from "@calendar/components/calendar/module/event/services/master-data.service";
 import { resolveLoggedInRoleId, resolveSeatHqs } from "@calendar/lib/employeeHeirachy";
 import { dayLabel } from "@calendar/lib/field-expenses/field-days";
-import { DONE, OTHER_KINDS, dayState, loadNonReport, sendNonReport, useNonReportTasks } from "@calendar/lib/field-expenses/nonreport-days";
+import { DONE, OTHER_KINDS, dayState, fetchHqless, fetchRoute, loadNonReport, sendNonReport, useNonReportTasks } from "@calendar/lib/field-expenses/nonreport-days";
 import { HELP_STATUS, askedText, htmlText } from "@calendar/lib/field-expenses/trip-help";
 
 const MONTH_LONG = ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"];
@@ -62,11 +64,11 @@ const openDays = (days, map) => (days || []).filter((d) => dayState(map.get(d.da
 function dayPill(list) {
   const st = dayState(list);
   if (st === "none") return { tone: "rose", label: "Not added" };
-  if (st === "done") return { tone: "green", label: "Done" };
-  const open = list.find((t) => !DONE.has(t.status));
-  const h = HELP_STATUS[open.status] || { label: open.status, tone: "blue" };
-  return { tone: h.tone, label: h.label === "Raised" ? "Sent" : h.label };
+  if (st === "done") return { tone: "green", label: "Approved" };
+  if (st === "rejected") return { tone: "rose", label: "Rejected" };
+  return { tone: "amber", label: "Waiting" };
 }
+const toAdd = (st) => st === "none" || st === "rejected";
 
 /* ---------- the card in the strip ---------- */
 
@@ -77,7 +79,7 @@ export function NonReportCard() {
   const map = byDate(tasks);
   const days = openDays(all, map);
   if (!days.length) return null;
-  const left = days.filter((d) => dayState(map.get(d.date)) === "none").length;
+  const left = days.filter((d) => toAdd(dayState(map.get(d.date)))).length;
   const sent = days.length - left;
   return (
     <button
@@ -99,10 +101,10 @@ export function NonReportCard() {
         )}
       </span>
       <span className="block truncate text-[11px] text-gray-500">
-        {plural(days.length, "day")} with no visit on record
+        {plural(days.length, "day")} with nothing paid on record
       </span>
       <span className="mt-1 flex min-w-0 items-center gap-1 border-t border-dashed pt-1 text-[11.5px] font-bold text-amber-700">
-        <span className="min-w-0 flex-1 truncate">{left ? "Add doctor visits / meetings" : `${sent} sent · see replies`}</span>
+        <span className="min-w-0 flex-1 truncate">{left ? "Add doctor visits / meetings" : `${sent} with your manager`}</span>
         <ChevronRight className="h-3.5 w-3.5 shrink-0" aria-hidden />
       </span>
     </button>
@@ -116,7 +118,7 @@ export function NonReportSheet() {
   const nr = useNonReportTasks(f.month, true);
   const map = useMemo(() => byDate(nr.tasks), [nr.tasks]);
   const days = openDays(f.nonReported, map);
-  const isLeft = (d) => dayState(map.get(d)) === "none";
+  const isLeft = (d) => toAdd(dayState(map.get(d)));
   // the day on screen: the one asked for, else the first still to add (and
   // never one that has just been marked done)
   const [picked, setDate] = useState(() => f.sheet?.date || null);
@@ -140,7 +142,7 @@ export function NonReportSheet() {
         <div className="pr-10">
           <ModalTitle className="text-[22px] font-extrabold leading-tight tracking-tight text-gray-900">Non-reported days</ModalTitle>
           <p className="mt-0.5 text-[13.5px] font-semibold text-gray-500">
-            {monthName(f.month)} · no visit on record · {left ? `${left} of ${days.length} to add` : "all sent"}
+            {monthName(f.month)} · approved by your manager · {left ? `${left} of ${days.length} to add` : "all sent"}
           </p>
         </div>
         {nr.status === "error" && (
@@ -186,7 +188,7 @@ export function NonReportSheet() {
             </div>
             <p className="-mt-1 flex flex-wrap gap-x-3 text-[11px] font-semibold text-gray-500">
               <span className="flex items-center gap-1"><i className="h-1.5 w-1.5 rounded-full bg-rose-400" /> to add</span>
-              <span className="flex items-center gap-1"><i className="h-1.5 w-1.5 rounded-full bg-amber-400" /> sent</span>
+              <span className="flex items-center gap-1"><i className="h-1.5 w-1.5 rounded-full bg-amber-400" /> with your manager</span>
             </p>
             {date && <DayBody key={date} date={date} tasks={map.get(date) || []} draft={draft} setDraft={setDraft} />}
           </>
@@ -255,7 +257,7 @@ function useHqDoctors(hq, rolesAt) {
 /* ---------- one day: what was done ---------- */
 
 /* a day's draft: each kind on (its fields) or off (null) -- any mix */
-const EMPTY_DRAFT = { doctor_visit: null, meeting: null, other: null };
+const EMPTY_DRAFT = { doctor_visit: null, meeting: null, other: null, meeting_hq: null };
 const blank = (type, hq) =>
   type === "doctor_visit"
     ? { hq, doctors: [], note: "" }
@@ -264,6 +266,7 @@ const blank = (type, hq) =>
       : { other_type: "", hq, title: "", note: "" };
 
 function entryError(type, e) {
+  if (type === "meeting_hq") return e.hq ? null : "Meeting: pick its HQ";
   if (type === "doctor_visit") {
     if (!e.hq) return "Doctor visits: pick the HQ";
     if (!e.doctors.length) return "Doctor visits: pick the doctors";
@@ -277,7 +280,11 @@ function entryError(type, e) {
   }
   return null;
 }
-const picked = (draft) => KINDS.filter((k) => draft[k.type]).map((k) => ({ type: k.type, ...draft[k.type] }));
+const picked = (draft) =>
+  KINDS.filter((k) => draft[k.type])
+    .map((k) => ({ type: k.type, ...draft[k.type] }))
+    // the HQ given to each HQ-less meeting (21 Nov 2026)
+    .concat(Object.entries(draft.meeting_hq || {}).filter(([, hq]) => hq).map(([event, hq]) => ({ type: "meeting_hq", event, hq })));
 
 const KINDS = [
   { type: "doctor_visit", label: "Doctor visits", hint: "Many doctors at once", Icon: Stethoscope, on: "border-blue-600 bg-blue-50 text-blue-800", dot: "bg-blue-600" },
@@ -287,7 +294,22 @@ const KINDS = [
 
 function DayBody({ date, tasks, draft, setDraft }) {
   const seat = useSeatHqs();
+  const f = useFieldExpenses();
+  const row = f.dayOf(date);
   const blocked = tasks.filter((t) => !DONE.has(t.status)).length >= 3;
+  // the day's meetings with no HQ: each gets its HQ here (21 Nov 2026)
+  const [hqless, setHqless] = useState(null);
+  useEffect(() => {
+    if (!row?.hqless) return undefined;
+    let alive = true;
+    fetchHqless(date)
+      .then((ev) => alive && setHqless(ev))
+      .catch(() => alive && setHqless([]));
+    return () => {
+      alive = false;
+    };
+  }, [date, row?.hqless]);
+  const setMeetHq = (ev, hq) => setDraft({ meeting_hq: { ...(draft.meeting_hq || {}), [ev]: hq } });
   const toggle = (type) => setDraft({ [type]: draft[type] ? null : blank(type, seat.own) });
   const patch = (type) => (p) => setDraft({ [type]: { ...draft[type], ...p } });
 
@@ -302,9 +324,27 @@ function DayBody({ date, tasks, draft, setDraft }) {
         </div>
       )}
       {blocked ? (
-        <p className="rounded-xl bg-gray-50 px-3 py-2.5 text-[12.5px] text-gray-600">Three requests are already open for this day — wait for the team to finish those.</p>
+        <p className="rounded-xl bg-gray-50 px-3 py-2.5 text-[12.5px] text-gray-600">Three requests are already waiting for this day — wait for your manager to decide those.</p>
       ) : (
         <>
+          {hqless && hqless.length > 0 && (
+            <section className="flex flex-col gap-2.5 rounded-2xl border border-amber-200 bg-amber-50/60 p-3">
+              <span className="flex items-center gap-2">
+                <i className="h-2 w-2 rounded-full bg-amber-500" aria-hidden />
+                <b className="text-[13.5px] font-extrabold text-gray-900">{hqless.length > 1 ? "Meetings with no HQ" : "Meeting with no HQ"}</b>
+              </span>
+              <small className="-mt-1.5 text-[12px] text-gray-600">Pick where it was — it is paid once your manager approves.</small>
+              {hqless.map((ev) => (
+                <div key={ev.name} className="flex flex-col gap-1.5">
+                  <b className="text-[13px] font-bold text-gray-800">
+                    {ev.type}
+                    {ev.subject && ev.subject !== ev.type ? ` · ${ev.subject}` : ""}
+                  </b>
+                  <HqPicker value={draft.meeting_hq?.[ev.name] || ""} onChange={(hq) => setMeetHq(ev.name, hq)} seat={seat} />
+                </div>
+              ))}
+            </section>
+          )}
           <div className="flex flex-col gap-1.5">
             <b className="text-[14px] font-extrabold text-gray-900">
               {tasks.length ? "Anything else" : "What did you do"} on {dayLabel(date)}?
@@ -374,11 +414,22 @@ function SendBar({ date, tasks, draft, onSent }) {
   const [busy, setBusy] = useState(false);
   const [tried, setTried] = useState(false);
   useEffect(() => setTried(false), [date]);
+  // who it goes to, said before Send (21 Nov 2026)
+  const [route, setRoute] = useState(null);
+  useEffect(() => {
+    fetchRoute().then(setRoute).catch(() => {});
+  }, []);
   if (tasks.filter((t) => !DONE.has(t.status)).length >= 3) return null;
   const list = picked(draft);
   const err = list.map((e) => entryError(e.type, e)).find(Boolean);
   const nDoc = draft.doctor_visit?.doctors.length || 0;
-  const summary = [nDoc ? plural(nDoc, "doctor") : draft.doctor_visit ? "Doctor visits" : null, draft.meeting ? "Meeting" : null, draft.other ? draft.other.other_type || "Other work" : null]
+  const nHq = Object.values(draft.meeting_hq || {}).filter(Boolean).length;
+  const summary = [
+    nDoc ? plural(nDoc, "doctor") : draft.doctor_visit ? "Doctor visits" : null,
+    draft.meeting ? "Meeting" : null,
+    draft.other ? draft.other.other_type || "Other work" : null,
+    nHq ? `HQ for ${plural(nHq, "meeting")}` : null,
+  ]
     .filter(Boolean)
     .join(" + ");
   const send = async () => {
@@ -386,9 +437,9 @@ function SendBar({ date, tasks, draft, onSent }) {
     if (!list.length || err) return;
     setBusy(true);
     try {
-      const entries = list.map((e) => ({ ...e, ...(e.title != null ? { title: e.title.trim() } : {}), note: e.note.trim() }));
+      const entries = list.map((e) => ({ ...e, ...(e.title != null ? { title: e.title.trim() } : {}), ...(e.note != null ? { note: e.note.trim() } : {}) }));
       const t = await sendNonReport({ month: f.month, date, entries });
-      toast.success(`${dayLabel(date)} sent${t?.name ? ` · ${t.name}` : ""}`);
+      toast.success(`${dayLabel(date)} sent to ${t?.approver_names || "your manager"}`);
       setTried(false);
       onSent();
     } catch (e) {
@@ -402,7 +453,10 @@ function SendBar({ date, tasks, draft, onSent }) {
       {tried && (err || !list.length) && <p className="mb-2 text-[12px] font-semibold text-rose-700">{err || "Tick what you did that day"}</p>}
       <div className="flex items-center justify-between gap-3">
         <div className="min-w-0">
-          <span className="block text-[12.5px] text-gray-500">{dayLabel(date)}</span>
+          <span className="block truncate text-[12.5px] text-gray-500">
+            {dayLabel(date)}
+            {route?.approver_names ? ` · to ${route.approver_names}` : ""}
+          </span>
           <b className="block truncate text-[15px] font-extrabold text-gray-900">{summary || "Nothing ticked yet"}</b>
         </div>
         <button
@@ -420,7 +474,14 @@ function SendBar({ date, tasks, draft, onSent }) {
 }
 
 function SentTask({ t }) {
-  const st = HELP_STATUS[t.status] || { label: t.status, tone: "gray" };
+  const st =
+    t.status === "Completed"
+      ? { label: "Approved", tone: "green" }
+      : t.status === "Cancelled"
+        ? { label: "Rejected", tone: "rose" }
+        : HELP_STATUS[t.status]
+          ? { ...HELP_STATUS[t.status], label: "Waiting" }
+          : { label: t.status, tone: "gray" };
   const lines = askedText(t.description);
   return (
     <div className="flex flex-col gap-1.5 rounded-xl border border-gray-200 bg-white px-3 py-2.5">
@@ -431,7 +492,23 @@ function SentTask({ t }) {
         </small>
       </span>
       {lines && <p className="whitespace-pre-line text-[12.5px] leading-snug text-gray-800">{lines}</p>}
-      {(t.replies || []).map((r, i) => (
+      {/* who decides / decided (21 Nov 2026) */}
+      {t.status === "Completed" ? (
+        <p className="rounded-lg bg-green-50 px-2.5 py-1.5 text-[12.5px] text-green-800">
+          Approved by <b>{t.decided_by_name || "your manager"}</b> · added to your calendar, TA/DA updates in a few minutes
+        </p>
+      ) : t.status === "Cancelled" ? (
+        <p className="rounded-lg bg-rose-50 px-2.5 py-1.5 text-[12.5px] text-rose-800">
+          Rejected by <b>{t.decided_by_name || "your manager"}</b>
+          {t.note ? ` — “${t.note}”` : ""} · you can send the day again
+        </p>
+      ) : t.approver_names ? (
+        <p className="text-[12px] text-gray-500">
+          Waiting for <b className="text-gray-700">{t.approver_names}</b>
+          {t.escalation_names ? ` · ${t.escalation_names} can decide after 2 days` : ""}
+        </p>
+      ) : null}
+      {(t.replies || []).filter((r) => !/^(Approved|Rejected): /.test(htmlText(r.content))).map((r, i) => (
         <div key={i} className={cn("rounded-lg px-2.5 py-1.5 text-[12.5px]", r.mine ? "bg-gray-50 text-gray-700" : "bg-blue-50 text-blue-900")}>
           <b className="font-bold">{r.mine ? "You" : r.by}</b> <small className="text-[11px] text-gray-500">{when(r.at)}</small>
           <p className="whitespace-pre-line">{htmlText(r.content)}</p>
@@ -635,6 +712,7 @@ export function NonReportDayRow({ date }) {
   const f = useFieldExpenses();
   const { tasks } = useNonReportTasks(f.month, true);
   const list = tasks.filter((t) => t.date === date);
+  const row = f.dayOf(date);
   if (dayState(list) === "done") return null;
   const pill = dayPill(list);
   return (
@@ -645,8 +723,8 @@ export function NonReportDayRow({ date }) {
     >
       <CalendarX2 className="h-4 w-4 shrink-0 text-amber-700" aria-hidden />
       <span className="min-w-0 flex-1">
-        <b className="block truncate text-[13.5px] font-bold text-gray-900">Nothing on record this day</b>
-        <small className="block truncate text-xs text-gray-600">{list.length ? taskSummary(list[0]) : "Add doctor visits, a meeting or other work"}</small>
+        <b className="block truncate text-[13.5px] font-bold text-gray-900">{row?.hqless ? "Meeting has no HQ · not paid" : "Nothing on record this day"}</b>
+        <small className="block truncate text-xs text-gray-600">{list.length ? taskSummary(list[0]) : row?.hqless ? "Pick its HQ for your manager to approve" : "Add doctor visits, a meeting or other work"}</small>
       </span>
       <Pill tone={pill.tone}>{pill.label}</Pill>
     </button>

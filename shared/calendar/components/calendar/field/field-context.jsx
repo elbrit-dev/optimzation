@@ -259,7 +259,8 @@ export function FieldExpensesProvider({ children }) {
       enabled: viewingSelf && !(state.status === "ready" && !state.data?.employee),
       rows,
       // working days with nothing on record, for the Non-reported card
-      nonReported: rows.filter((r) => r.nonReported),
+      // nothing on record, or only a meeting with no HQ (21 Nov 2026): both go to the manager the same way
+      nonReported: rows.filter((r) => r.nonReported || r.hqless),
       trips,
       claimed,
       claimFor: (id) => byTrip.get(id) || null,

@@ -704,7 +704,7 @@ export function FieldDayRow({ date }) {
   if (!row) return null;
 
   // nothing on record (the dashboard's red dot): the rep says what was done
-  if (row.nonReported) return <NonReportDayRow date={row.date} />;
+  if (row.nonReported || row.hqless) return <NonReportDayRow date={row.date} />;
   // work logged but no TA/DA (the orange dot, 19 Nov 2026): say why
   if (row.unpaid === "logged") return <MeetingHqNote row={row} />;
   if (!row.payable) return null;

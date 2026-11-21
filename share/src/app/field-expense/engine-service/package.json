@@ -1,0 +1,8 @@
+{
+  "name": "fx-engine",
+  "private": true,
+  "description": "Field Expense engine: re-runs /field-expenses headless and saves changed days",
+  "main": "server.js",
+  "scripts": { "start": "node server.js" },
+  "dependencies": { "playwright": "1.63.0" }
+}

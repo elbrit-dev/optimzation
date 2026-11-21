@@ -936,6 +936,47 @@ export async function decideCarRequest(conn, id, decision, amount, note) {
   return m.request ? shapeCarRequest(m.request) : null;
 }
 
+/* ------------------------ non-reported days ---------------------------- */
+
+/* Non-reported days (21 Nov 2026): a rep's day with nothing paid on record --
+   what they did (doctor visits, a meeting, other work, the HQ for an HQ-less
+   meeting) waits on their manager (the direct parent seat; a vacant seat passes
+   it up; the next person up after 2 days). Approve makes the events in the rep's
+   name and recalculates the day; Reject needs a note. ERP Server Script "Field
+   Non-Reported Day API" (method field_nonreport_day), as the signed-in user:
+   share/src/app/field-expense/server/field_nonreport_day_api.py. */
+const nrCall = (conn, method, params) =>
+  method === "GET"
+    ? rest(conn, `/api/method/field_nonreport_day?${new URLSearchParams(params)}`)
+    : rest(conn, "/api/method/field_nonreport_day", { method: "POST", headers: { "Content-Type": "application/x-www-form-urlencoded" }, body: new URLSearchParams(params) });
+export function shapeNonReport(t) {
+  return {
+    id: t.name,
+    date: t.date,
+    status: t.status === "Completed" ? "approved" : t.status === "Cancelled" ? "rejected" : "waiting",
+    employee: t.employee,
+    employeeName: t.employee_name || t.employee,
+    entries: t.entries || [],
+    can: t.can || null,
+    approverNames: t.approver_names || "",
+    escalationNames: t.escalation_names || "",
+    decidedBy: t.decided_by_name || "",
+    note: t.note || "",
+    events: t.events || [],
+    raised: t.creation,
+  };
+}
+/* -> { pending, recent } */
+export async function fetchNonReportQueue(conn) {
+  const m = (await nrCall(conn, "GET", { action: "queue" })).message || {};
+  return { pending: (m.pending || []).map(shapeNonReport), recent: (m.recent || []).map(shapeNonReport) };
+}
+/* decision: "Approve" | "Reject" (note needed) -> { request, events, recalc } */
+export async function decideNonReport(conn, id, decision, note) {
+  const m = (await nrCall(conn, "POST", { action: "decide", name: id, decision, note: note || "" })).message || {};
+  return { request: m.task ? shapeNonReport(m.task) : null, events: m.events || [], recalc: m.recalc || null };
+}
+
 /* ------------------------- settlement approval -------------------------- */
 
 /* Settlement approval (16 Nov 2026): a request -- the AI-checked bills on the

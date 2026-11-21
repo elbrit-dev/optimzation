@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { addClaimComment, adjustTripTA, applyAction, decideCarRequest, decideTrip, fetchCarQueue, fetchClaimDepartments, fetchClaimVisits, fetchCeoBatches, fetchMe, fetchQueue, fetchSettlementQueue, makeConn, saveSanctioned, withTripMarks } from "./data/claimsApi";
+import { addClaimComment, adjustTripTA, applyAction, decideCarRequest, decideNonReport, decideTrip, fetchCarQueue, fetchClaimDepartments, fetchClaimVisits, fetchCeoBatches, fetchMe, fetchNonReportQueue, fetchQueue, fetchSettlementQueue, makeConn, saveSanctioned, withTripMarks } from "./data/claimsApi";
 import { SettleQueue, SettleSheet } from "./settlement";
 import { CeoBatches } from "./ceoBatches";
 import { tripsOf } from "./fieldTrips";
@@ -141,8 +141,8 @@ export default function ClaimApprovals({ url, token, mode = "auto", verifiers = 
       // settlement requests (16 Nov 2026) and own-car requests (12 Nov 2026),
       // asked for at the same time as the claim lists (17 Nov 2026)
       const extra = mode === "auto" && !be
-        ? Promise.all([fetchSettlementQueue(conn).catch(() => null), fetchCarQueue(conn).catch(() => null), fetchCeoBatches(conn).catch(() => null)])
-        : Promise.resolve([null, null, null]);
+        ? Promise.all([fetchSettlementQueue(conn).catch(() => null), fetchCarQueue(conn).catch(() => null), fetchCeoBatches(conn).catch(() => null), fetchNonReportQueue(conn).catch(() => null)])
+        : Promise.resolve([null, null, null, null]);
       await Promise.all(
         want.map(async (m) => {
           let q;
@@ -172,7 +172,7 @@ export default function ClaimApprovals({ url, token, mode = "auto", verifiers = 
       // own-car requests (12 Nov 2026): the GM's queue, when this person decides them
       {
         // settlement: shown to anyone it waits on, with one in their chain, or who decided one
-        const [settle, cars, batches] = await extra;
+        const [settle, cars, batches, nonrep] = await extra;
         // 18 Nov 2026: the CEO decides on BATCHES the GM / SM send him. Paying
         // is Accounts' work in the ERP (its "Employee Settlements" workspace),
         // not in the app (management, 18 Nov 2026).
@@ -181,6 +181,11 @@ export default function ClaimApprovals({ url, token, mode = "auto", verifiers = 
         if (cars) {
           out.cars = cars.pending;
           out.carsRecent = cars.recent;
+        }
+        // non-reported days of the people under this manager (21 Nov 2026)
+        if (nonrep) {
+          out.nonrep = nonrep.pending;
+          out.nonrepRecent = nonrep.recent;
         }
       }
       setLists({ status: "ready", me, ...out });
@@ -199,9 +204,11 @@ export default function ClaimApprovals({ url, token, mode = "auto", verifiers = 
     verify: (lists.verify || []).length,
     settle: lists.settle || lists.ceo ? 1 : 0,
     cars: (lists.cars || []).length + (lists.carsRecent || []).length,
+    nonrep: (lists.nonrep || []).length + (lists.nonrepRecent || []).length,
     history: (lists.history || []).length,
   };
-  const visible = mode === "auto" ? (["approve", "verify", "settle", "cars", "history"].filter((m) => has[m]).length ? ["approve", "verify", "settle", "cars", "history"].filter((m) => has[m]) : ["approve"]) : [mode];
+  const TABS = ["approve", "verify", "settle", "nonrep", "cars", "history"];
+  const visible = mode === "auto" ? (TABS.filter((m) => has[m]).length ? TABS.filter((m) => has[m]) : ["approve"]) : [mode];
   // a BE seat with nothing at all here: one line, not an empty approvals page
   const beIdle = lists.status === "ready" && !!lists.be && !(lists.approve || []).length && !(lists.verify || []).length && !(lists.history || []).length;
   const ceoWaiting = (lists.ceo?.batches || []).filter((b) => b.status === "waiting").length;
@@ -215,14 +222,16 @@ export default function ClaimApprovals({ url, token, mode = "auto", verifiers = 
   }, [lists, mode]); // eslint-disable-line react-hooks/exhaustive-deps
   const [openSettle, setOpenSettle] = useState(null); // { r, act }
   const [openCar, setOpenCar] = useState(null);
+  const [openNr, setOpenNr] = useState(null);
   // Who may act on a claim: approve = its own approver; verify = a verifier.
   const canAct = (c, kind) => (kind === "history" ? false : kind === "verify" ? !!lists.verifier : !!lists.me && c.approver === lists.me);
   const current = mode === "auto" ? tab : mode;
   const cars = current === "cars";
   const settleTab = current === "settle";
-  const claims = useMemo(() => (cars || settleTab ? [] : lists[current] || []), [cars, settleTab, lists, current]);
+  const nonrepTab = current === "nonrep";
+  const claims = useMemo(() => (cars || settleTab || nonrepTab ? [] : lists[current] || []), [cars, settleTab, nonrepTab, lists, current]);
   useEffect(() => {
-    onCountChange?.((lists.approve || []).length + (lists.verify || []).length + (lists.cars || []).length + (lists.settle?.waiting || []).length);
+    onCountChange?.((lists.approve || []).length + (lists.verify || []).length + (lists.cars || []).length + (lists.settle?.waiting || []).length + (lists.nonrep || []).length);
   }, [lists, onCountChange]);
 
   // the accordion: search, open / closed (each key flips its default), the bill preview
@@ -345,7 +354,7 @@ export default function ClaimApprovals({ url, token, mode = "auto", verifiers = 
           <div role="tablist" style={{ display: "flex", gap: 4, padding: 4, borderRadius: 12, background: "#e9ecf1", alignSelf: "flex-start" }}>
             {visible.map((m) => (
               <button key={m} type="button" role="tab" aria-selected={tab === m} onClick={() => { setTab(m); setPicked(new Set()); }} style={{ height: 36, padding: "0 14px", borderRadius: 9, border: 0, background: tab === m ? "#fff" : "transparent", boxShadow: tab === m ? "0 1px 2px rgba(16,24,40,.12)" : "none", fontSize: 13, fontWeight: 600, cursor: "pointer" }}>
-                {m === "approve" ? "Claims" : m === "verify" ? "To verify" : m === "history" ? "History" : m === "settle" ? (lists.ceo ? "Batches" : "Bills") : "Car requests"}{m !== "history" && <span style={{ color: workOf(m) ? "#b54708" : "#8a93a3" }}> {workOf(m)}</span>}
+                {m === "approve" ? "Claims" : m === "verify" ? "To verify" : m === "history" ? "History" : m === "settle" ? (lists.ceo ? "Batches" : "Bills") : m === "nonrep" ? "Non-reported days" : "Car requests"}{m !== "history" && <span style={{ color: workOf(m) ? "#b54708" : "#8a93a3" }}> {workOf(m)}</span>}
               </button>
             ))}
           </div>
@@ -360,10 +369,11 @@ export default function ClaimApprovals({ url, token, mode = "auto", verifiers = 
         {lists.status === "loading" && <div aria-busy="true" style={{ ...card, height: 180, display: "grid", placeItems: "center" }}><Spinner size={24} /></div>}
 
         {lists.status === "ready" && cars && <CarQueue pending={lists.cars || []} recent={lists.carsRecent || []} desk={desk} onOpen={setOpenCar} />}
+        {lists.status === "ready" && nonrepTab && <NonRepQueue pending={lists.nonrep || []} recent={lists.nonrepRecent || []} desk={desk} onOpen={setOpenNr} />}
         {lists.status === "ready" && settleTab && lists.ceo && <CeoBatches conn={conn} data={lists.ceo} desk={desk} onDone={done} onError={(m) => say(m, "error")} onChanged={() => setTick((t) => t + 1)} />}
         {lists.status === "ready" && settleTab && !lists.ceo && <SettleQueue conn={conn} data={lists.settle} desk={desk} onOpen={(r, act) => setOpenSettle({ r, act })} onDone={done} onError={(m) => { say(m, "error"); setTick((t) => t + 1); }} />}
 
-        {lists.status === "ready" && !beIdle && !cars && !settleTab && (
+        {lists.status === "ready" && !beIdle && !cars && !settleTab && !nonrepTab && (
           <>
             {current === "history" && claims.length > 0 && (
               <Note tone="info">What you already decided, newest first (the last {HISTORY_MAX}). Approved claims go on to the final check and payroll; a claim sent back is with the employee until they send it again.</Note>
@@ -446,6 +456,7 @@ export default function ClaimApprovals({ url, token, mode = "auto", verifiers = 
       {open && <ReviewSheet conn={conn} claim={claims.find((c) => c.id === open.id) || open} kind={current} canAct={canAct(open, current)} desk={desk} onClose={() => setOpen(null)} onDone={done} finish={finish} />}
       {preview && <FilePreview conn={conn} file={preview.file} files={preview.files} onClose={() => setPreview(null)} />}
       {openCar && <CarSheet conn={conn} req={openCar} desk={desk} onClose={() => setOpenCar(null)} onDone={(m) => { setOpenCar(null); done(m); }} />}
+      {openNr && <NonRepSheet conn={conn} req={openNr} desk={desk} onClose={() => setOpenNr(null)} onDone={(m) => { setOpenNr(null); done(m); }} />}
       {openSettle && <SettleSheet conn={conn} req={openSettle.r} canAct={openSettle.act} desk={desk} onClose={() => setOpenSettle(null)} onDone={(m) => { setOpenSettle(null); done(m); }} onBill={(file, files) => setPreview({ file, files })} />}
       {toast && (
         <div role="status" aria-live="polite" style={{ position: "fixed", left: "50%", bottom: desk ? 32 : 96, transform: "translateX(-50%)", zIndex: 95, maxWidth: "calc(100vw - 32px)", padding: "11px 18px", borderRadius: 10, background: toast.tone === "error" ? "#b42318" : "#101828", color: "#fff", fontSize: 13, fontWeight: 500 }}>{toast.m}</div>
@@ -1234,6 +1245,118 @@ function CarQueue({ pending, recent, desk, onOpen }) {
         </section>
       )}
     </>
+  );
+}
+
+/* ---------- non-reported days (21 Nov 2026) ---------- */
+
+const nrWhat = (r) => {
+  const n = { doc: 0, meet: 0, other: [] };
+  for (const e of r.entries) {
+    if (e.type === "doctor_visit") n.doc += (e.doctors || []).length;
+    else if (e.type === "meeting" || e.type === "meeting_hq") n.meet += 1;
+    else if (e.type === "other") n.other.push(e.other_type);
+  }
+  return [n.doc ? `${n.doc} doctor${n.doc > 1 ? "s" : ""}` : null, n.meet ? `${n.meet} meeting${n.meet > 1 ? "s" : ""}` : null, ...n.other].filter(Boolean).join(" + ");
+};
+const nrHq = (hq) => String(hq || "").replace(/^HQ[-\s]*/i, "");
+
+function NonRepQueue({ pending, recent, desk, onOpen }) {
+  return (
+    <>
+      <Note tone="info">Days your team had nothing paid on record — what they say they did. Approve adds it to their calendar and recalculates the day&rsquo;s TA/DA; reject with a reason and they can send it again.</Note>
+      {!pending.length && <div style={{ ...card, padding: "36px 16px", textAlign: "center", fontSize: 14, color: "#5b6576" }}>No non-reported day waiting.</div>}
+      {pending.length > 0 && (
+        <div style={{ display: "grid", gridTemplateColumns: desk ? "repeat(auto-fill,minmax(340px,1fr))" : "minmax(0,1fr)", gap: 8 }}>
+          {pending.map((r) => (
+            <button key={r.id} type="button" onClick={() => onOpen(r)} style={{ ...card, padding: 14, display: "flex", flexDirection: "column", gap: 6, border: 0, textAlign: "left", cursor: "pointer" }}>
+              <span style={{ display: "flex", alignItems: "baseline", gap: 8, width: "100%" }}>
+                <span style={{ flex: 1, minWidth: 0, fontSize: 15, fontWeight: 700, ...ell }}>{r.employeeName}</span>
+                <span style={{ fontSize: 13, fontWeight: 700, color: "#344054" }}>{shortDate(r.date)}</span>
+              </span>
+              <span style={{ fontSize: 12.5, color: "#344054", ...ell }}>{nrWhat(r)}</span>
+              {r.can === "escalation" && <span style={{ fontSize: 11.5, fontWeight: 600, color: "#b54708" }}>Waited 2+ days on {r.approverNames} — you can decide</span>}
+            </button>
+          ))}
+        </div>
+      )}
+      {recent.length > 0 && (
+        <section style={{ ...card, padding: desk ? "14px 16px" : 12, display: "flex", flexDirection: "column", gap: 6 }}>
+          <span style={label}>Decided · last 30 days</span>
+          {recent.map((r) => (
+            <span key={r.id} style={{ display: "flex", gap: 8, alignItems: "baseline", fontSize: 13 }}>
+              <span style={{ flex: 1, minWidth: 0, ...ell }}>{r.employeeName} · {shortDate(r.date)} · {nrWhat(r)}</span>
+              <span style={{ fontWeight: 700, color: r.status === "approved" ? "#067647" : "#b42318" }}>{r.status === "approved" ? "Approved" : "Rejected"}</span>
+            </span>
+          ))}
+        </section>
+      )}
+    </>
+  );
+}
+
+/* One day: what the rep says they did, and Approve / Reject (with the reason they see). */
+function NonRepSheet({ conn, req: r, desk, onClose, onDone }) {
+  const [note, setNote] = useState("");
+  const [busy, setBusy] = useState("");
+  const [error, setError] = useState("");
+  const [rejecting, setRejecting] = useState(false);
+  const go = async (decision) => {
+    setError("");
+    if (decision === "Reject" && note.trim().length < 3) return setError("Say why it is rejected — they see it.");
+    try {
+      setBusy(decision === "Approve" ? "Approving…" : "Rejecting…");
+      await decideNonReport(conn, r.id, decision, note.trim());
+      onDone(decision === "Approve" ? `${r.employeeName} · ${shortDate(r.date)} approved — added to their calendar, TA/DA updates in a few minutes` : `${r.employeeName} · ${shortDate(r.date)} rejected`);
+    } catch (e) {
+      setBusy("");
+      setError(e.message);
+    }
+  };
+  return (
+    <Sheet
+      title={`${r.employeeName} · ${shortDate(r.date)}`}
+      sub={`Non-reported day · ${nrWhat(r)} · ${r.id}`}
+      onClose={busy ? () => {} : onClose}
+      maxWidth={desk ? 620 : 640}
+      body="#f4f5f7"
+      footer={rejecting ? <>
+        <button type="button" className="ec-ghost" disabled={!!busy} onClick={() => { setRejecting(false); setError(""); }} style={{ ...btn.ghost, flex: 1 }}>Back</button>
+        <button type="button" disabled={!!busy} onClick={() => go("Reject")} style={{ ...btn.primary, flex: 1.4, background: "#d92d20", display: "inline-flex", alignItems: "center", justifyContent: "center", gap: 8 }}>{busy ? <><Spinner />{busy}</> : "Reject day"}</button>
+      </> : <>
+        <button type="button" className="ec-ghost" disabled={!!busy} onClick={() => setRejecting(true)} style={{ ...btn.ghost, flex: 1, color: "#b42318" }}>Reject</button>
+        <button type="button" className="ec-cta" disabled={!!busy} onClick={() => go("Approve")} style={{ ...btn.primary, flex: 1.4, display: "inline-flex", alignItems: "center", justifyContent: "center", gap: 8 }}>
+          {busy ? <><Spinner />{busy}</> : "Approve"}
+        </button>
+      </>}
+    >
+      <div style={{ padding: desk ? 18 : 12, display: "flex", flexDirection: "column", gap: 10 }}>
+        {r.entries.map((e, i) => (
+          <div key={i} style={{ ...card, padding: 14, display: "flex", flexDirection: "column", gap: 6 }}>
+            <span style={label}>
+              {e.type === "doctor_visit" ? `Doctor visits · ${nrHq(e.hq)} · ${(e.doctors || []).length}` : e.type === "meeting" ? `Meeting · ${nrHq(e.hq)}` : e.type === "meeting_hq" ? `HQ for their ${e.other_type || "meeting"}` : `${e.other_type} · ${nrHq(e.hq)}`}
+            </span>
+            {e.type === "doctor_visit" && (
+              <ol style={{ margin: 0, paddingLeft: 18, display: "flex", flexDirection: "column", gap: 3, fontSize: 13.5 }}>
+                {(e.doctors || []).map((d) => (
+                  <li key={d.id}>
+                    <b style={{ fontWeight: 600 }}>{d.name}</b> <span style={{ color: "#8a93a3", fontSize: 12 }}>{d.id}{d.city ? ` · ${d.city}` : ""}</span>
+                  </li>
+                ))}
+              </ol>
+            )}
+            {(e.type === "meeting" || e.type === "other") && e.title && <span style={{ fontSize: 14, fontWeight: 600 }}>{e.title}</span>}
+            {e.type === "meeting_hq" && <span style={{ fontSize: 14 }}><b style={{ fontWeight: 600 }}>{e.title || "Meeting"}</b> → HQ {nrHq(e.hq)}</span>}
+            {e.note && <span style={{ fontSize: 13, color: "#5b6576" }}>“{e.note}”</span>}
+          </div>
+        ))}
+        <label style={{ ...card, padding: 14, display: "flex", flexDirection: "column", gap: 6 }}>
+          <span style={label}>{rejecting ? "Why" : "Remarks · optional"}</span>
+          <textarea rows={2} value={note} onChange={(e) => setNote(e.target.value)} placeholder={rejecting ? "e.g. No visit was planned there that day" : "e.g. Confirmed on the call"} style={{ width: "100%", borderRadius: 10, border: "1px solid #d0d5dd", padding: 10, fontSize: 14, resize: "vertical" }} />
+        </label>
+        {error && <Note>{error}</Note>}
+      </div>
+    </Sheet>
   );
 }
 
