@@ -55,7 +55,7 @@ const HELP_SUPPORT_UI_CONTENT = {
 // through the "IT" rule.
 const DEPARTMENT_RESTRICTED_COLLECTIONS = new Map([["it", "it"]]);
 
-// Field sales staff (ZSM, SM, RBM, ABM, BE) browse the General collection only. Keyed by
+// Field sales staff (ZSM, SM, RBM, ABM, BE) browse the open collections only. Keyed by
 // the ERP Designation docname, lowercased; the RBM grade variants count as RBM.
 const GENERAL_ONLY_DESIGNATIONS = new Set([
   "zonal sales manager",
@@ -67,7 +67,10 @@ const GENERAL_ONLY_DESIGNATIONS = new Set([
   "business executive",
   "trainee business executive",
 ]);
-const GENERAL_COLLECTION = "general";
+// Collections everyone may browse, field staff and unconfirmed users included. Expense
+// (21 Nov 2026) holds the field TA/DA, tour bill, cab bill and non-reported day guides,
+// which lived in General before and must stay just as visible.
+const OPEN_COLLECTIONS = new Set(["general", "expense"]);
 
 function cx(...classes) {
   return classes.filter(Boolean).join(" ");
@@ -88,9 +91,9 @@ function canViewCollection(categoryName, employee) {
   const collection = String(categoryName || "").trim().toLowerCase();
   // No confirmed Active employee means we cannot tell who this is, so they get the
   // narrowest view rather than the widest.
-  if (!employee) return collection === GENERAL_COLLECTION;
+  if (!employee) return OPEN_COLLECTIONS.has(collection);
   if (GENERAL_ONLY_DESIGNATIONS.has(String(employee.designation || "").trim().toLowerCase())) {
-    return collection === GENERAL_COLLECTION;
+    return OPEN_COLLECTIONS.has(collection);
   }
   const department = employee.department;
   const requiredDepartment = DEPARTMENT_RESTRICTED_COLLECTIONS.get(collection);
@@ -1852,7 +1855,7 @@ export default function HelpSupportExperience({
 
         // Only a confirmed Active employee record unlocks anything beyond General.
         // Anything else — lookup failed, no employee record, or they have left — leaves
-        // the employee null, which limits the knowledge base to the General collection.
+        // the employee null, which limits the knowledge base to the open collections (General, Expense).
         const employee = employeeResult.status === "fulfilled" ? employeeResult.value : null;
         setErpEmployee(employee?.status === "Active" ? employee : null);
 
