@@ -198,7 +198,7 @@ export function CabSheet() {
         </div>
 
         <p className="rounded-xl bg-gray-50 px-3 py-2 text-[12.5px] leading-snug text-gray-600">
-          Every cab ride of {mon} — Ola, Uber, taxi. No day to pick: the bill&apos;s own date counts. {f.manager} approves.
+          Every cab ride of {mon} — Ola, Uber, Rapido, other cab bills. No day to pick: the bill&apos;s own date counts. {f.manager} approves.
         </p>
 
         {sentBack && (

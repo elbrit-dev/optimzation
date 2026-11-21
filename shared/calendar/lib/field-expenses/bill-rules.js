@@ -145,7 +145,7 @@ export function tripBillVerdict(read, slot, trip) {
     // the cab card takes cab bills only, whatever else it is (20 Nov 2026)
     if (slot === "cabs") {
       const t = String(read.title).toLowerCase();
-      return { ok: false, reason: `This is ${/^[aeiou]/.test(t) ? "an" : "a"} ${t} — only cab bills (Ola, Uber, taxi) go here.` };
+      return { ok: false, reason: `This is ${/^[aeiou]/.test(t) ? "an" : "a"} ${t} — only cab bills (Ola, Uber, Rapido, other cabs) go here.` };
     }
     return {
       ok: false,
