@@ -72,7 +72,7 @@ export function CabCard() {
     >
       <span className="flex min-w-0 items-center gap-1.5">
         <CarTaxiFront className="h-3.5 w-3.5 shrink-0 text-blue-600" aria-hidden />
-        <b className="min-w-0 flex-1 truncate text-[13px] font-bold text-gray-900">Cab bills</b>
+        <b className="min-w-0 flex-1 truncate text-[13px] font-bold text-gray-900">Ola, Uber, Rapido, Cab bills</b>
         {status === "loading" && !claims.length ? (
           <Loader2 className="h-3.5 w-3.5 animate-spin text-gray-400" aria-hidden />
         ) : pill ? (
@@ -179,7 +179,7 @@ export function CabSheet() {
       {billInput}
       <div className="flex min-h-0 flex-1 flex-col gap-3 overflow-y-auto overscroll-contain px-4 pb-4 [&>*]:shrink-0">
         <div className="pr-10">
-          <ModalTitle className="text-[22px] font-extrabold leading-tight tracking-tight text-gray-900">Cab bills</ModalTitle>
+          <ModalTitle className="text-[22px] font-extrabold leading-tight tracking-tight text-gray-900">Ola, Uber, Rapido, Cab bills</ModalTitle>
           <p className="mt-0.5 text-[14px] font-semibold text-gray-500">{mon} · kept apart from TA/DA</p>
         </div>
 
@@ -198,7 +198,7 @@ export function CabSheet() {
         </div>
 
         <p className="rounded-xl bg-gray-50 px-3 py-2 text-[12.5px] leading-snug text-gray-600">
-          Every cab ride of {mon} — Ola, Uber, Rapido, other cab bills. No day to pick: the bill&apos;s own date counts. {f.manager} approves.
+          Every cab ride of {mon}. No day to pick: the bill&apos;s own date counts. {f.manager} approves.
         </p>
 
         {sentBack && (
