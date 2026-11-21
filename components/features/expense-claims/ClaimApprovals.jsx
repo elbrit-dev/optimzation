@@ -720,7 +720,7 @@ function CabClaimPanel({ conn, claim: c, canAct, history, desk, onBill, onDone }
             ) : confirming ? (
               <div style={{ display: "flex", flexDirection: "column", gap: 6, padding: 10, borderRadius: 10, background: "#eff4ff", boxShadow: "inset 0 0 0 1px #c7d7fe" }}>
                 <b style={{ fontSize: 13.5 }}>Approve {first}&apos;s {plural(lines.length, "cab bill")} · {inr(total)}?</b>
-                <span style={{ fontSize: 12.5, color: "#475467" }}>Final — Accounts pays it outside payroll.</span>
+                <span style={{ fontSize: 12.5, color: "#475467" }}>Your approval is final.</span>
                 <span style={{ display: "flex", gap: 8, justifyContent: "flex-end" }}>
                   <button type="button" disabled={!!busy} onClick={() => setConfirming(false)} style={{ ...btn.ghost, height: 38 }}>Cancel</button>
                   <button type="button" disabled={!!busy} onClick={approve} style={{ ...btn.primary, height: 38, background: "#16a34a", display: "inline-flex", alignItems: "center", gap: 6 }}>{busy ? <><Spinner />{busy}</> : `Yes, approve · ${inr(total)}`}</button>
