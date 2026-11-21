@@ -615,9 +615,12 @@ function DoctorFields({ e, seat, onChange }) {
             <button
               type="button"
               onClick={() => setPicking(false)}
-              className="flex min-h-[48px] w-full items-center justify-center rounded-2xl bg-blue-600 text-[15px] font-bold text-white active:scale-[.98]"
+              className={cn(
+                "flex min-h-[48px] w-full items-center justify-center rounded-2xl text-[15px] font-bold active:scale-[.98]",
+                e.doctors.length ? "bg-blue-600 text-white" : "bg-gray-100 text-gray-900"
+              )}
             >
-              {e.doctors.length ? `Done · ${plural(e.doctors.length, "doctor")}` : "Done"}
+              {e.doctors.length ? `Done · ${plural(e.doctors.length, "doctor")}` : "Close"}
             </button>
           </div>
         </div>

@@ -357,7 +357,7 @@ function LocalDaysSheet() {
                   </span>
                   <span className="truncate text-[11.5px] text-gray-500">
                     {trip.days.length > 1 ? `${rangeLabel(trip.from, trip.to)} · ` : ""}
-                    {trip.kind === "day" ? `${trip.km}+${trip.km} km` : `${trip.km} km`} · TA{" "}
+                    {trip.km > 0 ? (trip.kind === "day" ? `${trip.km}+${trip.km} km · ` : `${trip.km} km · `) : ""}TA{" "}
                     {calc.taClaimed != null && calc.taClaimed !== calc.ta && <s className="text-gray-400">{inr(calc.taClaimed)}</s>}{" "}
                     <span className={calc.taClaimed != null && calc.taClaimed !== calc.ta ? "font-bold text-amber-700" : ""}>{inr(calc.ta)}</span> · DA {inr(calc.da)}
                     {trip.days.some((dd) => dd.flight) ? " · travel by company, TA ₹0 there" : ""}
@@ -423,6 +423,7 @@ function LocalDaysSheet() {
                   )}
                   {/* the total, right under the day's amounts (the same columns as
                       the day rows above), a recall on the left */}
+                  {recallable && (
                   <div className="grid grid-cols-[18px_44px_minmax(0,1fr)] items-center gap-x-2">
                     <span className="col-start-3 flex min-w-0 items-center gap-2 px-2.5">
                     {recallable && (
@@ -435,11 +436,9 @@ function LocalDaysSheet() {
                         <ChevronRight className="h-3.5 w-3.5" aria-hidden />
                       </button>
                     )}
-                    <span className="ml-auto text-right text-[12.5px] tabular-nums text-gray-500">
-                      TA {inr(calc.ta)} + DA {inr(calc.da)} = <b className="text-[14px] font-extrabold text-gray-900">{inr(calc.total)}</b>
-                    </span>
                     </span>
                   </div>
+                  )}
                 </div>
               )}
             </li>
@@ -1078,7 +1077,7 @@ function TripHelp({ item, day = false }) {
                   </label>
                   <label className="flex min-w-0 flex-col gap-1 text-[11.5px] font-bold text-gray-600">
                     Why (optional)
-                    <input value={miss.why} onChange={setM("why")} maxLength={300} placeholder="e.g. went to a stockist there" className={HELP_INPUT} />
+                    <input value={miss.why} onChange={setM("why")} maxLength={300} placeholder="e.g. check-in missed at this stop" className={HELP_INPUT} />
                   </label>
                 </span>
               </div>
@@ -1733,8 +1732,10 @@ function TripDay({ row, data, car, last, multi, night, bills, stayOff, billStrip
   const dow = ["SUN", "MON", "TUE", "WED", "THU", "FRI", "SAT"][d.getDay()];
   const stops = (row.route || []).map((s) => s.place).filter(Boolean);
   const basis = fareBasis(row, data);
-  // "(stay)" only when the night is spent away -- not on the day of the journey home
-  const route = stops.length ? stops.join(" → ") + (night && !cameHome(row) ? " (stay)" : "") : DAY_TYPE_LABEL[row.dayType] || row.dayType || row.kind;
+  // the night away is named on its own line, not as "(stay)" after the route (21 Nov 2026) --
+  // not on the day of the journey home
+  const route = stops.length ? stops.join(" → ") : DAY_TYPE_LABEL[row.dayType] || row.dayType || row.kind;
+  const stayAt = night && !cameHome(row) ? row.awayHq || stops[stops.length - 1] || null : null;
   const nightLabel = `outstation ${dayLabel(row.date)}`;
   // the day's TA in parts, as the console shows it: the local run (km × rate,
   // each way) and, on a day that also moves between HQs, the train fare; the
@@ -1761,6 +1762,12 @@ function TripDay({ row, data, car, last, multi, night, bills, stayOff, billStrip
 
       <div className={cn("min-w-0", !last && "pb-5")}>
         <b className="block text-[15px] font-bold leading-snug text-gray-900">{route}</b>
+        {stayAt && (
+          <span className="mt-0.5 flex items-center gap-1 text-[11.5px] font-semibold text-gray-500">
+            <BedDouble className="h-3.5 w-3.5 shrink-0" aria-hidden />
+            Night in {stayAt}
+          </span>
+        )}
         {/* the day's visits by town, and other work (a meeting) */}
         {(row.visits > 0 || (row.otherWork || []).length > 0) && (
           <span className="mt-0.5 flex flex-wrap items-center gap-1 text-[11.5px] text-gray-500">
@@ -1806,7 +1813,8 @@ function TripDay({ row, data, car, last, multi, night, bills, stayOff, billStrip
             )}
             {car ? null : byKm ? (
               <MoneyRow label={jr || flownOnly ? "" : "TA"} amount={local}>
-                {row.journey ? "Local · " : ""}
+                {/* which run: "Local · Erode ↔ Gobi" on a day that also travelled (21 Nov 2026) */}
+                {row.journey ? `Local${row.awayHq && row.farthest ? ` · ${row.awayHq} ↔ ${row.farthest}` : ""} · ` : ""}
                 <b className="font-bold text-gray-800">↑ {legKm} km ↓ {legKm} km</b> × ₹{perKm}
               </MoneyRow>
             ) : row.journey ? (
@@ -1820,10 +1828,8 @@ function TripDay({ row, data, car, last, multi, night, bills, stayOff, billStrip
                 {basis || `Fare${row.km != null ? ` · ${row.km} km` : ""}`}
               </MoneyRow>
             ) : (
-              // no travel that day: TA ₹0, said, not left out (14 Nov 2026)
-              <MoneyRow label="TA" amount={0}>
-                {row.dayType === "HQ" ? "HQ day · no travel" : "no travel"}
-              </MoneyRow>
+              // no travel that day: TA ₹0, said, not left out (14 Nov 2026) -- no words (21 Nov 2026)
+              <MoneyRow label="TA" amount={0} />
             )}
             {row.da > 0 && (
               <MoneyRow label="DA" amount={night && bills ? night.paid : row.da}>
@@ -1903,7 +1909,7 @@ function TripDay({ row, data, car, last, multi, night, bills, stayOff, billStrip
               </span>
             )}
           </span>
-        )) : bills || stayOff ? (
+        )) : row.payable && (bills || stayOff) ? (
           /* a holiday / weekly-off day inside the stay (13 Nov 2026): no DA, so
              no share of the hotel bill (it is split over the working nights)
              and its own food is not paid -- grey, not green */
@@ -1920,8 +1926,8 @@ function TripDay({ row, data, car, last, multi, night, bills, stayOff, billStrip
             </span>
           )
         )}
-        {/* that day's bills as pictures -- tap one to see it full screen */}
-        {billStrip}
+        {/* that day's bills as pictures -- tap one to see it full screen; none on an off / leave day (21 Nov 2026) */}
+        {row.payable ? billStrip : null}
       </div>
     </li>
   );
