@@ -313,7 +313,7 @@ export function KpiSheet() {
           className="flex w-full items-center gap-2 rounded-2xl bg-blue-50 px-3 py-2.5 text-left text-blue-800 hover:bg-blue-100"
         >
           <Car className="h-4 w-4 shrink-0" aria-hidden />
-          <span className="min-w-0 flex-1 truncate text-[13px] font-semibold">Going by car on a planned trip? Request it from the {f.carApprover}</span>
+          <span className="min-w-0 flex-1 truncate text-[13px] font-semibold">Going by car on a planned trip? Request it from {f.carApprover}</span>
           <span className="flex shrink-0 items-center text-[13px] font-extrabold">
             Request <ChevronRight className="h-4 w-4" aria-hidden />
           </span>
