@@ -1833,9 +1833,9 @@ function TripDay({ row, data, car, last, multi, night, bills, stayOff, billStrip
               </MoneyRow>
             ) : (
               // no travel that day: TA ₹0, said, not left out (14 Nov 2026) -- no words (21 Nov 2026)
-              // a day away with no journey or local run: already there from the day before (21 Nov 2026)
+              // no journey or local run: the day type only (21 Nov 2026)
               <MoneyRow label="TA" amount={0}>
-                {row.dayType === "HQ" ? "HQ day" : AWAY_TYPES.has(row.dayType) && (row.awayHq || dayPlace(row)) ? `already in ${row.awayHq || dayPlace(row)}` : DAY_TYPE_LABEL[row.dayType] || null}
+                {row.dayType === "HQ" ? "HQ day" : AWAY_TYPES.has(row.dayType) ? "OS day" : row.dayType === "EQ" ? "EQ day" : null}
               </MoneyRow>
             )}
             {row.da > 0 && (
