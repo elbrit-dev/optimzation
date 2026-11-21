@@ -177,5 +177,21 @@ export function createMockApi({ role = 'BE', scenario = 'normal', today = MOCK_T
       );
       return { ok: true, response: responseName, status: 'Submitted' };
     },
+
+    /* survey_mark_read — an announcement read. */
+    async markRead(responseName, ack = 0) {
+      await call(300);
+      const r = responses.find((x) => x.name === responseName);
+      if (!r) throw new Error('This announcement is not assigned to you.');
+      const read_on = `${today} 12:00`;
+      responses = responses.map((x) => (x.name === responseName ? { ...x, status: 'Submitted', submitted_on: read_on } : x));
+      return { response: responseName, status: 'Submitted', read_on, acknowledged: ack ? 1 : 0, already: r.status === 'Submitted' ? 1 : 0 };
+    },
+
+    /* An announcement's attachment: nothing to fetch in memory. */
+    async openFile(url, name) {
+      await call(100);
+      return { name: name || 'Attachment' };
+    },
   };
 }

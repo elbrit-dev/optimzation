@@ -5,7 +5,7 @@ import { Button, Icon, cx } from '@/design-system';
 import RingNav from '@/app/ring-nav/components/RingNav';
 import { useUnsavedGuard } from '@/app/secondary-entry/components/useUnsavedGuard';
 import { createSurveyApi } from '../api';
-import { shortName, surveysFromMyList } from '../data/shape';
+import { shortName, surveysFromMyList, rowState } from '../data/shape';
 import { SURVEY_TILE_PREFIX, surveyTiles, withSurveyTiles } from '../data/tiles';
 import { DEFAULT_REFRESH_MS, useErpTiles } from '@/app/ring-nav/data/useErpTiles';
 import { SurveyScreen } from './SurveyScreen';
@@ -210,6 +210,12 @@ export function SurveyHome({
                 answersRef.current = answers;
               }}
               onSubmitted={load}
+              rows={survey.rows.map((r) => ({ ...r, view: rowState(r, drafts) }))}
+              onSwitchRow={(next, unsent) => {
+                if (unsent) setDraft(row.response, unsent);
+                setDirty(false);
+                go({ campaign: survey.campaign, response: next });
+              }}
             />
           ) : (
             <SurveyScreen

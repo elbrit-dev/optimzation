@@ -125,7 +125,16 @@ export const TARGET = {
   Distributor: { one: 'distributor', many: 'distributors', Many: 'Distributors' },
   Employees: { one: 'person', many: 'people', Many: 'Employees' },
 };
-export const targetOf = (t) => TARGET[t] ?? TARGET.Employees;
+/* A survey about another DocType or a list ("DocType" target): its own noun,
+   as Survey Center named it (about.noun, e.g. "chemist" / "supplier"). */
+export const targetOf = (t, about) => {
+  if (t === 'DocType') {
+    const one = String(about?.noun || about?.label || about?.doctype || 'record').trim().toLowerCase() || 'record';
+    const many = /s$/.test(one) ? one : `${one}s`;
+    return { one, many, Many: many.charAt(0).toUpperCase() + many.slice(1) };
+  }
+  return TARGET[t] ?? TARGET.Employees;
+};
 
 /* A row's state on screen: the ERP's state, with a todo that has a draft on
    this device shown as "Saved". */
@@ -158,13 +167,25 @@ export function surveysFromMyList(list) {
         target: src.target || 'Employees',
         survey_type: src.survey_type ?? '',
         tagging: src.tagging ?? '',
+        /* Survey Center's additions: an announcement (kind + its message),
+           what a DocType / list survey is about, and the View above the
+           questions. Each row keeps its own `values` for the {#fields}. */
+        kind: src.kind === 'announcement' ? 'announcement' : 'survey',
+        announcement: src.announcement ?? null,
+        about: src.about ?? null,
+        summary: src.summary ?? '',
         rows: [],
         selfTagOpen: false,
       });
     }
     return by.get(src.campaign);
   };
-  for (const r of list?.surveys ?? []) get(r).rows.push(r);
+  for (const r of list?.surveys ?? []) {
+    const g = get(r);
+    g.rows.push(r);
+    if (!g.summary && r.summary) g.summary = r.summary;
+    if (!g.about && r.about) g.about = r.about;
+  }
   for (const s of list?.selftag ?? []) {
     const g = get({ ...s, tagging: 'Self-tag' });
     g.tagging = 'Self-tag';

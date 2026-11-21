@@ -15,7 +15,7 @@ import { targetOf } from '../data/shape';
  * names; the screen starts each (survey_start_subject). */
 
 export function AddSubjectsSheet({ open, onClose, survey, api, busy = false, error = null, onDone }) {
-  const t = targetOf(survey?.target);
+  const t = targetOf(survey?.target, survey?.about);
   const [query, setQuery] = useState('');
   const [rows, setRows] = useState(null);
   const [loadError, setLoadError] = useState(null);

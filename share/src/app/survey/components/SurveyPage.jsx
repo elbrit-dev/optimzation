@@ -5,7 +5,7 @@ import Router from 'next/router';
 import { Button, Icon, cx } from '@/design-system';
 import { holdBase } from '@/components/BackGuard';
 import { createSurveyApi } from '../api';
-import { shortName, surveysFromMyList } from '../data/shape';
+import { rowState, shortName, surveysFromMyList } from '../data/shape';
 import { SurveyScreen } from './SurveyScreen';
 import { SubjectForm } from './SubjectForm';
 import { DiscardChangesSheet, PageHeader, readDrafts, scroller, writeDrafts } from './parts';
@@ -461,6 +461,18 @@ export function SurveyPage({
           answersRef.current = answers;
         }}
         onSubmitted={load}
+        rows={survey.rows.map((r) => ({ ...r, view: rowState(r, drafts) }))}
+        onSwitchRow={(next, unsent) => {
+          if (unsent) setDraft(row.response, unsent);
+          show(next);
+          navigate(async () => {
+            const router = nextRouter();
+            const as = urlWithRow(next);
+            if (router) await router.replace(as, undefined, { shallow: true, scroll: false });
+            else window.history.replaceState({ [ROW_STATE]: next }, '', as);
+            rememberFormEntry();
+          });
+        }}
       />
     );
   } else {

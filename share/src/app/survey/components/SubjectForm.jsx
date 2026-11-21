@@ -3,9 +3,12 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { Button, Card, Icon, ProgressBar } from '@/design-system';
 import { PinnedBar, PinnedBarSpacer } from '@/app/secondary-entry/components/PinnedBar';
-import { formProblems, isEmpty, shortDate, shortName, toPayload } from '../data/shape';
+import { formProblems, isEmpty, shortDate, shortName, targetOf, toPayload } from '../data/shape';
+import { filledQuestions } from '../data/view';
 import { SubjectCard } from './SubjectCard';
 import { QuestionCard } from './QuestionCard';
+import { RecordTabs } from './RecordTabs';
+import { SurveyView } from './SurveyView';
 
 /* One response — "S2 › D1" (the page's top bar, SurveyHome's): the survey's questions for one distributor,
  * doctor, or the person themself. Secondary Entry's EntryForm, with
@@ -21,7 +24,9 @@ import { QuestionCard } from './QuestionCard';
  * file still uploading. The server's refusal, if any, is shown as it says it
  * (SURVEYS_CONTEXT.md §4). `onAnswersChange` hears the answers as they are
  * now, so the page's "Leave this form?" can save them for later. */
-export function SubjectForm({ survey, row, me, draft, api, onBack, onDraft, onSubmitted, onDirtyChange, onAnswersChange, bottomGap = 'var(--space-12)' }) {
+export function SubjectForm({ survey, row, rows, me, draft, api, onBack, onDraft, onSubmitted, onDirtyChange, onAnswersChange, onSwitchRow, bottomGap = 'var(--space-12)' }) {
+  /* The questions with this record's values in their {#fields} (data/view.js). */
+  const questions = useMemo(() => filledQuestions(survey, row), [survey, row]);
   const rootRef = useRef(null);
   const [barHeight, setBarHeight] = useState(0);
   const editable = row.state === 'todo';
@@ -47,9 +52,9 @@ export function SubjectForm({ survey, row, me, draft, api, onBack, onDraft, onSu
     if (editable) onAnswersRef.current?.(answers);
   }, [editable, answers]);
 
-  const problems = useMemo(() => formProblems(survey.questions, answers), [survey.questions, answers]);
-  const answered = survey.questions.filter((q) => !isEmpty(answers[q.id])).length;
-  const required = survey.questions.filter((q) => q.required);
+  const problems = useMemo(() => formProblems(questions, answers), [questions, answers]);
+  const answered = questions.filter((q) => !isEmpty(answers[q.id])).length;
+  const required = questions.filter((q) => q.required);
   const requiredLeft = required.filter((q) => isEmpty(answers[q.id])).length;
 
   /* Count uploads in flight, so Submit waits for them. */
@@ -68,14 +73,14 @@ export function SubjectForm({ survey, row, me, draft, api, onBack, onDraft, onSu
   const submit = async () => {
     setTried(true);
     setError(null);
-    const first = survey.questions.find((q) => problems[q.id]);
+    const first = questions.find((q) => problems[q.id]);
     if (first) {
       rootRef.current?.querySelector(`[data-question="${first.id}"]`)?.scrollIntoView({ behavior: 'smooth', block: 'start' });
       return;
     }
     setBusy('submit');
     try {
-      await api.submitResponse(row.response, toPayload(survey.questions, answers));
+      await api.submitResponse(row.response, toPayload(questions, answers));
       onDraft(null);
       setSent(true);
       onSubmitted?.(row);
@@ -110,17 +115,27 @@ export function SubjectForm({ survey, row, me, draft, api, onBack, onDraft, onSu
 
   return (
     <div ref={rootRef} className="flex flex-col gap-3">
+      {/* The survey's doctors / records as tabs (Support Approval's strip): a chip opens that one's form. */}
+      <RecordTabs
+        rows={rows}
+        value={row.response}
+        ariaLabel={targetOf(survey.target, survey.about).Many}
+        onChange={(next) => {
+          if (next !== row.response) onSwitchRow?.(next, dirty ? answers : null);
+        }}
+      />
       <SubjectCard subject={row.subject} me={me} state={row.state === 'todo' ? (draft ? 'draft' : 'new') : row.state} />
+      <SurveyView survey={survey} row={row} />
 
       <Card className="flex flex-col gap-2">
         <div className="flex items-baseline justify-between gap-3">
           <span className="min-w-0 truncate text-12 font-semibold text-heading">{survey.title}</span>
           <span className="shrink-0 text-12 tabular-nums">
             <span className="font-semibold text-heading">{answered}</span>
-            <span className="text-ds-muted">/{survey.questions.length} answered</span>
+            <span className="text-ds-muted">/{questions.length} answered</span>
           </span>
         </div>
-        <ProgressBar value={answered} max={survey.questions.length || 1} size="sm" tone={requiredLeft ? 'brand' : 'success'} label={`${answered} of ${survey.questions.length} answered`} />
+        <ProgressBar value={answered} max={questions.length || 1} size="sm" tone={requiredLeft ? 'brand' : 'success'} label={`${answered} of ${questions.length} answered`} />
       </Card>
 
       {row.state === 'done' ? (
@@ -136,7 +151,7 @@ export function SubjectForm({ survey, row, me, draft, api, onBack, onDraft, onSu
         </p>
       ) : null}
 
-      {survey.questions.map((q, i) => (
+      {questions.map((q, i) => (
         <QuestionCard
           key={q.id}
           q={q}

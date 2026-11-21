@@ -148,5 +148,40 @@ export function createErpApi({ endpointUrl, gqlEnvironment = 'ERP', gqlToken, al
       needWrites();
       return call('POST', 'survey_submit_response', { body: { response, answers: JSON.stringify(answers ?? {}) } });
     },
+
+    /* An announcement read (ack 1 = "I have read and understood" ticked). */
+    async markRead(response, ack = 0) {
+      needWrites();
+      return call('POST', 'survey_mark_read', { body: { response, ack: ack ? 1 : 0 } });
+    },
+
+    /* An announcement's attachment: a PRIVATE file that survey_my_list names
+       as an ERP path (/api/method/survey_announcement_file?response=…). It is
+       fetched as the person — a bare link would arrive without the token —
+       and opened from memory in a new tab. */
+    async openFile(url, name) {
+      needAuth();
+      const base = await origin();
+      const href = new URL(String(url || ''), `${base}/`);
+      if (href.origin !== base) throw new Error('This attachment is not on the ERP.');
+      const win = typeof window !== 'undefined' ? window.open('', '_blank') : null;
+      let res;
+      try {
+        res = await doFetch(href.toString(), { headers: { Authorization: auth } });
+      } catch {
+        win?.close();
+        throw new Error(OFFLINE_MESSAGE);
+      }
+      if (!res.ok) {
+        win?.close();
+        const json = await res.json().catch(() => null);
+        throw new Error(surveyErrorMessage(json, res.status));
+      }
+      const blobUrl = URL.createObjectURL(await res.blob());
+      if (win) win.location.href = blobUrl;
+      else if (typeof window !== 'undefined') window.open(blobUrl, '_blank', 'noopener');
+      setTimeout(() => URL.revokeObjectURL(blobUrl), 60000);
+      return { name: name || 'Attachment' };
+    },
   };
 }

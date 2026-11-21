@@ -59,7 +59,7 @@ export function surveyTile(s, today, { hrefBase = '/survey' } = {}) {
     id: `${SURVEY_TILE_PREFIX}${s.campaign}`,
     label: shortName(s.title),
     href: `${hrefBase}/${encodeURIComponent(s.campaign)}`,
-    icon: 'comments',
+    icon: s.kind === 'announcement' ? 'megaphone' : 'comments',
     statusIcon: 'pencil',
   };
   if (s.state === 'missed') {

@@ -5,6 +5,8 @@ import { Button, Card, ChipRow, Eyebrow, Icon, ProgressBar, cx } from '@/design-
 import { daysLeft, dueText, rowState, shortDate, targetOf } from '../data/shape';
 import { SubjectCard } from './SubjectCard';
 import { AddSubjectsSheet } from './AddSubjectsSheet';
+import { AnnouncementScreen } from './AnnouncementScreen';
+import { RecordTabs } from './RecordTabs';
 
 /* One survey — its own page, opened from its circle on the home strip (the
  * page's top bar, with Back and the title, is SurveyHome's). The header says what it is and who it
@@ -29,7 +31,7 @@ function Tag({ icon, children }) {
 }
 
 export function SurveyScreen({ survey, today, me, drafts, api, onOpenRow, onChanged }) {
-  const t = targetOf(survey.target);
+  const t = targetOf(survey.target, survey.about);
   const [filter, setFilter] = useState('all');
   const [adding, setAdding] = useState(false);
   const [busy, setBusy] = useState(false);
@@ -76,6 +78,9 @@ export function SurveyScreen({ survey, today, me, drafts, api, onOpenRow, onChan
       .map((k) => ({ key: k, label: { new: 'Not started', draft: 'Saved', done: 'Submitted', missed: 'Missed' }[k], count: counts[k] }))),
   ];
 
+  /* An announcement: the message to read, not rows to answer. */
+  if (survey.kind === 'announcement') return <AnnouncementScreen survey={survey} api={api} onChanged={onChanged} />;
+
   return (
     <div className="flex flex-col gap-3">
       {/* The title and Back are the page's top bar (SurveyHome's PageHeader). */}
@@ -91,7 +96,7 @@ export function SurveyScreen({ survey, today, me, drafts, api, onOpenRow, onChan
         </div>
         {survey.description ? <p className="text-12 text-ds-secondary">{survey.description}</p> : null}
         <div className="flex flex-wrap gap-1.5">
-          <Tag icon={survey.target === 'Employees' ? 'users' : survey.target === 'Distributor' ? 'building' : 'user'}>{t.Many}</Tag>
+          <Tag icon={survey.target === 'Employees' ? 'users' : survey.target === 'Distributor' ? 'building' : survey.target === 'DocType' ? 'database' : 'user'}>{t.Many}</Tag>
           {TAGGING[survey.tagging] ? <Tag icon={survey.selfTag ? 'user-plus' : 'list'}>{survey.tagging}</Tag> : null}
           {survey.survey_type ? <Tag icon={survey.survey_type === 'Promotion' ? 'megaphone' : 'chart-bar'}>{survey.survey_type === 'Data Collection' ? 'Data collection' : survey.survey_type}</Tag> : null}
         </div>
@@ -136,6 +141,8 @@ export function SurveyScreen({ survey, today, me, drafts, api, onOpenRow, onChan
           </Button>
         ) : null}
       </div>
+      {/* The rows as tabs (Support Approval's strip): a chip opens that one's form. */}
+      <RecordTabs rows={rows} value={null} ariaLabel={t.Many} onChange={onOpenRow} />
       {rows.length > 3 ? <ChipRow items={chips} value={filter} onChange={setFilter} ariaLabel={`Filter ${t.many}`} /> : null}
 
       {rows.length ? (
