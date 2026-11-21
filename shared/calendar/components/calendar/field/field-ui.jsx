@@ -507,7 +507,7 @@ function TripCard({ item, onOpen }) {
   const stays = calc.nights.filter((n) => !cameHome(trip.days.find((d) => d.date === (n.date || n)))).length;
   const meta = [
     rangeLabel(trip.from, trip.to),
-    `${trip.km} km`,
+    trip.km > 0 ? `${trip.km} km` : null,
     // nights actually away: an outstation day that ends with the journey home is
     // not one (20 Nov 2026: a 22-24 Oct trip home on the 24th read "3 nights")
     stays ? `${stays} night${stays > 1 ? "s" : ""}` : null,
@@ -1307,7 +1307,7 @@ function TripSheet({ item }) {
       : trip.kind === "day"
         ? `↑ ${trip.km} km ↓ ${trip.km} km`
         : // not "by road": the journeys are paid the rail fare, local runs per km (each day's line says which)
-          `fare · ${trip.km} km${trip.flownFare > 0 ? ` · company travel ${inr(trip.flownFare)} off` : ""}`;
+          `${trip.km > 0 ? `fare · ${trip.km} km` : "no journey"}${trip.flownFare > 0 ? ` · company travel ${inr(trip.flownFare)} off` : ""}`;
   const nN = calc.nights.length;
   const daBasis = calc.pool?.on
     ? `${nN} outstation day${nN > 1 ? "s" : ""} · stay + food bills`
@@ -1354,7 +1354,7 @@ function TripSheet({ item }) {
       <div className="pr-10">
         <ModalTitle className="text-[22px] font-extrabold leading-tight tracking-tight text-gray-900">{trip.name}</ModalTitle>
         <p className="mt-0.5 text-[14px] font-semibold text-gray-500">
-          {rangeLabel(trip.from, trip.to)} · {nDays} day{nDays > 1 ? "s" : ""} · {trip.km} km
+          {rangeLabel(trip.from, trip.to)} · {nDays} day{nDays > 1 ? "s" : ""}{trip.km > 0 ? ` · ${trip.km} km` : ""}
         </p>
         {/* something wrong with the trip: ask MIS (14 Nov 2026) */}
         <div className="mt-3 -mr-10">
@@ -1833,8 +1833,9 @@ function TripDay({ row, data, car, last, multi, night, bills, stayOff, billStrip
               </MoneyRow>
             ) : (
               // no travel that day: TA ₹0, said, not left out (14 Nov 2026) -- no words (21 Nov 2026)
+              // a day away with no journey or local run: already there from the day before (21 Nov 2026)
               <MoneyRow label="TA" amount={0}>
-                {row.dayType === "HQ" ? "HQ day" : null}
+                {row.dayType === "HQ" ? "HQ day" : AWAY_TYPES.has(row.dayType) && (row.awayHq || dayPlace(row)) ? `already in ${row.awayHq || dayPlace(row)}` : DAY_TYPE_LABEL[row.dayType] || null}
               </MoneyRow>
             )}
             {row.da > 0 && (
