@@ -52,11 +52,18 @@ const HELP_SUPPORT_UI_CONTENT = {
 // Knowledge base collections only their own department may browse, keyed by the HD
 // Article Category label and the ERP Department label. Matching is exact on purpose:
 // ERP also has an "ITF" department, which a prefix or substring test would wrongly let
-// through the "IT" rule.
-const DEPARTMENT_RESTRICTED_COLLECTIONS = new Map([["it", "it"]]);
+// through the "IT" rule. A department also counts through any ancestor: the field teams
+// ("Elbrit Chennai - ELPL", "CND Trichy - ELPL" ...) sit under the "Sales" group, and
+// the CEO, GM, ZSMs and SMs are in "Sales - ELPL" -- all of them are Sales.
+// Expense (21 Nov 2026): field TA/DA, tour bills, cab bills and non-reported days.
+const DEPARTMENT_RESTRICTED_COLLECTIONS = new Map([
+  ["it", "it"],
+  ["expense", "sales"],
+]);
 
-// Field sales staff (ZSM, SM, RBM, ABM, BE) browse the open collections only. Keyed by
-// the ERP Designation docname, lowercased; the RBM grade variants count as RBM.
+// Field sales staff (ZSM, SM, RBM, ABM, BE) browse the General collection plus their
+// own department's collections. Keyed by the ERP Designation docname, lowercased; the
+// RBM grade variants count as RBM.
 const GENERAL_ONLY_DESIGNATIONS = new Set([
   "zonal sales manager",
   "sales manager",
@@ -67,10 +74,7 @@ const GENERAL_ONLY_DESIGNATIONS = new Set([
   "business executive",
   "trainee business executive",
 ]);
-// Collections everyone may browse, field staff and unconfirmed users included. Expense
-// (21 Nov 2026) holds the field TA/DA, tour bill, cab bill and non-reported day guides,
-// which lived in General before and must stay just as visible.
-const OPEN_COLLECTIONS = new Set(["general", "expense"]);
+const GENERAL_COLLECTION = "general";
 
 function cx(...classes) {
   return classes.filter(Boolean).join(" ");
@@ -87,18 +91,23 @@ function normalizeDepartment(value) {
   return departmentLabel(value).toLowerCase();
 }
 
+function inDepartment(employee, requiredDepartment) {
+  return [employee.department, ...(employee.ancestorDepartments || [])].some(
+    (value) => value && normalizeDepartment(value) === requiredDepartment
+  );
+}
+
 function canViewCollection(categoryName, employee) {
   const collection = String(categoryName || "").trim().toLowerCase();
   // No confirmed Active employee means we cannot tell who this is, so they get the
   // narrowest view rather than the widest.
-  if (!employee) return OPEN_COLLECTIONS.has(collection);
-  if (GENERAL_ONLY_DESIGNATIONS.has(String(employee.designation || "").trim().toLowerCase())) {
-    return OPEN_COLLECTIONS.has(collection);
-  }
-  const department = employee.department;
+  if (!employee) return collection === GENERAL_COLLECTION;
   const requiredDepartment = DEPARTMENT_RESTRICTED_COLLECTIONS.get(collection);
-  if (!requiredDepartment) return true;
-  return normalizeDepartment(department) === requiredDepartment;
+  if (requiredDepartment) return inDepartment(employee, requiredDepartment);
+  if (GENERAL_ONLY_DESIGNATIONS.has(String(employee.designation || "").trim().toLowerCase())) {
+    return collection === GENERAL_COLLECTION;
+  }
+  return true;
 }
 
 function isEmail(value) {
@@ -1855,7 +1864,7 @@ export default function HelpSupportExperience({
 
         // Only a confirmed Active employee record unlocks anything beyond General.
         // Anything else — lookup failed, no employee record, or they have left — leaves
-        // the employee null, which limits the knowledge base to the open collections (General, Expense).
+        // the employee null, which limits the knowledge base to the General collection.
         const employee = employeeResult.status === "fulfilled" ? employeeResult.value : null;
         setErpEmployee(employee?.status === "Active" ? employee : null);
 
