@@ -1719,7 +1719,7 @@ const nightsAny = (calc) => calc.nights.length > 0;
    what it is, and the amount on the right. */
 function MoneyRow({ label, amount, note, children }) {
   return (
-    <div className="flex items-baseline gap-2 text-[12.5px] leading-snug">
+    <div className="flex items-baseline gap-3 text-[12.5px] leading-snug">
       <span className="w-6 shrink-0 text-[11px] font-extrabold text-gray-400">{label}</span>
       <span className="min-w-0 flex-1 text-gray-600">{children}</span>
       <b className="shrink-0 text-[13px] font-extrabold tabular-nums text-gray-900">{amount == null ? note || "" : inr(amount)}</b>
@@ -1749,18 +1749,20 @@ function TripDay({ row, data, car, last, multi, night, bills, stayOff, billStrip
   const flownOnly = !!row.journey && "road" in row.journey && !row.journey.road;
 
   return (
-    <li className="grid grid-cols-[18px_44px_minmax(0,1fr)] gap-x-2">
+    // the date sits beside the day's heading only; the money box below runs the full width (21 Nov 2026)
+    <li className="grid grid-cols-[18px_minmax(0,1fr)] gap-x-2">
       {/* the timeline: a filled dot on a night away, an open one otherwise */}
       <span className="relative flex justify-center">
         <span className={cn("relative z-10 mt-1 h-3.5 w-3.5 rounded-full border-2 border-blue-600", night ? "bg-blue-600" : "bg-white")} aria-hidden />
         {!last && <span className="absolute bottom-0 top-5 w-px bg-blue-200" aria-hidden />}
       </span>
-      <span className="flex flex-col leading-none">
-        <b className="text-[19px] font-extrabold text-gray-900">{d.getDate()}</b>
-        <small className="mt-1 text-[10.5px] font-bold text-gray-500">{dow}</small>
-      </span>
-
       <div className={cn("min-w-0", !last && "pb-5")}>
+        <div className="flex gap-2">
+        <span className="flex w-10 shrink-0 flex-col leading-none">
+          <b className="text-[19px] font-extrabold text-gray-900">{d.getDate()}</b>
+          <small className="mt-1 text-[10.5px] font-bold text-gray-500">{dow}</small>
+        </span>
+        <div className="min-w-0 flex-1">
         <b className="block text-[15px] font-bold leading-snug text-gray-900">{route}</b>
         {stayAt && (
           <span className="mt-0.5 flex items-center gap-1 text-[11.5px] font-semibold text-gray-500">
@@ -1784,11 +1786,13 @@ function TripDay({ row, data, car, last, multi, night, bills, stayOff, billStrip
             ))}
           </span>
         )}
+        </div>
+        </div>
         {/* the day's money in plain rows (13 Nov 2026): what it is on the left,
             the amount on the right -- TA (the journey, the local run ↑ there
             ↓ back), then DA */}
         {row.payable ? (
-          <div className="mt-1.5 flex flex-col gap-1 rounded-xl bg-gray-50 px-2.5 py-2">
+          <div className="mt-2 flex flex-col gap-1.5 rounded-xl bg-gray-50 px-3 py-2.5">
             {car ? (
               // the own car: one TA line, this day's share of the fuel by km
               <MoneyRow label="TA" amount={carShare ? carShare.amount : null} note="fuel">
@@ -1829,7 +1833,9 @@ function TripDay({ row, data, car, last, multi, night, bills, stayOff, billStrip
               </MoneyRow>
             ) : (
               // no travel that day: TA ₹0, said, not left out (14 Nov 2026) -- no words (21 Nov 2026)
-              <MoneyRow label="TA" amount={0} />
+              <MoneyRow label="TA" amount={0}>
+                {row.dayType === "HQ" ? "HQ day" : null}
+              </MoneyRow>
             )}
             {row.da > 0 && (
               <MoneyRow label="DA" amount={night && bills ? night.paid : row.da}>
@@ -1859,7 +1865,7 @@ function TripDay({ row, data, car, last, multi, night, bills, stayOff, billStrip
             )}
           </div>
         ) : (
-          <span className="mt-0.5 block text-[13px] text-gray-500">{`${row.dayType || row.kind} · no TA`}</span>
+          <span className="mt-0.5 block pl-12 text-[13px] text-gray-500">{`${row.dayType || row.kind} · no TA`}</span>
         )}
         {/* a flight (marked on the field-expenses dashboard): the flown legs pay
             no TA -- the company books the ticket -- the rest are paid */}
