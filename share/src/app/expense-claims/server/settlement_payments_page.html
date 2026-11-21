@@ -1,0 +1,98 @@
+<div id="sp" class="sp">
+  <header class="sp-head">
+    <div>
+      <nav class="sp-crumb"><a href="/app/dashboards">Dashboards</a><span>/</span>Settlement Payments</nav>
+      <h1>Settlement Payments</h1>
+      <p class="sp-lede" data-sub>Loading…</p>
+    </div>
+    <div class="sp-head-actions">
+      <a class="sp-btn" href="/app/query-report/Settlement%20To%20Pay" target="_blank">Settlement To Pay report</a>
+      <a class="sp-btn" href="/app/payment-entry?party_type=Employee" target="_blank">Payment entries</a>
+      <button class="sp-btn sp-icon" data-reload title="Refresh" aria-label="Refresh">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 11a8 8 0 1 0-2.3 5.7M20 4v7h-7"/></svg>
+      </button>
+    </div>
+  </header>
+
+  <section class="sp-summary" aria-label="Summary">
+    <div class="sp-figs">
+      <div class="sp-fig sp-fig-lead"><span>Outstanding</span><b data-k="total">–</b><small data-k="total_sub"></small></div>
+      <div class="sp-fig"><span>Bills</span><b data-k="bills">–</b><small data-k="bills_sub"></small></div>
+      <div class="sp-fig"><span>Cash advances</span><b data-k="adv">–</b><small data-k="adv_sub"></small></div>
+      <div class="sp-fig"><span>Paid this month</span><b data-k="paid">–</b><small data-k="paid_sub"></small></div>
+    </div>
+    <div class="sp-ageing">
+      <div class="sp-ageing-head"><span>Ageing since approval</span><button class="sp-link" data-age-clear hidden>Show all</button></div>
+      <div class="sp-ageing-bar" data-agebar></div>
+      <div class="sp-ageing-keys" data-agekeys></div>
+    </div>
+  </section>
+
+  <div class="sp-main">
+    <section class="sp-panel sp-register">
+      <div class="sp-panel-head">
+        <div><h2>Payable to employees</h2><p class="sp-note" data-regnote></p></div>
+        <label class="sp-search"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="M20 20l-3.5-3.5"/></svg><input data-q placeholder="Employee, ID or HQ" aria-label="Search"></label>
+      </div>
+      <div class="sp-scroll">
+        <table class="sp-table">
+          <thead>
+            <tr>
+              <th class="c"><input type="checkbox" data-all aria-label="Tick everyone shown"></th>
+              <th>Employee</th>
+              <th>HQ</th>
+              <th class="r">Bills</th>
+              <th class="r">Cash advance</th>
+              <th>Waiting</th>
+              <th>Bank account</th>
+              <th class="r">To pay</th>
+            </tr>
+          </thead>
+          <tbody data-rows><tr><td colspan="8" class="sp-empty">Loading…</td></tr></tbody>
+        </table>
+      </div>
+    </section>
+
+    <aside class="sp-panel sp-run" aria-label="Payment run">
+      <div class="sp-run-head">
+        <h2>Payment run</h2>
+        <b class="sp-run-total" data-runtotal>₹0.00</b>
+        <p class="sp-note" data-runinfo>Tick employees in the list to add them.</p>
+      </div>
+      <ul class="sp-run-list" data-runlist></ul>
+      <p class="sp-warn" data-runwarn hidden></p>
+      <div class="sp-run-form">
+        <label>Paid from<select data-bank></select></label>
+        <label>Value date<input type="date" data-date></label>
+        <label>UTR for the run<input data-utr placeholder="Bank reference of the bulk upload"></label>
+        <p class="sp-hint">Paid one by one? Leave this empty and type each person's UTR above.</p>
+      </div>
+      <div class="sp-run-actions">
+        <button class="sp-btn sp-block" data-csv disabled>Download bank file</button>
+        <button class="sp-btn sp-primary sp-block" data-pay disabled>Record payment</button>
+        <p class="sp-hint">Record only after the money has left the bank. The ERP makes the Payment Entries and tells each employee.</p>
+      </div>
+    </aside>
+  </div>
+
+  <section class="sp-panel">
+    <div class="sp-panel-head"><div><h2>Paid in the last 30 days</h2></div></div>
+    <div class="sp-scroll">
+      <table class="sp-table">
+        <thead><tr><th>Value date</th><th>Employee</th><th>For</th><th>UTR</th><th>Payment entry</th><th class="r">Amount</th></tr></thead>
+        <tbody data-paid></tbody>
+      </table>
+    </div>
+  </section>
+
+  <div class="sp-modal" data-modal hidden>
+    <div class="sp-dialog" role="dialog" aria-modal="true">
+      <h3 data-mtitle></h3>
+      <div data-mbody></div>
+      <div class="sp-mfoot">
+        <button class="sp-btn" data-mno>Cancel</button>
+        <button class="sp-btn sp-primary" data-myes>OK</button>
+      </div>
+    </div>
+  </div>
+</div>

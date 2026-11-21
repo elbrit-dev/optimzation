@@ -59,6 +59,10 @@ const TYPE_COLORS = {
   Miscellaneous: ["#0e7490", "#ecfeff", "#155e75"],
   Advance: ["#7c3aed", "#f4f0ff", "#5b21b6"],
   Stay: ["#4f46e5", "#eef2ff", "#3730a3"],
+  // the planner's monthly field TA/DA claim (12 Nov 2026)
+  "Daily Allowance": ["#0f766e", "#f0fdfa", "#115e59"],
+  Fuel: ["#ea580c", "#fff7ed", "#c2410c"],
+  Toll: ["#9333ea", "#faf5ff", "#7e22ce"],
 };
 export const typeColor = (t) => {
   const [c, bg, fg] = TYPE_COLORS[t] || ["#64748b", "#f1f5f9", "#334155"];
@@ -158,7 +162,8 @@ export function ledger(claims, advances = []) {
     added,
     spent,
     requested: sum(advances.filter((a) => a.waiting && a.docstatus !== 2), (a) => a.amount),
-    checking: sum(openLines.filter((l) => l.state === "Checking" || l.state === "In Review"), (l) => l.amount),
+    // not counted yet: being checked, checked and not sent, with the approvers (16 Nov 2026)
+    checking: sum(openLines.filter((l) => PENDING.has(l.state || "Checking")), (l) => l.amount),
     balance: Math.max(0, inHand),
     over: Math.max(0, -inHand) + owedClosed,
     owedClosed,
@@ -172,10 +177,17 @@ export function cashOf(claims, advances) {
   return { added: L.added, spent: L.spent, balance: L.balance, over: L.over, requested: L.requested, checking: L.checking, any: L.any };
 }
 
-/* A running-claim bill's status, in the page's words. */
+/* A running-claim bill's status, in the page's words. Since 16 Nov 2026 a
+   bill goes Checking (the AI) -> Checked (score in, not sent) -> In Approval
+   (up the chain, BE > ABM > RBM > SM/ZSM > GM > CEO) -> Verified (the CEO
+   approved); a request sent back leaves its bills Checked with the reason. */
+const PENDING = new Set(["Checking", "Checked", "In Approval", "In Review"]);
 export const BILL_STATE = {
-  Checking: { tone: "#2563eb", icon: "hist", text: "AI check", sub: "in progress" },
-  Verified: { tone: "#067647", icon: "shield", text: "Verified", sub: "counted" },
+  // 16 Nov 2026: the rep never sees a check -- an added bill is ready to send
+  Checking: { tone: "#0e7490", icon: "check", text: "Added", sub: "send it for approval" },
+  Checked: { tone: "#0e7490", icon: "check", text: "Added", sub: "send it for approval" },
+  "In Approval": { tone: "#b54708", icon: "hist", text: "In approval", sub: "with your managers" },
+  Verified: { tone: "#067647", icon: "shield", text: "Verified", sub: "approved · counted" },
   "In Review": { tone: "#b54708", icon: "eye", text: "In review", sub: "with Accounts" },
   Rejected: { tone: "#b42318", icon: "x", text: "Rejected", sub: "not counted" },
 };
@@ -183,6 +195,8 @@ export const BILL_STATE = {
 /* One bill row's state in a line: the AI check and where the claim is. */
 export function billState(claim, line) {
   if (claim?.running) {
+    // a request sent back: its bills are Checked again, with the approver's reason
+    if (line?.state === "Checked" && line.review) return { tone: "#b42318", icon: "x", text: "Sent back", where: line.review };
     const st = BILL_STATE[line?.state] || BILL_STATE.Checking;
     return { tone: st.tone, icon: st.icon, text: st.text, where: line?.state === "Rejected" && line.review ? line.review : st.sub };
   }

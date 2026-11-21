@@ -59,6 +59,7 @@ import {
   getPlanOwnerId,
   resolvePlanCreatorName,
 } from "@calendar/components/calendar/views/agenda-view/doctor-plan-group-label";
+import { FieldDayRow } from "@calendar/components/calendar/field/field-ui";
 
 const SWIPE_THRESHOLD = 60;
 
@@ -396,6 +397,9 @@ export const AgendaEvents = ({ scope = "all"}) => {
             ))}
           </div>
         )}
+
+        {/* The day's TA/DA (and the trip it belongs to) from Field expenses */}
+        {scope === "day" && <FieldDayRow date={selectedDate} />}
 
         {/* The filter rides on the first date heading; with nothing to list
             there is no heading, so it keeps a row of its own to be undone. */}

@@ -18,6 +18,7 @@ import { Plus } from "lucide-react";
 import { LOGGED_IN_USER } from "@calendar/components/auth/calendar-users";
 import { isEmployeeOnApprovedLeave } from "@calendar/lib/calendar/leaveDay";
 import { HOLIDAY_STYLES } from "@calendar/lib/calendar/holidays";
+import { FieldDayChip } from "@calendar/components/calendar/field/field-ui";
 
 export const dayCellVariants = cva("text-white", {
   variants: {
@@ -173,6 +174,8 @@ export function DayCell({
             {holiday}
           </span>
         ) : null}
+        {/* the day's travel from Field expenses (ex-HQ / outstation), own calendar only */}
+        {currentMonth && <FieldDayChip date={date} />}
         <motion.div
           className={cn(
             "flex gap-0 px-0  lg:h-max-content overflow-hidden lg:flex-col lg:gap-1 w-full",

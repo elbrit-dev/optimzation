@@ -10,6 +10,8 @@ import { MobileCalendarHeader } from "@calendar/components/calendar/mobile/mobil
 import { useMediaQuery } from "@calendar/components/calendar/hooks";
 import { AgendaSidebar } from "@calendar/components/calendar/views/agenda-view/agenda-sidebar";
 import NotificationToast from "@calendar/components/calendar/notification/NotificationToast";
+import { FieldExpensesProvider } from "@calendar/components/calendar/field/field-context";
+import { FieldStrip } from "@calendar/components/calendar/field/field-ui";
 export function Calendar({
   enableGoogleCalendarSync = false,
   eventTypes,
@@ -24,9 +26,12 @@ export function Calendar({
       eventTypesMode={eventTypesMode}
     >
       <NotificationToast />
+      <FieldExpensesProvider>
       <DndProvider showConfirmation={false}>
         <div className="h-full min-h-0 w-full overflow-hidden flex flex-col">
           {isMobile ? <MobileCalendarHeader /> : <CalendarHeader />}
+          {/* Field layer: this month's trips with TA · DA, from Field expenses */}
+          <FieldStrip />
           {/* ===== Desktop Split Layout ===== */}
           <div className="flex flex-1 overflow-hidden">
             {!isMobile && (
@@ -41,6 +46,7 @@ export function Calendar({
           </div>
         </div>
       </DndProvider>
+      </FieldExpensesProvider>
     </CalendarProvider>
   );
 }

@@ -17,7 +17,7 @@
  * Bump CACHE_NAME whenever this file changes. Without it every browser that
  * already has the old cache keeps serving out of it.
  */
-const CACHE_NAME = 'app-cache-v12';
+const CACHE_NAME = 'app-cache-v13';
 
 const PRE_CACHE_URLS = [
   '/',
@@ -35,6 +35,11 @@ const PRE_CACHE_URLS = [
  */
 function isBypassed(url) {
   return (
+    // Local development (13 Nov 2026): the dev server's file names do not
+    // change between edits, so cache-first kept serving the previous code
+    // until a second reload. On localhost the worker does nothing.
+    self.location.hostname === 'localhost' ||
+    self.location.hostname === '127.0.0.1' ||
     url.pathname.startsWith('/plasmic-host') ||
     url.pathname.startsWith('/api/') ||
     // A page's data (its Plasmic design) for an in-app navigation. Cache-first

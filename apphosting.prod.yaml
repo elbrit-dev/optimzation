@@ -19,3 +19,18 @@ env:
   # Sentry: same project and DSN as apphosting.yaml, filed as production.
   - variable: NEXT_PUBLIC_SENTRY_ENVIRONMENT
     value: production
+
+  # Expense on live (21 Nov 2026, the user): field TA/DA and its approvals for
+  # everyone. Every reporting officer gets the Expense approval tile (the Ring
+  # Nav script is asked with expense_all=1); the planner's Field strip needs no
+  # switch. The Claims / Settlements pages stay as they were, and settlement
+  # requests and the CEO's payment batches stay out of the approvals.
+  - variable: NEXT_PUBLIC_EXPENSE_APPROVALS_FOR_ALL
+    value: "1"
+    availability: [BUILD, RUNTIME]
+  - variable: NEXT_PUBLIC_CLAIMS_FOR_ALL
+    value: "0"
+    availability: [BUILD, RUNTIME]
+  - variable: NEXT_PUBLIC_SETTLEMENT
+    value: "0"
+    availability: [BUILD, RUNTIME]

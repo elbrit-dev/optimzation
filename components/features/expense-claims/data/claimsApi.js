@@ -17,6 +17,7 @@
  * forwards the same user token -- the ERP still decides who may see a file. */
 
 import { cached, evictCached, gql, loggedUser, makeConn as makeErpConn } from "../../support-report/data/erpClient";
+import { pdfForReading } from "@calendar/lib/field-expenses/bill-reader";
 
 export function makeConn({ url, token }) {
   try {
@@ -242,12 +243,29 @@ export const CLAIMS_DEPARTMENTS = ["IT"];
    bills up to verification only -- no advance set-up (its Task, the sales
    roles' permissions) and no settlement -- so a request would go nowhere.
    true brings the link and its form back. */
-export const CASH_REQUESTS = false;
+// 16 Nov 2026: on -- a cash request goes up the approval chain to the CEO
+export const CASH_REQUESTS = true;
 export const CLAIMS_ROLE_PROFILES = null;
+/* app-uat only (16 Nov 2026): claims and settlement are open to EVERY login --
+   each person sees their own, by their login. The same app-uat switch as the
+   Expense approval tile: NEXT_PUBLIC_EXPENSE_APPROVALS_FOR_ALL is "1" on
+   app-uat (apphosting.yaml) and "0" on live (apphosting.prod.yaml), so live
+   keeps the IT department only. */
+/* Live (21 Nov 2026, the user: field TA/DA and approvals only): the Expense
+   approval tile opens to every reporting officer (NEXT_PUBLIC_EXPENSE_APPROVALS_FOR_ALL
+   "1" in apphosting.prod.yaml) while the Claims / Settlements pages stay as they
+   were -- NEXT_PUBLIC_CLAIMS_FOR_ALL "0" there. Unset (app-uat) = the same switch
+   as the tile, as before. */
+export const CLAIMS_FOR_ALL = (process.env.NEXT_PUBLIC_CLAIMS_FOR_ALL ?? process.env.NEXT_PUBLIC_EXPENSE_APPROVALS_FOR_ALL) === "1";
+/* Settlement requests and the CEO's payment batches in the approvals (16-18 Nov
+   2026). Off on live (NEXT_PUBLIC_SETTLEMENT "0" in apphosting.prod.yaml): live
+   has field TA/DA and its approvals only. Unset (app-uat) = on. */
+export const SETTLEMENT_ON = process.env.NEXT_PUBLIC_SETTLEMENT !== "0";
 export const canUseClaims = (me) =>
   !!me
-  && (!CLAIMS_DEPARTMENTS || CLAIMS_DEPARTMENTS.includes(String(me.department || "").trim()))
-  && (!CLAIMS_ROLE_PROFILES || CLAIMS_ROLE_PROFILES.includes(String(me.roleProfile || "").trim()));
+  && (CLAIMS_FOR_ALL || (
+    (!CLAIMS_DEPARTMENTS || CLAIMS_DEPARTMENTS.includes(String(me.department || "").trim()))
+    && (!CLAIMS_ROLE_PROFILES || CLAIMS_ROLE_PROFILES.includes(String(me.roleProfile || "").trim()))));
 
 export function fetchClaims(conn, employee) {
   return cached(conn, `ec-claims|${employee}`, async () => {
@@ -292,11 +310,33 @@ async function addRunningFields(conn, employee, nodes) {
    ("Waiting for Approval", expense_approver = them) or as verifier ("In
    Review"). The ERP shares each claim with whoever must act on it, so the
    token's own read rights decide what comes back. */
-export async function fetchQueue(conn, { state, approver }) {
+export async function fetchQueue(conn, { state, approver, first = 500 }) {
   const f = [eq("workflow_state", state), eq("docstatus", "0")]; // filter values are strings
   if (approver) f.push(eq("expense_approver", approver));
-  const d = await queryClaims(conn, f, 500);
-  return (d.ExpenseClaims?.edges || []).map((e) => shapeClaim(e.node));
+  /* 12 Nov 2026: the list's NAMES come from REST, whose filters are exact --
+     the officer's "To approve" once showed claims already Approved, and the
+     claim waiting for them was missing. GraphQL still gives each claim's full
+     shape; a claim it did not return is read on its own, and anything it
+     returned that REST does not list (another state) is dropped. */
+  let names = null;
+  try {
+    const rf = [["workflow_state", "=", state], ["docstatus", "=", 0]];
+    if (approver) rf.push(["expense_approver", "=", approver]);
+    const q = new URLSearchParams({ filters: JSON.stringify(rf), fields: JSON.stringify(["name"]), order_by: "modified desc", limit_page_length: String(first) });
+    names = ((await rest(conn, `/api/resource/Expense%20Claim?${q}`)).data || []).map((r) => r.name);
+  } catch {
+    names = null; // REST unreadable: GraphQL alone, filtered by state below
+  }
+  if (names && !names.length) return [];
+  const d = await queryClaims(conn, f, first).catch(() => null);
+  const got = new Map((d?.ExpenseClaims?.edges || []).map((e) => [e.node.name, shapeClaim(e.node)]));
+  if (!names) return [...got.values()].filter((c) => c.status === state);
+  const missing = names.filter((n) => !got.has(n));
+  if (missing.length) {
+    const read = await Promise.all(missing.map((n) => fetchClaim(conn, n).catch(() => null)));
+    read.forEach((c) => c && got.set(c.id, c));
+  }
+  return names.map((n) => got.get(n)).filter(Boolean);
 }
 
 /* Claim types from the ERP, each with its sub types (one per line on the
@@ -375,6 +415,9 @@ export async function saveClaim(conn, { claim, employee, postingDate, remark, li
       custom_bill: l.bill || "",
       description: l.note || "",
       amount: num(l.amount),
+      // a planner field line's trip (fieldTrips.tripTag); an ERP without the
+      // field ignores it
+      ...(l.trip !== undefined ? { custom_trip: l.trip || "" } : {}),
     })),
   };
   if (advanceOf !== undefined) doc.custom_advance = advanceOf || "";
@@ -405,7 +448,9 @@ export async function saveClaim(conn, { claim, employee, postingDate, remark, li
 export function fetchAdvances(conn, employee) {
   return cached(conn, `ec-adv|${employee}`, async () => {
     const q = new URLSearchParams({
-      filters: JSON.stringify([["employee", "=", employee], ["docstatus", "<", 2]]),
+      // 16 Nov 2026: a LOAN is not cash to spend -- an advance booked to a
+      // loan account ("Employee Loans - ELPL", repaid from salary) is left out
+      filters: JSON.stringify([["employee", "=", employee], ["docstatus", "<", 2], ["advance_account", "not like", "%Loan%"]]),
       fields: JSON.stringify(["name", "posting_date", "purpose", "advance_amount", "paid_amount", "claimed_amount", "return_amount", "status", "docstatus", "modified"]),
       order_by: "posting_date desc, creation desc",
       limit_page_length: "500",
@@ -445,13 +490,52 @@ export async function requestAdvance(conn, { employee, amount, purpose, date }) 
    always added onto the latest version -- a background check may have saved
    it a moment ago. */
 export async function fetchOpenClaim(conn, employee) {
+  // Every open running claim (a few at most), then the settlement one: a Food
+  // claim from the 3-11 Nov 2026 trial may still be open, and the ERP takes
+  // only Food bills on it. (A child-table filter here 500s over REST.)
   const q = new URLSearchParams({
     filters: JSON.stringify([["employee", "=", employee], ["custom_running", "=", 1], ["docstatus", "=", 0]]),
     fields: JSON.stringify(["name"]),
+    limit_page_length: "50",
+  });
+  for (const r of (await rest(conn, `/api/resource/Expense%20Claim?${q}`)).data || []) {
+    const c = await fetchClaim(conn, r.name);
+    if (!c.lines.some((l) => l.type === "Food")) return c;
+  }
+  return null;
+}
+
+/* The employee's field TA/DA claim for a month (the planner's, found by its
+   remark "Field TA/DA · 2026-10"), read fresh -- the latest that is not
+   cancelled. null = none yet. */
+export async function fetchClaimByRemark(conn, employee, remark) {
+  const q = new URLSearchParams({
+    filters: JSON.stringify([["employee", "=", employee], ["remark", "=", remark], ["docstatus", "<", 2]]),
+    fields: JSON.stringify(["name"]),
+    order_by: "creation desc",
     limit_page_length: "1",
   });
   const name = ((await rest(conn, `/api/resource/Expense%20Claim?${q}`)).data || [])[0]?.name;
   return name ? fetchClaim(conn, name) : null;
+}
+
+/* Every claim with this remark, newest first (13 Nov 2026): a month can hold
+   more than one -- once a month's claim is approved, trips added later go into
+   a new one. -> [claim] */
+export async function fetchClaimsByRemark(conn, employee, remark, max = 10) {
+  const q = new URLSearchParams({
+    filters: JSON.stringify([["employee", "=", employee], ["remark", "=", remark], ["docstatus", "<", 2]]),
+    fields: JSON.stringify(["name"]),
+    order_by: "creation desc",
+    limit_page_length: String(max),
+  });
+  const names = ((await rest(conn, `/api/resource/Expense%20Claim?${q}`)).data || []).map((r) => r.name);
+  return Promise.all(names.map((n) => fetchClaim(conn, n)));
+}
+
+/* A draft claim left with nothing on it. */
+export async function deleteClaim(conn, name) {
+  await rest(conn, `/api/resource/Expense%20Claim/${encodeURIComponent(name)}`, { method: "DELETE" });
 }
 
 /* Runs a save again on a fresh read when someone else saved first ("modified
@@ -565,92 +649,58 @@ export async function saveSanctioned(conn, claim, sanctionedById) {
 
 /* ------------------------------ AI check -------------------------------- */
 
-/* The signed-in user's Firebase ID token -- verify-doc's proof that a real,
-   signed-in person is asking (with the ERP token as the second half). */
-async function firebaseIdToken() {
-  const { default: app } = await import("../../../../firebase");
-  const user = app.auth().currentUser;
-  if (!user) throw new Error("Sign in again to check bills.");
-  return user.getIdToken();
-}
-
-/* Reads a bill the moment it is attached, so the form can fill the row in:
-   the browser sends the file straight to verify-doc's /v1/extract (CORS is
-   open to the app's origins) as the signed-in user. Only reads -- the
-   comparison and score still happen on send (checkClaim). Also says whether
-   it is a printed bill at all (kind), so the form can refuse a handwritten
-   bill or a wrong photo before anything is saved.
-   -> { amount, date, vendor, what, kind, readable } (null = not read) */
-const VERIFY_URL = (process.env.NEXT_PUBLIC_VERIFY_DOC_URL || "https://verify-doc--elbrit-sso-d01d9.asia-southeast1.hosted.app").replace(/\/+$/, "");
-const BILL_FIELDS = {
-  amount: { type: "number", description: "the FINAL amount actually paid: the grand / total amount, INCLUDING any handwritten additions or corrections and any handling or delivery fee -- never a sub-total, a tax line or a single item" },
-  date: { type: "date", description: "the bill or transaction date" },
-  vendor: { type: "text", description: "the shop, company or person who issued the bill" },
-  // The bill's title on the claim: a general kind, never the items (27 Oct 2026).
-  title: {
-    type: "text",
-    judge: true,
-    description: "a short general title for this expense, 2-3 words, never the item names: e.g. Food bill, Cab bill, Auto bill, Fuel bill, Hotel bill, Train ticket, Bus ticket, Flight ticket, Toll, Parking, Courier, Stationery, Medicine, Mobile recharge",
-  },
-  // Only printed bills are accepted (27 Oct 2026): the form refuses anything else.
-  kind: {
-    type: "text",
-    judge: true, // not printed on the bill -- the model's own reading (verify-doc asks it never to be null)
-    description: "classify the image, answer with exactly one of: PRINTED (a machine-printed bill, receipt, invoice or ticket -- a thermal till slip, a computer print-out, an e-ticket, a ride receipt; a printed slip with a small handwritten note or addition on it is still PRINTED); HANDWRITTEN (a bill whose items and amounts are written by hand, including a printed bill-book page with only the shop's name printed and the items and amounts filled in by hand); NOT_A_BILL (anything else -- a selfie, a person, a product, a screenshot of a chat or an app screen, a blank or unreadable page)",
-  },
-};
-/* PRINTED / HANDWRITTEN / NOT_A_BILL as the AI answered it -> printed | handwritten | not_a_bill | null
-   (null: no verdict -- a verify-doc without "judge" fields reads it as a printed value and leaves it empty) */
-const kindOf = (v) => {
-  const s = String(v || "").toUpperCase().replace(/[^A-Z]/g, "");
-  return s.startsWith("PRINT") ? "printed" : s.startsWith("HAND") ? "handwritten" : s.startsWith("NOT") ? "not_a_bill" : null;
-};
-/* Opening the bill form wakes Docling (its GPU sleeps when idle and takes
-   30-75 s to start) while the person takes the photo. Fire and forget. */
-export function warmBillReader() {
-  firebaseIdToken()
-    .then((t) => fetch(`${VERIFY_URL}/v1/warm`, { method: "POST", headers: { Authorization: `Bearer ${t}` } }))
-    .catch(() => {});
-}
-
-export async function extractBill(conn, file, type) {
-  const idToken = await firebaseIdToken();
+/* Reads a bill the moment it is attached -- the only time any AI runs on it:
+   our server (/api/claims/read-bill) sends it to Cloudflare Gemma 4 (a photo,
+   a PDF's text copied out here, or a scanned PDF's page pictures), then
+   Clairic (values) and Clef Flash (title) on its answer. The form fills
+   title, amount and date from it; the person may change them. The read comes
+   back signed by the server and goes along to checkClaim, which compares it
+   with what was submitted in plain code.
+   -> { amount, date, vendor, what, kind, readable, signed } (null = not read;
+      signed = { read, sig } for checkClaim; skipped = the reader is off) */
+export async function extractBill(conn, file) {
   const form = new FormData();
-  form.append("file", file, file.name || "bill");
-  form.append("request", JSON.stringify({ context: `Employee expense claim in India, amounts in INR.${type ? ` Expense: ${type}.` : ""}`, fields: BILL_FIELDS, reader: "docling" }));
-  const res = await fetch(`${VERIFY_URL}/v1/extract`, {
+  form.append("files", file, file.name || "bill");
+  // a PDF also goes as its text, or -- a scanned PDF -- as pictures of its pages
+  const pdf = await pdfForReading(file);
+  if (pdf.text) form.append("text", pdf.text);
+  for (const p of pdf.pages || []) form.append("page", p, p.name);
+  const res = await fetch("/api/claims/read-bill", {
     method: "POST",
-    headers: { Authorization: `Bearer ${idToken}`, "X-ERP-Token": conn.authToken },
+    headers: { "x-erp-token": conn.authToken, "x-erp-endpoint": conn.endpointUrl },
     body: form,
-    // reader "docling": Docling's text read by rules, no AI model or model key (4-6 s;
-    // 30-75 s when Docling's GPU has slept). It cannot judge printed vs handwritten, so
-    // `kind` comes back empty here -- the check on send (Docling + model) judges that.
     signal: AbortSignal.timeout(150000),
   });
   const json = await res.json().catch(() => ({}));
   if (!res.ok) throw new Error(json.error || `The bill could not be read (HTTP ${res.status}).`);
-  const f = json.fields || {};
-  const v = (k) => (f[k] && f[k].value != null && f[k].value !== "" ? f[k].value : null);
+  if (json.skipped) return { skipped: true, readable: true };
+  if (!json.read) return { readable: false };
+  const r = json.read, v = r.values || {};
   return {
-    amount: typeof v("amount") === "number" && v("amount") > 0 ? v("amount") : null,
-    date: /^\d{4}-\d{2}-\d{2}$/.test(String(v("date") || "")) ? v("date") : null,
-    vendor: v("vendor"),
-    what: v("title"),
-    kind: kindOf(v("kind")),
-    readable: json.document?.readable !== false,
+    amount: typeof v.total === "number" && v.total > 0 ? v.total : null,
+    date: /^\d{4}-\d{2}-\d{2}$/.test(String(v.date || "")) ? v.date : null,
+    vendor: v.vendor || null,
+    what: r.title && r.title !== "Not a bill" && r.title !== "Other bill" ? r.title : null,
+    kind: r.title === "Not a bill" ? "not_a_bill" : "printed",
+    // Gemma's call (16 Nov 2026): a handwritten bill needs a reason and the
+    // payment proof (or "paid in cash") before it can be sent
+    handwritten: !!r.handwritten,
+    // already claimed -- on a settlement bill or a planner trip, by anyone
+    duplicate: json.duplicate || null,
+    readable: true,
+    signed: { read: r, sig: json.sig },
   };
 }
 
-/* Has the app server check every bill on the claim with verify-doc and save
-   the score on it. -> { score, risk, summary, rows } | { skipped, reason } */
-/* rows: only these bills (the one just added) -- checks of different bills
-   then run side by side; none = every bill still due on the claim. */
-export async function checkClaim(conn, name, rows) {
-  const idToken = await firebaseIdToken();
+/* Has the app server compare each bill on the claim with its signed read
+   (plain code) and save the result. -> { score, risk, summary, rows } | { skipped, reason }
+   rows: only these bills (the one just added); none = every bill still due.
+   reads: { <row name>: signed } from extractBill. */
+export async function checkClaim(conn, name, rows, reads) {
   const res = await fetch("/api/claims/check", {
     method: "POST",
-    headers: { "Content-Type": "application/json", Authorization: `Bearer ${idToken}`, "x-erp-token": conn.authToken },
-    body: JSON.stringify({ endpoint: conn.endpointUrl, claim: name, ...(rows ? { rows } : {}) }),
+    headers: { "Content-Type": "application/json", "x-erp-token": conn.authToken },
+    body: JSON.stringify({ endpoint: conn.endpointUrl, claim: name, ...(rows ? { rows } : {}), ...(reads ? { reads } : {}) }),
   });
   const json = await res.json().catch(() => ({}));
   if (!res.ok) throw new Error(json.error || `The bill check failed (HTTP ${res.status}).`);
@@ -682,6 +732,397 @@ export async function uploadClaimFile(conn, claimId, file) {
   }
   if (!json.data?.uploadFile?.file_url) throw new Error(`${file.name} was not stored by the ERP.`);
   return json.data.uploadFile;
+}
+
+/* ---------------------- Field claim: the final check ---------------------- */
+
+/* The rep's own planner claim for a month as the final check left it (ERP
+   "Field Expense Claims API", action mine): each line's adjustment -- new
+   amount, why, who, when -- and who finalised it. null when the API is not
+   there yet (the planner then simply shows no adjustments). */
+export async function fetchMyFieldClaim(conn, month) {
+  let m;
+  try {
+    m = (await rest(conn, `/api/method/field_expense_claims?${new URLSearchParams({ action: "mine", month })}`)).message || {};
+  } catch {
+    return null;
+  }
+  const c = (m.claims || [])[0];
+  if (!c) return null;
+  const names = m.names || {};
+  const lines = (m.lines || []).filter((l) => l.parent === c.name);
+  const adjustments = lines
+    .filter((l) => Number(l.custom_adjusted))
+    .map((l) => ({
+      date: String(l.expense_date || "").slice(0, 10),
+      type: l.expense_type,
+      note: String(l.description || ""),
+      amount: num(l.amount),
+      final: num(l.custom_adjusted_amount),
+      reason: l.custom_adjust_reason || "",
+      by: names[l.custom_adjusted_by] || l.custom_adjusted_by || "",
+      on: l.custom_adjusted_on || null,
+      // the reporting officer's own change (he writes the same fields), not the final check's
+      byOfficer: !!l.custom_officer_by && l.custom_adjusted_by === l.custom_officer_by,
+    }));
+  return {
+    name: c.name,
+    state: c.workflow_state,
+    final: lines.reduce((s, l) => s + (Number(l.custom_adjusted) ? num(l.custom_adjusted_amount) : num(l.amount)), 0),
+    adjustments,
+    finalisedBy: names[c.custom_finalised_by] || c.custom_finalised_by || null,
+    finalisedOn: c.custom_finalised_on || null,
+    additionalSalary: c.custom_additional_salary || null,
+  };
+}
+
+/* ------------------- Field claim: trip by trip (12 Nov 2026) ------------------- */
+
+/* A field claim with each line's trip and the officer's decision on it, and
+   the claim's department. REST, not GraphQL: the GraphQL schema lags new ERP
+   fields until a cache clear. The claim comes back unchanged if it can't be
+   read. */
+export async function withTripMarks(conn, claim) {
+  if (!claim) return claim;
+  let doc;
+  try {
+    doc = (await rest(conn, `/api/resource/Expense%20Claim/${encodeURIComponent(claim.id)}`)).data || {};
+  } catch {
+    return claim;
+  }
+  const rows = new Map((doc.expenses || []).map((r) => [r.name, r]));
+  return {
+    ...claim,
+    department: String(doc.department || "").replace(/ - ELPL$/, ""),
+    lines: claim.lines.map((l) => {
+      const r = rows.get(l.id) || {};
+      return {
+        ...l,
+        trip: r.custom_trip || "",
+        decision: r.custom_trip_decision || "",
+        decisionNote: r.custom_trip_note || "",
+        decidedBy: r.custom_trip_decided_by || "",
+        decidedOn: r.custom_trip_decided_on || "",
+        // a TA amount the officer (or the final check) changed, and why
+        ...(Number(r.custom_adjusted)
+          ? { adjusted: true, final: num(r.custom_adjusted_amount), adjustReason: r.custom_adjust_reason || "", adjustedBy: r.custom_adjusted_by || "" }
+          : { adjusted: false, final: l.amount }),
+        // the reporting officer's own record of a TA change (kept even if the
+        // final check changes the line again) -- 13 Nov 2026
+        ...(r.custom_officer_by ? { officerBy: r.custom_officer_by, officerAmount: num(r.custom_officer_amount), officerReason: r.custom_officer_reason || "" } : {}),
+      };
+    }),
+  };
+}
+
+/* Each claim's department (the team), by name. -> { [claim]: "Cardiac" } */
+export async function fetchClaimDepartments(conn, names) {
+  if (!names.length) return {};
+  const q = new URLSearchParams({
+    filters: JSON.stringify([["name", "in", names]]),
+    fields: JSON.stringify(["name", "department"]),
+    limit_page_length: String(names.length),
+  });
+  try {
+    const d = await rest(conn, `/api/resource/Expense%20Claim?${q}`);
+    return Object.fromEntries((d.data || []).map((r) => [r.name, String(r.department || "").replace(/ - ELPL$/, "")]));
+  } catch {
+    return {};
+  }
+}
+
+/* The officer's decision on one trip of a waiting field claim ("Field Trip
+   Decision API"): "Approved" | "Rejected" (note needed) | "" (undo).
+   -> { approved, rejected, pending, rows } -- line counts over the claim */
+export async function decideTrip(conn, { claim, rows, decision, note, trip }) {
+  const body = new URLSearchParams({ claim, rows: JSON.stringify(rows), decision: decision || "", note: note || "", trip: trip || "" });
+  try {
+    return (await rest(conn, "/api/method/field_trip_decide", { method: "POST", headers: { "Content-Type": "application/x-www-form-urlencoded" }, body })).message || {};
+  } catch (e) {
+    if (/field_trip_decide|not found|No module|Failed to get method/i.test(e.message)) throw new Error("Trip-by-trip approval is not set up on this ERP yet (Field Trip Decision API).");
+    throw e;
+  }
+}
+
+/* The officer's own tools on a planner field claim (13 Nov 2026), through the
+   ERP's "Field Trip Officer API" (method field_trip_officer): change a TA line's
+   amount with a reason while it waits with them, and read each day's visits. */
+async function officerCall(conn, method, params) {
+  try {
+    if (method === "GET") return (await rest(conn, `/api/method/field_trip_officer?${new URLSearchParams(params)}`)).message || {};
+    return (await rest(conn, "/api/method/field_trip_officer", { method: "POST", headers: { "Content-Type": "application/x-www-form-urlencoded" }, body: new URLSearchParams(params) })).message || {};
+  } catch (e) {
+    if (/field_trip_officer|not found|No module|Failed to get method/i.test(e.message)) throw new Error("Changing TA is not set up on this ERP yet (Field Trip Officer API).");
+    throw e;
+  }
+}
+/* lines: [{ row, amount }] -> { changed } */
+export function adjustTripTA(conn, { claim, lines, reason }) {
+  return officerCall(conn, "POST", { action: "adjust", claim, lines: JSON.stringify(lines), reason: reason || "" });
+}
+/* -> { [date]: { visits, places: { town: n } } } ({} when not set up) */
+export async function fetchClaimVisits(conn, claim) {
+  try {
+    return (await officerCall(conn, "GET", { action: "visits", claim })).days || {};
+  } catch {
+    return {};
+  }
+}
+
+/* ----------------------------- Car requests ----------------------------- */
+
+/* A rep's request to go by own car on a trip (12 Nov 2026). Everything goes
+   through the ERP's "Car Request API" script (method car_request): reps have
+   no DocType permission, the GM (or a System Manager) decides. */
+const CAR_STATUS = { Pending: "pending", Approved: "approved", Rejected: "rejected", Withdrawn: "withdrawn" };
+export function shapeCarRequest(r) {
+  const status = CAR_STATUS[r.status] || "pending";
+  return {
+    id: r.name,
+    employee: r.employee,
+    employeeName: r.employee_name || r.employee,
+    status,
+    tripId: r.trip || null,
+    planId: r.trip || null,
+    from: String(r.from_date || "").slice(0, 10),
+    to: String(r.to_date || "").slice(0, 10),
+    places: r.places || "",
+    km: num(r.km),
+    fuel: r.fuel || "Petrol",
+    fuelCost: num(r.fuel_cost),
+    tolls: num(r.tolls),
+    suggested: num(r.suggested),
+    asked: num(r.ask),
+    // what the trip may claim: the GM's amount once approved, else what was asked
+    ask: status === "approved" ? num(r.approved_amount) : num(r.ask),
+    approvedAmount: num(r.approved_amount),
+    approver: r.approver || null,
+    decidedBy: r.decided_by || null,
+    decidedOn: r.decided_on || null,
+    note: r.note || "",
+    requestedAt: r.creation || null,
+  };
+}
+const carCall = (conn, method, params) =>
+  method === "GET"
+    ? rest(conn, `/api/method/car_request?${new URLSearchParams(params)}`)
+    : rest(conn, "/api/method/car_request", { method: "POST", headers: { "Content-Type": "application/x-www-form-urlencoded" }, body: new URLSearchParams(params) });
+
+/* -> { requests, decider } */
+export async function fetchMyCarRequests(conn) {
+  const m = (await carCall(conn, "GET", { action: "mine" })).message || {};
+  return { requests: (m.requests || []).map(shapeCarRequest), decider: !!m.decider };
+}
+export async function createCarRequest(conn, req) {
+  const m = (
+    await carCall(conn, "POST", {
+      action: "create",
+      trip: req.tripId || req.planId || "",
+      from_date: req.from,
+      to_date: req.to,
+      places: req.places || "",
+      km: String(req.km || 0),
+      fuel: req.fuel || "Petrol",
+      fuel_cost: String(req.fuelCost || 0),
+      tolls: String(req.tolls || 0),
+      suggested: String(req.suggested || 0),
+      ask: String(req.ask || 0),
+    })
+  ).message || {};
+  return m.request ? shapeCarRequest(m.request) : null;
+}
+export function withdrawCarRequest(conn, id) {
+  return carCall(conn, "POST", { action: "withdraw", name: id });
+}
+/* The GM's list. -> { pending, recent } (a non-decider gets a 403) */
+export async function fetchCarQueue(conn) {
+  const m = (await carCall(conn, "GET", { action: "queue" })).message || {};
+  return { pending: (m.pending || []).map(shapeCarRequest), recent: (m.recent || []).map(shapeCarRequest) };
+}
+/* decision: "Approve" (amount may differ from the ask) | "Reject" (note needed) */
+export async function decideCarRequest(conn, id, decision, amount, note) {
+  const m = (await carCall(conn, "POST", { action: "decide", name: id, decision, amount: String(amount || ""), note: note || "" })).message || {};
+  return m.request ? shapeCarRequest(m.request) : null;
+}
+
+/* ------------------------ non-reported days ---------------------------- */
+
+/* Non-reported days (21 Nov 2026): a rep's day with nothing paid on record --
+   what they did (doctor visits, a meeting, other work, the HQ for an HQ-less
+   meeting) waits on their manager (the direct parent seat; a vacant seat passes
+   it up; the next person up after 2 days). Approve makes the events in the rep's
+   name and recalculates the day; Reject needs a note. ERP Server Script "Field
+   Non-Reported Day API" (method field_nonreport_day), as the signed-in user:
+   share/src/app/field-expense/server/field_nonreport_day_api.py. */
+const nrCall = (conn, method, params) =>
+  method === "GET"
+    ? rest(conn, `/api/method/field_nonreport_day?${new URLSearchParams(params)}`)
+    : rest(conn, "/api/method/field_nonreport_day", { method: "POST", headers: { "Content-Type": "application/x-www-form-urlencoded" }, body: new URLSearchParams(params) });
+export function shapeNonReport(t) {
+  return {
+    id: t.name,
+    date: t.date,
+    status: t.status === "Completed" ? "approved" : t.status === "Cancelled" ? "rejected" : "waiting",
+    employee: t.employee,
+    employeeName: t.employee_name || t.employee,
+    entries: t.entries || [],
+    can: t.can || null,
+    approverNames: t.approver_names || "",
+    escalationNames: t.escalation_names || "",
+    decidedBy: t.decided_by_name || "",
+    note: t.note || "",
+    events: t.events || [],
+    raised: t.creation,
+  };
+}
+/* -> { pending, recent } */
+export async function fetchNonReportQueue(conn) {
+  const m = (await nrCall(conn, "GET", { action: "queue" })).message || {};
+  return { pending: (m.pending || []).map(shapeNonReport), recent: (m.recent || []).map(shapeNonReport) };
+}
+/* decision: "Approve" | "Reject" (note needed) -> { request, events, recalc } */
+export async function decideNonReport(conn, id, decision, note) {
+  const m = (await nrCall(conn, "POST", { action: "decide", name: id, decision, note: note || "" })).message || {};
+  return { request: m.task ? shapeNonReport(m.task) : null, events: m.events || [], recalc: m.recalc || null };
+}
+
+/* ------------------------- settlement approval -------------------------- */
+
+/* Settlement approval (16 Nov 2026): a request -- the AI-checked bills on the
+   rep's open settlement claim, or a cash advance -- goes up the requester's
+   reporting line (BE > ABM > RBM > SM/ZSM > GM > CEO); the CEO's approval is
+   final (bills Verified, or the advance to Accounts to pay). ERP Server Script
+   "Settlement API" (method settlement), as the signed-in user:
+   share/src/app/expense-claims/server/settlement_api.py. */
+const num0 = (v) => Number(v) || 0;
+export function shapeSettlement(r) {
+  return {
+    id: r.name,
+    employee: r.employee,
+    employeeName: r.employee_name || r.employee,
+    hq: r.hq || "",
+    // the seat's department (18 Nov 2026): SM, GM and the CEO group by it
+    team: r.team || "",
+    // sent again after a rejection (17 Nov 2026): { from, by, note }
+    resent: r.resent && r.resent.from ? { from: r.resent.from, by: r.resent.by || "", note: r.resent.note || "" } : null,
+    // booked in the accounts at the CEO's approval (17 Nov 2026): the claim (a
+    // bill) or the advance (cash), and whether Accounts has paid it
+    booked: r.booked ? {
+      claim: r.booked.claim || "", advance: r.booked.advance || "",
+      paid: /^paid$/i.test(r.booked.status || "") || (r.booked.advance && num0(r.booked.paid) > 0),
+      amountPaid: num0(r.booked.paid),
+    } : null,
+    user: r.user,
+    kind: r.kind === "Cash" ? "cash" : "bills",
+    status: String(r.status || "").toLowerCase(), // waiting | approved | rejected | withdrawn
+    amount: num0(r.amount),
+    purpose: r.purpose || "",
+    claim: r.claim || "",
+    advance: r.advance || "",
+    step: num0(r.step),
+    nextApprover: r.next_approver || "",
+    nextLabel: r.next_label || "",
+    note: r.note || "",
+    decidedBy: r.decided_by || "",
+    decidedOn: r.decided_on && r.decided_on !== "None" ? r.decided_on : "",
+    created: r.creation,
+    modified: r.modified,
+    steps: (r.steps || []).map((s) => ({
+      user: s.user,
+      name: s.name || s.user,
+      level: s.level || "",
+      decision: s.decision || "",
+      at: s.at && s.at !== "None" ? s.at : "",
+      note: s.note || "",
+    })),
+    bills: (r.bills || []).map((b) => ({
+      row: b.row,
+      date: String(b.date || "").slice(0, 10),
+      title: b.title || "",
+      amount: num0(b.amount),
+      bill: b.bill || "",
+      score: b.score == null || b.score === "" ? null : num0(b.score),
+      risk: b.risk || "",
+      reason: b.reason || "",
+    })),
+  };
+}
+const settleCall = (conn, method, params) =>
+  method === "GET"
+    ? rest(conn, `/api/method/settlement?${new URLSearchParams(params)}`)
+    : rest(conn, "/api/method/settlement", { method: "POST", headers: { "Content-Type": "application/x-www-form-urlencoded" }, body: new URLSearchParams(params) });
+
+/* The requester's own requests and the chain a new one would go up.
+   -> { requests, chain: [{ user, name, level }], overview } */
+export async function fetchMySettlements(conn) {
+  const m = (await settleCall(conn, "GET", { action: "mine" })).message || {};
+  return { requests: (m.requests || []).map(shapeSettlement), chain: m.chain || [], overview: !!m.overview };
+}
+/* Every checked, unsent bill on the open settlement claim, as one request. */
+/* One request PER BILL (16 Nov 2026): -> { count, amount, requests } */
+export async function sendBillsForApproval(conn, rows) {
+  const m = (await settleCall(conn, "POST", { action: "send_bills", ...(rows?.length ? { rows: rows.join(",") } : {}) })).message || {};
+  const requests = (m.requests || (m.request ? [m.request] : [])).map(shapeSettlement);
+  return { count: m.count ?? requests.length, amount: num0(m.amount ?? requests.reduce((s, r) => s + r.amount, 0)), requests };
+}
+/* "Request cash": an advance, up the same chain. */
+export async function requestCashThroughChain(conn, { amount, purpose }) {
+  const m = (await settleCall(conn, "POST", { action: "send_cash", amount: String(amount), purpose })).message || {};
+  return m.request ? shapeSettlement(m.request) : null;
+}
+/* Take a request back -- only before anyone has approved it. */
+export async function withdrawSettlement(conn, id) {
+  const m = (await settleCall(conn, "POST", { action: "withdraw", name: id })).message || {};
+  return m.request ? shapeSettlement(m.request) : null;
+}
+/* The approver's lists. -> { waiting, team, decided, overview, me } */
+export async function fetchSettlementQueue(conn) {
+  const m = (await settleCall(conn, "GET", { action: "queue" })).message || {};
+  return {
+    waiting: (m.waiting || []).map(shapeSettlement),
+    team: (m.team || []).map(shapeSettlement),
+    decided: (m.decided || []).map(shapeSettlement),
+    overview: !!m.overview,
+    me: m.me || "",
+  };
+}
+/* Approve several at once (18 Nov 2026): one server call; the ones that
+   reach the CEO go to him as ONE batch. -> { approved, toCeo, batch, skipped } */
+export async function approveSettlements(conn, ids) {
+  const m = (await settleCall(conn, "POST", { action: "approve_many", names: ids.join(",") })).message || {};
+  return { approved: m.approved || 0, toCeo: m.to_ceo || 0, batch: m.batch || "", skipped: m.skipped || [] };
+}
+/* The CEO's batches (from the GM / SM): waiting, and the last 30 days. */
+export async function fetchCeoBatches(conn) {
+  const m = (await settleCall(conn, "GET", { action: "ceo_batches" })).message || {};
+  return {
+    ceo: !!m.ceo,
+    batches: (m.batches || []).map((b) => ({
+      id: b.name, status: String(b.status || "").toLowerCase(), by: b.made_by_name || b.made_by || "", amount: num0(b.amount), count: b.count || 0,
+      created: b.creation, decidedOn: b.decided_on && b.decided_on !== "None" ? b.decided_on : "",
+      requests: (b.requests || []).map(shapeSettlement),
+    })),
+  };
+}
+/* The CEO approves what still waits in a batch -> { approved, amount } */
+export async function approveCeoBatch(conn, id) {
+  const m = (await settleCall(conn, "POST", { action: "decide_batch", name: id })).message || {};
+  return { approved: m.approved || 0, amount: num0(m.amount) };
+}
+/* decision: "Approve" | "Reject" (a reason needed -- the requester sees it) */
+export async function decideSettlement(conn, id, decision, note) {
+  const m = (await settleCall(conn, "POST", { action: "decide", name: id, decision, note: note || "" })).message || {};
+  return m.request ? shapeSettlement(m.request) : null;
+}
+
+/* A file already in the ERP (the planner stores a trip bill the moment it is
+   checked) moved onto a claim, so whoever may see the claim may open it. */
+export function attachFileTo(conn, fileId, claimId) {
+  return rest(conn, `/api/resource/File/${encodeURIComponent(fileId)}`, {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ attached_to_doctype: "Expense Claim", attached_to_name: claimId }),
+  });
 }
 
 export function deleteClaimFile(conn, fileId) {

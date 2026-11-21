@@ -33,6 +33,9 @@ export async function fetchErpTiles({ endpointUrl, token, month, today, fetchImp
   // (16 Nov 2026): NEXT_PUBLIC_SERVICE_RBM_SM_APPROVAL is 1 there and 0 on
   // live (apphosting.prod.yaml), so live RBMs / SMs get no Service tile.
   if (process.env.NEXT_PUBLIC_SERVICE_RBM_SM_APPROVAL === '1') params.v = '2';
+  // app-uat only (13 Nov 2026): every reporting officer gets the Expense
+  // approval tile. Live never sends it (apphosting.prod.yaml sets it to 0).
+  if (process.env.NEXT_PUBLIC_EXPENSE_APPROVALS_FOR_ALL === '1') params.expense_all = '1';
   const qs = Object.keys(params).length ? `?${new URLSearchParams(params)}` : '';
   const res = await fetchImpl(`${new URL(endpointUrl).origin}/api/method/elbrit_ring_nav${qs}`, {
     headers: { Authorization: authHeader(token), Accept: 'application/json' },
