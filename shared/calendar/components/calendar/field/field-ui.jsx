@@ -1737,7 +1737,7 @@ function TripDay({ row, data, car, last, multi, night, bills, stayOff, billStrip
   // a day with nothing paid on it is named, not shown as "—" (21 Nov 2026)
   const unpaidName = row.nonReported ? "Non-reported day" : row.hqless ? "Meeting with no HQ" : null;
   const route = stops.length ? stops.join(" → ") : unpaidName || DAY_TYPE_LABEL[row.dayType] || row.label || row.dayType || row.kind;
-  const stayAt = night && !cameHome(row) ? row.awayHq || stops[stops.length - 1] || null : null;
+  const stayAt = night && !cameHome(row) ? (row.nightHq !== undefined ? row.nightHq : row.awayHq || stops[stops.length - 1] || null) : null;
   const nightLabel = `outstation ${dayLabel(row.date)}`;
   // the day's TA in parts, as the console shows it: the local run (km × rate,
   // each way) and, on a day that also moves between HQs, the train fare; the

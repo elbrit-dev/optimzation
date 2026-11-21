@@ -209,6 +209,8 @@ export function shapeDay(d) {
     journey,
     // the HQ he was away in; a meeting day away names the meeting's HQ
     awayHq: away && local ? strip(local.from_place) || null : meetAway ? strip(x.osHq) || null : null,
+    // where the night was on a day in parts (Kanchipuram -> Vellore: Vellore), saved by the dashboard (21 Nov 2026)
+    nightHq: x.nightHq === undefined ? undefined : x.nightHq ? strip(x.nightHq) : null,
     farthest: local && strip(local.to_place) !== strip(local.from_place) ? strip(local.to_place) : null,
     chart: local ? { town: strip(local.to_place) || null, km: local.rounded_km ?? local.km ?? null, hq: null } : null,
     route: stops,
