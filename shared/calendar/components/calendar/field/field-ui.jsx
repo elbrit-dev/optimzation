@@ -44,6 +44,7 @@ import {
   DAY_TYPE_LABEL,
   dayLabel,
   dayPlace,
+  paidLocalKm,
   fareBasis,
   inr,
   rangeLabel,
@@ -723,7 +724,7 @@ export function FieldDayRow({ date }) {
           {!item && travel && dayPlace(row) ? ` · ${dayPlace(row)}` : ""}
         </b>
         <small className="block truncate text-xs text-gray-500">
-          {row.km != null && travel ? `${row.km} km · ` : ""}
+          {paidLocalKm(row) > 0 ? `${paidLocalKm(row)} km · ` : ""}
           {row.visits} visit{row.visits === 1 ? "" : "s"} · TA {inr(row.ta)} · DA {inr(row.da)}
         </small>
       </span>

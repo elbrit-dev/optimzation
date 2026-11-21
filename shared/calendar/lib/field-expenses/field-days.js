@@ -292,6 +292,10 @@ export function fareBasis(row, data) {
     .join(" + ");
 }
 
+/* The km a day is paid on: its local run only when that run is paid (an HQ day's reach under the
+   band is not travel -- 21 Nov 2026), plus its journeys. */
+export const paidLocalKm = (d) => ((d.legs || []).some((l) => l.leg === "Local" && Number(l.fare) > 0) ? d.km || 0 : 0);
+
 /* ---------- trips ---------- */
 
 // in UTC on both sides: local midnight in IST is the previous day in UTC
@@ -396,7 +400,7 @@ export function buildTrips(rows, home = null) {
     const ta = paid.reduce((s, d) => s + d.ta, 0);
     const da = paid.reduce((s, d) => s + d.da, 0);
     // road km: a flown leg is not driven (13 Nov 2026)
-    const km = paid.reduce((s, d) => s + (d.km || 0) + (d.journey ? ("road" in d.journey ? d.journey.road?.km || 0 : d.journey.km || 0) : 0), 0);
+    const km = paid.reduce((s, d) => s + paidLocalKm(d) + (d.journey ? ("road" in d.journey ? d.journey.road?.km || 0 : d.journey.km || 0) : 0), 0);
     const flights = paid.flatMap((d) => (d.travelLegs || []).filter((l) => l.flown).map((l) => ({ ...l, date: d.date })));
     const kind = paid.some((d) => AWAY_TYPES.has(d.dayType)) ? "tour" : paid.some((d) => d.dayType === "EQ") ? "day" : "hq";
     return {
@@ -428,7 +432,7 @@ export function monthStats(rows, trips) {
   return {
     ta: paid.reduce((s, r) => s + r.ta, 0),
     da: paid.reduce((s, r) => s + r.da, 0),
-    km: Math.round(paid.reduce((s, r) => s + (r.km || 0) + (r.journey?.km || 0), 0)),
+    km: Math.round(paid.reduce((s, r) => s + paidLocalKm(r) + (r.journey?.km || 0), 0)),
     days: paid.length,
     visits: paid.reduce((s, r) => s + r.visits, 0),
     hq: count("HQ"),
