@@ -249,7 +249,7 @@ export const DAY_TYPE_LABEL = {
 export const DAY_TYPE_HINT = {
   // the HQ / City rule (20 Nov 2026): the doctor's City is the BE's HQ or area, or within 25 km of the BE's area
   HQ: "Doctors in your HQ City or area, or under 25 km from it — DA only, no TA",
-  EQ: "Doctors 25 km or more from your HQ area — TA both ways on the km + 10, plus the ex-HQ allowance",
+  EQ: "Doctors 25 km or more from your HQ area — TA both ways on the km plus the EQ addition, plus the ex-HQ allowance",
   OS: "Outside your patch — paid as an ex-HQ day",
   "OS-HQ": "Doctors of a BE in another HQ — no DA; the journey there is paid as TA, the way home on the day you are back",
   "OS-EQ": "Worked out from another HQ town — TA for the local leg, no DA",
