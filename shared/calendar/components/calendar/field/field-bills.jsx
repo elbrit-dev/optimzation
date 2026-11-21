@@ -242,9 +242,10 @@ export function ManualBill({ file, slot, trip, prefill, reason, onCancel, onDone
         {kinds.length > 1 && (
           <div className={label}>
             What is this bill?
-            <span role="radiogroup" aria-label="Bill type" className="grid grid-cols-2 gap-1 rounded-2xl bg-gray-100 p-1">
+            {/* one row, however many kinds (21 Nov 2026: Fuel wrapped onto a row of its own) */}
+            <span role="radiogroup" aria-label="Bill type" className="grid gap-1 rounded-2xl bg-gray-100 p-1" style={{ gridTemplateColumns: `repeat(${kinds.length}, minmax(0, 1fr))` }}>
               {kinds.map((k) => (
-                <button key={k} type="button" role="radio" aria-checked={kind === k} onClick={() => setKind(k)} className={cn("min-h-10 rounded-xl text-[13.5px] font-bold", kind === k ? "bg-white text-gray-900 shadow-sm" : "text-gray-500")}>
+                <button key={k} type="button" role="radio" aria-checked={kind === k} onClick={() => setKind(k)} className={cn("min-h-10 rounded-xl px-1 text-[13.5px] font-bold leading-tight", kind === k ? "bg-white text-gray-900 shadow-sm" : "text-gray-500")}>
                   {KIND_WORD[k]}
                 </button>
               ))}
