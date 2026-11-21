@@ -28,6 +28,10 @@ import { resolveLoggedInRoleId, resolveSeatHqs } from "@calendar/lib/employeeHei
 import { dayLabel } from "@calendar/lib/field-expenses/field-days";
 import { DONE, OTHER_KINDS, dayState, fetchHqless, fetchRoute, loadNonReport, sendNonReport, useNonReportTasks } from "@calendar/lib/field-expenses/nonreport-days";
 import { HELP_STATUS, askedText, htmlText } from "@calendar/lib/field-expenses/trip-help";
+import { LeaveTypeCards } from "@calendar/components/calendar/leave/LeaveTypeCards";
+import { LOGGED_IN_USER } from "@calendar/components/auth/calendar-users";
+import { fetchEmployeeLeaveBalance, fetchProbationLeaveContext } from "@calendar/components/calendar/module/leave/services/leave.service";
+import { LOP_LEAVE_TYPE, PROBATION_LEAVE_LABEL, PROBATION_LEAVE_TYPE } from "@calendar/lib/calendar/probationLeave";
 
 const MONTH_LONG = ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"];
 const monthName = (ym) => MONTH_LONG[Number(ym.slice(5, 7)) - 1];
@@ -262,7 +266,7 @@ const blank = (type, hq) =>
   type === "doctor_visit"
     ? { hq, doctors: [], note: "" }
     : type === "leave"
-      ? { note: "" }
+      ? { leave_type: "", note: "" }
       : { other_type: "", hq, title: "", note: "" };
 
 function entryError(type, e) {
@@ -271,7 +275,7 @@ function entryError(type, e) {
     if (!e.hq) return "Doctor visits: pick the HQ";
     if (!e.doctors.length) return "Doctor visits: pick the doctors";
   } else if (type === "leave") {
-    return null;
+    return e.leave_type ? null : "Leave: pick the type";
   } else {
     if (!e.other_type) return "Meeting / other work: pick what it was";
     if (e.other_type === "Meeting" && e.title.trim().length < 3) return "Meeting: give it a title";
@@ -396,8 +400,8 @@ function DayBody({ date, tasks, draft, setDraft }) {
           )}
           {draft.leave && (
             <Section kind={KINDS[2]}>
-              <small className="-mt-1 text-[12px] text-gray-600">The whole day, so nothing else goes with it. Your manager confirms it.</small>
-              <NoteField e={draft.leave} onChange={patch("leave")} />
+              <small className="-mt-1 text-[12px] text-gray-600">The whole day, so nothing else goes with it. Once your manager confirms the day, it is raised as a leave application for your leave approver.</small>
+              <LeaveFields e={draft.leave} onChange={patch("leave")} />
             </Section>
           )}
         </>
@@ -435,7 +439,7 @@ function SendBar({ date, tasks, draft, onSent }) {
   const summary = [
     nDoc ? plural(nDoc, "doctor") : draft.doctor_visit ? "Doctor visits" : null,
     draft.other ? draft.other.other_type || "Meeting / other work" : null,
-    draft.leave ? "Leave" : null,
+    draft.leave ? draft.leave.leave_type || "Leave" : null,
     nHq ? `HQ for ${plural(nHq, "meeting")}` : null,
   ]
     .filter(Boolean)
@@ -503,7 +507,7 @@ function SentTask({ t }) {
       {/* who decides / decided (21 Nov 2026) */}
       {t.status === "Completed" ? (
         <p className="rounded-lg bg-green-50 px-2.5 py-1.5 text-[12.5px] text-green-800">
-          Approved by <b>{t.decided_by_name || "your manager"}</b> · {(t.entries || []).some((x) => x.type === "leave") ? "marked as leave" : "added to your calendar, TA/DA updates in a few minutes"}
+          Approved by <b>{t.decided_by_name || "your manager"}</b> · {(t.entries || []).some((x) => x.type === "leave") ? "your leave application is raised — your leave approver decides it" : "added to your calendar, TA/DA updates in a few minutes"}
         </p>
       ) : t.status === "Cancelled" ? (
         <p className="rounded-lg bg-rose-50 px-2.5 py-1.5 text-[12.5px] text-rose-800">
@@ -596,6 +600,38 @@ function OtherFields({ e, seat, onChange }) {
       <div className="flex flex-col gap-1">
         <Label>HQ</Label>
         <HqPicker value={e.hq} onChange={(hq) => onChange({ hq })} seat={seat} />
+      </div>
+      <NoteField e={e} onChange={onChange} />
+    </>
+  );
+}
+
+/* Leave: the type, from his own balance -- the same cards and types as the leave form (on probation:
+   Probationary Leave and Leave Without Pay only). 21 Nov 2026 */
+function LeaveFields({ e, onChange }) {
+  const [st, setSt] = useState({ loading: true, balance: null, probation: false });
+  useEffect(() => {
+    let alive = true;
+    Promise.all([
+      fetchEmployeeLeaveBalance(LOGGED_IN_USER.id).catch(() => ({})),
+      fetchProbationLeaveContext(LOGGED_IN_USER.id).catch(() => ({ onProbation: false })),
+    ]).then(([balance, pc]) => alive && setSt({ loading: false, balance, probation: pc?.onProbation === true }));
+    return () => {
+      alive = false;
+    };
+  }, []);
+  return (
+    <>
+      <div className="flex flex-col gap-1">
+        <Label>Type of leave</Label>
+        <LeaveTypeCards
+          balance={st.balance}
+          loading={st.loading}
+          value={e.leave_type}
+          onChange={(v) => onChange({ leave_type: v })}
+          types={st.probation ? [PROBATION_LEAVE_TYPE, LOP_LEAVE_TYPE] : undefined}
+          display={{ [PROBATION_LEAVE_TYPE]: { label: PROBATION_LEAVE_LABEL } }}
+        />
       </div>
       <NoteField e={e} onChange={onChange} />
     </>

@@ -324,10 +324,13 @@ def main():
             hq = clean(e.get("hq"), 140)
             note = clean(e.get("note"), 600)
             if kind == "leave":
+                lt = clean(e.get("leave_type"), 140)
+                if not lt or not frappe.db.exists("Leave Type", lt):
+                    frappe.throw("Pick the type of leave.")
                 n_leave = n_leave + 1
-                lines.append("Leave" + (" — " + note if note else ""))
-                sections.append("<p><b>Leave</b>" + ("<br>Note: " + esc(note) if note else "") + "</p>")
-                clean_entries.append({"type": kind, "note": note})
+                lines.append(lt + (" — " + note if note else ""))
+                sections.append("<p><b>" + esc(lt) + "</b>" + ("<br>Note: " + esc(note) if note else "") + "</p>")
+                clean_entries.append({"type": kind, "leave_type": lt, "note": note})
                 continue
             if not hq:
                 frappe.throw("Pick the HQ for every entry.")
@@ -405,7 +408,7 @@ def main():
         body = ("<p><b>" + esc(emp.employee_name) + " (" + esc(emp.name) + ") reports for " + label + ":</b></p>"
                 + "<p>" + esc(chr(10).join(lines)).replace(chr(10), "<br>") + "</p>" + "".join(sections)
                 + "<p>Waiting for " + esc(NR["names"](rt.get("approvers"))) + " to approve in the app (Claims → Non-reported days). "
-                + ("On approval the day is marked as leave.</p>" if n_leave else "On approval the events are made and the day is recalculated.</p>")
+                + ("On approval a leave application is raised for the day and goes to the leave approver.</p>" if n_leave else "On approval the events are made and the day is recalculated.</p>")
                 + "<pre>" + esc(json.dumps(data, indent=1)) + "</pre>")
         t = frappe.get_doc({"doctype": "Task", "subject": subject, "project": PROJECT, "status": "Open", "priority": "Medium",
                             "exp_start_date": day, "exp_end_date": day, "description": body}).insert(ignore_permissions=True)
@@ -530,6 +533,21 @@ def main():
                     ev = frappe.get_doc(f)
                     ev.insert(ignore_permissions=True)
                     made.append(ev.name)
+                elif kind == "leave":
+                    # a Leave Application for the day, raised OPEN: the leave rule's approver decides it as any
+                    # other leave (balance, probation, the route guard) -- 21 Nov 2026
+                    # a month whose salary is already processed takes no leave application (the ERP refuses
+                    # it): the leave type is only recorded on this request (the user, 2026-11-21: "Record only")
+                    sal_done = frappe.db.exists("Salary Slip", {"employee": rep.name, "docstatus": 1,
+                                                                "start_date": ["<=", day], "end_date": [">=", day]})
+                    if sal_done:
+                        en["recorded_only"] = 1
+                    else:
+                        la = frappe.get_doc({"doctype": "Leave Application", "employee": rep.name, "leave_type": en.get("leave_type"),
+                                             "from_date": day, "to_date": day, "half_day": 0, "posting_date": today, "status": "Open",
+                                             "description": ((en.get("note") or "") + " — " + reason).strip(" —")})
+                        la.insert(ignore_permissions=True)
+                        made.append(la.name)
                 elif kind == "meeting_hq":
                     evn = en.get("event")
                     if evn and frappe.db.exists("Event", evn) and not frappe.db.get_value("Event", evn, "custom_hq_territory"):
@@ -539,6 +557,11 @@ def main():
                         made.append(evn)
             # the events are the rep's: his name as owner, shared up his line as the planner does
             for evn in made:
+                if not frappe.db.exists("Event", evn):
+                    # the leave application: his own, like one he applied for himself
+                    if rep.user_id and frappe.db.exists("Leave Application", evn):
+                        frappe.db.set_value("Leave Application", evn, "owner", rep.user_id, update_modified=False)
+                    continue
                 if frappe.db.get_value("Event", evn, "owner") != rep.user_id and rep.user_id:
                     frappe.db.set_value("Event", evn, "owner", rep.user_id, update_modified=False)
                 for u in ups:
