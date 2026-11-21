@@ -1176,6 +1176,9 @@ def expense_tiles():
     done_states = ["Approved", "In Review", "Verified"]
 
     waiting = count("Expense Claim", [["docstatus", "=", 0], ["workflow_state", "in", open_states], ["expense_approver", "=", me]])
+    # non-reported days waiting on this manager (21 Nov 2026): the Task's ToDo is made for its approver
+    waiting = waiting + count("ToDo", [["allocated_to", "=", me], ["status", "=", "Open"], ["reference_type", "=", "Task"],
+                                       ["description", "like", "Non-reported day · %"]])
     my_emp = frappe.db.get_value("Employee", {"user_id": me, "status": "Active"}, "name")
     manager = bool(my_emp) and bool(frappe.db.exists("Employee", {"reports_to": my_emp, "status": "Active"}))
     if waiting or manager or expense_team or expense_head:

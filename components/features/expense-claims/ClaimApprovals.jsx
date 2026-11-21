@@ -338,6 +338,8 @@ export default function ClaimApprovals({ url, token, mode = "auto", verifiers = 
             <span style={{ fontSize: 13, color: "#5b6576" }}>
               {lists.status !== "ready"
                 ? " "
+                : nonrepTab
+                  ? ((lists.nonrep || []).length ? `${(lists.nonrep || []).length} non-reported ${(lists.nonrep || []).length === 1 ? "day" : "days"} waiting for you` : "No non-reported day waits on you")
                 : cars
                   ? `${(lists.cars || []).length} car ${(lists.cars || []).length === 1 ? "request" : "requests"} waiting · ${inr((lists.cars || []).reduce((s, r) => s + r.asked, 0))} asked`
                   : settleTab && lists.ceo
