@@ -146,7 +146,7 @@ export function KpiSheet() {
           <div>
             <h3 className="text-[16px] font-extrabold text-gray-900">{m} summary</h3>
             <p className="text-[13px] leading-snug text-gray-600">
-              {daysWorked} days worked · {f.stats.km} km · into {f.payroll.name} ({f.payroll.when})
+              {daysWorked} days worked · {f.stats.km} km
             </p>
           </div>
         </div>
@@ -205,7 +205,7 @@ export function KpiSheet() {
             </span>
           )}
           <div className="grid grid-cols-3 gap-2 border-t border-gray-100 pt-3">
-            <Stand label="In payroll" value={ta.payroll + da.payroll} />
+            <Stand label="Approved" value={ta.payroll + da.payroll} />
             <Stand label="Submitted" value={ta.submitted + da.submitted} />
             <Stand label="To claim" value={ta.toClaim + da.toClaim} hi />
           </div>
@@ -269,9 +269,9 @@ export function KpiSheet() {
           {claimState === "sent"
             ? `With ${f.manager} for approval — every ${m} trip you submit joins this one claim. Recall a trip to change it.`
             : claimState === "approved"
-              ? `Approved by ${f.manager}. Accounts / the CEO do the final check — a line may be adjusted, with the reason shown here — then it goes into payroll.`
+              ? `Approved by ${f.manager}. Accounts / the CEO do the final check — a line may be adjusted, with the reason shown here.`
               : claimState === "final"
-                ? `Finalised${mc?.finalisedBy ? ` by ${mc.finalisedBy}` : ""} — ${inr(mc?.final ?? mc?.total)} goes into payroll${mc?.additionalSalary ? ` (${mc.additionalSalary})` : ""}.`
+                ? `Finalised${mc?.finalisedBy ? ` by ${mc.finalisedBy}` : ""} — ${inr(mc?.final ?? mc?.total)} approved.`
               : claimState === "open" && mc?.lines.length
                 ? `Saved but not sent — send it to ${f.manager}.${notAdded ? ` ${notAdded} trip${notAdded > 1 ? "s are" : " is"} not submitted yet.` : ""}`
                 : claimState === "rejected"
@@ -319,7 +319,7 @@ export function KpiSheet() {
           </span>
         </button>
       )}
-      <SheetFoot label={f.payroll.final ? "This claim goes into" : "Field claims go into"} value={`${f.payroll.name} · ${f.payroll.when}`}>
+      <SheetFoot label="To claim" value={inr(ta.toClaim + da.toClaim)}>
         {(claimState === "open" || claimState === "rejected") && mc?.lines.length ? (
           <FootBtn disabled={confirm} busy={busy === "send"} onClick={() => setConfirm(true)}>
             Send {m}

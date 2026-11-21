@@ -1256,10 +1256,11 @@ const nrWhat = (r) => {
   const n = { doc: 0, meet: 0, other: [] };
   for (const e of r.entries) {
     if (e.type === "doctor_visit") n.doc += (e.doctors || []).length;
-    else if (e.type === "meeting" || e.type === "meeting_hq") n.meet += 1;
+    else if (e.type === "meeting" || e.type === "meeting_hq" || (e.type === "other" && e.other_type === "Meeting")) n.meet += 1;
+    else if (e.type === "leave") n.leave = true;
     else if (e.type === "other") n.other.push(e.other_type);
   }
-  return [n.doc ? `${n.doc} doctor${n.doc > 1 ? "s" : ""}` : null, n.meet ? `${n.meet} meeting${n.meet > 1 ? "s" : ""}` : null, ...n.other].filter(Boolean).join(" + ");
+  return [n.leave ? "Leave" : null, n.doc ? `${n.doc} doctor${n.doc > 1 ? "s" : ""}` : null, n.meet ? `${n.meet} meeting${n.meet > 1 ? "s" : ""}` : null, ...n.other].filter(Boolean).join(" + ");
 };
 const nrHq = (hq) => String(hq || "").replace(/^HQ[-\s]*/i, "");
 
@@ -1309,7 +1310,8 @@ function NonRepSheet({ conn, req: r, desk, onClose, onDone }) {
     try {
       setBusy(decision === "Approve" ? "Approving…" : "Rejecting…");
       await decideNonReport(conn, r.id, decision, note.trim());
-      onDone(decision === "Approve" ? `${r.employeeName} · ${shortDate(r.date)} approved — added to their calendar, TA/DA updates in a few minutes` : `${r.employeeName} · ${shortDate(r.date)} rejected`);
+      const isLeave = r.entries.some((e) => e.type === "leave");
+      onDone(decision === "Approve" ? `${r.employeeName} · ${shortDate(r.date)} approved — ${isLeave ? "marked as leave" : "added to their calendar, TA/DA updates in a few minutes"}` : `${r.employeeName} · ${shortDate(r.date)} rejected`);
     } catch (e) {
       setBusy("");
       setError(e.message);
@@ -1336,7 +1338,7 @@ function NonRepSheet({ conn, req: r, desk, onClose, onDone }) {
         {r.entries.map((e, i) => (
           <div key={i} style={{ ...card, padding: 14, display: "flex", flexDirection: "column", gap: 6 }}>
             <span style={label}>
-              {e.type === "doctor_visit" ? `Doctor visits · ${nrHq(e.hq)} · ${(e.doctors || []).length}` : e.type === "meeting" ? `Meeting · ${nrHq(e.hq)}` : e.type === "meeting_hq" ? `HQ for their ${e.other_type || "meeting"}` : `${e.other_type} · ${nrHq(e.hq)}`}
+              {e.type === "leave" ? "Leave · the whole day" : e.type === "doctor_visit" ? `Doctor visits · ${nrHq(e.hq)} · ${(e.doctors || []).length}` : e.type === "meeting" ? `Meeting · ${nrHq(e.hq)}` : e.type === "meeting_hq" ? `HQ for their ${e.other_type || "meeting"}` : `${e.other_type} · ${nrHq(e.hq)}`}
             </span>
             {e.type === "doctor_visit" && (
               <ol style={{ margin: 0, paddingLeft: 18, display: "flex", flexDirection: "column", gap: 3, fontSize: 13.5 }}>

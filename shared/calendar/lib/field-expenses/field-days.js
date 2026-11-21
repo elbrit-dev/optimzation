@@ -73,6 +73,8 @@ function shapeMonth(month, m) {
     bands: { hqKm: m.hq_km ?? 25, eqKm: m.eq_km ?? 100 },
     // a handwritten bill opens with "Paid in cash" ticked -- Field Expense Settings (21 Nov 2026)
     cashDefault: m.cash_default == null ? true : !!m.cash_default,
+    // the reason for a handwritten bill may be left empty -- Field Expense Settings (21 Nov 2026)
+    hwReasonOptional: m.hw_reason_optional == null ? true : !!m.hw_reason_optional,
     rows: days.map(shapeDay).sort((a, b) => a.date.localeCompare(b.date)),
   };
 }

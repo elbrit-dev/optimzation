@@ -53,7 +53,7 @@ def main():
     MAX_OPEN = 3
     MAX_ENTRIES = 10
     MAX_DOCTORS = 80
-    OTHER_TYPES = ["Admin Day", "Chemist Day", "Conference"]
+    OTHER_TYPES = ["Meeting", "Admin Day", "Chemist Day", "Conference"]   # Meeting joined "other work" (21 Nov 2026)
     OPEN = ["Open", "Working", "Pending Review", "Overdue"]
     MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"]
     ESCALATE_AFTER_DAYS = 2
@@ -313,11 +313,22 @@ def main():
         n_doctors = 0
         n_meet = 0
         n_other = 0
+        n_leave = 0
+        # leave is the whole day: nothing else goes with it (21 Nov 2026)
+        kinds_sent = [str((x or {}).get("type") or "") for x in entries]
+        if "leave" in kinds_sent and len(entries) > 1:
+            frappe.throw("Leave is the whole day — send it on its own, without visits or other work.")
         for i in range(len(entries)):
             e = entries[i] or {}
             kind = str(e.get("type") or "")
             hq = clean(e.get("hq"), 140)
             note = clean(e.get("note"), 600)
+            if kind == "leave":
+                n_leave = n_leave + 1
+                lines.append("Leave" + (" — " + note if note else ""))
+                sections.append("<p><b>Leave</b>" + ("<br>Note: " + esc(note) if note else "") + "</p>")
+                clean_entries.append({"type": kind, "note": note})
+                continue
             if not hq:
                 frappe.throw("Pick the HQ for every entry.")
             if not frappe.db.exists("Territory", hq):
@@ -358,7 +369,12 @@ def main():
                 title = clean(e.get("title"), 140)
                 if ot == "Conference" and len(title) < 3:
                     frappe.throw("Name the conference.")
-                n_other = n_other + 1
+                if ot == "Meeting" and len(title) < 3:
+                    frappe.throw("Give the meeting a title.")
+                if ot == "Meeting":
+                    n_meet = n_meet + 1
+                else:
+                    n_other = n_other + 1
                 lines.append(ot + (" · " + title if title else "") + " · " + hq + (" — " + note if note else ""))
                 sections.append("<p><b>" + esc(ot) + "</b>" + (" · " + esc(title) if title else "") + " · HQ " + esc(hq) + ("<br>Note: " + esc(note) if note else "") + "</p>")
                 clean_entries.append({"type": kind, "other_type": ot, "hq": hq, "title": title, "note": note})
@@ -382,12 +398,14 @@ def main():
             bits.append(str(n_meet) + " meeting" + ("s" if n_meet > 1 else ""))
         if n_other:
             bits.append(str(n_other) + " other work")
+        if n_leave:
+            bits.append("leave")
         subject = (PREFIX + label + " · " + " + ".join(bits) + " — " + str(emp.employee_name or "") + " (" + emp.name + ")")[:140]
         data = {"employee": emp.name, "employee_name": emp.employee_name, "date": day, "field_expense_day": fed.name, "entries": clean_entries}
         body = ("<p><b>" + esc(emp.employee_name) + " (" + esc(emp.name) + ") reports for " + label + ":</b></p>"
                 + "<p>" + esc(chr(10).join(lines)).replace(chr(10), "<br>") + "</p>" + "".join(sections)
                 + "<p>Waiting for " + esc(NR["names"](rt.get("approvers"))) + " to approve in the app (Claims → Non-reported days). "
-                + "On approval the events are made and the day is recalculated.</p>"
+                + ("On approval the day is marked as leave.</p>" if n_leave else "On approval the events are made and the day is recalculated.</p>")
                 + "<pre>" + esc(json.dumps(data, indent=1)) + "</pre>")
         t = frappe.get_doc({"doctype": "Task", "subject": subject, "project": PROJECT, "status": "Open", "priority": "Medium",
                             "exp_start_date": day, "exp_end_date": day, "description": body}).insert(ignore_permissions=True)

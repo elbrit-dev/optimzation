@@ -35,7 +35,7 @@ export const SLOTS = {
 const SLOT_OF_TITLE = Object.fromEntries(Object.entries(SLOTS).map(([k, s]) => [s.title, k]));
 
 const CLEAR = "Upload a clear photo of the bill — this one could not be read.";
-const HANDWRITTEN = "This is a handwritten bill. Check the details read from it, add the payment proof and say why it's handwritten.";
+const HANDWRITTEN = "This is a handwritten bill. Check the details read from it before adding it.";
 const MANUAL = "This bill couldn't be read (handwritten, faded, or no bill no / date). Enter its details below — your photo stays with it.";
 /* Not readable enough: no refusal -- the rep enters it by hand, starting from
    whatever was read. */
@@ -211,7 +211,8 @@ export function tripBillVerdict(read, slot, trip) {
    -> { ok: false, reason } | the same as tripBillVerdict, with manual: true */
 // tolls are not paid (13 Nov 2026): never offered for hand entry on a trip
 export const MANUAL_KINDS = { da: ["Stay", "Food"], car: ["Fuel"], all: ["Stay", "Food", "Fuel"], stays: ["Stay"], foods: ["Food"], fuels: ["Fuel"], tolls: ["Toll"], cabs: ["Cab"] };
-export function manualBillVerdict(entry, slot, trip) {
+/* opts.whyOptional: Field Expense Settings "hw_reason_optional" (21 Nov 2026) -- the reason may be empty */
+export function manualBillVerdict(entry, slot, trip, opts = {}) {
   const e = entry || {};
   const kinds = MANUAL_KINDS[slot] || [];
   if (!kinds.includes(e.kind)) return { ok: false, reason: `Pick what the bill is: ${kinds.join(" or ").toLowerCase()}.` };
@@ -221,7 +222,7 @@ export function manualBillVerdict(entry, slot, trip) {
   // 12 Nov 2026: a handwritten bill needs the rep's reason (the payment proof
   // itself is checked by the server: a second file must come with it)
   const why = String(e.why || "").replace(/\s+/g, " ").trim().slice(0, 500);
-  if (why.length < 5) return { ok: false, reason: "Say why you only have a handwritten bill." };
+  if (why.length < 5 && !opts.whyOptional) return { ok: false, reason: "Say why you only have a handwritten bill." };
   // 13 Nov 2026: the payment proof is REQUIRED (the server checks a second
   // file came) -- unless it was paid in cash, which has none
   // billNo: the number the reader found on a handwritten bill (not typed)

@@ -99,7 +99,8 @@ export function fetchRoute() {
 
 /* entries: [{ type: "doctor_visit", hq, doctors: [id], note }
             | { type: "meeting", hq, title, note }
-            | { type: "other", other_type, hq, title, note }
+            | { type: "other", other_type: Meeting | Admin Day | Chemist Day | Conference, hq, title, note }
+            | { type: "leave", note }   (on its own)
             | { type: "meeting_hq", event, hq }]
    -> the new Task (also put into the month's list) */
 export async function sendNonReport({ month, date, entries }) {
@@ -123,4 +124,4 @@ export function dayState(tasks) {
   return "rejected";
 }
 
-export const OTHER_KINDS = ["Admin Day", "Chemist Day", "Conference"];
+export const OTHER_KINDS = ["Meeting", "Admin Day", "Chemist Day", "Conference"];

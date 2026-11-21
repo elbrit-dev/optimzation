@@ -203,7 +203,8 @@ export function ManualBill({ file, slot, trip, prefill, reason, onCancel, onDone
   const stay = kind === "Stay";
   const nights = stay && checkIn && checkOut && checkOut > checkIn ? Math.round((new Date(checkOut) - new Date(checkIn)) / 86400000) : 0;
   // 13 Nov 2026: the payment proof is required -- unless paid in cash; the reason always
-  const ready = kind && Number(amount) > 0 && (stay ? checkIn && checkOut > checkIn : date) && why.trim().length >= 5 && (cash || !!proof);
+  const whyOptional = fx?.data?.hwReasonOptional ?? true;
+  const ready = kind && Number(amount) > 0 && (stay ? checkIn && checkOut > checkIn : date) && (whyOptional || why.trim().length >= 5) && (cash || !!proof);
   const save = async () => {
     setError("");
     setBusy(true);
@@ -317,13 +318,13 @@ export function ManualBill({ file, slot, trip, prefill, reason, onCancel, onDone
         )}
         {kind && (
           <label className={label}>
-            Why only a handwritten bill? <span className="font-normal text-gray-400">required</span>
+            Why only a handwritten bill? <span className="font-normal text-gray-400">{whyOptional ? "optional" : "required"}</span>
             <textarea rows={2} value={why} onChange={(e) => setWhy(e.target.value)} placeholder="e.g. Small mess near the hospital — they give only handwritten bills" className="w-full rounded-xl border border-gray-300 bg-white px-3 py-2 text-[14px] font-semibold text-gray-900 outline-none focus:border-blue-500" />
           </label>
         )}
 
         <span className="text-[11.5px] leading-snug text-gray-500">
-          Your officer sees the photo, {cash ? "that it was paid in cash" : "the payment proof"} and your reason before approving.
+          Your officer sees the photo, {cash ? "that it was paid in cash" : "the payment proof"}{why.trim() ? " and your reason" : ""} before approving.
         </span>
         {error && <span className="rounded-xl bg-rose-50 px-3 py-2 text-[12.5px] font-semibold text-rose-800">{error}</span>}
         <span className="flex gap-2">

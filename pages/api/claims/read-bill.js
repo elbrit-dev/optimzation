@@ -220,7 +220,10 @@ export default async function handler(req, res) {
       } catch {
         /* checked below */
       }
-      const given = manualBillVerdict(entry, tripBill.slot, tripBill.trip);
+      // whether the reason may be empty: the ERP's Field Expense Settings, read as the rep (21 Nov 2026)
+      const st = await fetch(`${origin}/api/method/field_expense_month?settings_only=1`, { headers: { Authorization: tokenHeader(userErp) }, redirect: "manual" })
+        .then((r) => (r.ok ? r.json() : null)).catch(() => null);
+      const given = manualBillVerdict(entry, tripBill.slot, tripBill.trip, { whyOptional: st?.message?.hw_reason_optional !== 0 });
       if (!given.ok) return res.status(200).json({ verdict: given });
       // the payment proof (GPay / UPI / bank screenshot): asked for, optional
       // while testing (12 Nov 2026) -- stored as the rep, privately, for a

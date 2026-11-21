@@ -198,7 +198,7 @@ export function CabSheet() {
         </div>
 
         <p className="rounded-xl bg-gray-50 px-3 py-2 text-[12.5px] leading-snug text-gray-600">
-          Every cab ride of {mon} — Ola, Uber, taxi. No day to pick: the bill&apos;s own date counts. {f.manager} approves; Accounts pays it separately — not TA/DA, not payroll.
+          Every cab ride of {mon} — Ola, Uber, taxi. No day to pick: the bill&apos;s own date counts. {f.manager} approves; Accounts pays it separately — not TA/DA.
         </p>
 
         {sentBack && (
@@ -306,7 +306,7 @@ export function CabSheet() {
             <b className="text-[14px] text-gray-900">
               Send {plural(t.draft.count, "cab bill")} · {inr(t.draft.total)}?
             </b>
-            <span className="text-[12.5px] leading-snug text-gray-600">To {f.manager} for approval — final once approved; Accounts pays it, not TA/DA or payroll.</span>
+            <span className="text-[12.5px] leading-snug text-gray-600">To {f.manager} for approval — final once approved; Accounts pays it, not TA/DA.</span>
             <span className="flex gap-2">
               <button type="button" disabled={busy === "send"} onClick={() => setConfirm(false)} className="min-h-11 flex-1 rounded-xl border border-gray-300 bg-white text-[14px] font-bold text-gray-800">
                 Cancel

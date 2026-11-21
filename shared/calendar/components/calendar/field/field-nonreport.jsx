@@ -17,7 +17,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { toast } from "sonner";
-import { Briefcase, CalendarX2, Check, ChevronRight, Loader2, Stethoscope, Users } from "lucide-react";
+import { Briefcase, CalendarX2, Check, ChevronRight, Loader2, Palmtree, Stethoscope } from "lucide-react";
 import { cn } from "@calendar/lib/utils";
 import { ModalTitle } from "@calendar/components/ui/responsive-modal";
 import { useCalendar } from "@calendar/components/calendar/contexts/calendar-context";
@@ -257,12 +257,12 @@ function useHqDoctors(hq, rolesAt) {
 /* ---------- one day: what was done ---------- */
 
 /* a day's draft: each kind on (its fields) or off (null) -- any mix */
-const EMPTY_DRAFT = { doctor_visit: null, meeting: null, other: null, meeting_hq: null };
+const EMPTY_DRAFT = { doctor_visit: null, other: null, leave: null, meeting_hq: null };
 const blank = (type, hq) =>
   type === "doctor_visit"
     ? { hq, doctors: [], note: "" }
-    : type === "meeting"
-      ? { hq, title: "", note: "" }
+    : type === "leave"
+      ? { note: "" }
       : { other_type: "", hq, title: "", note: "" };
 
 function entryError(type, e) {
@@ -270,13 +270,13 @@ function entryError(type, e) {
   if (type === "doctor_visit") {
     if (!e.hq) return "Doctor visits: pick the HQ";
     if (!e.doctors.length) return "Doctor visits: pick the doctors";
-  } else if (type === "meeting") {
-    if (e.title.trim().length < 3) return "Meeting: give it a title";
-    if (!e.hq) return "Meeting: pick the HQ";
+  } else if (type === "leave") {
+    return null;
   } else {
-    if (!e.other_type) return "Other work: pick the kind";
-    if (e.other_type === "Conference" && e.title.trim().length < 3) return "Other work: name the conference";
-    if (!e.hq) return "Other work: pick the HQ";
+    if (!e.other_type) return "Meeting / other work: pick what it was";
+    if (e.other_type === "Meeting" && e.title.trim().length < 3) return "Meeting: give it a title";
+    if (e.other_type === "Conference" && e.title.trim().length < 3) return "Conference: name it";
+    if (!e.hq) return `${e.other_type}: pick the HQ`;
   }
   return null;
 }
@@ -288,8 +288,10 @@ const picked = (draft) =>
 
 const KINDS = [
   { type: "doctor_visit", label: "Doctor visits", hint: "Many doctors at once", Icon: Stethoscope, on: "border-blue-600 bg-blue-50 text-blue-800", dot: "bg-blue-600" },
-  { type: "meeting", label: "Meeting", hint: "Title and HQ", Icon: Users, on: "border-violet-600 bg-violet-50 text-violet-800", dot: "bg-violet-600" },
-  { type: "other", label: "Other work", hint: "Admin, chemist, conference", Icon: Briefcase, on: "border-emerald-600 bg-emerald-50 text-emerald-800", dot: "bg-emerald-600" },
+  // a meeting is one kind of other work (21 Nov 2026)
+  { type: "other", label: "Meeting / other work", hint: "Meeting, admin, chemist, conference", Icon: Briefcase, on: "border-violet-600 bg-violet-50 text-violet-800", dot: "bg-violet-600" },
+  // the whole day: nothing else goes with it (21 Nov 2026)
+  { type: "leave", label: "Leave", hint: "On leave that day", Icon: Palmtree, on: "border-emerald-600 bg-emerald-50 text-emerald-800", dot: "bg-emerald-600" },
 ];
 
 function DayBody({ date, tasks, draft, setDraft }) {
@@ -310,7 +312,12 @@ function DayBody({ date, tasks, draft, setDraft }) {
     };
   }, [date, row?.hqless]);
   const setMeetHq = (ev, hq) => setDraft({ meeting_hq: { ...(draft.meeting_hq || {}), [ev]: hq } });
-  const toggle = (type) => setDraft({ [type]: draft[type] ? null : blank(type, seat.own) });
+  // leave is the whole day: ticking it clears the rest, ticking anything else clears leave (21 Nov 2026)
+  const toggle = (type) => {
+    if (draft[type]) return setDraft({ [type]: null });
+    if (type === "leave") return setDraft({ doctor_visit: null, other: null, meeting_hq: null, leave: blank("leave") });
+    return setDraft({ [type]: blank(type, seat.own), leave: null });
+  };
   const patch = (type) => (p) => setDraft({ [type]: { ...draft[type], ...p } });
 
   return (
@@ -349,7 +356,7 @@ function DayBody({ date, tasks, draft, setDraft }) {
             <b className="text-[14px] font-extrabold text-gray-900">
               {tasks.length ? "Anything else" : "What did you do"} on {dayLabel(date)}?
             </b>
-            <small className="-mt-1 text-[12px] text-gray-500">Tick all that apply — visits and a meeting together is fine.</small>
+            <small className="-mt-1 text-[12px] text-gray-500">Tick all that apply — visits and a meeting together is fine. Leave is the whole day, on its own.</small>
             <div className="grid grid-cols-3 gap-2">
               {KINDS.map(({ type, label, hint, Icon, on }) => {
                 const active = !!draft[type];
@@ -382,14 +389,15 @@ function DayBody({ date, tasks, draft, setDraft }) {
               <DoctorFields e={draft.doctor_visit} seat={seat} onChange={patch("doctor_visit")} />
             </Section>
           )}
-          {draft.meeting && (
+          {draft.other && (
             <Section kind={KINDS[1]}>
-              <MeetingFields e={draft.meeting} seat={seat} onChange={patch("meeting")} />
+              <OtherFields e={draft.other} seat={seat} onChange={patch("other")} />
             </Section>
           )}
-          {draft.other && (
+          {draft.leave && (
             <Section kind={KINDS[2]}>
-              <OtherFields e={draft.other} seat={seat} onChange={patch("other")} />
+              <small className="-mt-1 text-[12px] text-gray-600">The whole day, so nothing else goes with it. Your manager confirms it.</small>
+              <NoteField e={draft.leave} onChange={patch("leave")} />
             </Section>
           )}
         </>
@@ -426,8 +434,8 @@ function SendBar({ date, tasks, draft, onSent }) {
   const nHq = Object.values(draft.meeting_hq || {}).filter(Boolean).length;
   const summary = [
     nDoc ? plural(nDoc, "doctor") : draft.doctor_visit ? "Doctor visits" : null,
-    draft.meeting ? "Meeting" : null,
-    draft.other ? draft.other.other_type || "Other work" : null,
+    draft.other ? draft.other.other_type || "Meeting / other work" : null,
+    draft.leave ? "Leave" : null,
     nHq ? `HQ for ${plural(nHq, "meeting")}` : null,
   ]
     .filter(Boolean)
@@ -495,7 +503,7 @@ function SentTask({ t }) {
       {/* who decides / decided (21 Nov 2026) */}
       {t.status === "Completed" ? (
         <p className="rounded-lg bg-green-50 px-2.5 py-1.5 text-[12.5px] text-green-800">
-          Approved by <b>{t.decided_by_name || "your manager"}</b> · added to your calendar, TA/DA updates in a few minutes
+          Approved by <b>{t.decided_by_name || "your manager"}</b> · {(t.entries || []).some((x) => x.type === "leave") ? "marked as leave" : "added to your calendar, TA/DA updates in a few minutes"}
         </p>
       ) : t.status === "Cancelled" ? (
         <p className="rounded-lg bg-rose-50 px-2.5 py-1.5 text-[12.5px] text-rose-800">
@@ -569,22 +577,6 @@ const Chip = ({ on, onClick, children }) => (
   </button>
 );
 
-function MeetingFields({ e, seat, onChange }) {
-  return (
-    <>
-      <label className="flex flex-col gap-1">
-        <Label>Title</Label>
-        <input value={e.title} maxLength={140} onChange={(x) => onChange({ title: x.target.value })} placeholder="e.g. Cycle meeting with ABM" className={inputCls} />
-      </label>
-      <div className="flex flex-col gap-1">
-        <Label>HQ</Label>
-        <HqPicker value={e.hq} onChange={(hq) => onChange({ hq })} seat={seat} />
-      </div>
-      <NoteField e={e} onChange={onChange} />
-    </>
-  );
-}
-
 function OtherFields({ e, seat, onChange }) {
   return (
     <>
@@ -595,10 +587,10 @@ function OtherFields({ e, seat, onChange }) {
           </Chip>
         ))}
       </div>
-      {e.other_type === "Conference" && (
+      {(e.other_type === "Conference" || e.other_type === "Meeting") && (
         <label className="flex flex-col gap-1">
-          <Label>Conference</Label>
-          <input value={e.title} maxLength={140} onChange={(x) => onChange({ title: x.target.value })} placeholder="Name of the conference" className={inputCls} />
+          <Label>{e.other_type === "Meeting" ? "Title" : "Conference"}</Label>
+          <input value={e.title} maxLength={140} onChange={(x) => onChange({ title: x.target.value })} placeholder={e.other_type === "Meeting" ? "e.g. Cycle meeting with ABM" : "Name of the conference"} className={inputCls} />
         </label>
       )}
       <div className="flex flex-col gap-1">
