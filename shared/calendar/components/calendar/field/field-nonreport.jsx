@@ -56,7 +56,7 @@ const byDate = (tasks) => {
   for (const t of tasks || []) m.set(t.date, [...(m.get(t.date) || []), t]);
   return m;
 };
-/* the days still to show: a day whose request the team marked Completed is
+/* the days still to show: a day whose request the manager approved is
    gone at once (19 Nov 2026), without waiting for the month's rebuild */
 const openDays = (days, map) => (days || []).filter((d) => dayState(map.get(d.date)) !== "done");
 
@@ -613,7 +613,7 @@ function OtherFields({ e, seat, onChange }) {
 const NoteField = ({ e, onChange }) => (
   <label className="flex flex-col gap-1">
     <Label optional>Note</Label>
-    <textarea rows={2} value={e.note} maxLength={600} onChange={(x) => onChange({ note: x.target.value })} placeholder="Anything the team should know" className={cn(inputCls, "resize-none")} />
+    <textarea rows={2} value={e.note} maxLength={600} onChange={(x) => onChange({ note: x.target.value })} placeholder="Anything your manager should know" className={cn(inputCls, "resize-none")} />
   </label>
 );
 
