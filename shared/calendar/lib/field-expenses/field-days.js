@@ -274,8 +274,8 @@ export function dayPlace(row) {
 
 /* How the TA on a day was reached, in words, from the ERP's own fare legs: a
    local run up to eqKm at the per-km rate (the leg's fare over its km), above
-   it the IRCTC fare; a journey between HQs (Trip / Home / out-and-back legs)
-   is the rail fare whatever its km. A leg paid out and back says so. */
+   it the IRCTC fare -- a journey between HQs (Trip / Home legs) the same since
+   21 Nov 2026 (was: the rail fare whatever its km). A leg paid out and back says so. */
 export function fareBasis(row, data) {
   if (!row || !row.ta) return null;
   const eqKm = data?.bands?.eqKm ?? 100;
@@ -286,7 +286,7 @@ export function fareBasis(row, data) {
       const km = l.rounded_km ?? l.km;
       const ways = l.both_ways ? 2 : 1;
       const legs = ways > 1 ? " × 2 legs" : "";
-      if (l.leg === "Local" && km > 0 && km <= eqKm) return `${km} km × ₹${Math.round((l.fare / (km * ways)) * 100) / 100}${legs}`;
+      if (km > 0 && km <= eqKm) return `${km} km × ₹${Math.round((l.fare / (km * ways)) * 100) / 100}${legs}`;
       return `${km} km · rail fare${legs}`;
     })
     .join(" + ");

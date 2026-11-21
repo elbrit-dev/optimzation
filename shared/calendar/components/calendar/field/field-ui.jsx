@@ -1306,7 +1306,7 @@ function TripSheet({ item }) {
       ? "no travel on an HQ day"
       : trip.kind === "day"
         ? `↑ ${trip.km} km ↓ ${trip.km} km`
-        : // not "by road": the journeys are paid the rail fare, local runs per km (each day's line says which)
+        : // not "by road": journeys and local runs per km up to 100 km, the rail fare above (each day's line says which)
           `${trip.km > 0 ? `fare · ${trip.km} km` : "no journey"}${trip.flownFare > 0 ? ` · company travel ${inr(trip.flownFare)} off` : ""}`;
   const nN = calc.nights.length;
   const daBasis = calc.pool?.on
