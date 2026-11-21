@@ -238,7 +238,8 @@ def main():
     def shape(r, replies, me):
         d = task_data(r.description)
         rt = NR["route"](d.get("employee"))
-        applicant = (NR["emp"](d.get("employee")) or {}).get("user_id") or r.owner
+        ae = NR["emp"](d.get("employee")) or frappe.db.get_value("Employee", d.get("employee") or "-", ["user_id"], as_dict=True)
+        applicant = ae.get("user_id") if ae else r.owner
         who = NR["can"](me, applicant, rt, r.creation, today) if r.status in OPEN else None
         dec = d.get("decision") or {}
         return {"name": r.name, "status": r.status, "date": str(r.exp_start_date), "subject": r.subject,
@@ -488,21 +489,27 @@ def main():
                 kind = en.get("type")
                 if kind == "doctor_visit":
                     for doc_ in en.get("doctors") or []:
-                        ev = frappe.get_doc(dict(base, **{"doctype": "Event", "subject": str(doc_.get("name") or doc_.get("id")) + "-Visit-Reported",
+                        f = {}
+                        f.update(base)
+                        f.update({"doctype": "Event", "subject": str(doc_.get("name") or doc_.get("id")) + "-Visit-Reported",
                                                           "event_category": "Doctor Visit plan", "event_type": "Private", "color": "#16A34A",
                                                           "starts_on": day + " 00:00:00", "ends_on": day + " " + VISIT_TIME,
                                                           "custom_doctor": doc_.get("id"), "custom_hq": en.get("hq"), "description": en.get("note") or "",
                                                           "event_participants": [{"reference_doctype": "Employee", "reference_docname": rep.name,
                                                                                   "custom_visit_time": day + " " + VISIT_TIME, "custom_is_force_visit": 1,
-                                                                                  "custom_force_visit_reason": reason}]}))
+                                                                                  "custom_force_visit_reason": reason}]})
+                        ev = frappe.get_doc(f)
                         ev.insert(ignore_permissions=True)
                         made.append(ev.name)
                 elif kind == "meeting" or kind == "other":
                     ot = "Meeting" if kind == "meeting" else en.get("other_type")
-                    ev = frappe.get_doc(dict(base, **{"doctype": "Event", "subject": en.get("title") or ot, "event_category": "Other",
+                    f = {}
+                    f.update(base)
+                    f.update({"doctype": "Event", "subject": en.get("title") or ot, "event_category": "Other",
                                                       "custom_other_type": ot, "event_type": "Public", "color": "#2563EB",
                                                       "starts_on": day + " " + VISIT_TIME, "custom_hq_territory": en.get("hq"),
-                                                      "description": ((en.get("note") or "") + " — " + reason).strip(" —")}))
+                                                      "description": ((en.get("note") or "") + " — " + reason).strip(" —")})
+                    ev = frappe.get_doc(f)
                     ev.insert(ignore_permissions=True)
                     made.append(ev.name)
                 elif kind == "meeting_hq":

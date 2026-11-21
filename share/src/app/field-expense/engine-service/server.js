@@ -12,7 +12,8 @@
 //
 // Callers: the ERP (non-reported day approved, ...) and Cloud Scheduler (nightly).
 // One month runs at a time; a month asked for again while it runs is run once more
-// after (the data changed after the page read it). DRY=1 blocks the writes (local test).
+// after (the data changed after the page read it). A month with no saved days yet (never
+// pulled on the dashboard) is skipped. DRY=1 blocks the writes (local test).
 const http = require('http');
 let chromium; try { chromium = require('playwright').chromium; } catch (e) { chromium = require('@playwright/test').chromium; }
 
@@ -55,6 +56,14 @@ async function pump() {
 }
 
 async function runMonth(month) {
+  // only months already pulled into Field Expense Day are refreshed: a month nobody has
+  // pulled yet stays unsaved (the dashboard saves only on Pull -- the owner, 2026-11-12)
+  try {
+    const h = await fetch(ERP + '/api/method/field_expense_day_hashes?month=' + month, { headers: { Authorization: 'token ' + TOKEN, Accept: 'application/json' } });
+    const j = await h.json();
+    const n = Object.keys((j && j.message && j.message.hashes) || {}).length;
+    if (h.ok && !n) return { ok: true, skipped: true, note: 'month not pulled yet - nothing saved' };
+  } catch (e) { /* the page run below says what is wrong */ }
   const opts = { args: ['--no-sandbox', '--disable-dev-shm-usage'] };
   const browser = await chromium.launch(opts).catch(() => chromium.launch(Object.assign({ channel: 'chrome' }, opts)));   // local: the installed Chrome
   const errors = [], saves = [];
