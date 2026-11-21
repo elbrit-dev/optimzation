@@ -71,6 +71,8 @@ function shapeMonth(month, m) {
     // nobody's days, nobody to show: the layer stays off
     employee: days.length ? m.employee || { code: days[0].employee, name: days[0].employee_name } : null,
     bands: { hqKm: m.hq_km ?? 25, eqKm: m.eq_km ?? 100 },
+    // a handwritten bill opens with "Paid in cash" ticked -- Field Expense Settings (21 Nov 2026)
+    cashDefault: m.cash_default == null ? true : !!m.cash_default,
     rows: days.map(shapeDay).sort((a, b) => a.date.localeCompare(b.date)),
   };
 }

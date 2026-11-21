@@ -11,6 +11,7 @@ import { cn } from "@calendar/lib/utils";
 import { inr } from "@calendar/lib/field-expenses/field-days";
 import { BILL_ACCEPT, checkBillFile, enterTripBill, warmReader } from "@calendar/lib/field-expenses/bill-reader";
 import { MANUAL_KINDS, addDays } from "@calendar/lib/field-expenses/bill-rules";
+import { useFieldExpenses } from "@calendar/components/calendar/field/field-context";
 
 /* Attaching a bill: "Take photo" opens the camera, "Upload from device"
    picks a saved photo or PDF. Two hidden inputs, one with `capture` (the
@@ -180,8 +181,10 @@ export function ManualBill({ file, slot, trip, prefill, reason, onCancel, onDone
   const [proof, setProof] = useState(null);
   const [proofUrl, setProofUrl] = useState(null);
   const [why, setWhy] = useState("");
-  // paid in cash: no online payment, so no proof to add (13 Nov 2026)
-  const [cash, setCash] = useState(false);
+  // paid in cash: no online payment, so no proof to add (13 Nov 2026). Ticked to start
+  // with when Field Expense Settings says so (21 Nov 2026); untick to add a proof.
+  const fx = useFieldExpenses();
+  const [cash, setCash] = useState(() => fx?.data?.cashDefault ?? true);
   const proofInput = useRef(null);
   useEffect(() => () => proofUrl && URL.revokeObjectURL(proofUrl), [proofUrl]);
   const pickProof = (f) => {
