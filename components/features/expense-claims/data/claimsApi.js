@@ -658,6 +658,10 @@ export async function saveSanctioned(conn, claim, sanctionedById) {
    with what was submitted in plain code.
    -> { amount, date, vendor, what, kind, readable, signed } (null = not read;
       signed = { read, sig } for checkClaim; skipped = the reader is off) */
+/* Older callers (the Settlements sheets) still warm the reader on open. The
+   reader no longer needs warming, so this is a no-op kept for those imports. */
+export function warmBillReader() {}
+
 export async function extractBill(conn, file) {
   const form = new FormData();
   form.append("files", file, file.name || "bill");
