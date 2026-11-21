@@ -1802,6 +1802,15 @@ function TripDay({ row, data, car, last, multi, night, bills, stayOff, billStrip
                 {jr ? `${jr.from} → ${jr.to} + local` : "Local"}
                 {carShare ? ` · ${carShare.km} km by car` : ""}
               </MoneyRow>
+            ) : (row.travelLegs || []).filter((l) => !l.flown).length > 1 ? (
+              // a day with more than one journey (in, a move between OS HQs, home): one line each (21 Nov 2026)
+              (row.travelLegs || []).filter((l) => !l.flown).map((l, i) => (
+                <MoneyRow key={`${l.from}-${l.to}-${i}`} label={i === 0 ? "TA" : ""} amount={l.fare}>
+                  <TrainFront className="mr-1 inline h-3.5 w-3.5 align-[-2px]" aria-hidden />
+                  {l.from} → {l.to}
+                  {l.km ? ` · ${Math.round(l.km)} km` : ""}
+                </MoneyRow>
+              ))
             ) : (
               jr && (
                 <MoneyRow label="TA" amount={row.journey.fare}>
