@@ -52,11 +52,18 @@ const HELP_SUPPORT_UI_CONTENT = {
 // Knowledge base collections only their own department may browse, keyed by the HD
 // Article Category label and the ERP Department label. Matching is exact on purpose:
 // ERP also has an "ITF" department, which a prefix or substring test would wrongly let
-// through the "IT" rule.
-const DEPARTMENT_RESTRICTED_COLLECTIONS = new Map([["it", "it"]]);
+// through the "IT" rule. A department also counts through any ancestor: the field teams
+// ("Elbrit Chennai - ELPL", "CND Trichy - ELPL" ...) sit under the "Sales" group, and
+// the CEO, GM, ZSMs and SMs are in "Sales - ELPL" -- all of them are Sales.
+// Expense (21 Nov 2026): field TA/DA, tour bills, cab bills and non-reported days.
+const DEPARTMENT_RESTRICTED_COLLECTIONS = new Map([
+  ["it", "it"],
+  ["expense", "sales"],
+]);
 
-// Field sales staff (ZSM, SM, RBM, ABM, BE) browse the General collection only. Keyed by
-// the ERP Designation docname, lowercased; the RBM grade variants count as RBM.
+// Field sales staff (ZSM, SM, RBM, ABM, BE) browse the General collection plus their
+// own department's collections. Keyed by the ERP Designation docname, lowercased; the
+// RBM grade variants count as RBM.
 const GENERAL_ONLY_DESIGNATIONS = new Set([
   "zonal sales manager",
   "sales manager",
@@ -68,6 +75,10 @@ const GENERAL_ONLY_DESIGNATIONS = new Set([
   "trainee business executive",
 ]);
 const GENERAL_COLLECTION = "general";
+// Collections everyone sees, whatever their department or designation. Expense is
+// here for now (21 Nov 2026, the user: "show for all for now"); take it out to
+// limit it to Sales again through DEPARTMENT_RESTRICTED_COLLECTIONS.
+const OPEN_COLLECTIONS = new Set([GENERAL_COLLECTION, "expense"]);
 
 function cx(...classes) {
   return classes.filter(Boolean).join(" ");
@@ -84,18 +95,24 @@ function normalizeDepartment(value) {
   return departmentLabel(value).toLowerCase();
 }
 
+function inDepartment(employee, requiredDepartment) {
+  return [employee.department, ...(employee.ancestorDepartments || [])].some(
+    (value) => value && normalizeDepartment(value) === requiredDepartment
+  );
+}
+
 function canViewCollection(categoryName, employee) {
   const collection = String(categoryName || "").trim().toLowerCase();
   // No confirmed Active employee means we cannot tell who this is, so they get the
   // narrowest view rather than the widest.
-  if (!employee) return collection === GENERAL_COLLECTION;
-  if (GENERAL_ONLY_DESIGNATIONS.has(String(employee.designation || "").trim().toLowerCase())) {
-    return collection === GENERAL_COLLECTION;
-  }
-  const department = employee.department;
+  if (OPEN_COLLECTIONS.has(collection)) return true;
+  if (!employee) return false;
   const requiredDepartment = DEPARTMENT_RESTRICTED_COLLECTIONS.get(collection);
-  if (!requiredDepartment) return true;
-  return normalizeDepartment(department) === requiredDepartment;
+  if (requiredDepartment) return inDepartment(employee, requiredDepartment);
+  if (GENERAL_ONLY_DESIGNATIONS.has(String(employee.designation || "").trim().toLowerCase())) {
+    return false;
+  }
+  return true;
 }
 
 function isEmail(value) {

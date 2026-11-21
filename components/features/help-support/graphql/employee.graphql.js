@@ -22,3 +22,24 @@ query EmployeeByUser($user: String!) {
   }
 }
 `;
+
+// One step up the department tree; employeeClient walks it to the root, so a
+// Sales-only collection reaches every team under "Sales". Field roles (BE, ABM, RBM, SM) may
+// read Department.
+export const DEPARTMENT_PARENT_QUERY = `
+query DepartmentParent($name: String!) {
+  Departments(
+    first: 1
+    filter: [
+      { fieldname: "name", operator: EQ, value: $name }
+    ]
+  ) {
+    edges {
+      node {
+        name
+        parent_department__name
+      }
+    }
+  }
+}
+`;
