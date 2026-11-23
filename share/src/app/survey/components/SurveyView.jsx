@@ -14,7 +14,10 @@ export function SurveyView({ survey, row, className }) {
     <Card variant="hairline" className={cx('py-3', className)} aria-label="About this survey">
       <div
         className={cx(
-          'max-h-40 overflow-y-auto break-words text-13 leading-normal text-ds-secondary',
+          /* whitespace-normal: the page around it keeps line breaks (pre-wrap), which turned the breaks inside
+             the View's HTML into blank lines between every line */
+          'max-h-40 overflow-y-auto whitespace-normal break-words text-13 leading-normal text-ds-secondary',
+          '[&_.vw-na]:italic [&_.vw-na]:text-ds-muted',
           '[&_h1]:mb-1 [&_h1]:text-14 [&_h1]:font-semibold [&_h1]:text-heading [&_h2]:mb-1 [&_h2]:text-14 [&_h2]:font-semibold [&_h2]:text-heading',
           '[&_h3]:mb-1 [&_h3]:text-13 [&_h3]:font-semibold [&_h3]:text-heading [&_h4]:mb-1 [&_h4]:font-semibold [&_h4]:text-heading',
           '[&_p]:mb-1 [&_b]:font-semibold [&_b]:text-heading [&_strong]:font-semibold [&_strong]:text-heading [&_a]:text-brand-text [&_a]:underline',

@@ -188,10 +188,15 @@ export function filledQuestions(survey, row) {
 
 /* The View for this response, as safe HTML — '' when the survey has none.
    Values are escaped; an empty survey value shows nothing, an empty record
-   value "—". */
+   value "Not on record" (muted). */
 export function viewHtml(survey, row) {
   const src = String(survey?.summary || '').trim();
   if (!src) return '';
   const html = looksHtml(src) ? safeHtml(src) : markdownHtml(src);
-  return html.replace(TAG, (m, k) => escapeHtml(tagValue(survey, row, k) || (SURVEY_TAGS.includes(k) ? '' : '—')));
+  /* an empty record value says so (muted) — a bare "—" read like a mistake */
+  return html.replace(TAG, (m, k) => {
+    const v = tagValue(survey, row, k);
+    if (v) return escapeHtml(v);
+    return SURVEY_TAGS.includes(k) ? '' : '<span class="vw-na">Not on record</span>';
+  });
 }

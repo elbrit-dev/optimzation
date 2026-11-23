@@ -20,9 +20,9 @@ describe('the View', () => {
     expect(safeHtml('<b>open')).toBe('<b>open</b>');
   });
 
-  it('fills placeholders with this record’s values, escaped; an empty survey value is blank, an empty record value "—"', () => {
+  it('fills placeholders with this record’s values, escaped; an empty survey value is blank, an empty record value "Not on record"', () => {
     const html = viewHtml({ ...survey, summary: '<h2>{#lead_name}</h2><p>{#survey_title} - {#survey_description}. City: {#city}, {#territory}</p>' }, row);
-    expect(html).toBe('<h2>Dr. Ravi &lt;b&gt;K&lt;/b&gt;</h2><p>Q3 check - . City: —, HQ-Madurai</p>');
+    expect(html).toBe('<h2>Dr. Ravi &lt;b&gt;K&lt;/b&gt;</h2><p>Q3 check - . City: <span class="vw-na">Not on record</span>, HQ-Madurai</p>');
     expect(viewHtml(survey, row)).toBe('');
   });
 
