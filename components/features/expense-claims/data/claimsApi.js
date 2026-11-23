@@ -260,10 +260,19 @@ export const canUseClaims = (me) =>
 
 export function fetchClaims(conn, employee) {
   return cached(conn, `ec-claims|${employee}`, async () => {
-    const d = await queryClaims(conn, [eq("employee", employee)], 1000);
+    const [d, bills] = await Promise.all([
+      queryClaims(conn, [eq("employee", employee)], 1000),
+      // the settlement bills: their own doctype since 23 Nov 2026; an ERP
+      // without it yet simply has none
+      fetchSettlementBills(conn).catch((e) => { console.warn("[expense-claims] settlement bills unreadable:", e.message); return []; }),
+    ]);
     const nodes = (d.ExpenseClaims?.edges || []).map((e) => e.node);
     if (fieldTier < 2) await addRunningFields(conn, employee, nodes);
-    return nodes.map(shapeClaim);
+    // the old running settlement claim (an Expense Claim) is not settlement any
+    // more: settlement left Expense Claim (23 Nov 2026)
+    const claims = nodes.map(shapeClaim).filter((c) => !c.running);
+    if (bills.length) claims.push(settlementClaim(bills, employee));
+    return claims;
   });
 }
 
@@ -999,7 +1008,8 @@ export function shapeSettlement(r) {
     // booked in the accounts at the CEO's approval (17 Nov 2026): the claim (a
     // bill) or the advance (cash), and whether Accounts has paid it
     booked: r.booked ? {
-      claim: r.booked.claim || "", advance: r.booked.advance || "",
+      // a bill: its Journal Entry (23 Nov 2026; was an Expense Claim)
+      claim: r.booked.claim || "", entry: r.booked.entry || "", advance: r.booked.advance || "",
       paid: /^paid$/i.test(r.booked.status || "") || (r.booked.advance && num0(r.booked.paid) > 0),
       amountPaid: num0(r.booked.paid),
     } : null,
@@ -1104,6 +1114,126 @@ export async function approveCeoBatch(conn, id) {
 export async function decideSettlement(conn, id, decision, note) {
   const m = (await settleCall(conn, "POST", { action: "decide", name: id, decision, note: note || "" })).message || {};
   return m.request ? shapeSettlement(m.request) : null;
+}
+
+/* ---------------------- Settlement bills (23 Nov 2026) ----------------------
+   Each settlement bill is its own Settlement Expense (SE-#####), kept apart
+   from Expense Claim (which holds only the field TA/DA), read and written only
+   through the Settlement API -- the rep has no permission on the doctype. */
+
+/* The signed-in person's own bills, newest first:
+   [{ name, date, title, amount, bill, proof, status, settlement, review,
+      entry, from_advance, payable, paid, modified }] */
+export async function fetchSettlementBills(conn) {
+  const m = (await settleCall(conn, "GET", { action: "bills" })).message || {};
+  return m.bills || [];
+}
+
+/* A photo uploaded as the person, private and attached to nothing yet: the
+   Settlement API attaches it to the bill it makes. -> { name, file_url } */
+export async function uploadPrivateFile(conn, file) {
+  const form = new FormData();
+  form.append("operations", JSON.stringify({ query: UPLOAD_MUTATION, variables: { file: null, is_private: true } }));
+  form.append("map", JSON.stringify({ 0: ["variables.file"] }));
+  form.append("0", file);
+  const res = await fetch(conn.endpointUrl, { method: "POST", headers: { Authorization: conn.authToken }, body: form });
+  const json = await res.json().catch(() => ({}));
+  if (!res.ok || json.errors?.length) {
+    throw new Error(json.errors?.map((e) => e.message).join("; ") || `${file.name} could not be uploaded (HTTP ${res.status}).`);
+  }
+  if (!json.data?.uploadFile?.file_url) throw new Error(`${file.name} was not stored by the ERP.`);
+  return json.data.uploadFile;
+}
+
+/* A new bill. -> the bill as fetchSettlementBills shapes it */
+export async function addSettlementBill(conn, { date, title, amount, bill, proof, handNote }) {
+  const m = (await settleCall(conn, "POST", {
+    action: "add_bill", bill_date: date, title, amount: String(amount), bill,
+    ...(proof ? { proof } : {}), ...(handNote ? { hand_note: handNote } : {}),
+  })).message || {};
+  if (!m.bill?.name) throw new Error("The bill was not saved.");
+  return m.bill;
+}
+
+/* A bill not sent yet, taken out (its photos and its duplicate-register place go too). */
+export async function removeSettlementBill(conn, name) {
+  return (await settleCall(conn, "POST", { action: "remove_bill", name })).message || {};
+}
+
+/* The app server compares each bill with its signed read and saves the score.
+   names: the bills (SE-#####); reads: { <name>: signed } from extractBill.
+   -> { rows: [{ name, score, reason, status }] } | { skipped, reason } */
+export async function checkSettlementBills(conn, names, reads) {
+  const res = await fetch("/api/claims/check", {
+    method: "POST",
+    headers: { "Content-Type": "application/json", "x-erp-token": conn.authToken },
+    body: JSON.stringify({ endpoint: conn.endpointUrl, bills: names, ...(reads ? { reads } : {}) }),
+  });
+  const json = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(json.error || `The bill check failed (HTTP ${res.status}).`);
+  return json;
+}
+
+/* The bills as ONE open "claim" in the shape the screens read (the running
+   claim of old): a line per bill. Booked bills (the CEO approved) are already
+   taken off the cash advances in the ERP (booked: true), so the ledger does not
+   take them off again; what the advances did not cover is owed to the person
+   until Accounts pay it (owed), and each payment is a payout. */
+export const SETTLEMENT_CLAIM = "Settlement bills";
+export function settlementClaim(bills, employee) {
+  const lines = bills
+    .map((b, i) => ({
+      id: b.name,
+      idx: i + 1,
+      date: String(b.date || "").slice(0, 10),
+      type: "Miscellaneous",
+      sub: "",
+      note: b.title || "",
+      amount: num(b.amount),
+      sanctioned: ["Verified", "Paid"].includes(b.status) ? num(b.amount) : 0,
+      bill: b.bill || "",
+      proof: b.proof || "",
+      // Paid is still a verified bill to the screens, with paid set
+      state: b.status === "Paid" ? "Verified" : b.status || "Checking",
+      paid: b.status === "Paid",
+      booked: !!b.entry,
+      entry: b.entry || "",
+      fromAdvance: num(b.from_advance),
+      payable: num(b.payable),
+      paidAmount: num(b.paid),
+      settlement: b.settlement || "",
+      review: String(b.review || "").trim(),
+      modified: b.modified,
+      ai: null,
+    }))
+    .sort((a, b) => a.date.localeCompare(b.date));
+  return {
+    id: SETTLEMENT_CLAIM,
+    settlement: true,
+    running: true,
+    posting: lines.length ? lines[lines.length - 1].date : "",
+    status: "Draft",
+    docstatus: 0,
+    inFlow: false,
+    editable: false,
+    employee,
+    employeeName: "",
+    approver: null,
+    claimed: lines.reduce((s, l) => s + l.amount, 0),
+    sanctioned: null,
+    reimbursed: 0,
+    owed: lines.reduce((s, l) => s + Math.max(0, l.payable - l.paidAmount), 0),
+    payouts: lines.filter((l) => l.paidAmount > 0).map((l) => ({ date: String(l.modified || l.date).slice(0, 10), amount: l.paidAmount, note: `paid for ${l.note || l.id}` })),
+    remark: "",
+    modified: lines.reduce((m, l) => (String(l.modified) > m ? String(l.modified) : m), ""),
+    ai: null,
+    payrollEntry: null,
+    isAdvance: false,
+    advanceOf: null,
+    advance: null,
+    coveredByAdvance: 0,
+    lines,
+  };
 }
 
 /* A file already in the ERP (the planner stores a trip bill the moment it is

@@ -2,8 +2,7 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import {
-  ATTACH_ACCEPT, checkClaim, checkFile, extractBill, fetchClaim, fetchOpenClaim, invalidateClaims, requestCashThroughChain, retryOnConflict, saveClaim, sendBillsForApproval,
-  uploadClaimFile,
+  ATTACH_ACCEPT, addSettlementBill, checkFile, checkSettlementBills, extractBill, invalidateClaims, requestCashThroughChain, sendBillsForApproval, uploadPrivateFile,
 } from "./data/claimsApi";
 import { IC, Icon, Note, Sheet, Spinner, btn, ell, tabNum } from "./ui";
 import { inr, isoDay, ledger, shortDate } from "./model";
@@ -143,38 +142,25 @@ export function BillSheet({ conn, me, claims = [], advances = [], today = new Da
     setTried(true);
     if (missing) return setError(missing);
     setError("");
-    const toLine = (l) => ({ id: l.id, type: l.type, sub: "", date: l.date, note: l.note, amount: l.amount, bill: l.bill });
-    const mine = (bill, id) => ({ id, type: "Miscellaneous", sub: "", date, note: title.trim(), amount: amt, bill });
-    let name, row, before, waiting = [], proofUrl = null;
+    // 23 Nov 2026: each bill is its own Settlement Expense, made through the
+    // Settlement API -- no Expense Claim. The photos go up first, private and
+    // attached to nothing; the API attaches them to the bill it makes.
+    let name, proofUrl = null;
+    const waiting = (L.open?.lines || []).filter((l) => l.bill && (l.state || "Checking") === "Checking").map((l) => l.id);
     try {
-      setBusy("Saving…");
-      // Onto the LATEST open claim: another bill (or its background check) may
-      // have saved it a moment ago -- then read it again and retry. Two first
-      // bills at once: the second finds the claim the first just opened.
-      name = await retryOnConflict(async () => {
-        const open = await fetchOpenClaim(conn, me.id);
-        before = new Set((open?.lines || []).map((l) => l.id));
-        return saveClaim(conn, { claim: open || undefined, employee: me.id, postingDate: open?.posting || todayIso, remark: open?.remark || "", running: true, lines: [...(open ? open.lines.map(toLine) : []), mine("")] });
-      }, /already has an open claim/i);
       setBusy("Uploading the bill…");
       // the bill and its payment proof (the approvers open it too) side by side
       const [up, upProof] = await Promise.all([
-        uploadClaimFile(conn, name, file),
-        read?.handwritten && !cash && proof ? uploadClaimFile(conn, name, proof) : null,
+        uploadPrivateFile(conn, file),
+        read?.handwritten && !cash && proof ? uploadPrivateFile(conn, proof) : null,
       ]);
-      const url = up.file_url;
       if (upProof) proofUrl = upProof.file_url;
-      await retryOnConflict(async () => {
-        const fresh = await fetchClaim(conn, name);
-        row = row || fresh.lines.filter((l) => !before.has(l.id) && !l.bill && l.note === title.trim() && l.amount === amt && l.date === date).pop()?.id;
-        if (!row) throw new Error("The bill was saved but could not be found again to attach its photo.");
-        // Older bills still "Checking" (a check that never ran) go along with this one.
-        waiting = fresh.lines.filter((l) => l.id !== row && l.bill && (l.state || "Checking") === "Checking").map((l) => l.id);
-        await saveClaim(conn, { claim: fresh, employee: me.id, postingDate: fresh.posting, remark: fresh.remark, running: true, lines: fresh.lines.map((l) => (l.id === row ? mine(url, row) : toLine(l))) });
-      });
+      setBusy("Saving…");
+      const handNote = read?.handwritten ? `${why.trim()}${cash ? " · paid in cash" : ""}` : "";
+      name = (await addSettlementBill(conn, { date, title: title.trim(), amount: amt, bill: up.file_url, proof: proofUrl, handNote })).name;
     } catch (e) {
       setBusy("");
-      if (name) invalidateClaims(conn, me.id);
+      invalidateClaims(conn, me.id);
       return setError(e.message);
     }
     // The score (16 Nov 2026, user): Gemma is near perfect, so the form only
@@ -187,7 +173,7 @@ export function BillSheet({ conn, me, claims = [], advances = [], today = new Da
     let scored = false;
     try {
       const hand = read?.handwritten ? { why: why.trim(), cash, proof: cash ? null : proofUrl } : undefined;
-      await checkClaim(conn, name, [row, ...waiting], read?.signed ? { [row]: { ...read.signed, hand } } : undefined);
+      await checkSettlementBills(conn, [name, ...waiting], read?.signed ? { [name]: { ...read.signed, hand } } : undefined);
       scored = true;
     } catch (e) {
       console.warn("[expense-claims] bill score:", e.message);
@@ -198,7 +184,7 @@ export function BillSheet({ conn, me, claims = [], advances = [], today = new Da
     let sent = null;
     if (scored) {
       setBusy("Sending for approval…");
-      sent = await sendBillsForApproval(conn, [row]).catch((e) => { console.warn("[expense-claims] send:", e.message); return null; });
+      sent = await sendBillsForApproval(conn, [name]).catch((e) => { console.warn("[expense-claims] send:", e.message); return null; });
     }
     invalidateClaims(conn, me.id);
     onChecked?.();

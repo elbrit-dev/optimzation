@@ -221,17 +221,21 @@ elif action == "claim" or action == "check":
         frappe.get_doc(base).insert(ignore_permissions=True)
         # tell the reporting officer: a comment on the rep's claim for the month
         month = trip[:7]
-        claims = []
+        target = None
+        ref = "Expense Claim"
         if kind == "Bill":
-            claims = frappe.get_all("Expense Claim", filters={"employee": emp, "custom_running": 1, "docstatus": 0}, fields=["name"], limit=1)
+            # a settlement bill (23 Nov 2026: its own doctype): the comment goes on it
+            ref = "Settlement Expense"
+            if trip and frappe.db.exists("Settlement Expense", trip):
+                target = trip
         elif len(month) == 7:
-            claims = frappe.get_all("Expense Claim", filters={"employee": emp, "remark": ["like", "Field TA/DA % " + month], "docstatus": ["<", 2]}, fields=["name"], limit=1)
-        if claims:
+            target = frappe.db.get_value("Expense Claim", {"employee": emp, "remark": ["like", "Field TA/DA % " + month], "docstatus": ["<", 2]}, "name")
+        if target:
             frappe.get_doc({
                 "doctype": "Comment",
                 "comment_type": "Comment",
-                "reference_doctype": "Expense Claim",
-                "reference_name": claims[0].name,
+                "reference_doctype": ref,
+                "reference_name": target,
                 "content": "Bill refused (" + kind + ", " + str(bdate or "no date") + ", Rs " + str(amount) + "): " + block["text"] + " See Bill Fingerprint " + block["name"] + ".",
             }).insert(ignore_permissions=True)
         frappe.response["message"] = {"ok": 0, "reason": block["text"], "matched": block["name"]}

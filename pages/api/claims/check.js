@@ -207,6 +207,69 @@ function scoreTripRow(row, read) {
   };
 }
 
+/* Settlement bills (23 Nov 2026): each is a Settlement Expense, read with the
+   rep's own token through the Settlement API (so only their own), scored like
+   a claim row, put in the duplicate register as the rep, and the score written
+   with the checker login (action=score, which refuses anyone else and leaves a
+   bill that changed or was decided while this ran). */
+async function settleCall(origin, token, params, post = false) {
+  const q = new URLSearchParams({ ...params });
+  const path = "/api/method/settlement";
+  return post
+    ? erp(origin, token, path, { method: "POST", headers: { "Content-Type": "application/x-www-form-urlencoded" }, body: q.toString() })
+    : erp(origin, token, `${path}?${q}`);
+}
+
+async function checkSettlementBills(res, origin, userErp, checker, names, reads) {
+  let bills;
+  try {
+    bills = (await settleCall(origin, userErp, { action: "bills", names: names.join(",") })).message?.bills || [];
+  } catch (e) {
+    return res.status(e.status === 403 ? 403 : 502).json({ error: `The ERP could not be read: ${e.message}` });
+  }
+  const due = bills.filter((b) => (b.status || "Checking") === "Checking");
+  if (!due.length) return res.status(200).json({ skipped: true, reason: bills.length ? "Every bill is checked already." : "You cannot see those bills." });
+  const out = [];
+  for (const b of due) {
+    // the same row shape the claim check scores
+    const row = { name: b.name, amount: b.amount, expense_date: b.date, custom_bill: b.bill };
+    const x = b.bill ? scoreRow(row, reads[b.name]) : { row, score: 0, reason: "No bill photo." };
+    // the duplicate register, as the rep: already claimed -> 0; a possible repeat -> at most 85
+    const sr = reads[b.name];
+    const pr = sr?.read?.prints;
+    if (pr && !sr.read.trip && readIsSigned(sr.read, sr.sig) && x.score != null) {
+      const fp = await fingerprintCall(origin, userErp, {
+        action: "claim", kind: "Bill", trip: b.name.slice(0, 40),
+        ...fingerprintFields(sr.read.values, { date: b.date, amount: flt(b.amount) }),
+        file_url: b.bill || "", file_hash: pr.file, image_hash: pr.image || "", content_hash: pr.content || "", strong: pr.strong ? "1" : "0",
+      });
+      if (fp && fp.error === undefined) {
+        x.meta = { ...(x.meta || {}), fingerprint: fp.ok ? { name: fp.name, flag: fp.flag || null } : { refused: fp.matched || null } };
+        if (!fp.ok) {
+          x.score = 0;
+          x.reason = `${fp.reason || "Already claimed."} ${x.reason}`;
+        } else if (fp.flag) {
+          x.score = Math.min(x.score, 85);
+          x.reason = `${x.reason} ${fp.flag}`;
+        }
+      }
+    }
+    try {
+      const r = (await settleCall(origin, checker, {
+        action: "score", name: b.name, score: String(x.score ?? 0), reason: String(x.reason || "").slice(0, 500),
+        amount: String(b.amount), bill: b.bill || "",
+        read_amount: x.amount != null ? String(x.amount) : "", read_date: x.date || "", read_vendor: x.vendor || "",
+        meta: JSON.stringify(x.meta || {}),
+      }, true)).message || {};
+      out.push({ name: b.name, score: r.skipped ? null : x.score, reason: x.reason, status: r.status || null });
+    } catch (e) {
+      console.error("Settlement bill check: could not save the score", b.name, e.message);
+      return res.status(502).json({ error: `The check ran but its result could not be saved: ${e.message}` });
+    }
+  }
+  return res.status(200).json({ rows: out });
+}
+
 export default async function handler(req, res) {
   if (req.method !== "POST") {
     res.setHeader("Allow", "POST");
@@ -227,12 +290,16 @@ export default async function handler(req, res) {
     return res.status(400).json({ error: "That ERP is not one this app talks to." });
   }
   if (!userErp) return res.status(401).json({ error: "Sign in again to check bills." });
-  if (!/^[\w.\-]+$/.test(claimName)) return res.status(400).json({ error: "Which claim?" });
+  // settlement bills (23 Nov 2026: their own doctype, Settlement Expense):
+  // { bills: ["SE-00001", ...] } instead of a claim
+  const seBills = Array.isArray(req.body?.bills) ? req.body.bills.map(String).filter((x) => /^[\w.\-]+$/.test(x)).slice(0, 50) : null;
+  if (!seBills && !/^[\w.\-]+$/.test(claimName)) return res.status(400).json({ error: "Which claim?" });
 
   // The checker login's key differs per ERP: UAT has its own.
   const uat = /(^|\.)(erp-)?uat\.elbrit\.org$/i.test(new URL(origin).host);
   const checker = uat ? process.env.ERP_AI_CHECKER_TOKEN_UAT : process.env.ERP_AI_CHECKER_TOKEN;
   if (!checker) return res.status(200).json({ skipped: true, reason: "The AI bill check is not switched on yet." });
+  if (seBills) return checkSettlementBills(res, origin, userErp, checker, seBills, reads);
 
   const path = `/api/resource/Expense%20Claim/${encodeURIComponent(claimName)}`;
   let claim;

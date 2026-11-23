@@ -12,26 +12,35 @@
 # sent again to a CEO who rejected it) gets a batch of its own. Every action goes through here (reps and approvers have
 # no DocType permission on Settlement Request), with the caller's own token.
 #
-#   A BILLS request: ONE bill (16 Nov 2026) on the rep's open settlement
-#   claim (a running Miscellaneous Expense Claim), scored on save
-#   (custom_bill_status "Checked"). "Send" makes one request per unsent bill,
-#   each with its own chain, so every claim row has its own status and its
-#   own Settlement Request link. The bill keeps its AI score. CEO approval ->
-#   the bill is Verified (sanctioned). A CASH request: an Employee Advance (draft) asked
-#   for; CEO approval -> the request is Verified.
+#   SETTLEMENT HAS ITS OWN DOCTYPE (23 Nov 2026, the user: "there will be a
+#   confusion and issue if we use the same for both") -- nothing here touches
+#   Expense Claim any more; Expense Claim holds only the field TA/DA. Each bill
+#   is a Settlement Expense (SE-#####), written only through this script
+#   (reps have no DocType permission on it):
+#     Checking -> Checked (scored by the bill check) -> In Approval (sent) ->
+#     Verified (the CEO approved; booked) -> Paid (Accounts paid it)
+#   A sent-back bill is Checked again with the reason (review_note).
 #
-#   BOOKED AT THE CEO'S APPROVAL (17 Nov 2026; replaces Accounts' hand-made
-#   JVs on "Advance to <Name>" accounts), when BOOK and the accounts exist:
-#     a bill  -> its own submitted Expense Claim: Dr the expense account for
-#                its kind (hotel 5229, travel 5228, food 5211, fuel 5230, else
-#                5309), Cr 2120 Employee Expense Payable, party = the
-#                Employee; the bill photo attached; the employee's open cash
-#                advances deducted first. Workflow state "Booked". -> booked
+#   A BILLS request: ONE bill (16 Nov 2026). "Send" makes one request per
+#   unsent bill, each with its own chain, so every bill has its own status and
+#   its own Settlement Request link. The bill keeps its AI score. A CASH
+#   request: an Employee Advance (draft) asked for; CEO approval -> the request
+#   is Verified.
+#
+#   BOOKED AT THE CEO'S APPROVAL, when BOOK and the accounts exist:
+#     a bill  -> ONE submitted Journal Entry (23 Nov 2026; was an Expense
+#                Claim): Dr the expense account for its kind (hotel 5229,
+#                travel 5228, food 5211, fuel 5230, else 5309); Cr the
+#                employee's unspent cash advances first ("Employee Expense
+#                Advances", party = the Employee, against the advance -- the
+#                advance shows that part under "Returned"), the rest Cr 2120
+#                Employee Expense Payable, party = the Employee. -> the bill's
+#                journal_entry, from_advance, payable
 #     cash    -> the Employee Advance submitted on "Employee Expense
 #                Advances"; unspent cash is paid back by the employee to the
 #                bank (no salary recovery)
 #   A booking that fails stops the approval too (nothing half done): the CEO
-#   sees why. Accounts then pays the Unpaid claims / advances in batches.
+#   sees why. Accounts then pays what is owed (Settlement Accounts API).
 #   A REJECT, at any step, needs a reason: the request goes back to the rep
 #   (bills to "Checked" with the reason, the advance draft deleted); they fix
 #   and send again. SENT AGAIN (17 Nov 2026): back to whoever rejected it --
@@ -50,6 +59,13 @@
 #   (Server Script "Settlement Escalation", the same sweep()).
 #
 #   GET  action=mine                         the caller's requests + their chain
+#   GET  action=bills        [names=a,b]     the caller's own bills (Settlement Expense), newest first
+#   POST action=add_bill     bill_date, title, amount, bill (file_url), [proof, hand_note]
+#                                            a new bill; the photos are the caller's own
+#                                            unattached private Files, attached here
+#   POST action=remove_bill  name            own, not sent (Checking / Checked)
+#   POST action=score        name, score, reason, amount, bill, [read_amount, read_date,
+#                            read_vendor, meta]   the bill check only (SCORERS): -> Checked
 #   POST action=send_bills   [rows=a,b]      every checked, unsent bill (or just those), one request each
 #   POST action=send_cash    amount, purpose
 #   POST action=withdraw     name            own, while nobody has decided yet
@@ -74,6 +90,9 @@ CEO_DESIGNATION = "Chief Executive Officer"
 OVERVIEW_DEPARTMENTS = ["IT - ELPL"]
 OVERVIEW_ROLES = ["System Manager"]
 LEVELS = ["BE", "ABM", "RBM", "SRBM", "DEPUTY RBM", "SM", "ZSM", "GM"]
+# the logins the app's bill check scores with (ERP_AI_CHECKER_TOKEN) -- as in
+# the Expense Claim AI Guard
+SCORERS = ["Administrator", "it@elbrit.org"]
 # Booking (17 Nov 2026) -- the user's decisions: cost center Main, one payable
 # account with the Employee as party, advances on their own account.
 BOOK = True
@@ -174,10 +193,15 @@ def shape(d):
             resent = {"from": d.resent_from, "note": pv.note or "",
                       "by": str(frappe.db.get_value("User", pv.decided_by, "full_name") or pv.decided_by or "")}
     booked = None
-    if d.get("booked"):
-        bk = frappe.db.get_value("Expense Claim", d.booked, ["status", "grand_total", "total_amount_reimbursed"], as_dict=True)
-        if bk:
-            booked = {"claim": d.booked, "status": bk.status or "", "due": bk.grand_total, "paid": bk.total_amount_reimbursed}
+    if d.kind == "Bills" and d.status == "Approved":
+        # the bill's Journal Entry: what of it was owed to the employee, and
+        # what of that is still unpaid
+        for b in d.bills or []:
+            se = frappe.db.get_value("Settlement Expense", b.row, ["journal_entry", "payable", "from_advance", "status"], as_dict=True)
+            if se and se.journal_entry:
+                left = outstanding(se.journal_entry, d.employee)
+                booked = {"entry": se.journal_entry, "status": "Paid" if left < 0.5 else "Unpaid", "due": se.payable,
+                          "advance": se.from_advance, "paid": frappe.utils.flt(se.payable) - left}
     elif d.kind == "Cash" and d.advance and d.status == "Approved":
         ad = frappe.db.get_value("Employee Advance", d.advance, ["status", "paid_amount", "docstatus"], as_dict=True)
         if ad and ad.docstatus == 1:
@@ -294,54 +318,60 @@ def account_for(title, cfg):
     return cfg["other"]
 
 
+def outstanding(je, employee):
+    # what of a bill's Journal Entry is still owed to the employee on 2120
+    # (Payment Ledger: the entry's own credit, less the payments against it)
+    r = frappe.db.sql("""select sum(amount_in_account_currency) from `tabPayment Ledger Entry`
+        where against_voucher_type = 'Journal Entry' and against_voucher_no = %s and party_type = 'Employee'
+          and party = %s and account = %s and delinked = 0""", (je, employee, BOOKING["payable"]))
+    s = frappe.utils.flt(r[0][0] if r and r[0] else 0)
+    return -s if s < 0 else s
+
+
 def book_bill(d, b, cfg):
-    # one CEO-approved bill -> its own submitted Expense Claim -> the claim name
-    row = frappe.db.get_value("Expense Claim Detail", b.row, ["expense_date", "description", "amount", "custom_bill"], as_dict=True)
-    if not row:
-        frappe.throw("Bill row " + str(b.row) + " is gone -- it cannot be booked.")
-    amt = frappe.utils.flt(row.amount)
-    ec = frappe.get_doc({
-        "doctype": "Expense Claim",
-        "employee": d.employee,
-        "company": cfg["company"],
-        "posting_date": frappe.utils.today(),
-        "approval_status": "Approved",
-        "payable_account": cfg["payable"],
-        "cost_center": cfg["cost_center"],
-        "remark": "Settlement " + d.name + ": approved up to the CEO in the app.",
-        "expenses": [{
-            "expense_date": row.expense_date,
-            "expense_type": "Miscellaneous",
-            "description": row.description or b.title,
-            "amount": amt,
-            "sanctioned_amount": amt,
-            "default_account": account_for(row.description or b.title, cfg),
-            "cost_center": cfg["cost_center"],
-            "custom_bill": row.custom_bill,
-            "custom_settlement": d.name,
-        }],
-    })
-    # the employee's open cash advances (paid, not yet claimed) cover it first
+    # one CEO-approved bill -> ONE submitted Journal Entry -> its name
+    se = frappe.db.get_value("Settlement Expense", b.row, ["name", "bill_date", "title", "amount", "bill"], as_dict=True)
+    if not se:
+        frappe.throw("Bill " + str(b.row) + " is gone -- it cannot be booked.")
+    amt = frappe.utils.flt(se.amount)
+    acct = account_for(se.title or b.title, cfg)
+    remark = ("Settlement " + d.name + " · " + se.name + ": " + str(se.title or "") + " (bill of " + str(se.bill_date)
+              + "), approved up to the CEO in the app.")
+    rows = [{"account": acct, "debit_in_account_currency": amt, "cost_center": cfg["cost_center"], "user_remark": str(se.title or "")[:140]}]
+    # the employee's unspent cash advances (paid, not yet used) cover it first
     left = amt
+    used = 0
     for a in frappe.get_all("Employee Advance", filters={"employee": d.employee, "docstatus": 1, "advance_account": cfg["advance"], "paid_amount": [">", 0]},
-                            fields=["name", "posting_date", "paid_amount", "claimed_amount", "return_amount"], order_by="posting_date asc", limit_page_length=50):
+                            fields=["name", "paid_amount", "claimed_amount", "return_amount"], order_by="posting_date asc", limit_page_length=50):
         un = frappe.utils.flt(a.paid_amount) - frappe.utils.flt(a.claimed_amount) - frappe.utils.flt(a.return_amount)
         if un <= 0 or left <= 0:
             continue
         take = un if un < left else left
-        ec.append("advances", {"employee_advance": a.name, "posting_date": a.posting_date, "advance_paid": a.paid_amount,
-                               "unclaimed_amount": un, "allocated_amount": take, "advance_account": cfg["advance"]})
+        rows.append({"account": cfg["advance"], "party_type": "Employee", "party": d.employee, "credit_in_account_currency": take,
+                     "reference_type": "Employee Advance", "reference_name": a.name, "cost_center": cfg["cost_center"]})
         left = left - take
-    ec.flags.ignore_permissions = True
-    ec.insert(ignore_permissions=True)
-    ec.submit()
-    if row.custom_bill:
+        used = used + take
+    if left > 0:
+        rows.append({"account": cfg["payable"], "party_type": "Employee", "party": d.employee, "credit_in_account_currency": left,
+                     "cost_center": cfg["cost_center"]})
+    je = frappe.get_doc({"doctype": "Journal Entry", "voucher_type": "Journal Entry", "company": cfg["company"],
+                         "posting_date": frappe.utils.today(), "user_remark": remark, "accounts": rows})
+    je.flags.ignore_permissions = True
+    je.insert(ignore_permissions=True)
+    je.submit()
+    # the bill photo on the entry too, for Accounts
+    if se.bill:
         try:
-            frappe.get_doc({"doctype": "File", "file_url": row.custom_bill, "attached_to_doctype": "Expense Claim",
-                            "attached_to_name": ec.name, "is_private": 1}).insert(ignore_permissions=True)
+            frappe.get_doc({"doctype": "File", "file_url": se.bill, "attached_to_doctype": "Journal Entry",
+                            "attached_to_name": je.name, "is_private": 1}).insert(ignore_permissions=True)
         except Exception:
-            pass        # the bill stays on the settlement claim; the row names it
-    return ec.name
+            pass        # the bill stays on the Settlement Expense
+    # all of it out of the cash already given: nothing left to pay -> Paid
+    vals = {"journal_entry": je.name, "expense_account": acct, "from_advance": used, "payable": left}
+    if left <= 0:
+        vals["status"] = "Paid"
+    frappe.db.set_value("Settlement Expense", se.name, vals)
+    return je.name
 
 
 def book_cash(d, cfg):
@@ -369,21 +399,12 @@ def finalize(d, by, cfg, book):
     d.decided_on = frappe.utils.now()
     if d.kind == "Bills":
         for b in d.bills or []:
-            amt = frappe.db.get_value("Expense Claim Detail", b.row, "amount")
-            frappe.db.set_value("Expense Claim Detail", b.row, {"custom_bill_status": "Verified", "sanctioned_amount": amt})
-        if d.claim:
-            tot = 0
-            for r in frappe.get_all("Expense Claim Detail", filters={"parent": d.claim, "parenttype": "Expense Claim"}, fields=["sanctioned_amount"], limit_page_length=1000):
-                tot = tot + frappe.utils.flt(r.sanctioned_amount)
-            frappe.db.set_value("Expense Claim", d.claim, "total_sanctioned_amount", tot)
+            frappe.db.set_value("Settlement Expense", b.row, "status", "Verified")
     if book and booking_ready(cfg):
         try:
             if d.kind == "Bills":
-                made = []
                 for b in d.bills or []:
-                    made.append(book_bill(d, b, cfg))
-                if made:
-                    d.booked = made[0]
+                    book_bill(d, b, cfg)
             elif d.advance:
                 book_cash(d, cfg)
         except Exception as err:
@@ -457,8 +478,8 @@ def reject_one(d, me, who, note):
     d.decided_by = me
     d.decided_on = frappe.utils.now()
     for b in d.bills or []:
-        frappe.db.set_value("Expense Claim Detail", b.row, {"custom_bill_status": "Checked", "custom_settlement": None,
-                                                           "custom_review_note": ("Returned by " + who + ": " + note)[:500]})
+        frappe.db.set_value("Settlement Expense", b.row, {"status": "Checked", "settlement": None,
+                                                         "review_note": ("Returned by " + who + ": " + note)[:500]})
     if d.advance and frappe.db.get_value("Employee Advance", d.advance, "docstatus") == 0:
         frappe.delete_doc("Employee Advance", d.advance, ignore_permissions=True, force=True)
         d.advance = None
@@ -475,6 +496,35 @@ def notify(user, subject, name):
                         "document_type": "Settlement Request", "document_name": name}).insert(ignore_permissions=True)
     except Exception:
         pass
+
+
+BILL_FIELDS = ["name", "employee", "bill_date", "title", "amount", "bill", "proof", "hand_note", "status", "settlement", "review_note",
+               "journal_entry", "from_advance", "payable", "creation", "modified"]
+
+
+def bill_out(b):
+    # a Settlement Expense as the app reads it (the rep never sees the score)
+    paid = 0
+    if b.journal_entry:
+        paid = frappe.utils.flt(b.payable) - outstanding(b.journal_entry, b.employee)
+    return {"name": b.name, "date": str(b.bill_date or ""), "title": b.title or "", "amount": frappe.utils.flt(b.amount),
+            "bill": b.bill or "", "proof": b.proof or "", "hand_note": b.hand_note or "", "status": b.status or "Checking",
+            "settlement": b.settlement or "", "review": b.review_note or "", "entry": b.journal_entry or "",
+            "from_advance": frappe.utils.flt(b.from_advance), "payable": frappe.utils.flt(b.payable), "paid": paid,
+            "creation": str(b.creation), "modified": str(b.modified)}
+
+
+def own_file(url, user):
+    # a private File the caller uploaded, not yet attached to anything -> its name
+    if not url:
+        return None
+    # the same photo uploaded twice shares its file_url: take the copy attached to nothing
+    f = frappe.db.get_value("File", {"file_url": url, "owner": user, "attached_to_name": ["is", "not set"]}, "name", order_by="creation desc")
+    if not f:
+        if frappe.db.exists("File", {"file_url": url, "owner": user}):
+            frappe.throw("That photo is already on another bill -- add it again.")
+        frappe.throw("That photo was not uploaded by you -- add it again.")
+    return f
 
 
 fd = frappe.form_dict
@@ -526,34 +576,106 @@ if action == "mine":
         preview = chain_of(emp.name, CEO_USER, CEO_DESIGNATION, LEVELS)
     frappe.response["message"] = {"requests": rows, "chain": preview, "overview": overview}
 
+elif action == "bills":
+    out = []
+    if emp:
+        flt = {"employee": emp.name}
+        names = []
+        for x in str(fd.get("names") or "").split(","):
+            if x.strip():
+                names.append(x.strip())
+        if names:
+            flt["name"] = ["in", names]
+        for b in frappe.get_all("Settlement Expense", filters=flt, fields=BILL_FIELDS, order_by="bill_date desc, creation desc", limit_page_length=500):
+            out.append(bill_out(b))
+    frappe.response["message"] = {"bills": out, "employee": emp.name if emp else None}
+
+elif action == "add_bill":
+    if not emp:
+        frappe.throw("No active employee is linked to this login.")
+    day = str(fd.get("bill_date") or "")[:10]
+    title = " ".join(str(fd.get("title") or "").split())[:140]
+    amount = frappe.utils.flt(fd.get("amount"))
+    bill = str(fd.get("bill") or "").strip()
+    proof = str(fd.get("proof") or "").strip()
+    if not (len(day) == 10 and day[4] == "-" and day[7] == "-"):
+        frappe.throw("Which date is the bill of?")
+    if day > frappe.utils.today():
+        frappe.throw("The bill's date cannot be in the future.")
+    if not title:
+        frappe.throw("Say what the bill was for.")
+    if amount <= 0:
+        frappe.throw("Enter the bill amount.")
+    if not bill:
+        frappe.throw("Add a photo of the bill.")
+    files = [[own_file(bill, me), "bill"]]
+    if proof:
+        files.append([own_file(proof, me), "proof"])
+    se = frappe.get_doc({"doctype": "Settlement Expense", "employee": emp.name, "employee_name": emp.employee_name, "user": me,
+                         "status": "Checking", "bill_date": day, "title": title, "amount": amount, "bill": bill, "proof": proof or None,
+                         "hand_note": " ".join(str(fd.get("hand_note") or "").split())[:500] or None})
+    se.insert(ignore_permissions=True)
+    for f in files:
+        frappe.db.set_value("File", f[0], {"attached_to_doctype": "Settlement Expense", "attached_to_name": se.name, "attached_to_field": f[1]})
+    b = frappe.db.get_value("Settlement Expense", se.name, BILL_FIELDS, as_dict=True)
+    frappe.response["message"] = {"bill": bill_out(b)}
+
+elif action == "remove_bill":
+    name = str(fd.get("name") or "")
+    b = frappe.db.get_value("Settlement Expense", name, ["name", "employee", "status", "settlement"], as_dict=True) if name else None
+    if not b or not emp or b.employee != emp.name:
+        frappe.throw("That is not your bill.", frappe.PermissionError)
+    if b.status not in ["Checking", "Checked"] or b.settlement:
+        frappe.throw("A bill sent for approval can only be taken back from the approval itself.")
+    for f in frappe.get_all("File", filters={"attached_to_doctype": "Settlement Expense", "attached_to_name": name}, pluck="name"):
+        frappe.delete_doc("File", f, ignore_permissions=True, force=True)
+    # its place in the duplicate register is freed, so the same bill can be added again
+    if frappe.db.exists("DocType", "Bill Fingerprint"):
+        for p in frappe.get_all("Bill Fingerprint", filters={"trip": name, "status": "Used"}, pluck="name"):
+            frappe.delete_doc("Bill Fingerprint", p, ignore_permissions=True, force=True)
+    frappe.delete_doc("Settlement Expense", name, ignore_permissions=True, force=True)
+    frappe.response["message"] = {"removed": name}
+
+elif action == "score":
+    # the app's bill check (its checker login) writes what it read and the score
+    if me not in SCORERS:
+        frappe.throw("Only the bill check scores bills.", frappe.PermissionError)
+    name = str(fd.get("name") or "")
+    b = frappe.db.get_value("Settlement Expense", name, ["name", "status", "amount", "bill"], as_dict=True) if name else None
+    if not b:
+        frappe.throw("No such bill: " + name)
+    # changed or decided while the check ran: leave it
+    if b.status != "Checking" or abs(frappe.utils.flt(b.amount) - frappe.utils.flt(fd.get("amount"))) > 0.5 or str(b.bill or "") != str(fd.get("bill") or ""):
+        frappe.response["message"] = {"skipped": 1, "status": b.status}
+    else:
+        sc = frappe.utils.flt(fd.get("score"))
+        risk = "Low" if sc >= 90 else ("Medium" if sc >= 70 else "High")
+        vals = {"ai_score": sc, "ai_risk": risk, "ai_reason": str(fd.get("reason") or "")[:500], "status": "Checked",
+                "read_vendor": str(fd.get("read_vendor") or "")[:140] or None, "bill_meta": str(fd.get("meta") or "")[:20000] or None}
+        if fd.get("read_amount"):
+            vals["read_amount"] = frappe.utils.flt(fd.get("read_amount"))
+        rd = str(fd.get("read_date") or "")[:10]
+        if len(rd) == 10 and rd[4] == "-":
+            vals["read_date"] = rd
+        frappe.db.set_value("Settlement Expense", name, vals)
+        frappe.response["message"] = {"name": name, "score": sc, "risk": risk, "status": "Checked"}
+
 elif action == "send_bills":
     if not emp:
         frappe.throw("No active employee is linked to this login.")
-    claims = frappe.get_all("Expense Claim", filters={"employee": emp.name, "custom_running": 1, "docstatus": 0},
-                            pluck="name", order_by="creation desc", limit_page_length=20)
     # rows=a,b: only those bills (the app sends a bill the moment it is added,
     # 16 Nov 2026 -- so a sent-back bill is not resent before it is fixed)
     only = []
     for x in str(fd.get("rows") or "").split(","):
         if x.strip():
             only.append(x.strip())
+    rflt = [["employee", "=", emp.name], ["status", "=", "Checked"], ["settlement", "is", "not set"]]
+    if only:
+        rflt.append(["name", "in", only])
+    picked = frappe.get_all("Settlement Expense", filters=rflt,
+                            fields=["name", "bill_date", "title", "amount", "bill", "ai_score", "ai_risk", "ai_reason"],
+                            order_by="bill_date asc, creation asc", limit_page_length=500)
     claim = None
-    picked = []
-    for c in claims:
-        if frappe.db.exists("Expense Claim Detail", {"parent": c, "parenttype": "Expense Claim", "expense_type": "Food"}):
-            continue
-        rflt = [["parent", "=", c], ["parenttype", "=", "Expense Claim"], ["custom_bill_status", "=", "Checked"],
-                ["custom_settlement", "is", "not set"]]
-        if only:
-            rflt.append(["name", "in", only])
-        rows = frappe.get_all("Expense Claim Detail",
-                              filters=rflt,
-                              fields=["name", "expense_date", "description", "amount", "custom_bill", "custom_ai_score", "custom_ai_risk", "custom_ai_reason"],
-                              order_by="idx asc", limit_page_length=500)
-        if rows:
-            claim = c
-            picked = rows
-            break
     if not picked:
         frappe.throw("No checked bills to send -- add a bill, and wait for its check to finish.")
     chain = chain_of(emp.name, CEO_USER, CEO_DESIGNATION, LEVELS)
@@ -565,9 +687,9 @@ elif action == "send_bills":
     now = frappe.utils.now()
     for r in picked:
         total = total + frappe.utils.flt(r.amount)
-        title = str(r.description or "")[:140]
-        bill = {"row": r.name, "bill_date": r.expense_date, "title": title, "amount": r.amount,
-                "bill": r.custom_bill, "ai_score": r.custom_ai_score, "ai_risk": r.custom_ai_risk, "ai_reason": r.custom_ai_reason}
+        title = str(r.title or "")[:140]
+        bill = {"row": r.name, "bill_date": r.bill_date, "title": title, "amount": r.amount,
+                "bill": r.bill, "ai_score": r.ai_score, "ai_risk": r.ai_risk, "ai_reason": r.ai_reason}
         # sent again (17 Nov 2026): back to whoever rejected it, unless the
         # photo changed or the amount went up (looked up BEFORE the new request
         # exists -- it would be the latest one with this bill)
@@ -576,7 +698,7 @@ elif action == "send_bills":
         changed = False
         if prev:
             d.resent_from = prev.parent
-            if str(prev.bill or "") == str(r.custom_bill or "") and frappe.utils.flt(r.amount) <= frappe.utils.flt(prev.amount) + 0.5:
+            if str(prev.bill or "") == str(r.bill or "") and frappe.utils.flt(r.amount) <= frappe.utils.flt(prev.amount) + 0.5:
                 carry(d, prev.parent)
             changed = True
         moved = sweep(d, now, False)
@@ -587,15 +709,15 @@ elif action == "send_bills":
             moved = True
         if moved or changed:
             d.save(ignore_permissions=True)
-        frappe.db.set_value("Expense Claim Detail", r.name, {"custom_bill_status": "In Approval", "custom_settlement": d.name, "custom_review_note": None})
+        frappe.db.set_value("Settlement Expense", r.name, {"status": "In Approval", "settlement": d.name, "review_note": None})
         made.append(d)
-    # the approvers may open the claim and its bill photos (read only)
-    for c in chain:
-        if c["user"] != me and not frappe.db.exists("DocShare", {"share_doctype": "Expense Claim", "share_name": claim, "user": c["user"]}):
-            sh = frappe.get_doc({"doctype": "DocShare", "share_doctype": "Expense Claim", "share_name": claim, "user": c["user"],
-                                 "read": 1, "write": 0, "share": 0, "notify_by_email": 0})
-            sh.flags.ignore_share_permission = True
-            sh.insert(ignore_permissions=True)
+        # the approvers may open the bill and its photos (read only)
+        for c in chain:
+            if c["user"] != me and not frappe.db.exists("DocShare", {"share_doctype": "Settlement Expense", "share_name": r.name, "user": c["user"]}):
+                sh = frappe.get_doc({"doctype": "DocShare", "share_doctype": "Settlement Expense", "share_name": r.name, "user": c["user"],
+                                     "read": 1, "write": 0, "share": 0, "notify_by_email": 0})
+                sh.flags.ignore_share_permission = True
+                sh.insert(ignore_permissions=True)
     # one alert per approver for the whole send, not one per bill (a bill
     # sent again may wait on someone further up)
     n = len(made)
@@ -642,7 +764,7 @@ elif action == "withdraw":
     if d.status != "Waiting" or frappe.utils.cint(d.step) > 0:
         frappe.throw("It can only be taken back before anyone has approved it.")
     for b in d.bills or []:
-        frappe.db.set_value("Expense Claim Detail", b.row, {"custom_bill_status": "Checked", "custom_settlement": None})
+        frappe.db.set_value("Settlement Expense", b.row, {"status": "Checked", "settlement": None})
     if d.advance and frappe.db.get_value("Employee Advance", d.advance, "docstatus") == 0:
         frappe.delete_doc("Employee Advance", d.advance, ignore_permissions=True, force=True)
         d.advance = None
@@ -766,7 +888,8 @@ elif action == "decide_batch":
         frappe.throw("This batch is already decided.")
     n = 0
     total = 0
-    for r in frappe.get_all("Settlement Request", filters={"batch": name, "status": "Waiting", "next_approver": me}, pluck="name", limit_page_length=500):
+    # oldest first, so the cash advance covers the earliest bills (23 Nov 2026)
+    for r in frappe.get_all("Settlement Request", filters={"batch": name, "status": "Waiting", "next_approver": me}, pluck="name", order_by="creation asc", limit_page_length=500):
         d = frappe.get_doc("Settlement Request", r)
         approve_one(d, me, BOOKING, BOOK)
         d.save(ignore_permissions=True)

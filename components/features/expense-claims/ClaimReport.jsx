@@ -4,7 +4,7 @@ import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import Router from "next/router";
 import { Dialog } from "@/design-system";
 import { useClaims } from "./data/useClaims";
-import { CASH_REQUESTS, checkClaim, fetchFileBlob, fetchMySettlements, sendBillsForApproval } from "./data/claimsApi";
+import { CASH_REQUESTS, checkSettlementBills, fetchFileBlob, fetchMySettlements, sendBillsForApproval } from "./data/claimsApi";
 import { MyRequests, SendBar } from "./settlement";
 import { CSS, FONT_HREF, Highlights, IC, Icon, Note, Rail, Sheet, Spinner, btn, card, ell, tabNum } from "./ui";
 import { BillSheet, CashSheet } from "./sheets";
@@ -121,7 +121,8 @@ function Entry({ e, onOpen }) {
    (where the bill is), failed, or still to come. */
 function trackOf(e) {
   const l = e.line, s = e.state || "Checking";
-  const steps = [{ k: "Bill added", v: `Saved on ${e.claim.id}`, at: "done" }];
+  // a settlement bill is its own record (Settlement Expense, 23 Nov 2026)
+  const steps = [{ k: "Bill added", v: e.claim.settlement ? `Saved as ${l.id}` : `Saved on ${e.claim.id}`, at: "done" }];
   // 16 Nov 2026: a checked bill goes up the approval chain to the CEO
   if (s === "Checking") steps.push({ k: "Approval", v: "Send it for approval (Settlements)", at: "now" });
   else if (s === "Checked" && l.review) steps.push({ k: "Sent back", v: "Fix it if needed, then send it again", note: l.review, at: "fail" });
@@ -132,8 +133,14 @@ function trackOf(e) {
   else if (s === "Verified") steps.push({ k: "Approved", v: "Approved — paid in the next payment run", at: "done" });
   if (s !== "Rejected") {
     steps.push({ k: "Verified", v: s === "Verified" ? "Counts toward your settlement" : "Counts once verified", at: s === "Verified" ? "done" : "next" });
-    const settled = e.claim.docstatus === 1;
-    steps.push({ k: "Settlement", v: settled ? "Settled by Accounts" : s === "Verified" ? "Accounts settle it with you later" : "After it is verified", at: settled ? "done" : s === "Verified" ? "now" : "next" });
+    const settled = e.claim.settlement ? !!l.paid : e.claim.docstatus === 1;
+    // a booked settlement bill: what the cash advance covered, and what Accounts pay
+    const how = e.claim.settlement && l.booked
+      ? l.paid
+        ? l.fromAdvance > 0 && l.payable > 0 ? `${inr(l.fromAdvance)} from your cash advance, ${inr(l.payable)} paid to your bank` : l.payable > 0 ? `Paid to your bank` : `Taken from your cash advance`
+        : l.fromAdvance > 0 ? `${inr(l.fromAdvance)} from your cash advance · ${inr(l.payable)} to be paid to you` : "Accounts pay it in the next payment run"
+      : null;
+    steps.push({ k: "Settlement", v: how || (settled ? "Settled by Accounts" : s === "Verified" ? "Accounts settle it with you later" : "After it is verified"), at: settled ? "done" : s === "Verified" ? "now" : "next" });
   }
   return steps;
 }
@@ -319,7 +326,7 @@ export default function ClaimReport({
     try {
       // a bill whose score never got written: score it now, quietly
       const left = unsent.filter((l) => !l.state || l.state === "Checking").map((l) => l.id);
-      if (left.length && L.open?.id) await checkClaim(conn, L.open.id, left).catch((e) => console.warn("[expense-claims] bill score:", e.message));
+      if (left.length) await checkSettlementBills(conn, left).catch((e) => console.warn("[expense-claims] bill score:", e.message));
       const r = await sendBillsForApproval(conn);
       data.reload();
       setSettleTick((t) => t + 1);

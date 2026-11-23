@@ -141,6 +141,8 @@ export function ledger(claims, advances = []) {
   for (const c of running) {
     for (const l of c.lines) if (l.date) ev.push({ kind: "bill", date: l.date, amount: l.amount, claim: c, line: l, state: l.state || "Checking", open: c.docstatus === 0 });
     if (c.reimbursed > 0) ev.push({ kind: "payout", date: String(c.modified || c.posting).slice(0, 10), amount: c.reimbursed, claim: c, note: `what ${c.id} owed you` });
+    // the settlement bills (23 Nov 2026): each payment Accounts made for them
+    for (const p of c.payouts || []) ev.push({ kind: "payout", date: p.date, amount: p.amount, claim: c, note: p.note });
   }
   const order = { topup: 0, payout: 1, request: 2, bill: 3 };
   ev.sort((a, b) => a.date.localeCompare(b.date) || order[a.kind] - order[b.kind]);
@@ -154,7 +156,9 @@ export function ledger(claims, advances = []) {
   const sum = (xs, f) => xs.reduce((s, x) => s + f(x), 0);
   const openLines = open ? open.lines : [];
   const unused = sum(advances.filter((a) => !a.waiting && a.docstatus === 1), (a) => a.left);
-  const inHand = unused - sum(openLines.filter((l) => l.state === "Verified"), (l) => l.amount);
+  // a booked settlement bill is already off the advances in the ERP (23 Nov
+  // 2026): only the verified bills not booked yet come off here
+  const inHand = unused - sum(openLines.filter((l) => l.state === "Verified" && !l.booked), (l) => l.amount);
   const owedClosed = sum(running, (c) => c.owed || 0);
   return {
     entries: ev,
