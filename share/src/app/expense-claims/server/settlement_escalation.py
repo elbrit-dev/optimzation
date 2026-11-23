@@ -66,7 +66,7 @@ def sweep(d, now, tell):
             notify(st.user, "Moved up to " + str(d.steps[i + 1].approver_name or d.next_approver) + " (no action in 2 working days): "
                    + str(d.employee_name) + " · " + frappe.utils.fmt_money(d.amount, currency="INR"), d.name)
     if moved and tell:
-        notify(d.next_approver, ("Settlement" if d.kind == "Bills" else "Cash request") + " to approve: " + str(d.employee_name)
+        notify(d.next_approver, ("Settlement" if d.kind == "Bills" else "Advance request") + " to approve: " + str(d.employee_name)
                + " · " + frappe.utils.fmt_money(d.amount, currency="INR"), d.name)
     return moved
 

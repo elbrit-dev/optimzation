@@ -66,14 +66,14 @@
 #     Doctor activity spent on a doctor, up to the limit (Rs 2,000): ONE
 #                     approval, the direct manager; booked to its own account
 #     Doctor service  spent on a doctor, above the limit: tagged to a Doctor
-#                     Service already asked for that doctor (approved or in
-#                     approval), up to what is left of it; ONE approval, which
+#                     Service already asked for that doctor in the bill's month
+#                     (approved or in approval), up to what is left of it; ONE approval, which
 #                     can be given only once the service is approved
 #   Cash up front only for the seat levels in the settings (RBM and above).
 #
 #   GET  action=settings                     what the app's forms need from Settlement Settings
 #   GET  action=doctors      q               the caller's doctors matching q (Lead permissions apply)
-#   GET  action=services     doctor          that doctor's open Doctor Services, with what is left
+#   GET  action=services     doctor, [date]  that doctor's open Doctor Services of the bill's month, with what is left
 #   GET  action=mine                         the caller's requests + their chain
 #   GET  action=bills        [names=a,b]     the caller's own bills (Settlement Expense), newest first
 #   POST action=add_bill     bill_date, title, amount, bill (file_url), [proof, hand_note],
@@ -374,7 +374,7 @@ def sweep(d, now, tell):
             notify(st.user, "Moved up to " + str(d.steps[i + 1].approver_name or d.next_approver) + " (no action in 2 working days): "
                    + str(d.employee_name) + " · " + frappe.utils.fmt_money(d.amount, currency="INR"), d.name)
     if moved and tell:
-        notify(d.next_approver, ("Settlement" if d.kind == "Bills" else "Cash request") + " to approve: " + str(d.employee_name)
+        notify(d.next_approver, ("Settlement" if d.kind == "Bills" else "Advance request") + " to approve: " + str(d.employee_name)
                + " · " + frappe.utils.fmt_money(d.amount, currency="INR"), d.name)
     return moved
 
@@ -644,7 +644,7 @@ def finalize(d, by, cfg, book):
                 book_cash(d, cfg)
         except Exception as err:
             frappe.throw("Not approved: it could not be booked in the accounts (" + str(err)[:300] + "). Nothing was changed -- tell IT.")
-    notify(d.user, ("Your bill is approved -- it will be paid in the next payment run" if d.kind == "Bills" else "Your cash request is approved -- it will be paid in the next payment run")
+    notify(d.user, ("Your bill is approved -- it will be paid in the next payment run" if d.kind == "Bills" else "Your advance is approved -- it will be paid in the next payment run")
            + " (" + frappe.utils.fmt_money(d.amount, currency="INR") + ")", d.name)
 
 
@@ -693,7 +693,7 @@ def approve_one(d, me, cfg, book):
         sweep(d, frappe.utils.now(), False)
         if d.next_label == "CEO":
             return "ceo"
-        notify(d.next_approver, ("Settlement" if d.kind == "Bills" else "Cash request") + " to approve: " + str(d.employee_name)
+        notify(d.next_approver, ("Settlement" if d.kind == "Bills" else "Advance request") + " to approve: " + str(d.employee_name)
                + " · " + frappe.utils.fmt_money(d.amount, currency="INR"), d.name)
         return ""
     finalize(d, me, cfg, book)
@@ -915,6 +915,8 @@ elif action == "add_bill":
                 frappe.throw("Over " + frappe.utils.fmt_money(BOOKING["activity_limit"], currency="INR") + " on a doctor: pick the doctor service it was for.")
             if sv["refused"]:
                 frappe.throw("That doctor service was not approved -- it cannot take a bill.")
+            if str(sv["date"])[:7] != day[:7]:
+                frappe.throw("That doctor service is for " + str(sv["date"])[:7] + " -- pick a service of the bill's month (" + day[:7] + ").")
             if amount > sv["left"] + 0.5:
                 frappe.throw("Only " + frappe.utils.fmt_money(sv["left"], currency="INR") + " is left on that doctor service (of " + frappe.utils.fmt_money(sv["amount"], currency="INR") + ").")
     else:
@@ -1094,15 +1096,15 @@ elif action == "send_cash":
     lv = level_of(frappe.db.get_value("Employee", emp.name, "custom_role_profile"), frappe.db.get_value("Employee", emp.name, "designation"),
                   me, CEO_USER, CEO_DESIGNATION, LEVELS)
     if str(lv).upper() not in BOOKING["advance_levels"]:
-        frappe.throw("Cash up front is for " + ", ".join(BOOKING["advance_levels"]) + " -- add your bills and you are paid back.", frappe.PermissionError)
+        frappe.throw("Advances are for " + ", ".join(BOOKING["advance_levels"]) + " -- add your bills and you are paid back.", frappe.PermissionError)
     amount = frappe.utils.flt(fd.get("amount"), 2)
     purpose = " ".join(str(fd.get("purpose") or "").split())[:500]
     if not (amount > 0):
         frappe.throw("Say how much you need.")
     if amount > BILL_MAX_AMOUNT:
-        frappe.throw("Cash over " + frappe.utils.fmt_money(BILL_MAX_AMOUNT, currency="INR") + " cannot be asked for here -- talk to Accounts.")
+        frappe.throw("An advance over " + frappe.utils.fmt_money(BILL_MAX_AMOUNT, currency="INR") + " cannot be asked for here -- talk to Accounts.")
     if not purpose:
-        frappe.throw("Say what the cash is for.")
+        frappe.throw("Say what the advance is for.")
     chain = chain_of(emp.name, CEO_USER, CEO_DESIGNATION, LEVELS)
     ea = frappe.get_doc({"doctype": "Employee Advance", "employee": emp.name, "posting_date": frappe.utils.today(), "purpose": purpose,
                          "advance_amount": amount, "currency": "INR", "exchange_rate": 1})
@@ -1112,7 +1114,7 @@ elif action == "send_cash":
     if d.next_label == "CEO":
         make_batch([d], me, CEO_USER)
         d.save(ignore_permissions=True)
-    notify(chain[0]["user"], "Cash request to approve: " + str(emp.employee_name) + " · " + frappe.utils.fmt_money(amount, currency="INR"), d.name)
+    notify(chain[0]["user"], "Advance request to approve: " + str(emp.employee_name) + " · " + frappe.utils.fmt_money(amount, currency="INR"), d.name)
     frappe.response["message"] = {"request": shape(d)}
 
 elif action == "withdraw":
@@ -1310,9 +1312,15 @@ elif action == "services":
     doctor = str(fd.get("doctor") or "").strip()
     if not doctor or not frappe.get_list("Lead", filters={"name": doctor}, pluck="name", limit_page_length=1):
         frappe.throw("That doctor is not one of yours.")
+    # only the bill's month (24 Nov 2026, the user: "the already approved or
+    # requested service for that month"); no date = this month
+    day = str(fd.get("date") or frappe.utils.today())[:10]
+    if not (len(day) == 10 and day[4] == "-" and day[7] == "-"):
+        day = frappe.utils.today()
+    flt = {"doctor": doctor, "workflow_state": ["is", "set"],
+           "date": ["between", [str(frappe.utils.get_first_day(day)), str(frappe.utils.get_last_day(day))]]}
     out = []
-    for x in frappe.get_all("Doctor Service", filters={"doctor": doctor, "workflow_state": ["is", "set"]}, pluck="name",
-                            order_by="creation desc", limit_page_length=30):
+    for x in frappe.get_all("Doctor Service", filters=flt, pluck="name", order_by="creation desc", limit_page_length=30):
         sv = service_state(x)
         if sv and not sv["refused"] and sv["left"] > 0.5:
             out.append(sv)

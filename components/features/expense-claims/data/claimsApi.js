@@ -1256,8 +1256,9 @@ export async function searchSettlementDoctors(conn, q) {
 /* The doctor services a bill over the activity limit can be tagged to:
    asked for that doctor, approved or still in approval, with room left.
    -> [{ name, service, date, state, approved, amount, billed, left }] */
-export async function fetchDoctorServices(conn, doctor) {
-  const m = (await settleCall(conn, "GET", { action: "services", doctor })).message || {};
+export async function fetchDoctorServices(conn, doctor, date) {
+  // only the services of the bill's month (date: the bill date, YYYY-MM-DD)
+  const m = (await settleCall(conn, "GET", { action: "services", doctor, ...(date ? { date } : {}) })).message || {};
   return (m.services || []).map((x) => ({
     name: x.name, doctor: x.doctor, doctorName: x.doctor_name || "", service: x.service || x.name, date: String(x.date || "").slice(0, 10),
     state: x.state || "", approved: !!x.approved, refused: !!x.refused, amount: num0(x.amount), billed: num0(x.billed), left: num0(x.left),

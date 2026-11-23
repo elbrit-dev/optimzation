@@ -78,7 +78,7 @@ const WRONG = {
    limit a "Doctor activity" (the direct manager approves it), over it tagged
    to a Doctor Service already asked for that doctor. The server decides the
    type from the amount and refuses a wrong combination (settlement_api add_bill). */
-const TA_DA_TEXT = "Hotel, food, fuel and travel bills are paid in your monthly TA/DA claim. If you spent this on a doctor, choose “A doctor”.";
+const TA_DA_TEXT = "Hotel, food, fuel and travel bills are paid in your monthly TA/DA claim. If you spent this on a doctor, use the “For a doctor” tab.";
 // settlement_api words_of: whole words only ("inn" is not "Innova"), a plural "s" allowed
 const wordsOf = (t) => ` ${String(t || "").toLowerCase().replace(/[^a-z0-9]+/g, " ").trim()} `;
 function taDaKindOf(texts, kinds) {
@@ -89,10 +89,6 @@ function taDaKindOf(texts, kinds) {
   }
   return "";
 }
-const choice = (on) => ({
-  minHeight: 52, borderRadius: 14, border: `1.5px solid ${on ? "#2563eb" : "#e1e5ec"}`, background: on ? "#f5f8ff" : "#fff",
-  color: on ? "#1d4ed8" : "#0b1220", fontSize: 15, fontWeight: 700, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", gap: 8, padding: "0 12px",
-});
 
 /* Money in short, for the footer: +in hand / −owed on the open claim. */
 const signed = (L) => L.balance - (L.over - L.owedClosed);
@@ -168,17 +164,23 @@ export function BillSheet({ conn, me, claims = [], advances = [], cashAdvances =
   }, [conn, dq, forWho, doctor]);
   // the doctor's services, once the amount is over the limit (asked once per
   // doctor; "Change" asks again). An answer for another doctor is dropped.
+  // 24 Nov 2026 (the user): only the services of the BILL'S MONTH -- asked
+  // again when the doctor or the bill's month changes
   const svcAsked = useRef("");
+  const svcMonth = String(date || "").slice(0, 7);
+  const svcKey = doctor ? doctor.id + "|" + svcMonth : "";
   useEffect(() => {
-    if (!over || !doctor || svcAsked.current === doctor.id) return;
+    if (!over || !doctor || svcAsked.current === svcKey) return;
     const id = doctor.id;
-    svcAsked.current = id;
-    setSvcs({ doctor: id, list: null, busy: true, error: "" });
-    fetchDoctorServices(conn, id)
-      .then((list) => setSvcs((x) => (x.doctor === id ? { doctor: id, list, busy: false, error: "" } : x)))
-      .catch((e) => setSvcs((x) => (x.doctor === id ? { doctor: id, list: null, busy: false, error: e.message } : x)));
-  }, [conn, over, doctor]);
-  const svcList = doctor && svcs.doctor === doctor.id ? svcs.list : null;
+    const key = svcKey;
+    svcAsked.current = key;
+    setSvc("");
+    setSvcs({ doctor: key, list: null, busy: true, error: "" });
+    fetchDoctorServices(conn, id, date)
+      .then((list) => setSvcs((x) => (x.doctor === key ? { doctor: key, list, busy: false, error: "" } : x)))
+      .catch((e) => setSvcs((x) => (x.doctor === key ? { doctor: key, list: null, busy: false, error: e.message } : x)));
+  }, [conn, over, doctor, svcKey]); // eslint-disable-line react-hooks/exhaustive-deps
+  const svcList = doctor && svcs.doctor === svcKey ? svcs.list : null;
   const picked = svcList?.find((x) => x.name === svc) || null;
   // an own bill that is really TA/DA: by the reader's kind, its title, or the title typed
   const taDa = forWho === "me" ? taDaKindOf([read?.readerKind, read?.readTitle, title], settings?.taDaKinds) : "";
@@ -210,7 +212,8 @@ export function BillSheet({ conn, me, claims = [], advances = [], cashAdvances =
       .catch(() => setRead((r) => (r?.busy && r.file === f ? { busy: false, wrong: "failed" } : r)));
   };
 
-  const missing = !file ? "Add a photo of the bill"
+  const missing = !forWho ? "First pick “Own expense” or “For a doctor”"
+    : !file ? "Add a photo of the bill"
     : read?.busy ? "Wait a moment — the bill is being read"
     : read?.wrong ? WRONG[read.wrong].title
     : !title.trim() ? "Say what it was for"
@@ -218,13 +221,12 @@ export function BillSheet({ conn, me, claims = [], advances = [], cashAdvances =
     : date < minIso ? "This bill is more than a year old — it cannot be claimed"
     : read?.handwritten && why.trim().length < 5 ? "Say why you have only a handwritten bill"
     : read?.handwritten && !cash && !proof ? "Add the payment proof — or tick “Paid in cash”"
-    : !forWho ? "Say who this was for — you or a doctor"
     : forWho === "me" && taDa ? TA_DA_TEXT
     : forWho === "me" && !kind ? "Pick what kind of expense it was"
     : forWho === "doctor" && !doctor ? "Pick the doctor"
-    : over && svcs.doctor === doctor.id && svcs.error ? svcs.error
+    : over && svcs.doctor === svcKey && svcs.error ? svcs.error
     : over && !svcList ? "Wait a moment — loading the doctor services"
-    : over && !svcList.length ? "No doctor service is open for this doctor — ask for one first (Service), then add this bill."
+    : over && !svcList.length ? "No doctor service of this bill’s month is open for this doctor — ask for one first (Service), then add this bill."
     : over && !picked ? "Pick the doctor service it was for"
     : over && amt > picked.left + 0.5 ? `Only ${inr(picked.left)} is left on this doctor service` : "";
   const submit = async () => {
@@ -316,11 +318,21 @@ export function BillSheet({ conn, me, claims = [], advances = [], cashAdvances =
   );
 
   return (
-    <Sheet title={done ? "" : "Add a bill"} sub={done ? null : "Take a photo of your bill — the details fill in by themselves."}
+    <Sheet title={done ? "" : "Add a bill"} sub={done ? null : "Pick who it was for, then take a photo of the bill — the details fill in by themselves."}
       onClose={close} desktop="dialog" maxWidth={520} footer={footer}>
       <style>{CSS}</style>
       {done ? <Done title={done.sent ? "Sent for approval" : "Saved — not sent yet"} amount={amt} lines={done.lines} sub={done.sent ? null : done.refused || "Open Settlements and tap Send for approval."} /> : (
         <div style={{ display: "flex", flexDirection: "column", gap: 16, padding: desk ? "18px 24px 20px" : "14px 16px 18px" }}>
+          {/* 24 Nov 2026 (the user): the type comes FIRST, as two tabs -- the
+              photo can be added only once it is picked */}
+          <div role="radiogroup" aria-label="Who was this for?" style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 4, padding: 4, borderRadius: 14, background: "#e9ecf1", boxShadow: tried && !forWho ? "0 0 0 1.5px #f04438" : "none" }}>
+            {[["me", "Own expense"], ["doctor", "For a doctor"]].map(([k, t]) => (
+              <button key={k} type="button" className="ecs-ch" role="radio" aria-checked={forWho === k} onClick={() => setForWho(k)}
+                style={{ minHeight: 44, border: 0, borderRadius: 10, background: forWho === k ? "#fff" : "transparent", boxShadow: forWho === k ? "0 1px 2px rgba(16,24,40,.14)" : "none", color: forWho === k ? "#0b1220" : "#475467", fontSize: 15, fontWeight: 700, cursor: "pointer" }}>{t}</button>
+            ))}
+          </div>
+          {!forWho && <span style={{ ...hint, marginTop: -6, textAlign: "center" }}>Pick one to add the bill</span>}
+          {forWho && (
           <button type="button" className="ecs-drop" onClick={() => pick.current?.click()}
             style={{ display: "flex", flexDirection: file ? "row" : "column", alignItems: "center", justifyContent: "center", gap: file ? 12 : 6, width: "100%", minHeight: file ? 76 : 150, padding: file ? "10px 12px" : "18px 14px", borderRadius: 16, border: `1.5px ${file ? "solid" : "dashed"} ${read?.wrong ? "#f04438" : file ? "#12b76a" : tried && !file ? "#f04438" : "#b2c8f7"}`, background: read?.wrong ? "#fef3f2" : file ? "#f6fef9" : "#f5f8ff", color: "#0b1220", textAlign: file ? "left" : "center", cursor: "pointer" }}>
             {file ? (
@@ -342,6 +354,7 @@ export function BillSheet({ conn, me, claims = [], advances = [], cashAdvances =
               </>
             )}
           </button>
+          )}
           <input ref={pick} type="file" accept={ATTACH_ACCEPT} style={{ display: "none" }} onChange={(e) => { const f = e.target.files?.[0]; e.target.value = ""; if (f) attach(f); }} />
           {read?.wrong ? (
             <div role="alert" style={{ display: "flex", gap: 10, padding: "12px 14px", borderRadius: 14, background: "#fef3f2", color: "#b42318" }}>
@@ -388,15 +401,6 @@ export function BillSheet({ conn, me, claims = [], advances = [], cashAdvances =
               return `Filled from the bill: ${list} — change anything only if it is wrong.${got.date ? "" : " Check the date — it was not on the bill."}`;
             })()}</span>
 
-            <div role="radiogroup" aria-label="Who was this for?" style={{ display: "flex", flexDirection: "column", gap: 6 }}>
-              <span style={lbl}>Who was this for?</span>
-              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
-                {[["me", "Me"], ["doctor", "A doctor"]].map(([k, t]) => (
-                  <button key={k} type="button" className="ecs-ch" role="radio" aria-checked={forWho === k} onClick={() => setForWho(k)}
-                    style={{ ...choice(forWho === k), ...(tried && !forWho ? { borderColor: "#f04438" } : null) }}>{t}</button>
-                ))}
-              </div>
-            </div>
 
             {forWho === "me" && (
               <>
@@ -456,9 +460,9 @@ export function BillSheet({ conn, me, claims = [], advances = [], cashAdvances =
                 {doctor && over && (
                   <div role="radiogroup" aria-label="The doctor service it was for" style={{ display: "flex", flexDirection: "column", gap: 8 }}>
                     <span style={lbl}>Over {inr(limit)} on a doctor — pick the doctor service it was for</span>
-                    {svcs.doctor === doctor.id && svcs.error ? <Note>{svcs.error}</Note>
+                    {svcs.doctor === svcKey && svcs.error ? <Note>{svcs.error}</Note>
                       : !svcList ? <span style={{ ...hint, display: "flex", alignItems: "center", gap: 8 }}><Spinner size={12} />Loading the doctor services…</span>
-                      : !svcList.length ? <Note>No doctor service is open for this doctor — ask for one first (Service), then add this bill.</Note>
+                      : !svcList.length ? <Note>No doctor service of this bill’s month is open for this doctor — ask for one first (Service), then add this bill.</Note>
                       : svcList.map((x) => {
                         const on = svc === x.name;
                         return (
