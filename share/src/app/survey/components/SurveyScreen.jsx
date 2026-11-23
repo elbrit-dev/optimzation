@@ -146,7 +146,7 @@ export function SurveyScreen({ survey, today, me, drafts, api, onOpenRow, onChan
       {rows.length > 3 ? <ChipRow items={chips} value={filter} onChange={setFilter} ariaLabel={`Filter ${t.many}`} /> : null}
 
       {rows.length ? (
-        <div className="grid gap-2 @2xl/survey:grid-cols-2">
+        <div className="grid gap-2 @2xl/survey:grid-cols-2 @5xl/survey:grid-cols-3 @7xl/survey:grid-cols-4">
           {shown.map((r) => (
             <SubjectCard key={r.response} subject={r.subject ? { ...r.subject, extra: r.subject.extra } : null} me={me?.full_name} state={r.view} onOpen={() => onOpenRow(r.response)} />
           ))}

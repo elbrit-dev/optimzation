@@ -187,7 +187,7 @@ export function SurveyHome({
       {survey ? null : <RingNav items={ringItems} onItemClick={onTile} stickyBar={stickyBar} inset={inset} ariaLabel={ariaLabel} />}
 
       {survey ? (
-        <div className="mx-auto flex w-full max-w-3xl flex-col gap-3 px-4 pb-4 pt-3">
+        <div className="flex w-full flex-col gap-3 px-4 pb-4 pt-3 @2xl/survey:gap-4">
           {row ? (
             <PageHeader
               onBack={() => guard.request(toSurvey)}
