@@ -2,8 +2,8 @@
 
 import { useState } from "react";
 import { approveSettlements, decideSettlement, withdrawSettlement } from "./data/claimsApi";
-import { inr, shortDate } from "./model";
-import { BillThumb, FilePreview, IC, Icon, Note, RiskBadge, Sheet, Spinner, billFile, btn, card, ell, label, tabNum } from "./ui";
+import { RISK, inr, shortDate } from "./model";
+import { BillThumb, FilePreview, IC, Icon, Note, Sheet, Spinner, billFile, btn, card, ell, label, tabNum } from "./ui";
 
 /* Settlement approval (16 Nov 2026), the app's side: a request -- the rep's
  * AI-checked bills, or a cash advance -- goes up their reporting line, BE >
@@ -32,13 +32,69 @@ const when = (s) => {
   return isNaN(d) ? "" : d.toLocaleString("en-IN", { day: "numeric", month: "short", hour: "numeric", minute: "2-digit" });
 };
 // a request is one bill since 16 Nov 2026 -- called by the bill's own name
-export const kindWord = (r) => (r.kind === "cash" ? "Cash request"
+export const kindWord = (r) => (r.kind === "cash" ? "Advance request"
   : r.bills.length === 1 ? (r.bills[0].title || "1 bill") : `${r.bills.length} bills`);
 /* who it waits on, in words */
 export const waitingOn = (r) => {
   const s = r.steps[r.step];
   return r.status === "waiting" && s ? `with ${s.level === "CEO" ? "the CEO" : s.name}${s.level && s.level !== "CEO" ? ` (${s.level})` : ""}` : "";
 };
+/* The settlement type in one short line (23 Nov 2026): "Own · Courier &
+   postage", "Doctor activity · Dr X", "Doctor service · Dr X · <service>";
+   "" for cash. x: a request (type, expenseKind, doctorName, service) or a
+   bill line (settleType, expenseKind, doctorName, doctorService). An old own
+   bill has no kind: just "Own". */
+export const drName = (n) => (!n ? "" : /^dr\.?\s/i.test(n) ? n : `Dr ${n}`);
+export function typeLine(x) {
+  const t = x?.settleType || x?.type || "Own";
+  if (t === "Cash" || x?.kind === "cash") return "";
+  if (t === "Own") return x.expenseKind ? `Own · ${x.expenseKind}` : "Own";
+  const sv = t === "Doctor service" ? x.service?.service || x.doctorService || "" : "";
+  return [t, drName(x.doctorName), sv].filter(Boolean).join(" · ");
+}
+/* A doctor service bill can be approved only once its service is approved
+   (settlement_api decide): until then it waits, and is never picked. */
+export const serviceHeld = (r) => r?.type === "Doctor service" && r.status === "waiting" && !r.service?.approved;
+export const HELD_NOTE = "Approve once the doctor service is approved";
+/* "<service> · ₹amount · ₹billed billed · ₹left left · <state>" */
+export const serviceLine = (s) => (s ? [s.service || s.name, inr(s.amount), `${inr(s.billed)} billed`, `${inr(s.left)} left`, s.state || (s.approved ? "Approved" : "Waiting for approval")].join(" · ") : "");
+/* The type, the doctor and the service, for the approvers. */
+export function TypeInfo({ r, small }) {
+  const t = typeLine(r);
+  if (!t) return null;
+  const fs = small ? 11.5 : 12.5;
+  return (
+    <span style={{ display: "flex", flexDirection: "column", gap: 2, minWidth: 0 }}>
+      <span style={{ fontSize: fs, fontWeight: 600, color: "#344054", lineHeight: 1.4 }}>{t}</span>
+      {r.type === "Doctor service" && r.service && <span style={{ fontSize: fs - 0.5, color: "#5b6576", lineHeight: 1.4 }}>{serviceLine(r.service)}</span>}
+      {serviceHeld(r) && <span style={{ fontSize: fs - 0.5, fontWeight: 600, color: "#b54708", lineHeight: 1.4 }}>{HELD_NOTE}</span>}
+    </span>
+  );
+}
+
+/* " since 18 Nov": when it reached the one it waits on -- the step before
+   decided (or skipped) then, or it was sent then */
+const since = (r) => {
+  if (r.status !== "waiting") return "";
+  const at = String((r.step > 0 && r.steps[r.step - 1]?.at) || r.created || "").slice(0, 10);
+  return /^\d{4}-\d{2}-\d{2}$/.test(at) ? ` since ${shortDate(at)}` : "";
+};
+// read only by screen readers
+const SR = { position: "absolute", width: 1, height: 1, padding: 0, margin: -1, overflow: "hidden", clip: "rect(0,0,0,0)", whiteSpace: "nowrap", border: 0 };
+
+/* The bill check's badge, in words an approver reads right: "Bill matches ·
+   100%", not "Low risk · 100" (which reads as risk 100). */
+export function CheckBadge({ b, small }) {
+  const risk = b.risk || (b.score == null ? "" : b.score >= 90 ? "Low" : b.score >= 70 ? "Medium" : "High");
+  if (!risk) return null;
+  const t = RISK[risk] || RISK.High;
+  return (
+    <span title={b.reason || ""} style={{ flex: "none", alignSelf: "flex-start", display: "inline-flex", alignItems: "center", gap: 5, fontSize: small ? 10.5 : 11, fontWeight: 700, padding: small ? "1px 7px" : "2px 8px", borderRadius: 99, background: t.bg, color: t.fg, whiteSpace: "nowrap" }}>
+      <span aria-hidden style={{ width: 6, height: 6, borderRadius: "50%", background: t.dot }} />
+      {risk === "Low" ? "Bill matches" : "Check this bill"}{b.score != null ? ` · ${Math.round(b.score)}%` : ""}
+    </span>
+  );
+}
 
 function StatusPill({ r }) {
   // approved = booked in the accounts (17 Nov 2026): to be paid, or paid
@@ -65,7 +121,8 @@ export function ChainTrack({ r, steps: given, compact }) {
             {i > 0 && <span aria-hidden style={{ color: "#c0c5cf", fontSize: 12 }}>›</span>}
             <span style={{ display: "inline-flex", alignItems: "center", gap: 5, padding: compact ? "2px 7px" : "4px 9px", borderRadius: 99, fontSize: compact ? 11 : 12, fontWeight: 700, color: tone, background: ok ? "#ecfdf3" : no ? "#fef3f2" : now ? "#fffaeb" : "#f2f4f7", boxShadow: now ? "0 0 0 1.5px #f79009" : "none", whiteSpace: "nowrap" }}>
               {ok ? <Icon d={IC.check} size={11} sw={3} /> : no ? <Icon d={IC.x} size={11} sw={3} /> : now ? <span style={{ width: 6, height: 6, borderRadius: 99, background: "#f79009" }} /> : null}
-              <span style={skip ? { textDecoration: "line-through" } : undefined}>{s.level || "Approver"}</span>{!compact && <span style={{ fontWeight: 500, color: "#475467" }}> {String(s.name || "").split(" ")[0]}</span>}
+              <span style={skip ? { textDecoration: "line-through" } : undefined}>{s.level || "Approver"}</span>
+              <span style={SR}>{`, ${ok ? "approved" : no ? "sent back" : skip ? "skipped" : now ? "waiting" : "not yet"}`}</span>{!compact && <span style={{ fontWeight: 500, color: "#475467" }}> {String(s.name || "").split(" ")[0]}</span>}
             </span>
           </li>
         );
@@ -116,8 +173,9 @@ export function MyRequests({ conn, requests, onChanged }) {
             style={{ width: "100%", display: "flex", alignItems: "center", gap: 10, padding: "12px 0", border: 0, borderTop: i ? "1px solid #eef1f5" : 0, background: "transparent", textAlign: "left", cursor: "pointer", font: "inherit", color: "inherit" }}>
             <span style={{ flex: 1, minWidth: 0, display: "flex", flexDirection: "column", gap: 2 }}>
               <b style={{ fontSize: 14, ...ell }}>{kindWord(r)}{r.kind === "cash" && r.purpose ? ` · ${r.purpose}` : ""}</b>
-              <span style={{ fontSize: 12, color: r.status === "rejected" ? "#b42318" : "#8a93a3", ...ell }}>
-                {r.bills.length === 1 && r.bills[0].date ? `${shortDate(r.bills[0].date)} · ` : ""}{r.status === "rejected" ? "Sent back — tap to see why" : r.status === "approved" ? "Verified" : waitingOn(r) || `sent ${when(r.created)}`}
+              {typeLine(r) && <span style={{ fontSize: 12, fontWeight: 600, color: "#475467", ...ell }}>{typeLine(r)}</span>}
+              <span style={{ fontSize: 12, color: r.status === "rejected" ? "#b42318" : serviceHeld(r) ? "#b54708" : "#8a93a3", ...ell }}>
+                {r.bills.length === 1 && r.bills[0].date ? `${shortDate(r.bills[0].date)} · ` : ""}{r.status === "rejected" ? "Sent back — tap to see why" : r.status === "approved" ? "Verified" : serviceHeld(r) ? "Waiting for the doctor service to be approved" : (waitingOn(r) && waitingOn(r) + since(r)) || `sent ${when(r.created)}`}
               </span>
             </span>
             <b style={{ fontSize: 15, ...tabNum }}>{inr(r.amount)}</b>
@@ -158,13 +216,14 @@ function MyRequestSheet({ conn, r, onClose, onChanged }) {
   const files = r.bills.map((b) => billFile(b.bill)).filter(Boolean);
   return (
     <>
-      <Sheet title={kindWord(r)} sub={`${r.id} · ${inr(r.amount)} · sent ${when(r.created)}`} onClose={busy ? () => {} : onClose} desktop="dialog" maxWidth={560} body="#f4f5f7"
+      <Sheet title={kindWord(r)} sub={`${inr(r.amount)} · sent ${when(r.created)}`} onClose={busy ? () => {} : onClose} desktop="dialog" maxWidth={560} body="#f4f5f7"
         footer={canTakeBack ? <>
           <button type="button" className="ec-ghost" disabled={busy} onClick={takeBack} style={{ ...btn.ghost, flex: 1, display: "inline-flex", alignItems: "center", justifyContent: "center", gap: 8 }}>{busy ? <><Spinner size={14} />Taking back…</> : "Take back"}</button>
           <button type="button" className="ec-cta" disabled={busy} onClick={onClose} style={{ ...btn.primary, flex: 1 }}>Close</button>
         </> : <button type="button" className="ec-cta" onClick={onClose} style={{ ...btn.primary, flex: 1 }}>Close</button>}>
         <div style={{ padding: 14, display: "flex", flexDirection: "column", gap: 10 }}>
           {err && <Note>{err}</Note>}
+          {serviceHeld(r) && <Note tone="info" style={{ color: "#b54708", background: "#fffaeb" }}>Waiting for the doctor service to be approved — you are paid back once it is.</Note>}
           {r.status === "rejected" && r.note && (
             <span style={{ fontSize: 13, color: "#b42318", padding: "10px 12px", borderRadius: 12, background: "#fef3f2", lineHeight: 1.45 }}>
               <b>Sent back by {r.steps.find((s) => s.decision === "Rejected")?.name || "an approver"}:</b> {r.note}
@@ -194,7 +253,7 @@ function MyRequestSheet({ conn, r, onClose, onChanged }) {
                   <span style={{ flex: 1, minWidth: 0, display: "flex", flexDirection: "column", gap: 1, paddingBottom: last ? 0 : 12 }}>
                     <span style={{ fontSize: 13.5 }}><b>{s.name}</b> <span style={{ color: "#8a93a3" }}>{s.level}</span></span>
                     <span style={{ fontSize: 12, color: tone }}>
-                      {ok ? `Approved · ${when(s.at)}` : no ? `Sent back · ${when(s.at)}` : skip ? `Skipped · ${when(s.at)}` : now ? "Waiting for them" : r.status === "waiting" ? "Next" : "—"}
+                      {ok ? `Approved · ${when(s.at)}` : no ? `Sent back · ${when(s.at)}` : skip ? `Skipped · ${when(s.at)}` : now ? `Waiting for them${since(r)}` : r.status === "waiting" ? "Next" : "—"}
                     </span>
                     {s.note && <span style={{ fontSize: 12, color: "#475467" }}>{s.note}</span>}
                   </span>
@@ -204,7 +263,7 @@ function MyRequestSheet({ conn, r, onClose, onChanged }) {
           </div>
           {r.kind === "cash" ? (
             <div style={{ ...card, padding: 14, display: "flex", flexDirection: "column", gap: 4 }}>
-              <span style={label}>Cash asked for</span>
+              <span style={label}>Advance asked for</span>
               <b style={{ fontSize: 20, ...tabNum }}>{inr(r.amount)}</b>
               {r.purpose && <span style={{ fontSize: 14, color: "#344054" }}>{r.purpose}</span>}
             </div>
@@ -219,6 +278,7 @@ function MyRequestSheet({ conn, r, onClose, onChanged }) {
                     <span style={{ flex: 1, minWidth: 0, display: "flex", flexDirection: "column", gap: 2 }}>
                       <b style={{ fontSize: 13.5, ...ell }}>{b.title}</b>
                       <span style={{ fontSize: 12, color: "#5b6576" }}>{shortDate(b.date)}</span>
+                      {typeLine(r) && <span style={{ fontSize: 12, fontWeight: 600, color: "#475467" }}>{typeLine(r)}</span>}
                     </span>
                     <b style={{ fontSize: 14, ...tabNum }}>{inr(b.amount)}</b>
                   </div>
@@ -263,7 +323,9 @@ function roleOf(data) {
 }
 /* the request's next approver is the CEO: approving SENDS it to him, in a batch */
 export const toCeo = (r) => r.status === "waiting" && r.steps[r.step + 1]?.level === "CEO";
-const clean = (r) => r.kind === "cash" || r.bills.every((b) => b.score != null && b.score >= 90);
+const clean = (r) => !serviceHeld(r) && (r.kind === "cash" || r.bills.every((b) => b.score != null && b.score >= 90));
+// what a tick or "Approve all" may take: never a bill held for its doctor service
+const pickable = (list) => list.filter((r) => !serviceHeld(r));
 const sumOf = (rs) => rs.reduce((s, r) => s + r.amount, 0);
 // desktop table pieces (18 Nov 2026)
 const ageDays = (s) => { const d = new Date(String(s || "").replace(" ", "T")); return isNaN(d) ? null : Math.max(0, Math.floor((Date.now() - d) / 864e5)); };
@@ -284,8 +346,8 @@ function QueueCard({ r, act, picked, onPick, onOpen, mine }) {
   return (
     <div style={{ ...card, padding: 0, display: "flex", alignItems: "stretch", boxShadow: act ? "0 0 0 1.5px #f79009" : card.boxShadow, overflow: "hidden" }}>
       {onPick && (
-        <label style={{ display: "grid", placeItems: "center", padding: "0 4px 0 12px", cursor: "pointer" }} aria-label={`Select ${r.id}`}>
-          <input type="checkbox" checked={picked} onChange={(e) => onPick(e.target.checked)} style={{ width: 18, height: 18, accentColor: "#2563eb" }} />
+        <label style={{ display: "grid", placeItems: "center", minWidth: 44, minHeight: 44, padding: "0 0 0 6px", cursor: serviceHeld(r) ? "not-allowed" : "pointer" }} aria-label={`Select ${kindWord(r)}`} title={serviceHeld(r) ? HELD_NOTE : undefined}>
+          <input type="checkbox" checked={picked} disabled={serviceHeld(r)} onChange={(e) => onPick(e.target.checked)} style={{ width: 18, height: 18, accentColor: "#2563eb" }} />
         </label>
       )}
       <button type="button" onClick={onOpen} style={{ flex: 1, minWidth: 0, padding: 14, display: "flex", flexDirection: "column", gap: 7, border: 0, background: "transparent", textAlign: "left", cursor: "pointer" }}>
@@ -294,6 +356,7 @@ function QueueCard({ r, act, picked, onPick, onOpen, mine }) {
           <span style={{ fontSize: 16, fontWeight: 700, ...tabNum }}>{inr(r.amount)}</span>
         </span>
         <span style={{ fontSize: 12, color: "#8a93a3", ...ell }}>Sent {when(r.created)}{r.resent ? <b style={{ color: "#b54708", fontWeight: 600 }}> · sent again</b> : null}</span>
+        <TypeInfo r={r} small />
         {act && (look ? (
           <span style={{ fontSize: 11.5, fontWeight: 700, color: "#b54708" }}>Needs a look — open the bill</span>
         ) : scored ? (
@@ -302,10 +365,10 @@ function QueueCard({ r, act, picked, onPick, onOpen, mine }) {
         <ChainTrack r={r} compact />
         {mine && (
           <span style={{ fontSize: 12, fontWeight: 600, color: mine.decision === "Rejected" ? "#b42318" : "#067647", ...ell }}>
-            You {mine.decision === "Rejected" ? "rejected" : "approved"}{mine.at ? ` · ${when(mine.at)}` : ""}{mine.decision === "Rejected" && mine.note ? ` — ${mine.note}` : ""}
+            You {mine.decision === "Rejected" ? "sent it back" : "approved"}{mine.at ? ` · ${when(mine.at)}` : ""}{mine.decision === "Rejected" && mine.note ? ` — ${mine.note}` : ""}
           </span>
         )}
-        {!act && (r.status === "waiting" ? <span style={{ fontSize: 12, color: "#8a93a3" }}>{waitingOn(r)}</span> : <StatusPill r={r} />)}
+        {!act && (r.status === "waiting" ? <span style={{ fontSize: 12, color: "#8a93a3" }}>{waitingOn(r)}{since(r)}</span> : <StatusPill r={r} />)}
       </button>
     </div>
   );
@@ -320,8 +383,8 @@ function Fold({ open, onClick, title, sub, n, amount, hot, hq }) {
         <Icon d={IC.next} size={14} />
       </span>
       <span style={{ flex: 1, minWidth: 0, display: "flex", alignItems: "baseline", gap: 8 }}>
-        <b style={{ fontSize: hq ? 15 : 14, ...ell }}>{title}</b>
-        {sub && <span style={{ fontSize: 12, color: "#8a93a3", ...ell }}>{sub}</span>}
+        <b style={{ flexShrink: 0, maxWidth: "100%", fontSize: hq ? 15 : 14, ...ell }}>{title}</b>
+        {sub && <span style={{ minWidth: 0, fontSize: 12, color: "#8a93a3", ...ell }}>{sub}</span>}
       </span>
       <span style={{ flex: "none", display: "inline-flex", alignItems: "center", gap: 8 }}>
         <span style={{ minWidth: 22, height: 22, padding: "0 7px", borderRadius: 11, display: "grid", placeItems: "center", background: hot ? "#fef0c7" : "#f2f4f7", color: hot ? "#b54708" : "#475467", fontSize: 12, fontWeight: 700, ...tabNum }}>{n}</span>
@@ -344,7 +407,7 @@ export function SettleQueue({ conn, data, desk, onOpen, onDone, onError }) {
     // only what reached the caller (they approved or rejected it); the IT overview sees all
     { k: "moving", t: "In approval", list: others.filter((r) => r.status === "waiting" && (reader || myStep(r)?.decision === "Approved")) },
     { k: "approved", t: "Approved", list: others.filter((r) => r.status === "approved" && (reader || myStep(r))).sort(newest) },
-    { k: "rejected", t: "Rejected", list: others.filter((r) => r.status === "rejected" && (reader || myStep(r))).sort(newest) },
+    { k: "rejected", t: "Sent back", list: others.filter((r) => r.status === "rejected" && (reader || myStep(r))).sort(newest) },
     ...(reader ? [] : [{
       k: "history", t: "History", history: true,
       list: others.filter(myStep).sort((a, b) => String(myStep(b).at).localeCompare(String(myStep(a).at))),
@@ -395,7 +458,7 @@ export function SettleQueue({ conn, data, desk, onOpen, onDone, onError }) {
     setBusy("");
   };
   const grid = { display: "grid", gridTemplateColumns: desk ? "repeat(auto-fill,minmax(320px,1fr))" : "minmax(0,1fr)", gap: 8 };
-  const EMPTY = { waiting: "Nothing waits on you.", moving: "Nothing you approved is still going up.", approved: "Nothing approved yet.", rejected: "Nothing rejected.", history: "You have not approved or rejected anything yet." };
+  const EMPTY = { waiting: "Nothing waits on you.", moving: "Nothing you approved is still going up.", approved: "Nothing approved yet.", rejected: "Nothing sent back.", history: "You have not approved or sent back anything yet." };
 
   /* Desktop (18 Nov 2026, the user: "a business-level page, not cards"): a
      summary line, then ONE table -- Team (or HQ) > employee > bills -- with
@@ -406,7 +469,7 @@ export function SettleQueue({ conn, data, desk, onOpen, onDone, onError }) {
     const oldest = shown.reduce((m, r) => Math.max(m, ageDays(arrivedOf(r)) ?? 0), 0);
     const pickedAmt = sumOf(waiting.filter((r) => picked.has(r.id)));
     const allCeo = picked.size > 0 && [...picked].every((id) => toCeo(waiting.find((r) => r.id === id) || {}));
-    const setMany = (list, on) => setPicked((s) => { const n = new Set(s); for (const r of list) { if (on) n.add(r.id); else n.delete(r.id); } return n; });
+    const setMany = (list, on) => setPicked((s) => { const n = new Set(s); for (const r of list) { if (on && !serviceHeld(r)) n.add(r.id); else n.delete(r.id); } return n; });
     const COLS = cur.act ? 7 : 6;
     const figs = [
       [cur.act ? "Waiting on you" : cur.t, inr(sumOf(shown)), true],
@@ -471,7 +534,7 @@ export function SettleQueue({ conn, data, desk, onOpen, onDone, onError }) {
                 const gOpen = isOpen(gk, true);
                 return [
                   <tr key={gk} style={{ background: "#f9fafb" }}>
-                    {cur.act && <td style={{ ...TD, background: "#f9fafb" }}><input type="checkbox" disabled={!!busy} aria-label={`Select all of ${h.name}`} checked={all.every((r) => picked.has(r.id))} onChange={(e) => setMany(all, e.target.checked)} style={CHK} /></td>}
+                    {cur.act && <td style={{ ...TD, background: "#f9fafb" }}><input type="checkbox" disabled={!!busy} aria-label={`Select all of ${h.name}`} checked={pickable(all).length > 0 && pickable(all).every((r) => picked.has(r.id))} onChange={(e) => setMany(all, e.target.checked)} style={CHK} /></td>}
                     <td style={{ ...TD, background: "#f9fafb" }} colSpan={1}>
                       <button type="button" onClick={() => toggle(gk)} aria-expanded={gOpen} style={{ ...ROWBTN, fontSize: 13.5, fontWeight: 700 }}>
                         <Caret open={gOpen} />{h.name}<span style={{ fontWeight: 500, color: "#8a93a3", fontSize: 12.5 }}>{h.people.length} {h.people.length === 1 ? "person" : "people"}</span>
@@ -488,7 +551,8 @@ export function SettleQueue({ conn, data, desk, onOpen, onDone, onError }) {
                     const looks = p.list.filter(needsLook).length;
                     const cash = p.list.filter((r) => r.kind === "cash").length;
                     const age = p.list.reduce((m, r) => Math.max(m, ageDays(arrivedOf(r)) ?? 0), 0);
-                    const sel = p.list.every((r) => picked.has(r.id));
+                    const pl = pickable(p.list);
+                    const sel = pl.length > 0 && pl.every((r) => picked.has(r.id));
                     const mine = cur.history ? myStep(p.list[0]) : null;
                     const lead = [
                       <tr key={k} style={{ background: sel && cur.act ? "#f5f8ff" : "#fff" }}>
@@ -501,23 +565,23 @@ export function SettleQueue({ conn, data, desk, onOpen, onDone, onError }) {
                         <td style={{ ...TD, textAlign: "right", ...tabNum }}>{p.list.length}</td>
                         <td style={TD}>
                           {looks ? <span style={{ color: "#b54708", fontWeight: 600 }}>{looks} {looks === 1 ? "needs" : "need"} a look</span>
-                            : <span style={{ color: "#067647", fontWeight: 600 }}>{cash === p.list.length ? "Cash request" : "All bills match"}</span>}
+                            : <span style={{ color: "#067647", fontWeight: 600 }}>{cash === p.list.length ? "Advance request" : "All bills match"}</span>}
                         </td>
                         <td style={{ ...TD, color: "#475467" }}>
                           {cur.act ? (age ? `${age} ${age === 1 ? "day" : "days"}` : "Today")
                             : mine ? <span style={{ color: mine.decision === "Rejected" ? "#b42318" : "#067647", fontWeight: 600 }}>{mine.decision === "Rejected" ? "Sent back" : "Approved"}{mine.at ? ` · ${when(mine.at)}` : ""}</span>
-                            : p.list.length === 1 ? (p.list[0].status === "waiting" ? waitingOn(p.list[0]) : <StatusPill r={p.list[0]} />) : `${p.list.length} bills`}
+                            : p.list.length === 1 ? (p.list[0].status === "waiting" ? waitingOn(p.list[0]) + since(p.list[0]) : <StatusPill r={p.list[0]} />) : `${p.list.length} bills`}
                         </td>
                         <td style={{ ...TD, textAlign: "right", fontWeight: 700, ...tabNum }}>{inr(sumOf(p.list))}</td>
                         <td style={{ ...TD, textAlign: "right" }}>
-                          {cur.act && (
+                          {cur.act && (pl.length ? (
                             <button type="button" className={sure === p.id ? "ec-cta" : "ec-ghost"} disabled={!!busy}
-                              onClick={() => (sure === p.id ? approveMany(p.list.map((r) => r.id)) : setSure(p.id))}
+                              onClick={() => (sure === p.id ? approveMany(pl.map((r) => r.id)) : setSure(p.id))}
                               onBlur={() => setSure((x) => (x === p.id ? "" : x))}
                               style={{ ...(sure === p.id ? btn.primary : btn.ghost), height: 32, padding: "0 12px", borderRadius: 8, fontSize: 12.5, whiteSpace: "nowrap" }}>
-                              {sure === p.id ? `Confirm · ${inr(sumOf(p.list))}` : p.list.every(toCeo) ? (p.list.length === 1 ? "Send to the CEO" : `Send ${p.list.length} to the CEO`) : p.list.length === 1 ? "Approve" : `Approve all ${p.list.length}`}
+                              {sure === p.id ? `Confirm · ${inr(sumOf(pl))}` : pl.every(toCeo) ? (pl.length === 1 ? "Send to the CEO" : `Send ${pl.length} to the CEO`) : pl.length === 1 ? "Approve" : `Approve all ${pl.length}`}
                             </button>
-                          )}
+                          ) : <span style={{ fontSize: 12, fontWeight: 600, color: "#b54708" }}>{HELD_NOTE}</span>)}
                         </td>
                       </tr>,
                     ];
@@ -527,15 +591,16 @@ export function SettleQueue({ conn, data, desk, onOpen, onDone, onError }) {
                       const m = cur.history ? myStep(r) : null;
                       return (
                         <tr key={r.id} style={{ background: "#fcfcfd" }}>
-                          {cur.act && <td style={TD2}><input type="checkbox" disabled={!!busy} aria-label={`Select ${r.id}`} checked={picked.has(r.id)} onChange={(e) => setMany([r], e.target.checked)} style={CHK} /></td>}
+                          {cur.act && <td style={TD2}><input type="checkbox" disabled={!!busy || serviceHeld(r)} title={serviceHeld(r) ? HELD_NOTE : undefined} aria-label={`Select ${b?.title || kindWord(r)}`} checked={picked.has(r.id)} onChange={(e) => setMany([r], e.target.checked)} style={CHK} /></td>}
                           <td style={{ ...TD2, paddingLeft: 58 }}>
                             <button type="button" onClick={() => onOpen(r, !!cur.act)} style={{ border: 0, background: "transparent", padding: 0, textAlign: "left", cursor: "pointer", color: "#0b1220" }}>
-                              <span style={{ fontWeight: 500 }}>{r.kind === "cash" ? `Cash request · ${r.purpose}` : b?.title || "Bill"}</span>
+                              <span style={{ fontWeight: 500 }}>{r.kind === "cash" ? `Advance request · ${r.purpose}` : b?.title || "Bill"}</span>
                               <span style={{ color: "#8a93a3" }}> · {b ? shortDate(b.date) : when(r.created)}{r.resent ? " · sent again" : ""}</span>
                             </button>
+                            <TypeInfo r={r} small />
                           </td>
                           <td style={TD2} />
-                          <td style={TD2}>{b ? <RiskBadge ai={{ risk: b.risk || (b.score >= 90 ? "Low" : b.score >= 70 ? "Medium" : "High"), score: b.score, reason: b.reason }} small /> : <span style={{ color: "#8a93a3" }}>No bill</span>}</td>
+                          <td style={TD2}>{b ? <CheckBadge b={b} small /> : <span style={{ color: "#8a93a3" }}>No bill</span>}</td>
                           <td style={TD2}>{m ? <span style={{ color: m.decision === "Rejected" ? "#b42318" : "#067647", fontWeight: 600 }}>{m.decision === "Rejected" ? `Sent back${m.note ? ` — ${m.note}` : ""}` : "Approved"}</span> : <ChainTrack r={r} compact />}</td>
                           <td style={{ ...TD2, textAlign: "right", ...tabNum }}>{inr(r.amount)}</td>
                           <td style={{ ...TD2, textAlign: "right" }}>
@@ -569,7 +634,7 @@ export function SettleQueue({ conn, data, desk, onOpen, onDone, onError }) {
       <div role="tablist" style={{ display: "flex", gap: 4, padding: 4, borderRadius: 12, background: "#e9ecf1", alignSelf: "flex-start", maxWidth: "100%", overflowX: "auto" }}>
         {tabs.map((x) => (
           <button key={x.k} type="button" role="tab" aria-selected={tab === x.k} onClick={() => { setTab(x.k); setPicked(new Set()); setFlip(new Set()); }}
-            style={{ height: 34, padding: "0 12px", borderRadius: 9, border: 0, background: tab === x.k ? "#fff" : "transparent", boxShadow: tab === x.k ? "0 1px 2px rgba(16,24,40,.12)" : "none", fontSize: 12.5, fontWeight: 600, cursor: "pointer", whiteSpace: "nowrap" }}>
+            style={{ flex: "none", height: 44, padding: "0 12px", borderRadius: 9, border: 0, background: tab === x.k ? "#fff" : "transparent", boxShadow: tab === x.k ? "0 1px 2px rgba(16,24,40,.12)" : "none", fontSize: 12.5, fontWeight: 600, cursor: "pointer", whiteSpace: "nowrap" }}>
             {x.t} <span style={{ color: x.act && x.list.length ? "#b54708" : "#8a93a3" }}>{x.list.length}</span>
           </button>
         ))}
@@ -585,16 +650,24 @@ export function SettleQueue({ conn, data, desk, onOpen, onDone, onError }) {
             </label>
           )}
           {cur.act && cleanOnes.length > 1 && (
-            <button type="button" className="ec-ghost" disabled={!!busy} onClick={() => setPicked(new Set(cleanOnes.map((r) => r.id)))} style={{ ...btn.ghost, height: 36, fontSize: 12.5 }}>
+            <button type="button" className="ec-ghost" disabled={!!busy} onClick={() => setPicked(new Set(cleanOnes.map((r) => r.id)))} style={{ ...btn.ghost, height: 44, fontSize: 12.5 }}>
               Select {cleanOnes.length} clean
             </button>
           )}
-          {cur.act && picked.size > 0 && <>
-            <button type="button" className="ec-cta" disabled={!!busy} onClick={() => approveMany()} style={{ ...btn.primary, height: 36, fontSize: 12.5, display: "inline-flex", alignItems: "center", gap: 6 }}>
-              {busy ? <><Spinner size={12} />{busy}</> : [...picked].every((id) => toCeo(waiting.find((r) => r.id === id) || {})) ? `Send ${picked.size} to the CEO` : `Approve ${picked.size} selected`}
-            </button>
-            <button type="button" className="ec-ghost" disabled={!!busy} onClick={() => setPicked(new Set())} style={{ ...btn.ghost, height: 36, fontSize: 12.5 }}>Clear</button>
-          </>}
+          {cur.act && picked.size > 0 && (() => {
+            // the same second tap as an employee's "Approve all" (23 Nov 2026)
+            const ceoAll = [...picked].every((id) => toCeo(waiting.find((r) => r.id === id) || {}));
+            const amt = inr(sumOf(waiting.filter((r) => picked.has(r.id))));
+            return <>
+              <button type="button" className="ec-cta" disabled={!!busy}
+                onClick={() => (sure === "picked" ? approveMany() : setSure("picked"))}
+                onBlur={() => setSure((x) => (x === "picked" ? "" : x))}
+                style={{ ...btn.primary, height: 44, fontSize: 12.5, display: "inline-flex", alignItems: "center", gap: 6 }}>
+                {busy ? <><Spinner size={12} />{busy}</> : sure === "picked" ? `Tap again · ${ceoAll ? `send ${amt} to the CEO` : `approve ${amt}`}` : ceoAll ? `Send ${picked.size} to the CEO` : `Approve ${picked.size} selected`}
+              </button>
+              <button type="button" className="ec-ghost" disabled={!!busy} onClick={() => { setPicked(new Set()); setSure(""); }} style={{ ...btn.ghost, height: 44, fontSize: 12.5 }}>Clear</button>
+            </>;
+          })()}
         </div>
       )}
 
@@ -609,34 +682,39 @@ export function SettleQueue({ conn, data, desk, onOpen, onDone, onError }) {
               <div key={k} style={{ ...card, padding: 0, overflow: "hidden" }}>
                 <div style={{ display: "flex", alignItems: "center", gap: 4, paddingRight: cur.act ? 10 : 0, flexWrap: desk ? "nowrap" : "wrap" }}>
                   {cur.act && (
-                    <label style={{ display: "grid", placeItems: "center", paddingLeft: 12, cursor: "pointer" }} aria-label={`Select all of ${p.name}'s bills`}>
-                      <input type="checkbox" disabled={!!busy} checked={p.list.every((r) => picked.has(r.id))}
-                        onChange={(e) => setPicked((s) => { const n = new Set(s); for (const r of p.list) { if (e.target.checked) n.add(r.id); else n.delete(r.id); } return n; })}
+                    <label style={{ display: "grid", placeItems: "center", minWidth: 44, minHeight: 44, marginLeft: 4, cursor: "pointer" }} aria-label={`Select all of ${p.name}'s bills`}>
+                      <input type="checkbox" disabled={!!busy || !pickable(p.list).length} checked={pickable(p.list).length > 0 && pickable(p.list).every((r) => picked.has(r.id))}
+                        onChange={(e) => setPicked((s) => { const n = new Set(s); for (const r of p.list) { if (e.target.checked && !serviceHeld(r)) n.add(r.id); else n.delete(r.id); } return n; })}
                         style={{ width: 18, height: 18, accentColor: "#2563eb" }} />
                     </label>
                   )}
-                  {/* on a phone the name keeps its room and the wider "Tap again" button
-                      wraps under it (20 Nov 2026: the button squeezed the name away) */}
-                  <div style={{ flex: desk ? 1 : "1 1 170px", minWidth: desk ? 0 : 170 }}>
-                    <Fold open={open} onClick={() => toggle(k)} title={p.name} sub={byTeam ? [hqs.length === 1 && h.name !== NONE ? h.name : "", p.hq].filter(Boolean).join(" · ") : hqs.length === 1 && h.name !== NONE ? h.name : ""}
+                  {/* on a phone the name keeps its room and the action button wraps
+                      to its own row under it (20 Nov 2026: the button squeezed the
+                      name away; 23 Nov 2026: always its own row, the name got "M..") */}
+                  <div style={{ flex: desk ? 1 : cur.act ? "1 1 calc(100% - 52px)" : "1 1 170px", minWidth: desk ? 0 : cur.act ? 0 : 170 }}>
+                    {/* one team / HQ only: its name is not repeated on each person on a phone */}
+                    <Fold open={open} onClick={() => toggle(k)} title={p.name} sub={byTeam ? [hqs.length === 1 && h.name !== NONE && desk ? h.name : "", p.hq].filter(Boolean).join(" · ") : hqs.length === 1 && h.name !== NONE && desk ? h.name : ""}
                       n={p.list.length} amount={sumOf(p.list)} hot={cur.act} />
                   </div>
-                  {cur.act && (
-                    <button type="button" className={sure === p.id ? "ec-cta" : "ec-ghost"} disabled={!!busy}
-                      onClick={() => (sure === p.id ? approveMany(p.list.map((r) => r.id)) : setSure(p.id))}
-                      onBlur={() => setSure((x) => (x === p.id ? "" : x))}
-                      style={{ ...(sure === p.id ? btn.primary : btn.ghost), height: 34, padding: "0 12px", fontSize: 12.5, whiteSpace: "nowrap", marginLeft: desk ? 0 : 12, marginBottom: desk ? 0 : 10 }}>
-                      {sure === p.id
-                        ? `Tap again: ${p.list.every(toCeo) ? "send to the CEO" : "approve"} ${p.list.length} · ${inr(sumOf(p.list))}`
-                        : p.list.every(toCeo) ? `Send ${p.list.length === 1 ? "" : `all ${p.list.length} `}to the CEO` : p.list.length === 1 ? "Approve" : `Approve all ${p.list.length}`}
-                    </button>
-                  )}
+                  {cur.act && pickable(p.list).length > 0 && (() => {
+                    const pl = pickable(p.list);
+                    return (
+                      <button type="button" className={sure === p.id ? "ec-cta" : "ec-ghost"} disabled={!!busy}
+                        onClick={() => (sure === p.id ? approveMany(pl.map((r) => r.id)) : setSure(p.id))}
+                        onBlur={() => setSure((x) => (x === p.id ? "" : x))}
+                        style={{ ...(sure === p.id ? btn.primary : btn.ghost), height: 44, padding: "0 12px", fontSize: 12.5, whiteSpace: "nowrap", marginLeft: desk ? 0 : 12, marginBottom: desk ? 0 : 10 }}>
+                        {sure === p.id
+                          ? `Tap again: ${pl.every(toCeo) ? "send to the CEO" : "approve"} ${pl.length} · ${inr(sumOf(pl))}`
+                          : pl.every(toCeo) ? `Send ${pl.length === 1 ? "" : `all ${pl.length} `}to the CEO` : pl.length === 1 ? "Approve" : `Approve all ${pl.length}`}
+                      </button>
+                    );
+                  })()}
                 </div>
                 {open && (
                   <div style={{ ...grid, padding: "0 12px 12px" }}>
                     {p.list.map((r) => (
                       <QueueCard key={r.id} r={r} act={!!cur.act} picked={picked.has(r.id)} mine={cur.history ? myStep(r) : null}
-                        onPick={cur.act ? (on) => setPicked((s) => { const n = new Set(s); if (on) n.add(r.id); else n.delete(r.id); return n; }) : null}
+                        onPick={cur.act ? (on) => setPicked((s) => { const n = new Set(s); if (on && !serviceHeld(r)) n.add(r.id); else n.delete(r.id); return n; }) : null}
                         onOpen={() => onOpen(r, !!cur.act)} />
                     ))}
                   </div>
@@ -677,14 +755,21 @@ export function SettleSheet({ conn, req: r, canAct, desk, onClose, onDone, onBil
   const [error, setError] = useState("");
   const [rejecting, setRejecting] = useState(false);
   const last = r.step === r.steps.length - 1;
+  // a doctor service bill waits for its service (settlement_api decide)
+  const held = serviceHeld(r);
   const go = async (decision) => {
     setError("");
+    if (decision === "Approve" && held) return setError(`${HELD_NOTE}.`);
     if (decision === "Reject" && !note.trim()) return setError("Say why it is sent back — the requester sees it.");
     try {
       setBusy(decision === "Approve" ? "Approving…" : "Sending back…");
-      await decideSettlement(conn, r.id, decision, note.trim());
+      // the request AFTER the decision: who it waits on now (an approver on
+      // leave is skipped by the server, so r.steps[r.step + 1] may be wrong)
+      const a = await decideSettlement(conn, r.id, decision, note.trim());
+      const nx = a && a.status === "waiting" ? a.steps[a.step] : null;
       onDone(decision === "Approve"
-        ? last ? `${r.employeeName}: approved and verified (${inr(r.amount)})` : `${r.employeeName}: approved — on to ${r.steps[r.step + 1]?.name || "the next approver"}`
+        ? (a ? a.status === "approved" : last) ? `${r.employeeName}: approved and verified (${inr(r.amount)})`
+          : `${r.employeeName}: approved — on to ${nx ? (nx.level === "CEO" ? "the CEO" : nx.name) : "the next approver"}`
         : `${r.employeeName}: sent back`);
     } catch (e) {
       setBusy("");
@@ -705,13 +790,24 @@ export function SettleSheet({ conn, req: r, canAct, desk, onClose, onDone, onBil
         <button type="button" className="ec-ghost" disabled={!!busy} onClick={() => { setRejecting(false); setError(""); }} style={{ ...btn.ghost, flex: 1 }}>Back</button>
         <button type="button" disabled={!!busy} onClick={() => go("Reject")} style={{ ...btn.primary, flex: 1.4, background: "#d92d20", display: "inline-flex", alignItems: "center", justifyContent: "center", gap: 8 }}>{busy ? <><Spinner />{busy}</> : "Send back"}</button>
       </> : <>
-        <button type="button" className="ec-ghost" disabled={!!busy} onClick={() => setRejecting(true)} style={{ ...btn.ghost, flex: 1, color: "#b42318" }}>Reject</button>
-        <button type="button" className="ec-cta" disabled={!!busy} onClick={() => go("Approve")} style={{ ...btn.primary, flex: 1.4, display: "inline-flex", alignItems: "center", justifyContent: "center", gap: 8 }}>
+        <button type="button" className="ec-ghost" disabled={!!busy} onClick={() => setRejecting(true)} style={{ ...btn.ghost, flex: 1, color: "#b42318" }}>Send back</button>
+        <button type="button" className="ec-cta" disabled={!!busy || held} aria-describedby={held ? "settle-held" : undefined} onClick={() => go("Approve")} style={{ ...btn.primary, flex: 1.4, display: "inline-flex", alignItems: "center", justifyContent: "center", gap: 8, ...(held ? { opacity: 0.5, cursor: "not-allowed" } : null) }}>
           {busy ? <><Spinner />{busy}</> : toCeo(r) ? `Send ${inr(r.amount)} to the CEO` : `Approve ${inr(r.amount)}`}
         </button>
       </>}
     >
       <div style={{ padding: desk ? 18 : 12, display: "flex", flexDirection: "column", gap: 10 }}>
+        {canAct && held && (
+          <Note tone="info" style={{ color: "#b54708", background: "#fffaeb" }}>
+            <span id="settle-held">{HELD_NOTE}{r.service?.state ? ` — it is ${r.service.state.toLowerCase()}` : ""}. You can still send this bill back.</span>
+          </Note>
+        )}
+        {typeLine(r) && (
+          <div style={{ ...card, padding: 14, display: "flex", flexDirection: "column", gap: 6 }}>
+            <span style={label}>What it was for</span>
+            <TypeInfo r={r} />
+          </div>
+        )}
         <div style={{ ...card, padding: 14, display: "flex", flexDirection: "column", gap: 8 }}>
           <span style={label}>Approval chain</span>
           <ChainTrack r={r} />
@@ -725,11 +821,11 @@ export function SettleSheet({ conn, req: r, canAct, desk, onClose, onDone, onBil
               <b>{s.name}</b> ({s.level}) {s.decision === "Approved" ? "approved" : s.decision === "Skipped" ? "skipped" : "sent it back"} · {when(s.at)}{s.note ? ` — ${s.note}` : ""}
             </span>
           ))}
-          {canAct && last && <span style={{ fontSize: 12.5, fontWeight: 600, color: "#067647" }}>You are the last step: approving books {r.kind === "bills" ? "the bill" : "the cash request"} for Accounts to pay.</span>}
+          {canAct && last && <span style={{ fontSize: 12.5, fontWeight: 600, color: "#067647" }}>You are the last step: approving books {r.kind === "bills" ? "the bill" : "the advance"} for Accounts to pay.</span>}
         </div>
         {r.kind === "cash" ? (
           <div style={{ ...card, padding: 14, display: "flex", flexDirection: "column", gap: 4 }}>
-            <span style={label}>Cash asked for</span>
+            <span style={label}>Advance asked for</span>
             <b style={{ fontSize: 22, ...tabNum }}>{inr(r.amount)}</b>
             <span style={{ fontSize: 14, color: "#344054" }}>{r.purpose}</span>
           </div>
@@ -746,8 +842,11 @@ export function SettleSheet({ conn, req: r, canAct, desk, onClose, onDone, onBil
                       <b style={{ fontSize: 15, ...tabNum }}>{inr(b.amount)}</b>
                     </span>
                     <span style={{ fontSize: 12.5, color: "#5b6576" }}>{shortDate(b.date)}</span>
-                    <RiskBadge ai={{ risk: b.risk || (b.score == null ? "" : b.score >= 90 ? "Low" : b.score >= 70 ? "Medium" : "High"), score: b.score }} small />
-                    {b.score != null && b.score < 90 && b.reason && <span style={{ fontSize: 12, color: "#b54708", lineHeight: 1.4 }}>{proofOf(b.reason).text}</span>}
+                    <CheckBadge b={b} small />
+                    {/* what the bill check compared, in one plain line (23 Nov 2026) */}
+                    {b.score != null && (b.reason || b.score >= 90) && (
+                      <span style={{ fontSize: 12, color: b.score < 90 ? "#b54708" : "#475467", lineHeight: 1.4 }}>{b.reason ? proofOf(b.reason).text : "Total and date match the bill"}</span>
+                    )}
                     {proofOf(b.reason).file && (
                       <span style={{ display: "flex", alignItems: "center", gap: 8 }}>
                         <BillThumb conn={conn} file={proofOf(b.reason).file} w={44} h={54} onOpen={() => onBill(proofOf(b.reason).file, [proofOf(b.reason).file])} />

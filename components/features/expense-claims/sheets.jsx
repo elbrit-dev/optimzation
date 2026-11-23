@@ -2,11 +2,12 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import {
-  ATTACH_ACCEPT, addSettlementBill, checkFile, checkSettlementBills, extractBill, invalidateClaims, requestCashThroughChain, sendBillsForApproval, uploadPrivateFile,
+  ATTACH_ACCEPT, addSettlementBill, checkFile, checkSettlementBills, extractBill, fetchDoctorServices, fetchSettlementSettings, invalidateClaims,
+  requestCashThroughChain, searchSettlementDoctors, sendBillsForApproval, uploadPrivateFile,
 } from "./data/claimsApi";
 import { IC, Icon, Note, Sheet, Spinner, btn, ell, tabNum } from "./ui";
 import { inr, isoDay, ledger, shortDate } from "./model";
-import { waitingOn } from "./settlement";
+import { drName, typeLine, waitingOn } from "./settlement";
 
 /* The settlement sheets (Miscellaneous), in the app's theme:
  *
@@ -33,6 +34,7 @@ const CSS = `
 .ecs-in{width:100%;height:52px;border-radius:14px;border:1.5px solid #e1e5ec;background:#fff;padding:0 14px;font-size:16px;outline:none;transition:border-color .15s,box-shadow .15s}
 .ecs-in:focus,.ecs-in:focus-within{border-color:#2563eb!important;box-shadow:0 0 0 3px rgba(37,99,235,.14)}
 .ecs-drop{transition:border-color .15s,background .15s}
+.ecs-ch:focus-visible{outline:2px solid #2563eb;outline-offset:2px}
 @media (hover:hover) and (pointer:fine){.ecs-drop:hover{border-color:#2563eb!important;background:#f5f8ff!important}}
 @keyframes ecs-pop{from{transform:scale(.6);opacity:0}to{transform:scale(1);opacity:1}}
 `;
@@ -70,11 +72,35 @@ const WRONG = {
   duplicate: { title: "This bill was already claimed", text: "A bill can be claimed once — here or on a trip." },
 };
 
+/* WHO IT WAS FOR (23 Nov 2026, the user): the rep's own expense -- only the
+   kinds the settings allow as own; hotel, food, fuel and travel are paid in
+   the monthly TA/DA claim -- or money spent on a doctor: up to the activity
+   limit a "Doctor activity" (the direct manager approves it), over it tagged
+   to a Doctor Service already asked for that doctor. The server decides the
+   type from the amount and refuses a wrong combination (settlement_api add_bill). */
+const TA_DA_TEXT = "Hotel, food, fuel and travel bills are paid in your monthly TA/DA claim. If you spent this on a doctor, choose “A doctor”.";
+// settlement_api words_of: whole words only ("inn" is not "Innova"), a plural "s" allowed
+const wordsOf = (t) => ` ${String(t || "").toLowerCase().replace(/[^a-z0-9]+/g, " ").trim()} `;
+function taDaKindOf(texts, kinds) {
+  for (const t of texts.map(wordsOf)) {
+    for (const k of kinds || []) {
+      if (k.words.some((w) => w && (t.includes(` ${w} `) || t.includes(` ${w}s `)))) return k.kind;
+    }
+  }
+  return "";
+}
+const choice = (on) => ({
+  minHeight: 52, borderRadius: 14, border: `1.5px solid ${on ? "#2563eb" : "#e1e5ec"}`, background: on ? "#f5f8ff" : "#fff",
+  color: on ? "#1d4ed8" : "#0b1220", fontSize: 15, fontWeight: 700, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", gap: 8, padding: "0 12px",
+});
+
 /* Money in short, for the footer: +in hand / −owed on the open claim. */
 const signed = (L) => L.balance - (L.over - L.owedClosed);
 
-export function BillSheet({ conn, me, claims = [], advances = [], today = new Date(), onClose, onSaved, onChecked, desk }) {
+export function BillSheet({ conn, me, claims = [], advances = [], cashAdvances = null, today = new Date(), onClose, onSaved, onChecked, desk }) {
   const todayIso = isoDay(today);
+  // the server takes no bill older than a year (settlement_api BILL_MAX_AGE_DAYS)
+  const minIso = isoDay(new Date(today.getFullYear(), today.getMonth(), today.getDate() - 365));
   const [title, setTitle] = useState("");
   const [amount, setAmount] = useState("");
   const [date, setDate] = useState(todayIso);
@@ -103,10 +129,60 @@ export function BillSheet({ conn, me, claims = [], advances = [], today = new Da
     setProofThumb(f.type.startsWith("image/") ? URL.createObjectURL(f) : null);
   };
 
-  const L = useMemo(() => ledger(claims, advances), [claims, advances]);
+  const L = useMemo(() => ledger(claims, advances, cashAdvances), [claims, advances, cashAdvances]);
   const now = signed(L);
   const amt = Number(amount) || 0;
   const after = now - amt;
+
+  // who it was for: "me" (own, a kind) or "doctor" (a doctor; over the limit, a service)
+  const [settings, setSettings] = useState(null);
+  useEffect(() => {
+    let alive = true;
+    fetchSettlementSettings(conn).then((x) => alive && setSettings(x));
+    return () => { alive = false; };
+  }, [conn]);
+  const limit = settings?.activityLimit || 2000;
+  const ownKinds = settings?.ownKinds || [];
+  const [forWho, setForWho] = useState("");
+  const [kind, setKind] = useState("");
+  const [doctor, setDoctor] = useState(null); // { id, name, city }
+  const [dq, setDq] = useState("");
+  const [found, setFound] = useState({ q: "", list: [], busy: false, error: "" });
+  const [svcs, setSvcs] = useState({ doctor: "", list: null, busy: false, error: "" });
+  const [svc, setSvc] = useState("");
+  const over = forWho === "doctor" && amt > limit;
+  // a blocked Send's message is about the choices made then: drop it once they change
+  useEffect(() => { setError(""); }, [forWho, kind, doctor, svc, amt]);
+  // the doctor search: 2+ letters, 300 ms after the last key
+  useEffect(() => {
+    const q = dq.trim();
+    if (forWho !== "doctor" || doctor || q.length < 2) { setFound({ q: "", list: [], busy: false, error: "" }); return undefined; }
+    let alive = true;
+    setFound((f) => ({ ...f, busy: true, error: "" }));
+    const t = setTimeout(() => {
+      searchSettlementDoctors(conn, q)
+        .then((list) => alive && setFound({ q, list, busy: false, error: "" }))
+        .catch((e) => alive && setFound({ q, list: [], busy: false, error: e.message }));
+    }, 300);
+    return () => { alive = false; clearTimeout(t); };
+  }, [conn, dq, forWho, doctor]);
+  // the doctor's services, once the amount is over the limit (asked once per
+  // doctor; "Change" asks again). An answer for another doctor is dropped.
+  const svcAsked = useRef("");
+  useEffect(() => {
+    if (!over || !doctor || svcAsked.current === doctor.id) return;
+    const id = doctor.id;
+    svcAsked.current = id;
+    setSvcs({ doctor: id, list: null, busy: true, error: "" });
+    fetchDoctorServices(conn, id)
+      .then((list) => setSvcs((x) => (x.doctor === id ? { doctor: id, list, busy: false, error: "" } : x)))
+      .catch((e) => setSvcs((x) => (x.doctor === id ? { doctor: id, list: null, busy: false, error: e.message } : x)));
+  }, [conn, over, doctor]);
+  const svcList = doctor && svcs.doctor === doctor.id ? svcs.list : null;
+  const picked = svcList?.find((x) => x.name === svc) || null;
+  // an own bill that is really TA/DA: by the reader's kind, its title, or the title typed
+  const taDa = forWho === "me" ? taDaKindOf([read?.readerKind, read?.readTitle, title], settings?.taDaKinds) : "";
+  const pickDoctor = (d) => { setDoctor(d); setSvc(""); setDq(""); };
 
   const attach = (f) => {
     const err = checkFile(f);
@@ -125,8 +201,11 @@ export function BillSheet({ conn, me, claims = [], advances = [], today = new Da
         const what = String(x.what || x.vendor || "").trim();
         setTitle(what ? what.charAt(0).toUpperCase() + what.slice(1, 60) : "");
         setAmount(x.amount ? String(x.amount) : "");
-        setDate(x.date && x.date <= todayIso ? x.date : todayIso);
-        setRead((r) => (r?.busy && r.file === f ? { busy: false, filled: !!(x.amount || x.date || what), signed: x.signed || null, manual: !!x.skipped, handwritten: !!x.handwritten } : r));
+        const dated = !!x.date && x.date <= todayIso;
+        setDate(dated ? x.date : todayIso);
+        // what was really read off the bill (the date may be today's, defaulted)
+        const got = { title: !!what, amount: !!x.amount, date: dated };
+        setRead((r) => (r?.busy && r.file === f ? { busy: false, filled: !!(x.amount || dated || what), got, signed: x.signed || null, manual: !!x.skipped, handwritten: !!x.handwritten, readerKind: x.readerKind || "", readTitle: x.readTitle || "" } : r));
       })
       .catch(() => setRead((r) => (r?.busy && r.file === f ? { busy: false, wrong: "failed" } : r)));
   };
@@ -136,8 +215,18 @@ export function BillSheet({ conn, me, claims = [], advances = [], today = new Da
     : read?.wrong ? WRONG[read.wrong].title
     : !title.trim() ? "Say what it was for"
     : !amt ? "Enter the bill amount"
+    : date < minIso ? "This bill is more than a year old — it cannot be claimed"
     : read?.handwritten && why.trim().length < 5 ? "Say why you have only a handwritten bill"
-    : read?.handwritten && !cash && !proof ? "Add the payment proof — or tick “Paid in cash”" : "";
+    : read?.handwritten && !cash && !proof ? "Add the payment proof — or tick “Paid in cash”"
+    : !forWho ? "Say who this was for — you or a doctor"
+    : forWho === "me" && taDa ? TA_DA_TEXT
+    : forWho === "me" && !kind ? "Pick what kind of expense it was"
+    : forWho === "doctor" && !doctor ? "Pick the doctor"
+    : over && svcs.doctor === doctor.id && svcs.error ? svcs.error
+    : over && !svcList ? "Wait a moment — loading the doctor services"
+    : over && !svcList.length ? "No doctor service is open for this doctor — ask for one first (Service), then add this bill."
+    : over && !picked ? "Pick the doctor service it was for"
+    : over && amt > picked.left + 0.5 ? `Only ${inr(picked.left)} is left on this doctor service` : "";
   const submit = async () => {
     setTried(true);
     if (missing) return setError(missing);
@@ -157,7 +246,10 @@ export function BillSheet({ conn, me, claims = [], advances = [], today = new Da
       if (upProof) proofUrl = upProof.file_url;
       setBusy("Saving…");
       const handNote = read?.handwritten ? `${why.trim()}${cash ? " · paid in cash" : ""}` : "";
-      name = (await addSettlementBill(conn, { date, title: title.trim(), amount: amt, bill: up.file_url, proof: proofUrl, handNote })).name;
+      name = (await addSettlementBill(conn, {
+        date, title: title.trim(), amount: amt, bill: up.file_url, proof: proofUrl, handNote,
+        kind: forWho === "me" ? kind : "", doctor: forWho === "doctor" ? doctor?.id : "", doctorService: over ? picked?.name : "",
+      })).name;
     } catch (e) {
       setBusy("");
       invalidateClaims(conn, me.id);
@@ -173,8 +265,9 @@ export function BillSheet({ conn, me, claims = [], advances = [], today = new Da
     let scored = false;
     try {
       const hand = read?.handwritten ? { why: why.trim(), cash, proof: cash ? null : proofUrl } : undefined;
-      await checkSettlementBills(conn, [name, ...waiting], read?.signed ? { [name]: { ...read.signed, hand } } : undefined);
-      scored = true;
+      const r = await checkSettlementBills(conn, [name, ...waiting], read?.signed ? { [name]: { ...read.signed, hand } } : undefined);
+      // { skipped } = the check did not run: the bill is saved, not scored
+      scored = !r?.skipped;
     } catch (e) {
       console.warn("[expense-claims] bill score:", e.message);
     }
@@ -182,27 +275,39 @@ export function BillSheet({ conn, me, claims = [], advances = [], today = new Da
     // Just this bill -- one sent back stays with the rep until it is fixed.
     // If this fails, the Settlements page offers "Send for approval" for it.
     let sent = null;
+    let refused = "";
     if (scored) {
       setBusy("Sending for approval…");
-      sent = await sendBillsForApproval(conn, [name]).catch((e) => { console.warn("[expense-claims] send:", e.message); return null; });
+      // refused: the server would not send it (an own bill whose photo is a
+      // hotel / food / fuel / travel bill ...) -- the rep is told why
+      sent = await sendBillsForApproval(conn, [name]).catch((e) => { console.warn("[expense-claims] send:", e.message); refused = e.message; return null; });
+      if (sent?.refused?.length) refused = sent.refused.join(" ");
     }
     invalidateClaims(conn, me.id);
     onChecked?.();
     setBusy("");
     const first = sent?.requests?.[0];
     const lines = [[`${title.trim()} · ${shortDate(date)}`, inr(amt)]];
+    lines.push(["For", typeLine(forWho === "me" ? { settleType: "Own", expenseKind: kind }
+      : { settleType: over ? "Doctor service" : "Doctor activity", doctorName: doctor?.name, doctorService: over ? picked?.service : "" })]);
     if (first && waitingOn(first)) lines.push(["Now", waitingOn(first).replace(/^with/, "With")]);
-    setDone({ name, sent: !!first, lines });
+    setDone({ name, sent: !!first, lines, refused });
   };
 
-  const close = () => (done ? onSaved?.({ name: done.name, message: done.sent ? "Sent for approval" : "Bill added" }) : onClose?.());
+  // never closed mid-save: the bill would be half made with nobody told
+  const close = () => {
+    if (busy) return;
+    if (done) onSaved?.({ name: done.name, message: done.sent ? "Sent for approval" : "Saved — not sent yet" });
+    else onClose?.();
+  };
   const footer = done ? (
     <button type="button" className="ec-cta" onClick={close} style={{ ...btn.primary, flex: 1, height: 50, borderRadius: 14, fontSize: 16 }}>Done</button>
   ) : (
     <>
       <div style={{ flex: 1, minWidth: 0, display: "flex", flexDirection: "column" }}>
-        <span style={{ fontSize: 12, color: "#5b6576" }}>{!amt ? (now >= 0 ? "In hand now" : "Owed to you now") : after >= 0 ? "In hand after this" : "Owed to you after this"}</span>
-        <b style={{ fontSize: 22, letterSpacing: "-0.02em", color: (amt ? after : now) < 0 ? "#b42318" : "#0b1220", ...tabNum }}>{inr(Math.abs(amt ? after : now))}</b>
+        {/* money owed to the rep is good news: never red */}
+        <span style={{ fontSize: 12, color: "#5b6576" }}>{!amt ? (now >= 0 ? "In hand now" : "We owe you now") : after >= 0 ? "In hand after this" : "If approved, we owe you"}</span>
+        <b style={{ fontSize: 22, letterSpacing: "-0.02em", color: "#0b1220", ...tabNum }}>{inr(Math.abs(amt ? after : now))}</b>
       </div>
       <button type="button" className="ec-cta" disabled={!!busy} onClick={submit} style={{ ...btn.primary, height: 50, padding: "0 22px", borderRadius: 14, fontSize: 15.5, display: "flex", alignItems: "center", gap: 8, opacity: missing && tried ? 0.55 : 1 }}>
         {busy ? <><Spinner size={14} />{busy}</> : <><Icon d={IC.arrow} size={18} />Send for approval</>}
@@ -214,7 +319,7 @@ export function BillSheet({ conn, me, claims = [], advances = [], today = new Da
     <Sheet title={done ? "" : "Add a bill"} sub={done ? null : "Take a photo of your bill — the details fill in by themselves."}
       onClose={close} desktop="dialog" maxWidth={520} footer={footer}>
       <style>{CSS}</style>
-      {done ? <Done title={done.sent ? "Sent for approval" : "Bill added"} amount={amt} lines={done.lines} /> : (
+      {done ? <Done title={done.sent ? "Sent for approval" : "Saved — not sent yet"} amount={amt} lines={done.lines} sub={done.sent ? null : done.refused || "Open Settlements and tap Send for approval."} /> : (
         <div style={{ display: "flex", flexDirection: "column", gap: 16, padding: desk ? "18px 24px 20px" : "14px 16px 18px" }}>
           <button type="button" className="ecs-drop" onClick={() => pick.current?.click()}
             style={{ display: "flex", flexDirection: file ? "row" : "column", alignItems: "center", justifyContent: "center", gap: file ? 12 : 6, width: "100%", minHeight: file ? 76 : 150, padding: file ? "10px 12px" : "18px 14px", borderRadius: 16, border: `1.5px ${file ? "solid" : "dashed"} ${read?.wrong ? "#f04438" : file ? "#12b76a" : tried && !file ? "#f04438" : "#b2c8f7"}`, background: read?.wrong ? "#fef3f2" : file ? "#f6fef9" : "#f5f8ff", color: "#0b1220", textAlign: file ? "left" : "center", cursor: "pointer" }}>
@@ -270,10 +375,109 @@ export function BillSheet({ conn, me, claims = [], advances = [], today = new Da
               </label>
               <label style={{ display: "flex", flexDirection: "column", gap: 6, minWidth: 0 }}>
                 <span style={lbl}>Bill date</span>
-                <input type="date" className="ecs-in" max={todayIso} value={date} onChange={(e) => e.target.value && setDate(e.target.value)} style={{ height: 58, fontSize: 15 }} />
+                <input type="date" className="ecs-in" min={minIso} max={todayIso} value={date} onChange={(e) => e.target.value && setDate(e.target.value)} style={{ height: 58, fontSize: 15, borderColor: tried && date < minIso ? "#f04438" : undefined }} />
               </label>
             </div>
-            <span style={{ ...hint, marginTop: -8, color: read?.filled ? "#b54708" : hint.color }}>{read?.filled ? "Filled from the bill — change anything only if it is wrong" : read?.manual ? "Type the total and the date exactly as on the bill" : "Could not read these off the bill — type them exactly as on it"}</span>
+            <span style={{ ...hint, marginTop: -8 }}>{(() => {
+              if (read?.manual) return "Type the total and the date exactly as on the bill";
+              // only what was really read off the bill is called "filled"
+              const got = read?.got || {};
+              const names = [got.title && "what it was for", got.amount && "the amount", got.date && "the date"].filter(Boolean);
+              if (!read?.filled || !names.length) return "Could not read these off the bill — type them exactly as on it";
+              const list = names.length > 1 ? `${names.slice(0, -1).join(", ")} and ${names[names.length - 1]}` : names[0];
+              return `Filled from the bill: ${list} — change anything only if it is wrong.${got.date ? "" : " Check the date — it was not on the bill."}`;
+            })()}</span>
+
+            <div role="radiogroup" aria-label="Who was this for?" style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+              <span style={lbl}>Who was this for?</span>
+              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
+                {[["me", "Me"], ["doctor", "A doctor"]].map(([k, t]) => (
+                  <button key={k} type="button" className="ecs-ch" role="radio" aria-checked={forWho === k} onClick={() => setForWho(k)}
+                    style={{ ...choice(forWho === k), ...(tried && !forWho ? { borderColor: "#f04438" } : null) }}>{t}</button>
+                ))}
+              </div>
+            </div>
+
+            {forWho === "me" && (
+              <>
+                <label style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+                  <span style={lbl}>What kind</span>
+                  <select className="ecs-in" value={kind} onChange={(e) => setKind(e.target.value)} disabled={!settings}
+                    style={{ appearance: "auto", borderColor: tried && !kind ? "#f04438" : undefined, color: kind ? "#0b1220" : "#8a93a3" }}>
+                    <option value="">{settings ? "Choose the kind of expense" : "Loading…"}</option>
+                    {ownKinds.map((k) => <option key={k} value={k}>{k}</option>)}
+                  </select>
+                </label>
+                {taDa && <Note>{TA_DA_TEXT}</Note>}
+              </>
+            )}
+
+            {forWho === "doctor" && (
+              <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+                {doctor ? (
+                  <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+                    <span style={lbl}>Doctor</span>
+                    <span style={{ display: "flex", alignItems: "center", gap: 10, padding: "6px 6px 6px 14px", borderRadius: 14, background: "#f6fef9", boxShadow: "0 0 0 1px #abefc6" }}>
+                      <span style={{ flex: 1, minWidth: 0, display: "flex", flexDirection: "column", gap: 1 }}>
+                        <b style={{ fontSize: 14.5, ...ell }}>{drName(doctor.name)}</b>
+                        <span style={{ fontSize: 12.5, color: "#5b6576", ...ell }}>{[doctor.city, doctor.id].filter(Boolean).join(" · ")}</span>
+                      </span>
+                      <button type="button" className="ecs-ch" onClick={() => { setDoctor(null); setSvc(""); svcAsked.current = ""; setSvcs({ doctor: "", list: null, busy: false, error: "" }); }} style={{ minHeight: 44, minWidth: 44, padding: "0 10px", border: 0, borderRadius: 10, background: "transparent", fontSize: 13, fontWeight: 600, color: "#1d4ed8", cursor: "pointer" }}>Change</button>
+                    </span>
+                  </div>
+                ) : (
+                  <label style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+                    <span style={lbl}>Which doctor</span>
+                    <input className="ecs-in" type="search" placeholder="Type 2 or more letters of the name" value={dq} maxLength={60} onChange={(e) => setDq(e.target.value)}
+                      aria-describedby="ecs-dr-hint" style={{ borderColor: tried && !doctor ? "#f04438" : undefined }} />
+                  </label>
+                )}
+                {!doctor && (
+                  <div id="ecs-dr-hint" aria-live="polite" style={{ display: "flex", flexDirection: "column" }}>
+                    {found.busy ? <span style={{ ...hint, display: "flex", alignItems: "center", gap: 8 }}><Spinner size={12} />Looking…</span>
+                      : found.error ? <Note>{found.error}</Note>
+                      : dq.trim().length >= 2 && found.q && !found.list.length ? <span style={hint}>None of your doctors matches “{found.q}”.</span>
+                      : null}
+                    {found.list.length > 0 && !found.busy && (
+                      <div role="listbox" aria-label="Doctors" style={{ borderRadius: 14, boxShadow: "0 0 0 1px #e4e7ec", background: "#fff", overflow: "hidden", maxHeight: 260, overflowY: "auto" }}>
+                        {found.list.map((d, i) => (
+                          <button key={d.id} type="button" className="ecs-ch" role="option" aria-selected={false} onClick={() => pickDoctor(d)}
+                            style={{ width: "100%", minHeight: 52, display: "flex", flexDirection: "column", justifyContent: "center", gap: 1, padding: "8px 14px", border: 0, borderTop: i ? "1px solid #eef1f5" : 0, background: "transparent", textAlign: "left", cursor: "pointer", font: "inherit", color: "#0b1220" }}>
+                            <b style={{ fontSize: 14, maxWidth: "100%", ...ell }}>{drName(d.name)}</b>
+                            <span style={{ fontSize: 12.5, color: "#5b6576", maxWidth: "100%", ...ell }}>{[d.city, d.id].filter(Boolean).join(" · ")}</span>
+                          </button>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                )}
+
+                {doctor && !over && <Note tone="info">Doctor activity — your manager approves it.</Note>}
+                {doctor && over && (
+                  <div role="radiogroup" aria-label="The doctor service it was for" style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+                    <span style={lbl}>Over {inr(limit)} on a doctor — pick the doctor service it was for</span>
+                    {svcs.doctor === doctor.id && svcs.error ? <Note>{svcs.error}</Note>
+                      : !svcList ? <span style={{ ...hint, display: "flex", alignItems: "center", gap: 8 }}><Spinner size={12} />Loading the doctor services…</span>
+                      : !svcList.length ? <Note>No doctor service is open for this doctor — ask for one first (Service), then add this bill.</Note>
+                      : svcList.map((x) => {
+                        const on = svc === x.name;
+                        return (
+                          <button key={x.name} type="button" className="ecs-ch" role="radio" aria-checked={on} onClick={() => setSvc(x.name)}
+                            style={{ width: "100%", minHeight: 52, display: "flex", alignItems: "center", gap: 10, padding: "10px 14px", borderRadius: 14, border: `1.5px solid ${on ? "#2563eb" : tried && !svc ? "#f04438" : "#e1e5ec"}`, background: on ? "#f5f8ff" : "#fff", textAlign: "left", cursor: "pointer", font: "inherit", color: "#0b1220" }}>
+                            <span style={{ flex: 1, minWidth: 0, display: "flex", flexDirection: "column", gap: 2 }}>
+                              <b style={{ fontSize: 14, ...ell }}>{x.service}</b>
+                              <span style={{ fontSize: 12.5, color: "#5b6576", ...tabNum }}>{[x.date ? shortDate(x.date) : "", inr(x.amount), `${inr(x.left)} left`].filter(Boolean).join(" · ")}</span>
+                            </span>
+                            <span style={{ flex: "none", fontSize: 12, fontWeight: 700, color: x.approved ? "#067647" : "#b54708" }}>{x.approved ? "approved" : "waiting for approval"}</span>
+                          </button>
+                        );
+                      })}
+                    {picked && amt > picked.left + 0.5 && <Note>Only {inr(picked.left)} is left on this doctor service.</Note>}
+                    {picked && !picked.approved && <Note tone="info">You are paid back once this service is approved.</Note>}
+                  </div>
+                )}
+              </div>
+            )}
             {read?.handwritten && (
               <div style={{ display: "flex", flexDirection: "column", gap: 12, padding: 14, borderRadius: 14, background: "#fffaeb", boxShadow: "0 0 0 1px #fedf89" }}>
                 <b style={{ fontSize: 13.5, color: "#93370d" }}>This is a handwritten bill</b>
@@ -285,8 +489,8 @@ export function BillSheet({ conn, me, claims = [], advances = [], today = new Da
                 <span style={{ display: "flex", flexDirection: "column", gap: 6 }}>
                   <span style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8 }}>
                     <span style={lbl}>Payment proof</span>
-                    <label style={{ display: "inline-flex", alignItems: "center", gap: 6, fontSize: 13, fontWeight: 600, color: "#344054", cursor: "pointer" }}>
-                      <input type="checkbox" checked={cash} onChange={(e) => setCash(e.target.checked)} style={{ width: 16, height: 16, accentColor: "#2563eb" }} />
+                    <label style={{ display: "inline-flex", alignItems: "center", gap: 8, minHeight: 44, padding: "0 4px", fontSize: 13, fontWeight: 600, color: "#344054", cursor: "pointer" }}>
+                      <input type="checkbox" checked={cash} onChange={(e) => setCash(e.target.checked)} style={{ width: 20, height: 20, margin: 0, accentColor: "#2563eb" }} />
                       Paid in cash
                     </label>
                   </span>
@@ -296,7 +500,7 @@ export function BillSheet({ conn, me, claims = [], advances = [], today = new Da
                     <span style={{ display: "flex", alignItems: "center", gap: 10, padding: "8px 10px", borderRadius: 12, background: "#f6fef9", boxShadow: "0 0 0 1px #abefc6" }}>
                       {proofThumb ? <img src={proofThumb} alt="Payment proof" style={{ width: 40, height: 48, borderRadius: 8, objectFit: "cover", flex: "none" }} /> : <Icon d={IC.file} size={18} />}
                       <span style={{ flex: 1, minWidth: 0, fontSize: 13, fontWeight: 600, color: "#067647", ...ell }}>{proof.name || "Payment proof"}</span>
-                      <button type="button" onClick={() => proofPick.current?.click()} style={{ border: 0, background: "transparent", fontSize: 13, fontWeight: 600, color: "#1d4ed8", cursor: "pointer" }}>Change</button>
+                      <button type="button" onClick={() => proofPick.current?.click()} style={{ minHeight: 44, minWidth: 44, padding: "0 10px", border: 0, borderRadius: 10, background: "transparent", fontSize: 13, fontWeight: 600, color: "#1d4ed8", cursor: "pointer" }}>Change</button>
                     </span>
                   ) : (
                     <button type="button" onClick={() => proofPick.current?.click()}
@@ -312,15 +516,15 @@ export function BillSheet({ conn, me, claims = [], advances = [], today = new Da
             </>
           )}
 
-          {error && <Note>{error}</Note>}
+          {error && error !== TA_DA_TEXT && <Note>{error}</Note>}
         </div>
       )}
     </Sheet>
   );
 }
 
-export function CashSheet({ conn, me, claims = [], advances = [], today = new Date(), onClose, onSaved, desk }) {
-  const L = useMemo(() => ledger(claims, advances), [claims, advances]);
+export function CashSheet({ conn, me, claims = [], advances = [], cashAdvances = null, today = new Date(), onClose, onSaved, desk }) {
+  const L = useMemo(() => ledger(claims, advances, cashAdvances), [claims, advances, cashAdvances]);
   const owed = L.over;
   const [amount, setAmount] = useState("");
   const [what, setWhat] = useState("");
@@ -345,7 +549,7 @@ export function CashSheet({ conn, me, claims = [], advances = [], today = new Da
     setBusy("");
     setDone({ name });
   };
-  const close = () => (done ? onSaved?.({ name: done.name, message: "Cash requested" }) : onClose?.());
+  const close = () => (done ? onSaved?.({ name: done.name, message: "Advance requested" }) : onClose?.());
   const footer = done ? (
     <button type="button" className="ec-cta" onClick={close} style={{ ...btn.primary, flex: 1, height: 50, borderRadius: 14, fontSize: 16 }}>Done</button>
   ) : (
@@ -355,13 +559,13 @@ export function CashSheet({ conn, me, claims = [], advances = [], today = new Da
     </>
   );
   return (
-    <Sheet title={done ? "" : "Request cash"} sub={done ? null : `In hand now: ${inr(L.balance)}`} onClose={close} desktop="dialog" maxWidth={520} footer={footer}>
+    <Sheet title={done ? "" : "Request advance"} sub={done ? null : `In hand now: ${inr(L.balance)}`} onClose={close} desktop="dialog" maxWidth={520} footer={footer}>
       <style>{CSS}</style>
-      {done ? <Done title="Cash requested" amount={amt} sub={`${what.trim()} · It goes to your managers for approval, up to the CEO; then Accounts pays it. Track it under Settlements.`} /> : (
+      {done ? <Done title="Advance requested" amount={amt} sub={`${what.trim()} · It goes to your managers for approval, up to the CEO; then Accounts pays it. Track it under Settlements.`} /> : (
         <div style={{ display: "flex", flexDirection: "column", gap: 14, padding: desk ? "16px 24px 20px" : "12px 16px 18px" }}>
           {/* Verified is final for now (nothing booked); Accounts settle what is owed
               later, so it is not something to ask for as cash. */}
-          {owed > 0 && <Note tone="info">{inr(owed)} of verified bills is owed to you — Accounts settle it with you later, no need to ask for it. Request cash only for spending ahead.</Note>}
+          {owed > 0 && <Note tone="info">{inr(owed)} of verified bills is owed to you — Accounts settle it with you later, no need to ask for it. Request an advance only for spending ahead.</Note>}
           <label style={{ display: "flex", flexDirection: "column", gap: 6 }}>
             <span style={lbl}>Amount</span>
             <span className="ecs-in" style={{ display: "flex", alignItems: "center", gap: 8, height: 58 }}>

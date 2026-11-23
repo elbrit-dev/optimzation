@@ -141,7 +141,15 @@ export default function ClaimApprovals({ url, token, mode = "auto", verifiers = 
       // settlement requests (16 Nov 2026) and own-car requests (12 Nov 2026),
       // asked for at the same time as the claim lists (17 Nov 2026)
       const extra = mode === "auto" && !be
-        ? Promise.all([fetchSettlementQueue(conn).catch(() => null), fetchCarQueue(conn).catch(() => null), fetchCeoBatches(conn).catch(() => null), fetchNonReportQueue(conn).catch(() => null)])
+        // a failed list keeps its tab, with the error and Try again (23 Nov 2026:
+        // it used to become null and the tab silently went away)
+        ? Promise.all([
+            fetchSettlementQueue(conn).catch((e) => { if (e.status !== 403) out.failed = { ...out.failed, settle: e.message || "no answer from the server" }; return null; }),
+            fetchCarQueue(conn).catch((e) => { if (e.status !== 403) out.failed = { ...out.failed, cars: e.message || "no answer from the server" }; return null; }),
+            // refused (403) = this login is not the CEO: no batches, not a failure
+            fetchCeoBatches(conn).catch((e) => { if (e.status !== 403) out.failed = { ...out.failed, settle: out.failed?.settle || e.message || "no answer from the server" }; return null; }),
+            fetchNonReportQueue(conn).catch(() => null),
+          ])
         : Promise.resolve([null, null, null, null]);
       await Promise.all(
         want.map(async (m) => {
@@ -202,8 +210,8 @@ export default function ClaimApprovals({ url, token, mode = "auto", verifiers = 
   const has = {
     approve: (lists.approve || []).length,
     verify: (lists.verify || []).length,
-    settle: lists.settle || lists.ceo ? 1 : 0,
-    cars: (lists.cars || []).length + (lists.carsRecent || []).length,
+    settle: lists.settle || lists.ceo || lists.failed?.settle ? 1 : 0,
+    cars: (lists.cars || []).length + (lists.carsRecent || []).length + (lists.failed?.cars ? 1 : 0),
     nonrep: (lists.nonrep || []).length + (lists.nonrepRecent || []).length,
     history: (lists.history || []).length,
   };
@@ -229,6 +237,8 @@ export default function ClaimApprovals({ url, token, mode = "auto", verifiers = 
   const cars = current === "cars";
   const settleTab = current === "settle";
   const nonrepTab = current === "nonrep";
+  // the settlement / batch or car list of this tab failed to load: its error
+  const failedNow = (settleTab && lists.failed?.settle) || (cars && lists.failed?.cars) || "";
   const claims = useMemo(() => (cars || settleTab || nonrepTab ? [] : lists[current] || []), [cars, settleTab, nonrepTab, lists, current]);
   useEffect(() => {
     onCountChange?.((lists.approve || []).length + (lists.verify || []).length + (lists.cars || []).length + (lists.settle?.waiting || []).length + (lists.nonrep || []).length);
@@ -338,6 +348,8 @@ export default function ClaimApprovals({ url, token, mode = "auto", verifiers = 
             <span style={{ fontSize: 13, color: "#5b6576" }}>
               {lists.status !== "ready"
                 ? " "
+                : failedNow && !(settleTab ? lists.settle || lists.ceo : lists.cars)
+                  ? "This list could not be loaded"
                 : nonrepTab
                   ? ((lists.nonrep || []).length ? `${(lists.nonrep || []).length} non-reported ${(lists.nonrep || []).length === 1 ? "day" : "days"} waiting for you` : "No non-reported day waits on you")
                 : cars
@@ -353,9 +365,9 @@ export default function ClaimApprovals({ url, token, mode = "auto", verifiers = 
         </header>
 
         {mode === "auto" && visible.length > 1 && (
-          <div role="tablist" style={{ display: "flex", gap: 4, padding: 4, borderRadius: 12, background: "#e9ecf1", alignSelf: "flex-start" }}>
+          <div role="tablist" style={{ display: "flex", gap: 4, padding: 4, borderRadius: 12, background: "#e9ecf1", alignSelf: "flex-start", maxWidth: "100%", overflowX: "auto", whiteSpace: "nowrap" }}>
             {visible.map((m) => (
-              <button key={m} type="button" role="tab" aria-selected={tab === m} onClick={() => { setTab(m); setPicked(new Set()); }} style={{ height: 36, padding: "0 14px", borderRadius: 9, border: 0, background: tab === m ? "#fff" : "transparent", boxShadow: tab === m ? "0 1px 2px rgba(16,24,40,.12)" : "none", fontSize: 13, fontWeight: 600, cursor: "pointer" }}>
+              <button key={m} type="button" role="tab" aria-selected={tab === m} onClick={() => { setTab(m); setPicked(new Set()); }} style={{ flex: "none", height: 44, padding: "0 14px", borderRadius: 9, border: 0, background: tab === m ? "#fff" : "transparent", boxShadow: tab === m ? "0 1px 2px rgba(16,24,40,.12)" : "none", fontSize: 13, fontWeight: 600, cursor: "pointer", whiteSpace: "nowrap" }}>
                 {m === "approve" ? "Claims" : m === "verify" ? "To verify" : m === "history" ? "History" : m === "settle" ? (lists.ceo ? "Batches" : "Bills") : m === "nonrep" ? "Non-reported days" : "Car requests"}{m !== "history" && <span style={{ color: workOf(m) ? "#b54708" : "#8a93a3" }}> {workOf(m)}</span>}
               </button>
             ))}
@@ -370,10 +382,16 @@ export default function ClaimApprovals({ url, token, mode = "auto", verifiers = 
         {lists[current + "Error"] && <Note>{lists[current + "Error"]}</Note>}
         {lists.status === "loading" && <div aria-busy="true" style={{ ...card, height: 180, display: "grid", placeItems: "center" }}><Spinner size={24} /></div>}
 
-        {lists.status === "ready" && cars && <CarQueue pending={lists.cars || []} recent={lists.carsRecent || []} desk={desk} onOpen={setOpenCar} />}
+        {lists.status === "ready" && failedNow && (
+          <Note style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
+            <span style={{ flex: 1, minWidth: 180 }}>{settleTab ? "Bills" : "Car requests"} could not be loaded: {failedNow}</span>
+            <button type="button" className="ec-ghost" onClick={() => setTick((t) => t + 1)} style={{ ...btn.ghost, height: 44, fontSize: 13 }}>Try again</button>
+          </Note>
+        )}
+        {lists.status === "ready" && cars && !lists.failed?.cars && <CarQueue pending={lists.cars || []} recent={lists.carsRecent || []} desk={desk} onOpen={setOpenCar} />}
         {lists.status === "ready" && nonrepTab && <NonRepQueue pending={lists.nonrep || []} recent={lists.nonrepRecent || []} desk={desk} onOpen={setOpenNr} />}
         {lists.status === "ready" && settleTab && lists.ceo && <CeoBatches conn={conn} data={lists.ceo} desk={desk} onDone={done} onError={(m) => say(m, "error")} onChanged={() => setTick((t) => t + 1)} />}
-        {lists.status === "ready" && settleTab && !lists.ceo && <SettleQueue conn={conn} data={lists.settle} desk={desk} onOpen={(r, act) => setOpenSettle({ r, act })} onDone={done} onError={(m) => { say(m, "error"); setTick((t) => t + 1); }} />}
+        {lists.status === "ready" && settleTab && !lists.ceo && (lists.settle || !lists.failed?.settle) && <SettleQueue conn={conn} data={lists.settle} desk={desk} onOpen={(r, act) => setOpenSettle({ r, act })} onDone={done} onError={(m) => { say(m, "error"); setTick((t) => t + 1); }} />}
 
         {lists.status === "ready" && !beIdle && !cars && !settleTab && !nonrepTab && (
           <>

@@ -259,19 +259,34 @@ export const canUseClaims = (me) =>
     && (!CLAIMS_ROLE_PROFILES || CLAIMS_ROLE_PROFILES.includes(String(me.roleProfile || "").trim()))));
 
 export function fetchClaims(conn, employee) {
-  return cached(conn, `ec-claims|${employee}`, async () => {
-    const [d, bills] = await Promise.all([
+  const key = `ec-claims|${employee}`;
+  return cached(conn, key, async () => {
+    const [d, got] = await Promise.all([
       queryClaims(conn, [eq("employee", employee)], 1000),
-      // the settlement bills: their own doctype since 23 Nov 2026; an ERP
-      // without it yet simply has none
-      fetchSettlementBills(conn).catch((e) => { console.warn("[expense-claims] settlement bills unreadable:", e.message); return []; }),
+      // the settlement bills: their own doctype since 23 Nov 2026. Unreadable
+      // is an error the Settlements screen shows -- never "no bills"
+      readSettlementBills(conn).catch((e) => {
+        console.warn("[expense-claims] settlement bills unreadable:", e.message);
+        return { error: e.message || "The bills could not be read." };
+      }),
     ]);
     const nodes = (d.ExpenseClaims?.edges || []).map((e) => e.node);
     if (fieldTier < 2) await addRunningFields(conn, employee, nodes);
     // the old running settlement claim (an Expense Claim) is not settlement any
     // more: settlement left Expense Claim (23 Nov 2026)
     const claims = nodes.map(shapeClaim).filter((c) => !c.running);
-    if (bills.length) claims.push(settlementClaim(bills, employee));
+    if (got.error) {
+      claims.settlementError = got.error;
+      // never kept: the next load reads the bills again
+      evictCached(conn, key);
+    } else if (got.bills.length) {
+      // the bills are always the signed-in login's own: never shown under
+      // someone else's Employee
+      const owner = got.employee !== undefined ? got.employee : (await fetchMe(conn).catch(() => null))?.id;
+      // beside the month claims, not one of them (it has its own screen):
+      // model.ledger reads it from here, the claim history never sees it
+      if (owner && owner === employee) claims.settlement = settlementClaim(got.bills, employee);
+    }
     return claims;
   });
 }
@@ -574,7 +589,9 @@ async function rest(conn, path, init = {}) {
     } catch {
       /* keep msg */
     }
-    throw new Error(String(msg).replace(/<[^>]*>/g, "").replace(/^[\w.]+Error:\s*/, ""));
+    const err = new Error(String(msg).replace(/<[^>]*>/g, "").replace(/^[\w.]+Error:\s*/, ""));
+    err.status = res.status; // 403 = not for this login (e.g. CEO batches for anyone but the CEO)
+    throw err;
   }
   return json;
 }
@@ -658,6 +675,15 @@ export async function saveSanctioned(conn, claim, sanctionedById) {
    with what was submitted in plain code.
    -> { amount, date, vendor, what, kind, readable, signed } (null = not read;
       signed = { read, sig } for checkClaim; skipped = the reader is off) */
+const readerKindOf = (md) => {
+  try {
+    const k = JSON.parse(md || "{}")?.kind;
+    if (k) return String(k);
+  } catch {
+    /* not JSON: look for the field in the text */
+  }
+  return (/"kind"\s*:\s*"([^"]+)"/.exec(String(md || "")) || [])[1] || "";
+};
 export async function extractBill(conn, file) {
   const form = new FormData();
   form.append("files", file, file.name || "bill");
@@ -682,6 +708,11 @@ export async function extractBill(conn, file) {
     vendor: v.vendor || null,
     what: r.title && r.title !== "Not a bill" && r.title !== "Other bill" ? r.title : null,
     kind: r.title === "Not a bill" ? "not_a_bill" : "printed",
+    // the reader's own kind of bill ("hotel", "cab", ...; settlement_api
+    // read_kind reads the same) and its title ("Hotel bill"): an own bill that
+    // is really TA/DA is caught on the form (23 Nov 2026)
+    readerKind: readerKindOf(r.md),
+    readTitle: r.title || "",
     // Gemma's call (16 Nov 2026): a handwritten bill needs a reason and the
     // payment proof (or "paid in cash") before it can be sent
     handwritten: !!r.handwritten,
@@ -791,6 +822,16 @@ export async function withTripMarks(conn, claim) {
     return claim;
   }
   const rows = new Map((doc.expenses || []).map((r) => [r.name, r]));
+  // a hotel bill's whole stay, as read at upload (custom_bill_meta), so a sent
+  // bill can still be spread over the other cards its nights fall in (23 Nov 2026)
+  const stayOf = (r) => {
+    try {
+      const m = JSON.parse(r.custom_bill_meta || "{}").bill || {};
+      return m.check_in && m.check_out ? { checkIn: m.check_in, checkOut: m.check_out, total: num(m.total) || num(r.custom_bill_amount) } : null;
+    } catch {
+      return null;
+    }
+  };
   return {
     ...claim,
     department: String(doc.department || "").replace(/ - ELPL$/, ""),
@@ -799,6 +840,7 @@ export async function withTripMarks(conn, claim) {
       return {
         ...l,
         trip: r.custom_trip || "",
+        ...(r.expense_type === "Stay" && stayOf(r) ? { stay: stayOf(r) } : {}),
         decision: r.custom_trip_decision || "",
         decisionNote: r.custom_trip_note || "",
         decidedBy: r.custom_trip_decided_by || "",
@@ -1036,6 +1078,18 @@ export function shapeSettlement(r) {
       at: s.at && s.at !== "None" ? s.at : "",
       note: s.note || "",
     })),
+    // the settlement type (23 Nov 2026): "Own" | "Doctor activity" |
+    // "Doctor service" | "Cash"; the own bill's kind, the doctor, and the
+    // Doctor Service a bill over the activity limit is tagged to
+    type: r.type || (r.kind === "Cash" ? "Cash" : "Own"),
+    expenseKind: r.expense_kind || "",
+    doctor: r.doctor || "",
+    doctorName: r.doctor_name || r.doctor || "",
+    service: r.service && r.service.name ? {
+      name: r.service.name, service: r.service.service || r.service.name, date: String(r.service.date || "").slice(0, 10),
+      amount: num0(r.service.amount), billed: num0(r.service.billed), left: num0(r.service.left),
+      state: r.service.state || "", approved: !!r.service.approved, refused: !!r.service.refused,
+    } : null,
     bills: (r.bills || []).map((b) => ({
       row: b.row,
       date: String(b.date || "").slice(0, 10),
@@ -1057,14 +1111,30 @@ const settleCall = (conn, method, params) =>
    -> { requests, chain: [{ user, name, level }], overview } */
 export async function fetchMySettlements(conn) {
   const m = (await settleCall(conn, "GET", { action: "mine" })).message || {};
-  return { requests: (m.requests || []).map(shapeSettlement), chain: m.chain || [], overview: !!m.overview };
+  const requests = (m.requests || []).map(shapeSettlement);
+  // fresh for the home strip too (fetchCashAdvanceIds)
+  const ids = cashAdvancesOf(requests);
+  evictCached(conn, "ec-cash-adv");
+  cached(conn, "ec-cash-adv", () => Promise.resolve(ids));
+  return { requests, chain: m.chain || [], overview: !!m.overview };
+}
+/* The cash advances that came from the rep's own Cash requests -- the only
+   ones the server books bills against (settlement_api settlement_advances),
+   so the only ones that count as cash in hand (model.ledger). */
+export const cashAdvancesOf = (requests) => [...new Set((requests || []).filter((r) => r.kind === "cash" && r.advance).map((r) => r.advance))];
+/* The same list on its own, cached (the home strip). -> [advance ids] */
+export function fetchCashAdvanceIds(conn) {
+  return cached(conn, "ec-cash-adv", async () => cashAdvancesOf((await fetchMySettlements(conn)).requests));
 }
 /* Every checked, unsent bill on the open settlement claim, as one request. */
 /* One request PER BILL (16 Nov 2026): -> { count, amount, requests } */
+/* refused: the bills the server would not send, each in words (an own bill
+   whose photo is a hotel / food / fuel / travel bill, a doctor service with no
+   room left); none sent at all -> it throws with those words */
 export async function sendBillsForApproval(conn, rows) {
   const m = (await settleCall(conn, "POST", { action: "send_bills", ...(rows?.length ? { rows: rows.join(",") } : {}) })).message || {};
   const requests = (m.requests || (m.request ? [m.request] : [])).map(shapeSettlement);
-  return { count: m.count ?? requests.length, amount: num0(m.amount ?? requests.reduce((s, r) => s + r.amount, 0)), requests };
+  return { count: m.count ?? requests.length, amount: num0(m.amount ?? requests.reduce((s, r) => s + r.amount, 0)), requests, refused: (m.refused || []).map(String) };
 }
 /* "Request cash": an advance, up the same chain. */
 export async function requestCashThroughChain(conn, { amount, purpose }) {
@@ -1125,8 +1195,13 @@ export async function decideSettlement(conn, id, decision, note) {
    [{ name, date, title, amount, bill, proof, status, settlement, review,
       entry, from_advance, payable, paid, modified }] */
 export async function fetchSettlementBills(conn) {
+  return (await readSettlementBills(conn)).bills;
+}
+/* ... and whose they are: { bills, employee } (employee: the login's own
+   Employee, null when none; undefined from a server too old to say) */
+async function readSettlementBills(conn) {
   const m = (await settleCall(conn, "GET", { action: "bills" })).message || {};
-  return m.bills || [];
+  return { bills: m.bills || [], employee: m.employee };
 }
 
 /* A photo uploaded as the person, private and attached to nothing yet: the
@@ -1145,11 +1220,59 @@ export async function uploadPrivateFile(conn, file) {
   return json.data.uploadFile;
 }
 
-/* A new bill. -> the bill as fetchSettlementBills shapes it */
-export async function addSettlementBill(conn, { date, title, amount, bill, proof, handNote }) {
+/* What the bill forms need from Settlement Settings (23 Nov 2026), cached:
+   { ownKinds, taDaKinds: [{ kind, words }], activityLimit, maxAmount,
+     maxAgeDays, canRequestCash, level, doctorReady: { activity, service } }.
+   Unreadable never blocks the page: the safe answer (own = Other, no cash). */
+const SETTLE_SETTINGS_FALLBACK = {
+  ownKinds: ["Other"], taDaKinds: [], activityLimit: 2000, maxAmount: null, maxAgeDays: 365,
+  canRequestCash: false, level: "", doctorReady: { activity: false, service: false }, fallback: true,
+};
+export function fetchSettlementSettings(conn) {
+  return cached(conn, "ec-settle-settings", async () => {
+    const m = (await settleCall(conn, "GET", { action: "settings" })).message || {};
+    return {
+      ownKinds: (m.own_kinds || []).map(String).filter(Boolean),
+      taDaKinds: (m.ta_da_kinds || []).map((k) => ({ kind: String(k.kind || ""), words: (k.words || []).map((w) => String(w).toLowerCase()) })),
+      activityLimit: num0(m.activity_limit) || 2000,
+      maxAmount: m.max_amount == null ? null : num0(m.max_amount),
+      maxAgeDays: num0(m.max_age_days) || 365,
+      canRequestCash: !!m.can_request_cash,
+      level: m.level || "",
+      doctorReady: { activity: !!m.doctor_ready?.activity, service: !!m.doctor_ready?.service },
+    };
+  }).catch((e) => {
+    console.warn("[expense-claims] settlement settings unreadable:", e.message);
+    return SETTLE_SETTINGS_FALLBACK;
+  });
+}
+/* The caller's own doctors matching q (2+ letters). -> [{ id, name, city }] */
+export async function searchSettlementDoctors(conn, q) {
+  const t = String(q || "").trim();
+  if (t.length < 2) return [];
+  const m = (await settleCall(conn, "GET", { action: "doctors", q: t })).message || {};
+  return (m.doctors || []).map((d) => ({ id: d.id, name: d.name || d.id, city: d.city || "" }));
+}
+/* The doctor services a bill over the activity limit can be tagged to:
+   asked for that doctor, approved or still in approval, with room left.
+   -> [{ name, service, date, state, approved, amount, billed, left }] */
+export async function fetchDoctorServices(conn, doctor) {
+  const m = (await settleCall(conn, "GET", { action: "services", doctor })).message || {};
+  return (m.services || []).map((x) => ({
+    name: x.name, doctor: x.doctor, doctorName: x.doctor_name || "", service: x.service || x.name, date: String(x.date || "").slice(0, 10),
+    state: x.state || "", approved: !!x.approved, refused: !!x.refused, amount: num0(x.amount), billed: num0(x.billed), left: num0(x.left),
+  }));
+}
+
+/* A new bill. -> the bill as fetchSettlementBills shapes it
+   kind: the own kind (a doctor bill: optional); doctor: the doctor's id;
+   doctorService: only for a doctor bill over the activity limit. The server
+   decides the type from the amount and refuses a wrong combination. */
+export async function addSettlementBill(conn, { date, title, amount, bill, proof, handNote, kind, doctor, doctorService }) {
   const m = (await settleCall(conn, "POST", {
     action: "add_bill", bill_date: date, title, amount: String(amount), bill,
     ...(proof ? { proof } : {}), ...(handNote ? { hand_note: handNote } : {}),
+    ...(kind ? { kind } : {}), ...(doctor ? { doctor } : {}), ...(doctor && doctorService ? { doctor_service: doctorService } : {}),
   })).message || {};
   if (!m.bill?.name) throw new Error("The bill was not saved.");
   return m.bill;
@@ -1203,6 +1326,13 @@ export function settlementClaim(bills, employee) {
       paidAmount: num(b.paid),
       settlement: b.settlement || "",
       review: String(b.review || "").trim(),
+      // the settlement type (23 Nov 2026) -- `type` above stays the claim
+      // type the screens colour by
+      settleType: b.type || "Own",
+      expenseKind: b.kind || "",
+      doctor: b.doctor || "",
+      doctorName: b.doctor_name || b.doctor || "",
+      doctorService: b.doctor_service || "",
       modified: b.modified,
       ai: null,
     }))
@@ -1223,7 +1353,9 @@ export function settlementClaim(bills, employee) {
     sanctioned: null,
     reimbursed: 0,
     owed: lines.reduce((s, l) => s + Math.max(0, l.payable - l.paidAmount), 0),
-    payouts: lines.filter((l) => l.paidAmount > 0).map((l) => ({ date: String(l.modified || l.date).slice(0, 10), amount: l.paidAmount, note: `paid for ${l.note || l.id}` })),
+    // no payment date is known for a bill: what Accounts paid stays on the
+    // bill's own line (paidAmount; model.ledger counts it), never a dated row
+    payouts: [],
     remark: "",
     modified: lines.reduce((m, l) => (String(l.modified) > m ? String(l.modified) : m), ""),
     ai: null,

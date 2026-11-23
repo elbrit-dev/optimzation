@@ -105,8 +105,22 @@ if action == "release":
     name = str(fd.get("name") or "")
     row = None
     if name:
-        row = frappe.db.get_value("Bill Fingerprint", name, ["employee", "status"], as_dict=True)
-    if row and row.employee == emp and row.status == "Used":
+        row = frappe.db.get_value("Bill Fingerprint", name, ["employee", "status", "kind", "trip"], as_dict=True)
+    # 23 Nov 2026 (security review): a bill's place in the register is freed
+    # only while it is not claimed -- else releasing it and adding it again
+    # would pay the same bill twice.
+    #   settlement bill (kind Bill): never here; "remove bill" in the Settlement
+    #     API frees it, and only for a bill not yet sent
+    #   trip bill: not once the month's TA/DA claim is approved or submitted
+    locked = False
+    if row and row.kind == "Bill":
+        locked = True
+    elif row and len(str(row.trip or "")) >= 7:
+        month = str(row.trip)[:7]
+        if frappe.db.exists("Expense Claim", {"employee": emp, "remark": ["like", "Field TA/DA % " + month], "docstatus": 1}) \
+                or frappe.db.exists("Expense Claim", {"employee": emp, "remark": ["like", "Field TA/DA % " + month], "approval_status": "Approved"}):
+            locked = True
+    if row and row.employee == emp and row.status == "Used" and not locked:
         frappe.delete_doc("Bill Fingerprint", name, ignore_permissions=True, force=True)
         frappe.response["message"] = {"released": name}
     else:
@@ -117,6 +131,11 @@ elif action == "claim" or action == "check":
     if kind not in ["Stay", "Food", "Fuel", "Toll", "Bill"]:
         frappe.throw("Unknown bill kind.")
     trip = str(fd.get("trip") or "")[:40]
+    # a settlement bill is registered against the caller's OWN bill only (else a
+    # refusal comment could be written on someone else's bill)
+    if kind == "Bill" and action == "claim":
+        if not trip or frappe.db.get_value("Settlement Expense", trip, "employee") != emp:
+            frappe.throw("That is not your bill.", frappe.PermissionError)
     fh = str(fd.get("file_hash") or "").lower()[:64]
     ih = str(fd.get("image_hash") or "").lower()[:16]
     ch = str(fd.get("content_hash") or "").lower()[:64]

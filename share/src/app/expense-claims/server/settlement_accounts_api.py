@@ -34,7 +34,15 @@ PAY = {
     "payable": "2120 - Employee Expense Payable - ELPL",
     "advance": "Employee Expense Advances - ELPL",
     "bank": "234851000001 - ICICI BANK OD/CC Account - ELPL",     # the default; Accounts may pick another
+    "cost_center": "Main - ELPL",
 }
+# Settlement Settings (23 Nov 2026) override these when filled in
+if frappe.db.exists("DocType", "Settlement Settings"):
+    st = frappe.get_doc("Settlement Settings")
+    for p in [["company", "company"], ["payable", "payable_account"], ["advance", "advance_account"], ["bank", "default_bank_account"],
+              ["cost_center", "cost_center"]]:
+        if st.get(p[1]):
+            PAY[p[0]] = st.get(p[1])
 
 
 def left_on(je, employee, payable):
@@ -42,12 +50,15 @@ def left_on(je, employee, payable):
     r = frappe.db.sql("""select sum(amount_in_account_currency) from `tabPayment Ledger Entry`
         where against_voucher_type = 'Journal Entry' and against_voucher_no = %s and party_type = 'Employee'
           and party = %s and account = %s and delinked = 0""", (je, employee, payable))
-    s = frappe.utils.flt(r[0][0] if r and r[0] else 0)
-    return -s if s < 0 else s
+    # 2120 is a Payable: above 0 is still owed, below 0 is overpaid (owes nothing;
+    # 23 Nov 2026: was abs(), which made an overpaid bill read as owed again)
+    s = frappe.utils.flt(r[0][0] if r and r[0] else 0, 2)
+    return s if s > 0 else 0
 
 
-def owed(employee_list, cfg):
+def owed(employee_list, cfg, settled=None):
     # {employee: {employee, employee_name, claims: [...], advances: [...], total}}
+    # settled: a list that gets the Verified bills already paid some other way
     # "claims" are the bills (Settlement Expense), each against its Journal Entry
     flt = frappe.utils.flt
     out = {}
@@ -59,11 +70,18 @@ def owed(employee_list, cfg):
     for c in frappe.get_all("Settlement Expense", filters=sf, fields=["name", "employee", "employee_name", "bill_date", "title", "bill",
                                                                    "expense_account", "journal_entry", "modified"],
                             order_by="bill_date asc", limit_page_length=0):
+        je = frappe.db.get_value("Journal Entry", c.journal_entry, ["docstatus", "posting_date"], as_dict=True)
+        if not je or je.docstatus != 1:
+            continue        # its booking was cancelled: nothing to pay on it
         due = left_on(c.journal_entry, c.employee, cfg["payable"])
         if due <= 0.005:
+            # settled some other way (Payment Reconciliation, a hand-made entry):
+            # the payment run marks it Paid (a GET here saves nothing)
+            if settled is not None:
+                settled.append(c.name)
             continue
         e = out.get(c.employee) or {"employee": c.employee, "employee_name": c.employee_name, "claims": [], "advances": [], "total": 0}
-        e["claims"].append({"name": c.name, "entry": c.journal_entry, "date": str(frappe.db.get_value("Journal Entry", c.journal_entry, "posting_date")),
+        e["claims"].append({"name": c.name, "entry": c.journal_entry, "date": str(je.posting_date),
                             "amount": due, "title": c.title or "Bill", "bill_date": str(c.bill_date or ""), "bill": c.bill or "",
                             "account": c.expense_account or ""})
         e["total"] = e["total"] + due
@@ -112,8 +130,8 @@ def pay_bills(employee, refs, amount, bank, date, utr, company, payable):
     rows = []
     for r in refs:
         rows.append({"account": payable, "party_type": "Employee", "party": employee, "debit_in_account_currency": r["amount"],
-                     "reference_type": "Journal Entry", "reference_name": r["name"], "cost_center": "Main - ELPL"})
-    rows.append({"account": bank, "credit_in_account_currency": amount, "cost_center": "Main - ELPL"})
+                     "reference_type": "Journal Entry", "reference_name": r["name"], "cost_center": PAY["cost_center"]})
+    rows.append({"account": bank, "credit_in_account_currency": amount, "cost_center": PAY["cost_center"]})
     je = frappe.get_doc({"doctype": "Journal Entry", "voucher_type": "Bank Entry", "company": company, "posting_date": date,
                          "cheque_no": utr, "cheque_date": date, "user_remark": "Settlement payment, UTR " + utr, "accounts": rows})
     je.insert()
@@ -200,11 +218,27 @@ elif action == "pay":
     if not want:
         frappe.throw("Tick the employees you paid.")
     bank = str(fd.get("bank_account") or PAY["bank"])
-    if frappe.db.get_value("Account", bank, "account_type") != "Bank":
-        frappe.throw(bank + " is not a bank account.")
+    ba = frappe.db.get_value("Account", bank, ["account_type", "company", "disabled", "is_group"], as_dict=True)
+    if not ba or ba.account_type != "Bank" or ba.company != PAY["company"] or ba.disabled or ba.is_group:
+        frappe.throw(bank + " is not a bank account of " + PAY["company"] + " that can be paid from.")
     date = str(fd.get("date") or frappe.utils.today())[:10]
+    if not (len(date) == 10 and date[4] == "-" and date[7] == "-"):
+        frappe.throw("Give the date the money left the bank.")
+    if date > frappe.utils.today():
+        frappe.throw("The payment date cannot be in the future.")
     common = " ".join(str(fd.get("utr") or "").split())[:140]
-    owe = owed(want, PAY)
+    # one payment run per employee at a time: their rows are locked until this
+    # run is saved, so a second tab / user waits and then sees nothing owed
+    for e in want:
+        frappe.db.get_value("Employee", e, "name", for_update=True)
+    settled = []
+    owe = owed(want, PAY, settled)
+    for n in settled:
+        frappe.db.set_value("Settlement Expense", n, "status", "Paid")
+    for e in want:
+        for c in (owe.get(e) or {}).get("claims") or []:
+            if date < c["date"]:
+                frappe.throw("The payment date is before " + c["name"] + " was approved (" + c["date"] + ") -- check the date.")
     done = []
     missing = []
     for e in want:

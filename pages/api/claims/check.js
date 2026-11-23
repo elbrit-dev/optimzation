@@ -27,7 +27,7 @@
 // A bill with no signed read (the reader was off, or the old claim form) is
 // scored 0 -- a person in Accounts checks it.
 
-import { fingerprintCall, fingerprintFields } from "../../../lib/billFingerprint";
+import { fileHash, fingerprintCall, fingerprintFields, imageHash } from "../../../lib/billFingerprint";
 import { allowedErpHosts } from "../../../lib/erpServer";
 import { compareBill, readIsSigned } from "../../../lib/billReader";
 
@@ -209,6 +209,44 @@ function scoreTripRow(row, read) {
   };
 }
 
+/* ONE HOTEL BILL OVER SEVERAL CARDS, already sent (23 Nov 2026): a night of
+   the stay spread onto another card from a bill whose own card was sent
+   before (or from another phone) has no signed read of its own. The line the
+   bill was checked on stands for it -- the same photo, a Stay line, checked by
+   this login (custom_ai_reason + the stay's dates in custom_bill_meta) --
+   when this night is inside that stay and the bill's lines together claim no
+   more than its total. -> scoreRow's shape, or null (not such a night) */
+function scoreFromSibling(row, rows) {
+  if (row.expense_type !== "Stay" || !row.custom_bill) return null;
+  const metaOf = (r) => {
+    try {
+      return JSON.parse(r.custom_bill_meta || "{}") || {};
+    } catch {
+      return {};
+    }
+  };
+  const sib = rows.find((r) => r.name !== row.name && r.custom_bill === row.custom_bill && r.expense_type === "Stay" && String(r.custom_ai_reason || "").trim() && metaOf(r).bill?.check_in && metaOf(r).bill?.check_out);
+  if (!sib) return null;
+  const m = metaOf(sib);
+  const { check_in: ci, check_out: co } = m.bill;
+  const total = flt(m.bill.total) || flt(sib.custom_bill_amount);
+  const why = [];
+  if (!(row.expense_date >= ci && row.expense_date < co)) why.push(`the night of ${row.expense_date} is outside the bill's stay (${ci} to ${co})`);
+  const all = rows.filter((r) => r.custom_bill === row.custom_bill).reduce((a, r) => a + flt(r.amount), 0);
+  if (total && all > total + 1) why.push(`₹${Math.round(all)} claimed over its lines on a ₹${Math.round(total)} bill`);
+  const ok = !why.length;
+  const score = ok ? Math.min(100, flt(sib.custom_ai_score)) : 40;
+  return {
+    row,
+    score,
+    reason: ok ? `Same hotel bill as the ${sib.expense_date} line (one stay over several cards, ${ci} to ${co}). ${sib.custom_ai_reason}` : `${why.join("; ")}.`,
+    amount: flt(sib.custom_bill_amount) || null,
+    date: sib.custom_bill_date || null,
+    vendor: sib.custom_bill_vendor || null,
+    meta: { ...m, trip: { ...(m.trip || {}), spreadFrom: sib.name }, verification: { ...(m.verification || {}), status: ok ? m.verification?.status || "Trip bill checked" : "Mismatch", checked_at: new Date().toISOString(), score, why } },
+  };
+}
+
 /* Settlement bills (23 Nov 2026): each is a Settlement Expense, read with the
    rep's own token through the Settlement API (so only their own), scored like
    a claim row, put in the duplicate register as the rep, and the score written
@@ -220,6 +258,29 @@ async function settleCall(origin, token, params, post = false) {
   return post
     ? erp(origin, token, path, { method: "POST", headers: { "Content-Type": "application/x-www-form-urlencoded" }, body: q.toString() })
     : erp(origin, token, `${path}?${q}`);
+}
+
+/* The bill's photo as the ERP stores it (read with the checker login) -> its
+   hashes, or throws. */
+async function storedHashes(origin, checker, url) {
+  const r = await fetch(origin + url, { headers: { Authorization: tokenHeader(checker) }, redirect: "manual" });
+  if (!r.ok) throw new Error(`the bill photo could not be opened (HTTP ${r.status})`);
+  const type = r.headers.get("content-type") || "";
+  const buf = Buffer.from(await r.arrayBuffer());
+  return { file: fileHash(buf), image: await imageHash(buf, type).catch(() => null) };
+}
+
+/* Two 64-bit picture hashes (16 hex) within 6 bits: the same picture (the
+   duplicate register's own "near-identical" rule) -- the ERP may re-save a
+   photo without its EXIF, which changes the bytes but not the picture. */
+function samePicture(a, b) {
+  if (!a || !b || a.length !== b.length) return false;
+  let d = 0;
+  for (let i = 0; i < a.length; i += 2) {
+    let x = parseInt(a.slice(i, i + 2), 16) ^ parseInt(b.slice(i, i + 2), 16);
+    while (x) { d += x & 1; x >>= 1; }
+  }
+  return d <= 6;
 }
 
 async function checkSettlementBills(res, origin, userErp, checker, names, reads) {
@@ -235,15 +296,39 @@ async function checkSettlementBills(res, origin, userErp, checker, names, reads)
   for (const b of due) {
     // the same row shape the claim check scores
     const row = { name: b.name, amount: b.amount, expense_date: b.date, custom_bill: b.bill };
-    const x = b.bill ? scoreRow(row, reads[b.name]) : { row, score: 0, reason: "No bill photo." };
-    // the duplicate register, as the rep: already claimed -> 0; a possible repeat -> at most 85
+    // 23 Nov 2026 (security review): a signed read counts only for the photo it
+    // was made from. Before, any signed read was taken -- one made from typed
+    // text with no photo, or from another bill's photo -- so a made-up total
+    // scored 100. The stored photo is hashed here and must be the read's photo.
     const sr = reads[b.name];
-    const pr = sr?.read?.prints;
-    if (pr && !sr.read.trip && readIsSigned(sr.read, sr.sig) && x.score != null) {
+    const signed = !!(sr && sr.read && !sr.read.trip && readIsSigned(sr.read, sr.sig));
+    const pr = signed ? sr.read.prints : null;
+    let stored = null;
+    if (b.bill) {
+      try {
+        stored = await storedHashes(origin, checker, b.bill);
+      } catch (e) {
+        // left Checking: checked again when it is sent
+        return res.status(502).json({ error: `The bill check could not open the photo of ${b.name}: ${e.message}` });
+      }
+    }
+    const belongs = !!(pr && stored && (pr.file === stored.file || samePicture(pr.image, stored.image)));
+    let x;
+    if (!b.bill) x = { row, score: 0, reason: "No bill photo." };
+    else if (belongs) x = scoreRow(row, sr);
+    else {
+      x = scoreRow(row, null);
+      if (signed) x.reason = "The bill was read from a different picture than the one attached -- check the photo by hand.";
+    }
+    // the duplicate register, as the rep: already claimed -> 0; a possible
+    // repeat -> at most 85. A bill with no read of its own photo goes in too,
+    // by the stored photo's hashes, so the same photo cannot be claimed again.
+    const prints = belongs ? pr : stored ? { file: stored.file, image: stored.image, content: null, strong: false } : null;
+    if (prints && x.score != null) {
       const fp = await fingerprintCall(origin, userErp, {
         action: "claim", kind: "Bill", trip: b.name.slice(0, 40),
-        ...fingerprintFields(sr.read.values, { date: b.date, amount: flt(b.amount) }),
-        file_url: b.bill || "", file_hash: pr.file, image_hash: pr.image || "", content_hash: pr.content || "", strong: pr.strong ? "1" : "0",
+        ...fingerprintFields(belongs ? sr.read.values : {}, { date: b.date, amount: flt(b.amount) }),
+        file_url: b.bill || "", file_hash: prints.file, image_hash: prints.image || "", content_hash: prints.content || "", strong: prints.strong ? "1" : "0",
       });
       if (fp && fp.error === undefined) {
         x.meta = { ...(x.meta || {}), fingerprint: fp.ok ? { name: fp.name, flag: fp.flag || null } : { refused: fp.matched || null } };
@@ -319,7 +404,12 @@ export default async function handler(req, res) {
     if (only && !only.has(row.name)) return { row, skip: true };
     if (running && (row.custom_bill_status || "Checking") !== "Checking") return { row, skip: true };
     if (!row.custom_bill) return { row, score: 0, reason: "No bill attached to this row." };
-    return scoreRow(row, reads[row.name]);
+    const sr = reads[row.name];
+    if (!sr || !readIsSigned(sr.read, sr.sig)) {
+      const sib = scoreFromSibling(row, rows);
+      if (sib) return sib;
+    }
+    return scoreRow(row, sr);
   });
 
   const counted = scored.filter((s) => !s.skip);
@@ -374,7 +464,9 @@ export default async function handler(req, res) {
           doc = (await erp(origin, checker, target)).data;
         }
         doc.expenses = (doc.expenses || []).map((r) => {
-          const x = byName.get(r.name) || byBill.get(r.custom_bill);
+          // by photo only on the running claim (rows moved to a new claim): on a
+          // field claim one hotel bill can sit on several lines (23 Nov 2026)
+          const x = byName.get(r.name) || (running ? byBill.get(r.custom_bill) : null);
           // Decided (or edited) meanwhile: leave it to whoever did that.
           if (!x || (running && (r.custom_bill_status || "Checking") !== "Checking") || flt(r.amount) !== flt(x.row.amount) || r.custom_bill !== x.row.custom_bill) return r;
           return {

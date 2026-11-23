@@ -18,6 +18,10 @@
 
 PAYABLE = "2120 - Employee Expense Payable - ELPL"
 ADVANCE = "Employee Expense Advances - ELPL"
+# Settlement Settings (23 Nov 2026) override these when filled in
+if frappe.db.exists("DocType", "Settlement Settings"):
+    PAYABLE = frappe.db.get_single_value("Settlement Settings", "payable_account") or PAYABLE
+    ADVANCE = frappe.db.get_single_value("Settlement Settings", "advance_account") or ADVANCE
 columns = [
     {"fieldname": "employee", "label": "Employee", "fieldtype": "Link", "options": "Employee", "width": 110},
     {"fieldname": "employee_name", "label": "Name", "fieldtype": "Data", "width": 190},
@@ -40,10 +44,10 @@ for c in frappe.get_all("Settlement Expense", filters={"status": "Verified", "jo
     led = frappe.db.sql("""select sum(amount_in_account_currency) from `tabPayment Ledger Entry`
         where against_voucher_type = 'Journal Entry' and against_voucher_no = %s and party_type = 'Employee'
           and party = %s and account = %s and delinked = 0""", (c.journal_entry, c.employee, PAYABLE))
-    s = frappe.utils.flt(led[0][0] if led and led[0] else 0)
-    due = -s if s < 0 else s
-    if due <= 0.005:
-        continue
+    s = frappe.utils.flt(led[0][0] if led and led[0] else 0, 2)
+    due = s if s > 0 else 0        # 2120 is a Payable: below 0 is overpaid, nothing owed
+    if due <= 0.005 or frappe.db.get_value("Journal Entry", c.journal_entry, "docstatus") != 1:
+        continue                   # paid, or its booking cancelled
     c.posting_date = frappe.db.get_value("Journal Entry", c.journal_entry, "posting_date")
     r = by.get(c.employee) or {"employee": c.employee, "employee_name": c.employee_name, "bills": 0, "bills_amount": 0,
                                "advances": 0, "advance_amount": 0, "total": 0, "oldest": None}

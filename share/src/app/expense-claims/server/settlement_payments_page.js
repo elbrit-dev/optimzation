@@ -244,7 +244,7 @@
       dialog("Record this payment?",
         "<p><b>" + money(amt) + "</b> to <b>" + plural(sel.length, "employee") + "</b>, paid from <b>" + esc(params.bank_account.replace(/ - ELPL$/, "")) + "</b> on <b>" + dfmt(date) + "</b>.</p>"
         + "<table>" + sel.map(function (r) { return "<tr><td>" + esc(r.employee_name) + '</td><td class="mono">UTR ' + esc(params["utr_" + r.employee] || common) + '</td><td class="mono" style="text-align:right">' + money(r.total) + "</td></tr>"; }).join("") + "</table>"
-        + '<p class="sp-note">Do this only after the money has left the bank. The ERP makes the Payment Entries, the bills turn Paid and each employee is told.</p>',
+        + '<p class="sp-note">Do this only after the money has left the bank. The ERP records the payments and the bills turn Paid in the employee's app.</p>',
         "Record payment", function () {
           $("[data-pay]").disabled = true;
           $("[data-pay]").textContent = "Recording…";
@@ -260,7 +260,7 @@
               + (m.missing_utr && m.missing_utr.length ? "<p>Not recorded (no UTR): " + m.missing_utr.map(esc).join(", ") + "</p>" : ""));
             load();
           }).catch(function (e) {
-            dialog("Not recorded", esc(e.message) + "<p class='sp-note'>Nothing was saved for the employee this stopped at. Check and try again.</p>");
+            dialog("Not recorded", esc(e.message) + "<p class='sp-note'>Nothing was recorded in the ERP for anyone in this run -- every employee is still owed as before. Fix the problem and record the run again (the bank transfers you already made stay as they are).</p>");
             load();
           });
         });
