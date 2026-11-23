@@ -204,7 +204,7 @@
   /* the day's claim lines, summed: claimed, final (after adjustments), TA / DA
      parts, bills -- against what the dashboard worked out for the day */
   function sums(lines, key) {
-    var o = { claimed: 0, fin: 0, ta: 0, da: 0, adj: 0, bills: 0, stayFood: 0, car: 0, hand: 0, flag: 0, unchecked: 0 };
+    var o = { claimed: 0, fin: 0, ta: 0, da: 0, adj: 0, bills: 0, stayFood: 0, car: 0, hand: 0, flag: 0, unchecked: 0, tickets: 0 };
     // the day's share of the trip's fuel, in place of the bills on their own dates
     var share = key && M.carShare ? M.carShare[key] || 0 : 0;
     if (share) { o.claimed += share; o.fin += share; o.ta += share; o.car += share; }
@@ -225,6 +225,8 @@
       if (l.custom_bill) o.bills++;
       if (l.expense_type === 'Stay' || l.expense_type === 'Food') o.stayFood += a;
       if (l.expense_type === 'Fuel' || l.expense_type === 'Toll') o.car += a;
+      // fx-ticket: a train / bus ticket line (a Travel line with its bill, 23 Nov 2026)
+      if (l.expense_type === 'Travel' && l.custom_bill) o.tickets += a;
       // a bill: handwritten / never checked / a possible repeat (checked, under 90)
       if (isHand(l)) o.hand++;
       else if (l.custom_bill && !l.custom_ai_reason) o.unchecked++;
@@ -258,6 +260,15 @@
   var workedOf = function (r) {
     var w = M.worked[r.emp + '|' + r.date];
     return w ? { ta: w.ta, da: w.da } : { ta: Number(r.taA) || 0, da: Number(r.daA) || 0 };
+  };
+  /* fx-ticket (23 Nov 2026): a day whose journey is paid by TRAIN / BUS TICKET
+     -- the planner pays the larger of the fare and the tickets -- has the
+     claimed TA as its correct TA (fare 1,000 + ticket 1,500 -> TA 1,500), not
+     "+500 vs worked out". -> { ta, da, fare, ticket } */
+  var expectedOf = function (r, x) {
+    var w = workedOf(r);
+    if (x && x.tickets > 0 && x.ta > w.ta) return { ta: x.ta, da: w.da, fare: w.ta, ticket: true };
+    return { ta: w.ta, da: w.da, fare: w.ta, ticket: false };
   };
 
   /* the changes on a line, in order (13 Nov 2026): the reporting officer's on
@@ -304,11 +315,11 @@
 
   /* why the claim differs from the worked-out day, in words */
   function delta(r, x) {
-    var w0 = workedOf(r);
+    var w0 = expectedOf(r, x);
     var cal = w0.ta + w0.da;
     var d = Math.round(x.claimed - cal);
     if (!r.payable && !x.claimed) return '';
-    if (Math.abs(d) < 1) return '<span style="color:var(--ink-3)">= worked out</span>';
+    if (Math.abs(d) < 1) return '<span style="color:var(--ink-3)">= worked out' + (w0.ticket ? ' · TA by train / bus ticket' : '') + '</span>';
     var why = [];
     if (x.stayFood) why.push('stay / food bills');
     if (x.car) why.push('own car');
@@ -326,6 +337,7 @@
     var rest = parts.slice(1).filter(function (x) { return !DAY_RE.test(x) && !/^(fuel|toll|own car)$/i.test(x); });
     if (/^own car/i.test(parts[0] || '')) return { main: l.expense_type === 'Fuel' ? 'Fuel bill' : 'Toll receipt', sub: 'own car' + (rest.filter(function (x) { return /^capped/.test(x); })[0] ? ' · ' + rest.filter(function (x) { return /^capped/.test(x); })[0] : '') };
     if (/top-up/i.test(parts[0] || '')) return { main: 'Top-up to 50 % DA', sub: rest.join(' · ') };
+    if (/^TA by ticket/i.test(parts[0] || '')) return { main: 'Train / bus ticket' + (rest[0] ? ' · ' + unshout(rest[0]) : ''), sub: rest.slice(1).join(' · ') };
     if (l.expense_type === 'Daily Allowance') return { main: 'Daily allowance' + (rest[0] ? ' · ' + rest[0] : ''), sub: rest.slice(1).join(' · ') };
     return { main: unshout(rest[0] || l.expense_type), sub: rest.slice(1).join(' · ') };
   }
@@ -389,7 +401,7 @@
     var c = d.claim, x = sums(d.lines, key);
     var ct = M.carTrip && M.carTrip[key];
     var st = STATE[c.workflow_state] || [c.workflow_state, 'var(--ink-3)'];
-    var w0 = workedOf(r);
+    var w0 = expectedOf(r, x);
     var cal = w0.ta + w0.da;
     var diff = Math.round((x.adj ? x.fin : x.claimed) - cal);
     var fig = function (label, val, color, note) {
@@ -448,7 +460,7 @@
       '</div>' +
       '<div style="display:flex;gap:8px;flex-wrap:wrap;margin:10px 0 4px">' +
         fig('Claimed', x.adj ? '<s style="color:var(--ink-3);font-weight:400;font-size:13px">' + inr(x.claimed) + '</s> ' + inr(x.fin) : inr(x.claimed), null, x.adj ? 'after ' + x.adj + ' adjustment' + (x.adj > 1 ? 's' : '') : '') +
-        fig('Worked out', inr(cal), null, 'TA ' + inr(w0.ta) + ' + DA ' + inr(w0.da) + (M.worked[r.emp + '|' + r.date] ? ' · the row now shows the approved claim' : '')) +
+        fig('Worked out', inr(cal), null, 'TA ' + inr(w0.ta) + (w0.ticket ? ' (by train / bus ticket; fare ' + inr(w0.fare) + ')' : '') + ' + DA ' + inr(w0.da) + (M.worked[r.emp + '|' + r.date] ? ' · the row now shows the approved claim' : '')) +
         fig('Difference', Math.abs(diff) < 1 ? '—' : (diff > 0 ? '+' : '−') + inr(Math.abs(diff)), Math.abs(diff) < 1 ? null : diff > 0 ? 'var(--warn, #b45309)' : 'var(--accent)', Math.abs(diff) < 1 ? 'same as worked out' : why.join(' + ')) +
       '</div>' +
       rows +
