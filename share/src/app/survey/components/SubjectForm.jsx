@@ -10,6 +10,9 @@ import { QuestionCard } from './QuestionCard';
 import { RecordTabs } from './RecordTabs';
 import { SurveyView } from './SurveyView';
 
+/* the longest a rep waits for the AI read of a file (the server finishes it anyway) */
+const READ_WAIT = 25000;
+
 /* One response — "S2 › D1" (the page's top bar, SurveyHome's): the survey's questions for one distributor,
  * doctor, or the person themself. Secondary Entry's EntryForm, with
  * questions where it has products.
@@ -58,9 +61,23 @@ export function SubjectForm({ survey, row, rows, me, draft, api, onBack, onDraft
   const requiredLeft = required.filter((q) => isEmpty(answers[q.id])).length;
 
   /* Count uploads in flight, so Submit waits for them. */
-  const upload = (file, onProgress) => {
+  /* 23 Nov 2026: a question with an AI schema — the file is read right after it
+     is stored (api.readFile; our server keeps what it read for Survey Center).
+     The upload stays "in progress" while it is read, at most READ_WAIT; the rep
+     only learns whether it could be read (res.read.readable). */
+  const upload = (file, onProgress, q) => {
     setUploading((n) => n + 1);
-    return api.uploadFile(file, onProgress).finally(() => setUploading((n) => n - 1));
+    return api
+      .uploadFile(file, onProgress)
+      .then(async (res) => {
+        if (!q?.ai?.schema || typeof api.readFile !== 'function') return res;
+        const read = await Promise.race([
+          api.readFile({ response: row.response, question: q.id, file_url: res.file_url, file }),
+          new Promise((r) => setTimeout(() => r(null), READ_WAIT)),
+        ]).catch(() => null);
+        return { ...res, read };
+      })
+      .finally(() => setUploading((n) => n - 1));
   };
 
   const saveDraft = () => {

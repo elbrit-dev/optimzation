@@ -144,6 +144,40 @@ export function createErpApi({ endpointUrl, gqlEnvironment = 'ERP', gqlToken, al
       });
     },
 
+    /* 23 Nov 2026: a File upload question with an AI schema — right after the
+       upload, our server reads the file (Gemma 4) and keeps what it read on the
+       response for Survey Center (pages/api/survey/read-file.js). A PDF goes as
+       its text, or its page pictures, copied out here. The rep only ever hears
+       back whether the file could be read: { readable, reason } — never the
+       fields, never a decision. Any failure here is not the rep's: { skipped }. */
+    async readFile({ response, question, file_url, file }) {
+      try {
+        needAuth();
+        const base = await origin();
+        const form = new FormData();
+        form.append('response', response);
+        form.append('question', question);
+        form.append('file_url', file_url);
+        if (file && (file.type === 'application/pdf' || /\.pdf$/i.test(file.name || ''))) {
+          const { pdfForReading } = await import('@calendar/lib/field-expenses/bill-reader');
+          const pdf = await pdfForReading(file);
+          if (pdf.text) form.append('text', pdf.text);
+          for (const p of pdf.pages || []) form.append('page', p, p.name);
+        }
+        const res = await doFetch('/api/survey/read-file', {
+          method: 'POST',
+          headers: { 'x-erp-token': auth, 'x-erp-endpoint': base },
+          body: form,
+          signal: AbortSignal.timeout(150000),
+        });
+        const json = await res.json().catch(() => ({}));
+        if (!res.ok) return { skipped: json.error || `HTTP ${res.status}` };
+        return json;
+      } catch (e) {
+        return { skipped: e?.message || 'failed' };
+      }
+    },
+
     async submitResponse(response, answers) {
       needWrites();
       return call('POST', 'survey_submit_response', { body: { response, answers: JSON.stringify(answers ?? {}) } });

@@ -178,6 +178,9 @@ function FileUpload({ q, value, onChange, disabled, onUpload }) {
   const files = value ?? [];
   const inputRef = useRef(null);
   const [ups, setUps] = useState([]); // { id, name, size, progress, error }
+  /* 23 Nov 2026: a file the AI could not read (blurry, dark, cut off): { url: reason }.
+     The only thing the rep is ever told about the AI read. */
+  const [unread, setUnread] = useState({});
   const busy = ups.some((u) => !u.error);
   const room = rules.maxFiles - files.length - ups.filter((u) => !u.error).length;
   const valueRef = useRef(files);
@@ -192,9 +195,10 @@ function FileUpload({ q, value, onChange, disabled, onUpload }) {
         continue;
       }
       setUps((u) => [...u, { id, name: file.name, size: file.size, progress: 0 }]);
-      onUpload(file, (p) => setUps((u) => u.map((x) => (x.id === id ? { ...x, progress: p } : x))))
+      onUpload(file, (p) => setUps((u) => u.map((x) => (x.id === id ? { ...x, progress: p } : x))), q)
         .then((res) => {
           setUps((u) => u.filter((x) => x.id !== id));
+          if (res.read && res.read.readable === false) setUnread((m) => ({ ...m, [res.file_url]: res.read.reason || 'The file could not be read.' }));
           onChange([...valueRef.current, { url: res.file_url, name: res.file_name, size: res.file_size }]);
         })
         .catch((e) => setUps((u) => u.map((x) => (x.id === id ? { ...x, error: e?.message || 'Upload failed.' } : x))));
@@ -253,19 +257,27 @@ function FileUpload({ q, value, onChange, disabled, onUpload }) {
       ))}
 
       {files.map((f) => (
-        <div key={f.url} className="flex items-center gap-2 rounded-lg border border-line bg-surface px-3 py-2 text-12">
-          <Icon name={/\.pdf$/i.test(f.name) ? 'file-pdf' : 'image'} size="sm" className="text-brand-text" />
-          <span className="min-w-0 flex-1 truncate font-semibold text-heading">{f.name}</span>
-          <span className="shrink-0 tabular-nums text-ds-muted">{sizeText(f.size || 0)}</span>
-          <button
-            type="button"
-            aria-label={`Remove ${f.name}`}
-            disabled={disabled || busy}
-            onClick={() => onChange(files.filter((x) => x.url !== f.url))}
-            className="flex size-7 items-center justify-center rounded-md text-ds-muted transition-colors hover:bg-sunken hover:text-danger-text"
-          >
-            <Icon name="times" size="sm" />
-          </button>
+        <div key={f.url} className={cx('flex flex-col gap-1 rounded-lg border px-3 py-2 text-12', unread[f.url] ? 'border-warning bg-warning-wash' : 'border-line bg-surface')}>
+          <div className="flex items-center gap-2">
+            <Icon name={/\.pdf$/i.test(f.name) ? 'file-pdf' : 'image'} size="sm" className="text-brand-text" />
+            <span className="min-w-0 flex-1 truncate font-semibold text-heading">{f.name}</span>
+            <span className="shrink-0 tabular-nums text-ds-muted">{sizeText(f.size || 0)}</span>
+            <button
+              type="button"
+              aria-label={`Remove ${f.name}`}
+              disabled={disabled || busy}
+              onClick={() => onChange(files.filter((x) => x.url !== f.url))}
+              className="flex size-7 items-center justify-center rounded-md text-ds-muted transition-colors hover:bg-sunken hover:text-danger-text"
+            >
+              <Icon name="times" size="sm" />
+            </button>
+          </div>
+          {unread[f.url] ? (
+            <p role="status" className="flex items-start gap-1.5 text-11 font-medium text-warning-text">
+              <Icon name="exclamation-triangle" size="sm" className="mt-px shrink-0" />
+              <span>{unread[f.url]} Couldn’t read it — please remove it and upload a clearer one.</span>
+            </p>
+          ) : null}
         </div>
       ))}
     </div>

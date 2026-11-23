@@ -134,6 +134,13 @@ export function createMockApi({ role = 'BE', scenario = 'normal', today = MOCK_T
       return { response: r.name, existing: 0, subject };
     },
 
+    /* The AI read of an uploaded file (erpApi.readFile): the mock reads
+       everything fine, except a file named "blurry…" (to see the rep's warning). */
+    async readFile({ file }) {
+      await wait(400);
+      return /blurr?y/i.test(file?.name || '') ? { readable: false, reason: 'The photo is blurry.' } : { readable: true };
+    },
+
     /* Frappe's upload_file answers { file_url, file_name, file_size }.
        Progress is reported 0…1 as the XHR's upload.onprogress would. */
     async uploadFile(file, onProgress) {
