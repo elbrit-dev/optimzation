@@ -45,20 +45,36 @@ async function rawBody(req) {
 }
 
 /* The app's service account for THIS ERP (the same host the rep is on), from the
-   deployment's endpoint + token pairs -- never mixed across ERPs. */
-function serviceFor(origin) {
+   deployment's endpoint + token pairs -- never mixed across ERPs. Every pair on
+   that host is tried; the first the ERP accepts is used (and remembered).
+   -> { auth, as } | { tried: [suffixes] } */
+const serviceCache = new Map();
+async function serviceFor(origin) {
+  if (serviceCache.has(origin)) return serviceCache.get(origin);
   const host = new URL(origin).host.toLowerCase();
+  const tried = [];
   for (const t of ["ERP", "UAT", "NEW", ""]) {
     const url = env(t ? `NEXT_PUBLIC_GRAPHQL_ENDPOINT_${t}` : "NEXT_PUBLIC_GRAPHQL_ENDPOINT");
     const token = env(t ? `NEXT_PUBLIC_GRAPHQL_AUTH_TOKEN_${t}` : "NEXT_PUBLIC_GRAPHQL_AUTH_TOKEN");
     if (!url || !token) continue;
+    let same = false;
     try {
-      if (new URL(url).host.toLowerCase() === host) return tokenHeader(token);
+      same = new URL(url).host.toLowerCase() === host;
     } catch {
       /* a malformed env value */
     }
+    if (!same) continue;
+    const auth = tokenHeader(token);
+    const r = await fetch(`${origin}/api/method/frappe.auth.get_logged_user`, { headers: { Authorization: auth, Accept: "application/json" }, redirect: "manual" }).catch(() => null);
+    const who = r?.ok ? (await r.json().catch(() => ({}))).message : null;
+    if (who && who !== "Guest") {
+      const found = { auth, as: who };
+      serviceCache.set(origin, found);
+      return found;
+    }
+    tried.push(`${t || "(default)"}: ${r ? `HTTP ${r.status}` : "unreachable"}`);
   }
-  return null;
+  return { tried };
 }
 
 async function erpCall(origin, auth, method, args) {
@@ -100,8 +116,12 @@ export default async function handler(req, res) {
     return res.status(400).json({ error: "That ERP is not one this app talks to." });
   }
   if (!fileReaderOn()) return res.status(200).json({ skipped: "reader off" });
-  const service = serviceFor(origin);
-  if (!service) return res.status(200).json({ skipped: "no service account for this ERP" });
+  const svc = await serviceFor(origin);
+  if (!svc.auth) {
+    console.warn("survey read-file: no working service account for", origin, svc.tried);
+    return res.status(200).json({ skipped: `no working service account for this ERP (${svc.tried.join("; ") || "none set"})` });
+  }
+  const service = svc.auth;
 
   let form;
   try {
