@@ -201,6 +201,9 @@ function toBill(json) {
       billed: v.billed,
       date: v.date,
       nights: v.nights || [],
+      // a hotel bill's whole stay, so it can be spread over the cards it covers (23 Nov 2026)
+      checkIn: v.checkIn || null,
+      checkOut: v.checkOut || null,
       vendor: v.vendor || null,
       url: json.file?.url || null,
       fileName: json.file?.name || null,

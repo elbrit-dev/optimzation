@@ -22,7 +22,8 @@
 
 export const MIN_READ = 0.6;
 
-/* "da" = stay OR food, decided by the bill (the trip's one upload button). */
+/* "da" = stay OR food, decided by the bill (the trip's one upload button);
+   "dta" = stay, food OR travel (23 Nov 2026: RBM and above, no own car). */
 export const SLOTS = {
   stays: { kind: "Stay", title: "Hotel bill", word: "stay" },
   foods: { kind: "Food", title: "Food bill", word: "food" },
@@ -31,7 +32,15 @@ export const SLOTS = {
   // a manager's (SM / ZSM) cab bills of the month, kept apart from TA/DA (20 Nov
   // 2026): any cab ride dated inside the month; registered as kind "Bill"
   cabs: { kind: "Cab", title: "Cab bill", word: "cab" },
+  /* 23 Nov 2026 (the user): a TRAVEL bill -- a TRAIN or BUS ticket only --
+     RBM and above, with no own car approved: on an outstation trip (with the
+     stay / food bills) and on an EQ day over 100 km. Each ticket counts on its
+     DEPARTURE date, against that day's journey fare (claim-rules.js); one
+     ticket is one journey, never several days. A flight is the company's. */
+  travels: { kind: "Travel", title: "Travel bill", word: "travel" },
 };
+export const TRAVEL_TITLES = ["Train ticket", "Bus ticket"];
+const FLIGHT = "Flights are booked by the company — a flight ticket is not claimed here.";
 const SLOT_OF_TITLE = Object.fromEntries(Object.entries(SLOTS).map(([k, s]) => [s.title, k]));
 
 const CLEAR = "Upload a clear photo of the bill — this one could not be read.";
@@ -41,7 +50,7 @@ const MANUAL = "This bill couldn't be read (handwritten, faded, or no bill no / 
    whatever was read. */
 function unreadable(read, slotKind, reason = MANUAL) {
   const v = read?.values || {};
-  const guess = slotKind || { "Hotel bill": "Stay", "Food bill": "Food", "Fuel bill": "Fuel", Toll: "Toll", "Cab bill": "Cab" }[read?.title] || null;
+  const guess = slotKind || { "Hotel bill": "Stay", "Food bill": "Food", "Fuel bill": "Fuel", Toll: "Toll", "Cab bill": "Cab", "Train ticket": "Travel", "Bus ticket": "Travel" }[read?.title] || null;
   return {
     ok: false,
     manual: true,
@@ -103,6 +112,24 @@ export function tripBillVerdict(read, slot, trip) {
         : `This is a ${String(read.title).toLowerCase()} — only hotel and food bills go here.`,
     };
   }
+  // "dta" (23 Nov 2026): the trip's ONE upload for RBM and above with no own
+  // car approved -- a hotel bill to Stay, a food bill to Food, a train / bus
+  // ticket to Travel. "travels": train / bus tickets only (an EQ day over 100 km).
+  if (slot === "dta" || slot === "travels") {
+    const t = read?.title;
+    if (slot === "dta" && t === "Hotel bill") return tripBillVerdict(read, "stays", trip);
+    if (slot === "dta" && t === "Food bill") return tripBillVerdict(read, "foods", trip);
+    if (!TRAVEL_TITLES.includes(t)) {
+      if (!t || !fairly(read.titleConfidence)) return unreadable(read, slot === "travels" ? "Travel" : null);
+      if (t === "Not a bill") return { ok: false, reason: NOT_BILL };
+      if (t === "Flight ticket") return { ok: false, reason: FLIGHT };
+      const what = slot === "dta" ? "hotel and food bills and train / bus tickets" : "train and bus tickets";
+      const word = SLOT_OF_TITLE[t] ? `${SLOTS[SLOT_OF_TITLE[t]].word} bill` : String(t).toLowerCase();
+      return { ok: false, reason: `This is ${/^[aeiou]/i.test(word) ? "an" : "a"} ${word} — only ${what} go here${t === "Fuel bill" || t === "Toll" ? " (fuel bills go with an approved own car)" : t === "Cab bill" || t === "Auto bill" ? " (cab and auto rides are not paid as travel)" : ""}.` };
+    }
+    if (slot === "dta") return tripBillVerdict(read, "travels", trip);
+    // "travels" with a train / bus title: the checks below, as that title
+  }
   // "all": the trip's ONE upload once the car is approved and the trip has
   // stay / food bills too (16 Nov 2026) -- the bill says which it is: a hotel
   // bill goes to Stay, a food bill to Food, a fuel bill to Fuel. Tolls are
@@ -131,7 +158,8 @@ export function tripBillVerdict(read, slot, trip) {
         : `This is a ${String(read.title).toLowerCase()} — only fuel and toll bills go here.`,
     };
   }
-  const s = SLOTS[slot];
+  // a travel bill is checked as the title it was read as (train, bus, cab, auto)
+  const s = slot === "travels" && TRAVEL_TITLES.includes(read?.title) ? { ...SLOTS.travels, title: read.title } : SLOTS[slot];
   if (!s) return { ok: false, reason: "Unknown bill slot." };
   if (!trip?.from || !trip?.to) return { ok: false, reason: CLEAR };
   if (!read) return unreadable(null, s.kind);
@@ -210,7 +238,7 @@ export function tripBillVerdict(read, slot, trip) {
    entry: { kind, date, checkIn, checkOut, amount, vendor }
    -> { ok: false, reason } | the same as tripBillVerdict, with manual: true */
 // tolls are not paid (13 Nov 2026): never offered for hand entry on a trip
-export const MANUAL_KINDS = { da: ["Stay", "Food"], car: ["Fuel"], all: ["Stay", "Food", "Fuel"], stays: ["Stay"], foods: ["Food"], fuels: ["Fuel"], tolls: ["Toll"], cabs: ["Cab"] };
+export const MANUAL_KINDS = { da: ["Stay", "Food"], dta: ["Stay", "Food", "Travel"], car: ["Fuel"], all: ["Stay", "Food", "Fuel"], stays: ["Stay"], foods: ["Food"], fuels: ["Fuel"], tolls: ["Toll"], cabs: ["Cab"], travels: ["Travel"] };
 /* opts.whyOptional: Field Expense Settings "hw_reason_optional" (21 Nov 2026) -- the reason may be empty */
 export function manualBillVerdict(entry, slot, trip, opts = {}) {
   const e = entry || {};

@@ -111,7 +111,17 @@ export function stayShares(b, work = null) {
 
 /* Everything a trip's claim is worth, from the console's days and the claim's
    own state (car, bills, stays). */
-export function tripClaim(trip, claim, { role, requests } = {}) {
+/* The part of a day's TA a train / bus ticket stands for (23 Nov 2026): on an
+   EQ day (out and back, the rail fare above 100 km) and on a day with no
+   journey, the day's whole TA; on a day with a journey between HQs, that
+   journey's fare -- the local run around the town is paid as it is. */
+const ticketBase = (d) => (d.dayType === "EQ" || !d.journey ? d.ta || 0 : Math.min(d.journey.fare || 0, d.ta || 0));
+/* An EQ day over eqKm: its run is paid the rail fare (fareBasis) -- the one
+   kind of EQ day a ticket is taken on. */
+const farEq = (d, eqKm) =>
+  d.payable && d.dayType === "EQ" && (d.legs || []).some((l) => l.leg === "Local" && Number(l.fare) > 0 && Number(l.rounded_km ?? l.km) > eqKm);
+
+export function tripClaim(trip, claim, { role, requests, eqKm } = {}) {
   const c = claim || {};
   // away days (and their stay / food bills) only for the roles that claim them
   const billsAllowed = claimsStays(role);
@@ -214,7 +224,32 @@ export function tripClaim(trip, claim, { role, requests } = {}) {
   // fuel is money spent, not an allowance), never above it.
   const carBilled = car && fuel + tolls > 0;
   const capped = carBilled && fuel + tolls > cap;
-  const ta = carBilled ? Math.min(fuel + tolls, cap) : fare;
+  /* TRAVEL BILLS (23 Nov 2026, the user): RBM and above add their TRAIN / BUS
+     tickets -- on an outstation trip with the stay and food bills, and on an
+     EQ day over 100 km -- when no own car is approved (the car keeps its fuel
+     bills, unchanged). DAY BY DAY, by the ticket's departure date: the day's
+     tickets against the fare of that day's journey (ticketBase) -- the larger
+     is paid. Fare ₹1,000 and tickets ₹1,500 -> ₹500 on top; tickets ₹800 ->
+     the fare ₹1,000 stays. A ticket on a day with nothing paid adds nothing. */
+  const eqFar = trip.kind === "day" && (trip.days || []).some((d) => farEq(d, eqKm ?? 100));
+  const travelAllowed = billsAllowed && !car && ((nights.length > 0 && !nightRows.every((n) => n.fullNoBill)) || eqFar);
+  const travels = travelAllowed ? c.travels || [] : [];
+  const travel = sum(travels);
+  const travelDays = {};
+  for (const b of travels) {
+    const t = (travelDays[b.date] = travelDays[b.date] || { date: b.date, tickets: 0, count: 0 });
+    t.tickets += Math.round(Number(b.amount) || 0);
+    t.count += 1;
+  }
+  for (const t of Object.values(travelDays)) {
+    const d = trip.byDate?.get(t.date) || trip.days.find((x) => x.date === t.date);
+    t.paid = !!d?.payable;
+    t.base = t.paid ? ticketBase(d) : 0;
+    t.extra = t.paid ? Math.max(0, t.tickets - t.base) : 0;
+  }
+  const travelExtra = carBilled ? 0 : Object.values(travelDays).reduce((s, t) => s + t.extra, 0);
+  const travelBilled = travelExtra > 0;
+  const ta = carBilled ? Math.min(fuel + tolls, cap) : fare + travelExtra;
   // stay and food come under DA (RBM and SM and above attach the bills): the
   // outstation days' 50 % swapped for what the pool pays
   const food = sum(foods);
@@ -241,6 +276,15 @@ export function tripClaim(trip, claim, { role, requests } = {}) {
     car,
     carBilled,
     capped,
+    travelAllowed,
+    travel,
+    travelBills: travels.length,
+    travelBilled,
+    // per departure date: { tickets, count, base (the fare they stand for), extra, paid }
+    travelDays,
+    eqFar,
+    // what the tickets add on top of the fare
+    travelExtra,
     fuel,
     tolls,
     fare,
@@ -267,6 +311,14 @@ export function tripChecks(trip, claim, calc) {
     if (!calc.fuel && !calc.tolls) out.push({ ok: true, text: `No car bill yet · fare ₹${fmt(calc.fare)} paid.` });
     else if (calc.capped) out.push({ ok: true, text: `Car bills ₹${fmt(calc.fuel + calc.tolls)} → ₹${fmt(calc.cap)} (approved max).` });
     else out.push({ ok: true, text: `Car bills ₹${fmt(calc.fuel + calc.tolls)} paid · up to ₹${fmt(calc.cap)}.` });
+  }
+  if (calc.travel > 0) {
+    out.push({
+      ok: true,
+      text: calc.travelBilled
+        ? `Train / bus tickets ₹${fmt(calc.travel)} → TA ₹${fmt(calc.ta)} (+₹${fmt(calc.travelExtra)} over the fare).`
+        : `Train / bus tickets ₹${fmt(calc.travel)} · the fare is more on each day, so the fare is paid.`,
+    });
   }
   const p = calc.pool;
   if (p?.on) {

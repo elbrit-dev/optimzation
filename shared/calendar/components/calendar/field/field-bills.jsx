@@ -6,7 +6,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
-import { AlertTriangle, BedDouble, Camera, Check, Fuel, Loader2, Route, Upload, UtensilsCrossed, X } from "lucide-react";
+import { AlertTriangle, BedDouble, Camera, Check, Fuel, Loader2, Route, TrainFront, Upload, UtensilsCrossed, X } from "lucide-react";
 import { cn } from "@calendar/lib/utils";
 import { inr } from "@calendar/lib/field-expenses/field-days";
 import { BILL_ACCEPT, checkBillFile, enterTripBill, warmReader } from "@calendar/lib/field-expenses/bill-reader";
@@ -92,8 +92,8 @@ export const ChipButton = ({ busy, onClick, children }) => (
   </button>
 );
 
-export const BILL_NAME = { fuels: "Fuel bill", tolls: "Toll receipt", foods: "Food bill", stays: "Hotel bill" };
-const ICON = { fuels: Fuel, tolls: Route, foods: UtensilsCrossed, stays: BedDouble };
+export const BILL_NAME = { fuels: "Fuel bill", tolls: "Toll receipt", foods: "Food bill", stays: "Hotel bill", travels: "Travel bill" };
+const ICON = { fuels: Fuel, tolls: Route, foods: UtensilsCrossed, stays: BedDouble, travels: TrainFront };
 
 /* A bill on the trip. Every bill here passed its checks when it was scanned
    (type, date, read) -- the amount is what was read off it, never typed. */
@@ -145,6 +145,11 @@ export function BillEditor({ bill, kind, onRemove }) {
               ? `dated ${d(bill.date)}`
               : ""}
         </span>
+        {kind === "stays" && bill.checkIn && bill.checkOut && (bill.spread || nights.length < Math.round((new Date(bill.checkOut) - new Date(bill.checkIn)) / 86400000)) && (
+          <span className="mt-1 block text-gray-500">
+            One hotel bill for {d(bill.checkIn)} – {d(bill.checkOut)}: each card counts its own nights. Removing it here takes it off every card not yet sent.
+          </span>
+        )}
         {bill.manual && <span className="mt-1 block font-semibold text-amber-800">Entered by hand (the bill couldn&rsquo;t be read) — Accounts checks it against the photo after your officer approves.</span>}
         {bill.flag && <span className="mt-1 block font-semibold text-amber-800">{bill.flag} Your reporting officer will see this.</span>}
       </div>
@@ -157,8 +162,8 @@ export function BillEditor({ bill, kind, onRemove }) {
 
 /* ------------------------------ by hand ------------------------------ */
 
-const KIND_SLOT = { Stay: "stays", Food: "foods", Fuel: "fuels", Toll: "tolls", Cab: "cabs" };
-const KIND_WORD = { Stay: "Stay (hotel)", Food: "Food", Fuel: "Fuel", Toll: "Toll", Cab: "Cab ride" };
+const KIND_SLOT = { Stay: "stays", Food: "foods", Fuel: "fuels", Toll: "tolls", Cab: "cabs", Travel: "travels" };
+const KIND_WORD = { Stay: "Stay (hotel)", Food: "Food", Fuel: "Fuel", Toll: "Toll", Cab: "Cab ride", Travel: "Travel" };
 
 /* A HANDWRITTEN bill (every one, 16 Nov 2026), or one the reader could not
    read (faded, no bill no or date):
@@ -268,7 +273,7 @@ export function ManualBill({ file, slot, trip, prefill, reason, onCancel, onDone
         )}
         {kind && !stay && (
           <label className={label}>
-            Bill date
+            {kind === "Travel" ? "Journey date" : "Bill date"}
             <input type="date" className={input} min={trip.from} max={trip.to} value={date} onChange={(e) => setDate(e.target.value)} />
           </label>
         )}
@@ -283,8 +288,8 @@ export function ManualBill({ file, slot, trip, prefill, reason, onCancel, onDone
         )}
         {kind && (
           <label className={label}>
-            Hotel / shop name <span className="font-normal text-gray-400">optional</span>
-            <input className={input} value={vendor} onChange={(e) => setVendor(e.target.value)} placeholder={stay ? "e.g. Sri Lakshmi Lodge" : "e.g. Hotel Saravana"} />
+            {kind === "Travel" ? "Bus / train / cab operator" : "Hotel / shop name"} <span className="font-normal text-gray-400">optional</span>
+            <input className={input} value={vendor} onChange={(e) => setVendor(e.target.value)} placeholder={stay ? "e.g. Sri Lakshmi Lodge" : kind === "Travel" ? "e.g. KPN Travels" : "e.g. Hotel Saravana"} />
           </label>
         )}
 

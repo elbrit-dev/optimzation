@@ -5,7 +5,7 @@
    into trips, each trip's claim (stay bills, car, fuel and toll bills, status)
    and the rep's own-car requests, plus which sheet is open. */
 
-import { createContext, useCallback, useContext, useEffect, useMemo, useState } from "react";
+import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
 import { format } from "date-fns";
 import { useCalendar } from "@calendar/components/calendar/contexts/calendar-context";
 import { LOGGED_IN_USER } from "@calendar/components/auth/calendar-users";
@@ -127,7 +127,8 @@ export function FieldExpensesProvider({ children }) {
     const tripByDate = new Map();
     trips.forEach((t) => t.days.forEach((d) => tripByDate.set(d.date, t)));
     const role = state.data?.employee?.role || null;
-    const ctx = { role, requests: carRequests };
+    // eqKm: an EQ day above it is paid the rail fare -- and may take train / bus tickets (23 Nov 2026)
+    const ctx = { role, requests: carRequests, eqKm: state.data?.bands?.eqKm };
 
     // each trip with its claim and what it is worth
     // a submitted trip's status is the month's claim's in the ERP, once the
@@ -297,13 +298,25 @@ export function FieldExpensesProvider({ children }) {
   const closeSheet = useCallback(() => setSheet((s) => (s?.from === "local" ? { kind: "local" } : null)), []);
   const toggleStrip = useCallback(() => setStripOpen((v) => !v), []);
 
+  /* one hotel bill over several cards (23 Nov 2026): whenever the trips or
+     the bills change (a trip recalled, the month loaded), each hotel bill is
+     added to the cards not yet sent that hold its nights */
+  const tripsRef = useRef([]);
+  tripsRef.current = value.trips || [];
+  useEffect(() => {
+    if (emp && viewingSelf) store.spreadStays(emp, value.trips || []);
+  }, [emp, viewingSelf, value.trips, claims]);
+
   // actions, bound to this rep; each returns a promise (the ERP later)
   const actions = useMemo(
     () => ({
       // a checked bill (bill-reader.js readTripBill) onto the trip, and off it
       // again -- its fingerprint freed so the same bill can be scanned again
       addBill: (tripId, kind, bill) => store.addBill(emp, tripId, kind, bill),
-      removeBill: (tripId, kind, id) => store.removeBill(emp, tripId, kind, id).then((gone) => releaseTripBill(gone)),
+      // a hotel bill on several cards (spreadStays): freed only when no sent trip still claims it
+      removeBill: (tripId, kind, id) => store.removeBill(emp, tripId, kind, id).then((gone) => (gone && !gone.stillUsed ? releaseTripBill(gone) : null)),
+      // a hotel bill onto every other card its nights fall in (23 Nov 2026)
+      spreadStays: (force) => store.spreadStays(emp, tripsRef.current, { force }),
       submitTrip: (tripId, totals) => store.submitTrip(emp, tripId, totals),
       // the whole month's claim to the reporting officer, and back
       sendMonth: () => monthErp.sendMonth({ employee: emp, month }).finally(refreshMonthClaim),
