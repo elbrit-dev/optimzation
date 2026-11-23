@@ -1,12 +1,12 @@
 'use client';
 
 import { useMemo, useState } from 'react';
-import { Button, Card, ChipRow, Eyebrow, Icon, ProgressBar, cx } from '@/design-system';
+import { Button, Card, ChipRow, Eyebrow, Icon, cx } from '@/design-system';
 import { daysLeft, dueText, rowState, shortDate, targetOf } from '../data/shape';
 import { SubjectCard } from './SubjectCard';
 import { AddSubjectsSheet } from './AddSubjectsSheet';
 import { AnnouncementScreen } from './AnnouncementScreen';
-import { RecordTabs } from './RecordTabs';
+import { RecordTabs, StateBar } from './RecordTabs';
 
 /* One survey — its own page, opened from its circle on the home strip (the
  * page's top bar, with Back and the title, is SurveyHome's). The header says what it is and who it
@@ -109,7 +109,8 @@ export function SurveyScreen({ survey, today, me, drafts, api, onOpenRow, onChan
                 <span className="text-ds-muted"> of {rows.length} submitted</span>
               </span>
             </div>
-            <ProgressBar value={counts.done} max={rows.length} size="sm" tone={counts.done === rows.length ? 'success' : 'brand'} label={`${counts.done} of ${rows.length} submitted`} />
+            {/* one sorted bar: submitted, in progress, missed, to do — not one dot per row in list order */}
+            <StateBar rows={rows} />
           </div>
         ) : null}
       </Card>
@@ -142,7 +143,7 @@ export function SurveyScreen({ survey, today, me, drafts, api, onOpenRow, onChan
         ) : null}
       </div>
       {/* The rows as tabs (Support Approval's strip): a chip opens that one's form. */}
-      <RecordTabs rows={rows} value={null} ariaLabel={t.Many} onChange={onOpenRow} />
+      <RecordTabs rows={rows} value={null} ariaLabel={t.Many} showBar={false} onChange={onOpenRow} />
       {rows.length > 3 ? <ChipRow items={chips} value={filter} onChange={setFilter} ariaLabel={`Filter ${t.many}`} /> : null}
 
       {rows.length ? (

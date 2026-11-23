@@ -120,6 +120,7 @@ export function SubjectForm({ survey, row, rows, me, draft, api, onBack, onDraft
         rows={rows}
         value={row.response}
         ariaLabel={targetOf(survey.target, survey.about).Many}
+        noun={((o) => o.charAt(0).toUpperCase() + o.slice(1))(targetOf(survey.target, survey.about).one)}
         onChange={(next) => {
           if (next !== row.response) onSwitchRow?.(next, dirty ? answers : null);
         }}
