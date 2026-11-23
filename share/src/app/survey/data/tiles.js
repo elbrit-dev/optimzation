@@ -13,10 +13,13 @@
  *              in ariaLabel
  *   badge      left to send: a Pre-tag survey's pending rows; a Self-tag one
  *              with nothing added yet counts as 1
- *   caption    the due date; "Today" / "Late" in red when due today or
- *              overdue (the tile uppercases it); "Missed" for a closed one
- *   ring       sent in green and left in blue while something is left; all
- *              grey once everything is sent, and for a missed survey
+ *   caption    the due date — green while on time, "Today" / "Late" in red
+ *              when due today or overdue (the tile uppercases it); "Sent" in
+ *              green once everything is sent; "Missed" in red for a closed one
+ *   ring       the standard Elbrit colours (as the entry and approval
+ *              circles): sent in green, left in red, the count in red; all
+ *              green once everything is sent; red for a missed survey — no
+ *              grey
  *   order      due today / overdue first, then the nearest due date; done
  *              and missed last
  *
@@ -65,11 +68,11 @@ export function surveyTile(s, today, { hrefBase = '/survey' } = {}) {
   if (s.state === 'missed') {
     return {
       ...base,
-      iconTone: 'neutral',
+      iconTone: 'danger',
       caption: 'Missed',
-      captionTone: 'neutral',
-      statusTone: 'neutral',
-      segments: [{ key: 'missed', value: 1, tone: 'neutral', label: 'Missed' }],
+      captionTone: 'danger',
+      statusTone: 'danger',
+      segments: [{ key: 'missed', value: 1, tone: 'danger', label: 'Missed' }],
       ariaLabel: `${s.title}, missed — closed ${shortDate(s.due_date)}`,
     };
   }
@@ -77,10 +80,12 @@ export function surveyTile(s, today, { hrefBase = '/survey' } = {}) {
   if (left === 0) {
     return {
       ...base,
-      iconTone: 'neutral',
+      iconTone: 'success',
+      caption: 'Sent',
+      captionTone: 'success',
       statusIcon: 'check-square',
-      statusTone: 'neutral',
-      segments: [{ key: 'done', value: 1, tone: 'neutral', label: 'All sent' }],
+      statusTone: 'success',
+      segments: [{ key: 'done', value: 1, tone: 'success', label: 'All sent' }],
       ariaLabel: `${s.title}, all sent`,
     };
   }
@@ -92,12 +97,12 @@ export function surveyTile(s, today, { hrefBase = '/survey' } = {}) {
   return {
     ...base,
     caption: s.due_date ? (late ? 'Late' : dueToday ? 'Today' : shortDate(s.due_date)) : undefined,
-    captionTone: urgent ? 'danger' : 'neutral',
+    captionTone: urgent ? 'danger' : 'success',
     count: left,
-    countTone: urgent ? 'danger' : 'brand',
+    countTone: 'danger',
     segments: [
       { key: 'sent', value: s.done, tone: 'success', label: 'Submitted' },
-      { key: 'left', value: left, tone: 'brand', label: 'Left' },
+      { key: 'left', value: left, tone: 'danger', label: 'Left' },
     ],
     ariaLabel: [s.title, s.selfTag && s.total === 0 ? 'nothing added yet' : `${left} left of ${s.total}`, when].filter(Boolean).join(', '),
   };

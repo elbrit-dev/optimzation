@@ -81,13 +81,12 @@ describe('surveys and circles', () => {
       countTone: 'danger',
       ariaLabel: 'Secondary statement — October, nothing added yet, due today',
     });
-    expect(rx).toMatchObject({ count: 3, caption: '18 Nov', captionTone: 'neutral', countTone: 'brand', ariaLabel: 'Rx audit — vascular range, 3 left of 4, due 18 Nov' });
+    expect(rx).toMatchObject({ count: 3, caption: '18 Nov', captionTone: 'success', countTone: 'danger', ariaLabel: 'Rx audit — vascular range, 3 left of 4, due 18 Nov' });
     expect(rx.segments.map((x) => [x.key, x.tone, x.value])).toEqual([
       ['sent', 'success', 1],
-      ['left', 'brand', 3],
+      ['left', 'danger', 3],
     ]);
-    expect(footfall).toMatchObject({ iconTone: 'neutral', ariaLabel: 'Clinic footfall check, all sent', segments: [{ tone: 'neutral' }] });
-    expect(footfall.caption).toBeUndefined();
+    expect(footfall).toMatchObject({ iconTone: 'success', caption: 'Sent', captionTone: 'success', statusTone: 'success', ariaLabel: 'Clinic footfall check, all sent', segments: [{ tone: 'success' }] });
   });
 
   const row = (c, due, state = 'todo') => ({ response: `R-${c}`, campaign: c, state, title: `Survey ${c}`, due_date: due, questions: [] });
