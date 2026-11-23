@@ -139,7 +139,7 @@ export async function readTripBill(file, slot, trip) {
       headers: {
         "x-erp-token": AUTH_CONFIG.authToken,
         "x-erp-endpoint": AUTH_CONFIG.erpUrl,
-        "x-trip-bill": JSON.stringify({ slot, trip: { id: trip.id, from: trip.from, to: trip.to } }),
+        "x-trip-bill": JSON.stringify({ slot, trip: { id: trip.id, from: trip.from, to: trip.to, ...(trip.eve ? { eve: trip.eve } : {}) } }),
       },
       body: form,
       signal: AbortSignal.timeout(150000),
@@ -173,7 +173,7 @@ export async function enterTripBill(file, slot, trip, entry, proof) {
       headers: {
         "x-erp-token": AUTH_CONFIG.authToken,
         "x-erp-endpoint": AUTH_CONFIG.erpUrl,
-        "x-trip-bill": JSON.stringify({ slot, trip: { id: trip.id, from: trip.from, to: trip.to } }),
+        "x-trip-bill": JSON.stringify({ slot, trip: { id: trip.id, from: trip.from, to: trip.to, ...(trip.eve ? { eve: trip.eve } : {}) } }),
         "x-manual-bill": "1",
       },
       body: form,

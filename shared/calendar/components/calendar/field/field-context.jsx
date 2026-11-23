@@ -303,9 +303,13 @@ export function FieldExpensesProvider({ children }) {
      added to the cards not yet sent that hold its nights */
   const tripsRef = useRef([]);
   tripsRef.current = value.trips || [];
+  // each trip's claim as shown -- a trip sent from another phone is rebuilt from the ERP
+  const sourcesOf = (claimed) => (claimed || []).map((x) => ({ tripId: x.trip.id, status: x.claim?.status || "unclaimed", stays: x.claim?.stays || [] }));
+  const claimedRef = useRef([]);
+  claimedRef.current = value.claimed || [];
   useEffect(() => {
-    if (emp && viewingSelf) store.spreadStays(emp, value.trips || []);
-  }, [emp, viewingSelf, value.trips, claims]);
+    if (emp && viewingSelf) store.spreadStays(emp, value.trips || [], { sources: sourcesOf(value.claimed) });
+  }, [emp, viewingSelf, value.trips, value.claimed, claims]);
 
   // actions, bound to this rep; each returns a promise (the ERP later)
   const actions = useMemo(
@@ -314,9 +318,14 @@ export function FieldExpensesProvider({ children }) {
       // again -- its fingerprint freed so the same bill can be scanned again
       addBill: (tripId, kind, bill) => store.addBill(emp, tripId, kind, bill),
       // a hotel bill on several cards (spreadStays): freed only when no sent trip still claims it
-      removeBill: (tripId, kind, id) => store.removeBill(emp, tripId, kind, id).then((gone) => (gone && !gone.stillUsed ? releaseTripBill(gone) : null)),
+      removeBill: (tripId, kind, id) =>
+        store.removeBill(emp, tripId, kind, id).then((gone) => {
+          // also a trip the ERP holds (sent from another phone) that claims the same bill
+          const sentElsewhere = !!gone?.url && claimedRef.current.some((x) => x.trip.id !== tripId && (x.claim?.status || "unclaimed") !== "unclaimed" && (x.claim?.stays || []).some((b) => b.url === gone.url));
+          return gone && !gone.stillUsed && !sentElsewhere ? releaseTripBill(gone) : null;
+        }),
       // a hotel bill onto every other card its nights fall in (23 Nov 2026)
-      spreadStays: (force) => store.spreadStays(emp, tripsRef.current, { force }),
+      spreadStays: (force) => store.spreadStays(emp, tripsRef.current, { force, sources: sourcesOf(claimedRef.current) }),
       submitTrip: (tripId, totals) => store.submitTrip(emp, tripId, totals),
       // the whole month's claim to the reporting officer, and back
       sendMonth: () => monthErp.sendMonth({ employee: emp, month }).finally(refreshMonthClaim),

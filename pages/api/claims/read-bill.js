@@ -198,7 +198,9 @@ export default async function handler(req, res) {
       const tb = JSON.parse(String(req.headers["x-trip-bill"]));
       const iso = /^\d{4}-\d{2}-\d{2}$/;
       if (!(SLOTS[tb.slot] || tb.slot === "da" || tb.slot === "dta" || tb.slot === "car" || tb.slot === "all") || !iso.test(tb.trip?.from) || !iso.test(tb.trip?.to)) throw new Error("bad");
-      tripBill = { slot: tb.slot, trip: { id: String(tb.trip.id || tb.trip.from).slice(0, 40), from: tb.trip.from, to: tb.trip.to } };
+      // eve: the trip's arrival night (23 Nov 2026) -- only ever the night before its first day
+      const eve = iso.test(tb.trip?.eve) && new Date(`${tb.trip.from}T00:00:00Z`).getTime() - new Date(`${tb.trip.eve}T00:00:00Z`).getTime() === 864e5 ? tb.trip.eve : null;
+      tripBill = { slot: tb.slot, trip: { id: String(tb.trip.id || tb.trip.from).slice(0, 40), from: tb.trip.from, to: tb.trip.to, ...(eve ? { eve } : {}) } };
     } catch {
       return res.status(400).json({ error: "Which trip is this bill for?" });
     }

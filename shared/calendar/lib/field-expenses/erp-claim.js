@@ -64,6 +64,7 @@ function billRows(bills, pay, capNote) {
       : "";
     out.push({
       date: b.date, type, sub: "", note: `${note}${amount < counted ? ` · ${capNote}` : ""}${hand}`, amount, bill: b.url, file: b.fileName, signed: b.signed,
+      ...(b.fromSent ? { fromSent: true } : {}),
       ...(b.manual && b.proofName ? { proofFile: b.proofName } : {}),
     });
   }
@@ -130,7 +131,7 @@ export function tripClaimRows(trip, claim, calc, data) {
       lines.push({
         b: { ...b, amount: share, date: n.date },
         type: "Stay",
-        note: `Stay · ${b.vendor || "hotel"} · ${dayLabel(n.date)}${
+        note: `Stay · ${b.vendor || "hotel"} · ${dayLabel(n.date)}${n.eve ? " · arrival night (travelled the day before)" : ""}${
           worked < all ? ` · 1 of ${worked} working nights of a ₹${b.amount} bill (${all} nights)` : all > 1 ? ` · 1 of ${all} nights of a ₹${b.amount} bill` : ""
         }`,
       });
@@ -214,7 +215,7 @@ export function tripLinesOf(lines, trip) {
    (a hotel bill's nights from its per-night lines), the totals from the
    lines' amounts. Not signed: to change the trip it is recalled and its
    bills scanned again, as on any device. */
-const HAND = / · handwritten: ([^·]*?)(?: · proof: (\S+))?$/;
+const HAND = / · handwritten: ([^·]*?)(?: · proof: (\S+)| · (paid in cash))?$/;
 export function claimFromErp(lines) {
   const byUrl = new Map();
   const bills = { stays: [], foods: [], fuels: [], tolls: [], travels: [] };
@@ -243,9 +244,12 @@ export function claimFromErp(lines) {
       amount,
       billed: amount,
       nights: kind === "stays" ? [l.date] : [],
-      vendor: "",
+      vendor: l.ai?.vendor || "",
       fromErp: true,
-      ...(hand ? { manual: true, why: hand[1].trim(), proof: hand[2] || null } : {}),
+      // a hotel bill's whole stay and total (23 Nov 2026): spreadStays puts its
+      // other nights on the cards not yet sent
+      ...(kind === "stays" && l.stay ? { checkIn: l.stay.checkIn, checkOut: l.stay.checkOut, stayTotal: l.stay.total } : {}),
+      ...(hand ? { manual: true, why: hand[1].trim(), proof: hand[2] || null, cash: !!hand[3] } : {}),
     };
     byUrl.set(l.bill, b);
     bills[kind].push(b);
@@ -328,7 +332,7 @@ export async function addTripToMonth({ employee, month, trip, claim, calc, data 
     const { current } = await openForChange(m, conn, employee, month);
     const others = (current?.lines || []).filter((l) => !inTrip(trip)(l.date)).map(keep);
     // eslint-disable-next-line no-unused-vars
-    const mine = rows.map(({ signed, file, proofFile, ...r }) => ({ ...r, bill: r.bill || "" }));
+    const mine = rows.map(({ signed, file, proofFile, fromSent, ...r }) => ({ ...r, bill: r.bill || "" }));
     return writeMonth(m, conn, employee, month, current, [...others, ...mine]);
   });
   if (!name) throw new Error("The claim could not be saved.");
@@ -349,6 +353,9 @@ export async function addTripToMonth({ employee, month, trip, claim, calc, data 
       for (const r of billed) {
         const line = (saved?.lines || []).find((l) => l.bill === r.bill && l.type === r.type && l.date === r.date);
         if (line && r.signed?.sig) reads[line.id] = r.signed;
+        // a hotel night spread from a bill sent on another card: no read of its own,
+        // the checker scores it from that card's line (23 Nov 2026)
+        else if (line && r.fromSent) reads[line.id] = { spread: true };
       }
       const ids = Object.keys(reads);
       if (!ids.length) {

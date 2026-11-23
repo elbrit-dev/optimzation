@@ -82,6 +82,11 @@ const MON = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct
 export const shortDate = (iso) => `${Number(iso.slice(8, 10))} ${MON[Number(iso.slice(5, 7)) - 1]}`;
 const span = (a, b) => (a === b ? shortDate(a) : `${shortDate(a)}–${shortDate(b)}`);
 
+/* The first night a hotel bill may count on the trip: the ARRIVAL NIGHT
+   (trip.eve, the night before its first day -- the rep travelled out the day
+   before, holiday or not; 23 Nov 2026), else the trip's first day. Stays only. */
+const stayFrom = (trip) => (trip?.eve && trip.eve === addDays(trip.from, -1) ? trip.eve : trip.from);
+
 const sure = (c) => typeof c === "number" && c >= MIN_READ;
 /* 13 Nov 2026: a bill the reader takes for ANOTHER kind (cab, auto, train ...)
    is refused once it is fairly sure of it -- not sent to "enter it by hand",
@@ -191,7 +196,7 @@ export function tripBillVerdict(read, slot, trip) {
   if (slot === "stays") {
     const ci = ISO.test(String(v.check_in || "")) && sure(conf.check_in) ? v.check_in : null;
     const co = ISO.test(String(v.check_out || "")) && sure(conf.check_out) ? v.check_out : null;
-    if (ci && co && (co <= trip.from || ci > trip.to)) return { ok: false, reason: `This stay is ${span(ci, addDays(co, -1))} — outside this trip (${span(trip.from, trip.to)}).` };
+    if (ci && co && (co <= stayFrom(trip) || ci > trip.to)) return { ok: false, reason: `This stay is ${span(ci, addDays(co, -1))} — outside this trip (${span(stayFrom(trip), trip.to)}).` };
   }
 
   // a HANDWRITTEN bill, however clear: entered by hand, from what was read,
@@ -214,15 +219,16 @@ export function tripBillVerdict(read, slot, trip) {
       // check-out -- the night before it, else that day itself
       if (!ISO.test(String(v.date || "")) || !sure(conf.date)) return unreadable(read, s.kind);
       const prev = addDays(v.date, -1);
-      checkIn = prev >= trip.from && prev <= trip.to ? prev : v.date;
+      checkIn = prev >= stayFrom(trip) && prev <= trip.to ? prev : v.date;
       checkOut = addDays(checkIn, 1);
     }
     if (!checkIn) checkIn = addDays(checkOut, -1);
     if (!checkOut || checkOut <= checkIn) checkOut = addDays(checkIn, 1);
     const all = [];
     for (let d = checkIn; d < checkOut && all.length < 62; d = addDays(d, 1)) all.push(d);
-    const nights = all.filter((d) => d >= trip.from && d <= trip.to);
-    if (!nights.length) return { ok: false, reason: `This stay is ${span(checkIn, addDays(checkOut, -1))} — outside this trip (${span(trip.from, trip.to)}).` };
+    // its nights on this trip, the arrival night included (stayFrom)
+    const nights = all.filter((d) => d >= stayFrom(trip) && d <= trip.to);
+    if (!nights.length) return { ok: false, reason: `This stay is ${span(checkIn, addDays(checkOut, -1))} — outside this trip (${span(stayFrom(trip), trip.to)}).` };
     return { ...base, amount: Math.round((billed * nights.length) / all.length), date: nights[0], nights, checkIn, checkOut };
   }
 
@@ -263,8 +269,8 @@ export function manualBillVerdict(entry, slot, trip, opts = {}) {
     if (checkOut <= checkIn) return { ok: false, reason: "Check-out must be after check-in." };
     const all = [];
     for (let d = checkIn; d < checkOut && all.length < 62; d = addDays(d, 1)) all.push(d);
-    const nights = all.filter((d) => d >= trip.from && d <= trip.to);
-    if (!nights.length) return { ok: false, reason: `That stay is ${span(checkIn, addDays(checkOut, -1))} — outside this trip (${span(trip.from, trip.to)}).` };
+    const nights = all.filter((d) => d >= stayFrom(trip) && d <= trip.to);
+    if (!nights.length) return { ok: false, reason: `That stay is ${span(checkIn, addDays(checkOut, -1))} — outside this trip (${span(stayFrom(trip), trip.to)}).` };
     return { ...base, amount: Math.round((billed * nights.length) / all.length), date: nights[0], nights, checkIn, checkOut };
   }
   if (!ISO.test(String(e.date || ""))) return { ok: false, reason: "Enter the bill's date." };

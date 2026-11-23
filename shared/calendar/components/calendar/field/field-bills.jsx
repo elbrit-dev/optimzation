@@ -178,7 +178,10 @@ export function ManualBill({ file, slot, trip, prefill, reason, onCancel, onDone
   const [kind, setKind] = useState(kinds.includes(p.kind) ? p.kind : kinds.length === 1 ? kinds[0] : null);
   const inTrip = (d) => (d && d >= trip.from && d <= trip.to ? d : "");
   const [date, setDate] = useState(inTrip(p.date));
-  const [checkIn, setCheckIn] = useState(inTrip(p.checkIn) || inTrip(p.date) || "");
+  // a stay may start on the trip's arrival night (travelled the day before, 23 Nov 2026)
+  const stayFrom = trip.eve || trip.from;
+  const inStay = (d) => (d && d >= stayFrom && d <= trip.to ? d : "");
+  const [checkIn, setCheckIn] = useState(inStay(p.checkIn) || inTrip(p.date) || "");
   const [checkOut, setCheckOut] = useState(p.checkOut && p.checkOut > (p.checkIn || "") ? p.checkOut : "");
   const [amount, setAmount] = useState(p.amount ? String(p.amount) : "");
   const [vendor, setVendor] = useState(p.vendor || "");
@@ -263,11 +266,11 @@ export function ManualBill({ file, slot, trip, prefill, reason, onCancel, onDone
           <span className="grid grid-cols-2 gap-2">
             <label className={label}>
               Check-in
-              <input type="date" className={input} min={trip.from} max={trip.to} value={checkIn} onChange={(e) => setCheckIn(e.target.value)} />
+              <input type="date" className={input} min={stayFrom} max={trip.to} value={checkIn} onChange={(e) => setCheckIn(e.target.value)} />
             </label>
             <label className={label}>
               Check-out
-              <input type="date" className={input} min={checkIn ? addDays(checkIn, 1) : trip.from} max={addDays(trip.to, 7)} value={checkOut} onChange={(e) => setCheckOut(e.target.value)} />
+              <input type="date" className={input} min={checkIn ? addDays(checkIn, 1) : addDays(stayFrom, 1)} max={addDays(trip.to, 7)} value={checkOut} onChange={(e) => setCheckOut(e.target.value)} />
             </label>
           </span>
         )}

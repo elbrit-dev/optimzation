@@ -59,7 +59,9 @@ export const claimOf = (state, tripId) => {
   const c = { ...blankClaim(), ...(state?.trips?.[tripId] || {}) };
   // before 12 Nov 2026 stays were one per night ({ date: bill }) and bills
   // were never checked: those are dropped, scan them again
-  const checked = (b) => b && b.signed?.sig && b.url;
+  // fromSent: a hotel night spread from a bill already sent on another card
+  // (23 Nov 2026) -- checked on that card's line, see /api/claims/check
+  const checked = (b) => b && (b.signed?.sig || b.fromSent) && b.url;
   for (const k of ["stays", "foods", "fuels", "tolls", "travels"]) c[k] = Array.isArray(c[k]) ? c[k].filter(checked) : [];
   return c;
 };
@@ -125,7 +127,11 @@ export async function removeBill(emp, tripId, kind, id) {
    their share of the bill (billed x nights here / all its nights). A sent card
    is left alone (`waiting`: recall it and the bill comes back to it).
    force: a url uploaded again by hand -- spread even where it was removed.
-   trips: [{ id, from, to }] -> { added: [{ trip, url }], waiting: [{ trip, url }] } */
+   trips: [{ id, from, to }] -> { added: [{ trip, url }], waiting: [{ trip, url }] }
+   sources: [{ tripId, status, stays }] each trip's claim as the planner shows
+   it -- with a trip sent from another phone, or before this was built, rebuilt
+   from the ERP lines (claimFromErp), so its hotel bill spreads too; a trip whose
+   status there is not "unclaimed" is never added to. */
 const addDay = (iso) => {
   const d = new Date(`${iso}T00:00:00Z`);
   d.setUTCDate(d.getUTCDate() + 1);
@@ -140,16 +146,22 @@ const spanOf = (b) => {
   for (let d = checkIn; d < checkOut && nights.length < 62; d = addDay(d)) nights.push(d);
   return { checkIn, checkOut, nights };
 };
-export function spreadStays(emp, trips, { force = null } = {}) {
+export function spreadStays(emp, trips, { force = null, sources = [] } = {}) {
   const out = { added: [], waiting: [] };
   if (!emp || !(trips || []).length) return out;
   const state = read(emp);
   const src = new Map(); // url -> { b, checkIn, checkOut, nights }
-  for (const t of trips) {
-    for (const b of claimOf(state, t.id).stays) {
-      const sp = spanOf(b);
-      if (sp && b.url && !src.has(b.url)) src.set(b.url, { b, ...sp });
-    }
+  const take = (b) => {
+    const sp = spanOf(b);
+    if (sp && b.url && !src.has(b.url)) src.set(b.url, { b, ...sp });
+  };
+  for (const t of trips) claimOf(state, t.id).stays.forEach(take);
+  const liveStatus = new Map();
+  const liveUrls = new Map(); // tripId -> the hotel bills its claim (as shown) already holds
+  for (const s of sources || []) {
+    liveStatus.set(s.tripId, s.status);
+    liveUrls.set(s.tripId, new Set((s.stays || []).map((b) => b.url)));
+    (s.stays || []).forEach(take);
   }
   if (!src.size) return out;
   const next = { trips: { ...state.trips } };
@@ -157,17 +169,25 @@ export function spreadStays(emp, trips, { force = null } = {}) {
   for (const t of trips) {
     for (const [url, s] of src) {
       const c = claimOf(next, t.id);
-      if (c.stays.some((b) => b.url === url)) continue;
-      const mine = s.nights.filter((d) => d >= t.from && d <= t.to);
+      if (c.stays.some((b) => b.url === url) || liveUrls.get(t.id)?.has(url)) continue;
+      // a night already paid by a hotel bill on this card is not spread onto
+      // (one room a night -- e.g. a second photo of the same bill added there)
+      const billedHere = new Set([...c.stays, ...(sources || []).filter((x) => x.tripId === t.id).flatMap((x) => x.stays || [])].flatMap((x) => x.nights || []));
+      // the card's arrival night too (t.eve: travelled out the day before, 23 Nov 2026)
+      const mine = s.nights.filter((d) => d >= (t.eve || t.from) && d <= t.to && !billedHere.has(d));
       if (!mine.length) continue;
-      if (c.status !== "unclaimed") {
+      if (c.status !== "unclaimed" || (liveStatus.get(t.id) || "unclaimed") !== "unclaimed") {
         out.waiting.push({ trip: t, url });
         continue;
       }
       if ((c.dropped || []).includes(url) && force !== url) continue;
-      const billed = Math.round(Number(s.b.billed ?? s.b.amount) || 0);
+      // the bill's whole total (a bill rebuilt from the ERP lines holds only its counted nights)
+      const billed = Math.round(Number(s.b.stayTotal ?? s.b.billed ?? s.b.amount) || 0);
+      const { fromErp, stayTotal, ...rest } = s.b;
       const copy = {
-        ...s.b,
+        ...rest,
+        billed,
+        ...(s.b.signed?.sig ? {} : { fromSent: true }),
         id: uid(),
         nights: mine,
         date: mine[0],

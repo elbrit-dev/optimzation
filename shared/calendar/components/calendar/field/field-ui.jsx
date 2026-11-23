@@ -1484,6 +1484,15 @@ function TripSheet({ item }) {
               onRemove={() => removeBill(editing.kind, editing.id)}
             />
           )}
+          {/* the night before the trip's first day, on a hotel bill (23 Nov 2026) */}
+          {calc.eveNight && (
+            <p className="mt-2 flex items-start gap-1.5 text-[12.5px] leading-snug text-gray-700">
+              <Info className="mt-0.5 h-4 w-4 shrink-0" aria-hidden />
+              {`Arrival night ${dayLabel(calc.eveNight.date)} (travelled the day before): stay ${inr(calc.eveNight.paid)}${
+                calc.eveNight.capped ? ` — kept to the trip's full DA ${inr(calc.eveNight.full)}` : ""
+              }.`}
+            </p>
+          )}
           {calc.nights.length > 0 && calc.pool?.on && (
             <p className="mt-2 flex items-start gap-1.5 text-[12.5px] leading-snug text-gray-500">
               <Info className="mt-0.5 h-4 w-4 shrink-0" aria-hidden />

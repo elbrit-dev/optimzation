@@ -125,8 +125,15 @@ export function tripClaim(trip, claim, { role, requests, eqKm } = {}) {
   const c = claim || {};
   // away days (and their stay / food bills) only for the roles that claim them
   const billsAllowed = claimsStays(role);
-  const nights = billsAllowed ? tripNights(trip) : [];
   const stays = billsAllowed ? c.stays || [] : [];
+  /* THE ARRIVAL NIGHT (23 Nov 2026, the user): travelled out the day before the
+     trip's first day (trip.eve, see buildTrips) -- a hotel bill covering that
+     night makes it one more night of the trip, holiday or not: paid as billed
+     up to the trip's full outstation rate (its first night's), with no 50 %
+     without a bill (the ERP gives that day no DA). Stay only. */
+  const work0 = billsAllowed ? tripNights(trip) : [];
+  const eveOn = !!trip.eve && work0.length > 0 && stays.some((b) => (b.nights || []).includes(trip.eve));
+  const nights = eveOn ? [trip.eve, ...work0] : work0;
   const foods = billsAllowed ? c.foods || [] : [];
   /* Each day's bills, to show on the day (12 Nov 2026, the user's rule): a
      hotel bill is split evenly over the nights it covers (the last night takes
@@ -151,8 +158,11 @@ export function tripClaim(trip, claim, { role, requests, eqKm } = {}) {
     d.food += Math.round(Number(b.amount) || 0);
     d.foods += 1;
   }
+  const firstNight = work0.length ? trip.byDate?.get(work0[0]) || trip.days.find((d) => d.date === work0[0]) || {} : {};
   const nightRows = nights.map((date) => {
-    const day = trip.byDate?.get(date) || trip.days.find((d) => d.date === date) || {};
+    const eve = eveOn && date === trip.eve;
+    // the arrival night: no DA of its own (0 without a bill), the trip's full rate
+    const day = eve ? { da: 0, osDaFull: firstNight.osDaFull || 0 } : trip.byDate?.get(date) || trip.days.find((d) => d.date === date) || {};
     // a hotel bill covers each night it was checked for (check-in to the day
     // before check-out)
     const bill = stays.find((s) => (s.nights || []).includes(date)) || null;
@@ -168,6 +178,7 @@ export function tripClaim(trip, claim, { role, requests, eqKm } = {}) {
     const paid = billSum > 0 ? Math.min(full, Math.max(amount, billSum)) : amount;
     return {
       date,
+      ...(eve ? { eve: true } : {}),
       bill,
       amount,
       full,
@@ -260,6 +271,8 @@ export function tripClaim(trip, claim, { role, requests, eqKm } = {}) {
   const carBlock = null; // fuel only: no toll-without-fuel case any more
   return {
     nights: nightRows,
+    // the arrival night's row (paid on a hotel bill), or null
+    eveNight: nightRows.find((n) => n.eve) || null,
     nightDA,
     request: req,
     carAllowed,
