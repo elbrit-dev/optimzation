@@ -251,9 +251,10 @@ export const DAY_TYPE_LABEL = {
 };
 
 export const DAY_TYPE_HINT = {
-  // the HQ / City rule (20 Nov 2026): the doctor's City is the BE's HQ or area, or within 25 km of the BE's area
-  HQ: "Doctors in your HQ City or area, or under 25 km from it — DA only, no TA",
-  EQ: "Doctors 25 km or more from your HQ area — TA both ways on the km plus the EQ addition, plus the ex-HQ allowance",
+  // the HQ / City rule (20 Nov 2026), 23 Nov 2026: EQ from 20 km (was 25), km rounded up; a manager is measured
+  // HQ -> his BE's area + BE's area -> doctor
+  HQ: "Doctors in your HQ City or area, or under 20 km from it (managers: HQ to the BE's area plus on to the doctor) — DA only, no TA",
+  EQ: "Doctors 20 km or more away (managers: HQ to the BE's area plus on to the doctor) — TA both ways on the km plus the EQ addition, plus the ex-HQ allowance",
   OS: "Outside your patch — paid as an ex-HQ day",
   "OS-HQ": "Doctors of a BE in another HQ — no DA; the journey there is paid as TA, the way home on the day you are back",
   "OS-EQ": "Worked out from another HQ town — TA for the local leg, no DA",
@@ -288,8 +289,11 @@ export function fareBasis(row, data) {
       const km = l.rounded_km ?? l.km;
       const ways = l.both_ways ? 2 : 1;
       const legs = ways > 1 ? " × 2 legs" : "";
-      if (km > 0 && km <= eqKm) return `${km} km × ₹${Math.round((l.fare / (km * ways)) * 100) / 100}${legs}`;
-      return `${km} km · rail fare${legs}`;
+      // a manager's local run (23 Nov 2026): HQ -> the BE's area + on to the doctor, the parts named
+      const add = l.via_place && l.hq_to_via_km != null ? Math.round(km - l.hq_to_via_km - (l.via_to_place_km ?? 0)) : 0;
+      const via = l.via_place && l.hq_to_via_km != null ? ` (${l.hq_to_via_km} to ${l.via_place} + ${l.via_to_place_km ?? 0} on${add > 0 ? ` + ${add}` : ""})` : "";
+      if (km > 0 && km <= eqKm) return `${km} km${via} × ₹${Math.round((l.fare / (km * ways)) * 100) / 100}${legs}`;
+      return `${km} km${via} · rail fare${legs}`;
     })
     .join(" + ");
 }
