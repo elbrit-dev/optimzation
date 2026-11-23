@@ -52,7 +52,7 @@ export function subscribeClaims(fn) {
   return () => listeners.delete(fn);
 }
 
-const blankClaim = () => ({ status: "unclaimed", recalled: false, car: false, fuels: [], tolls: [], foods: [], stays: [] });
+const blankClaim = () => ({ status: "unclaimed", recalled: false, car: false, fuels: [], tolls: [], foods: [], stays: [], travels: [] });
 const uid = () => Math.random().toString(36).slice(2, 10);
 
 export const claimOf = (state, tripId) => {
@@ -60,7 +60,7 @@ export const claimOf = (state, tripId) => {
   // before 12 Nov 2026 stays were one per night ({ date: bill }) and bills
   // were never checked: those are dropped, scan them again
   const checked = (b) => b && b.signed?.sig && b.url;
-  for (const k of ["stays", "foods", "fuels", "tolls"]) c[k] = Array.isArray(c[k]) ? c[k].filter(checked) : [];
+  for (const k of ["stays", "foods", "fuels", "tolls", "travels"]) c[k] = Array.isArray(c[k]) ? c[k].filter(checked) : [];
   return c;
 };
 
@@ -78,7 +78,7 @@ export async function setCar(emp, tripId, on) {
   return updateTrip(emp, tripId, (c) => ({ ...c, car: !!on }));
 }
 
-/* kind: "stays" | "foods" | "fuels" | "tolls". `bill` is what readTripBill
+/* kind: "stays" | "foods" | "fuels" | "tolls" | "travels". `bill` is what readTripBill
    gave back: it passed its checks, is stored in the ERP (url) and has its
    fingerprint (fp). -> the bill's id */
 export async function addBill(emp, tripId, kind, bill) {
@@ -87,14 +87,102 @@ export async function addBill(emp, tripId, kind, bill) {
   return id;
 }
 
-/* -> the bill taken off (so its fingerprint can be released) */
+/* -> the bill taken off (so its fingerprint can be released), with
+   stillUsed: true when a sent trip still claims the same hotel bill.
+   A hotel bill spread over several cards (spreadStays) comes off every card
+   not yet sent, and is not spread there again (`dropped`) unless it is
+   uploaded again. */
 export async function removeBill(emp, tripId, kind, id) {
   let gone = null;
   updateTrip(emp, tripId, (c) => {
     gone = (c[kind] || []).find((b) => b.id === id) || null;
     return { ...c, [kind]: (c[kind] || []).filter((b) => b.id !== id) };
   });
-  return gone;
+  if (kind !== "stays" || !gone?.url) return gone;
+  const state = read(emp);
+  const trips = { ...state.trips };
+  let stillUsed = false;
+  for (const tid of Object.keys(trips)) {
+    const c = claimOf(state, tid);
+    const has = c.stays.some((b) => b.url === gone.url);
+    if (c.status !== "unclaimed") {
+      if (has) stillUsed = true;
+      continue;
+    }
+    if (!has && tid !== tripId) continue;
+    trips[tid] = { ...c, stays: c.stays.filter((b) => b.url !== gone.url), dropped: [...new Set([...(c.dropped || []), gone.url])] };
+  }
+  write(emp, { ...state, trips });
+  return { ...gone, stillUsed };
+}
+
+/* ONE HOTEL BILL, SEVERAL CARDS (23 Nov 2026, the user): a stay in one town
+   is cut into cards by the journeys in between (Ayodhya 5 Oct -> Ballia 6 Oct
+   -> Ayodhya 7-8 Oct), so a 3-night hotel bill uploaded on the first card
+   counted 1 night, and uploading it again on the next card was refused as a
+   duplicate. Now every hotel bill on this device is added, by itself, to each
+   card (not yet sent) that holds any of its nights -- with those nights and
+   their share of the bill (billed x nights here / all its nights). A sent card
+   is left alone (`waiting`: recall it and the bill comes back to it).
+   force: a url uploaded again by hand -- spread even where it was removed.
+   trips: [{ id, from, to }] -> { added: [{ trip, url }], waiting: [{ trip, url }] } */
+const addDay = (iso) => {
+  const d = new Date(`${iso}T00:00:00Z`);
+  d.setUTCDate(d.getUTCDate() + 1);
+  return d.toISOString().slice(0, 10);
+};
+const spanOf = (b) => {
+  const v = b?.signed?.read?.trip?.verdict || {};
+  const checkIn = b?.checkIn || v.checkIn || null;
+  const checkOut = b?.checkOut || v.checkOut || null;
+  if (!checkIn || !checkOut || checkOut <= checkIn) return null;
+  const nights = [];
+  for (let d = checkIn; d < checkOut && nights.length < 62; d = addDay(d)) nights.push(d);
+  return { checkIn, checkOut, nights };
+};
+export function spreadStays(emp, trips, { force = null } = {}) {
+  const out = { added: [], waiting: [] };
+  if (!emp || !(trips || []).length) return out;
+  const state = read(emp);
+  const src = new Map(); // url -> { b, checkIn, checkOut, nights }
+  for (const t of trips) {
+    for (const b of claimOf(state, t.id).stays) {
+      const sp = spanOf(b);
+      if (sp && b.url && !src.has(b.url)) src.set(b.url, { b, ...sp });
+    }
+  }
+  if (!src.size) return out;
+  const next = { trips: { ...state.trips } };
+  let changed = false;
+  for (const t of trips) {
+    for (const [url, s] of src) {
+      const c = claimOf(next, t.id);
+      if (c.stays.some((b) => b.url === url)) continue;
+      const mine = s.nights.filter((d) => d >= t.from && d <= t.to);
+      if (!mine.length) continue;
+      if (c.status !== "unclaimed") {
+        out.waiting.push({ trip: t, url });
+        continue;
+      }
+      if ((c.dropped || []).includes(url) && force !== url) continue;
+      const billed = Math.round(Number(s.b.billed ?? s.b.amount) || 0);
+      const copy = {
+        ...s.b,
+        id: uid(),
+        nights: mine,
+        date: mine[0],
+        amount: Math.round((billed * mine.length) / s.nights.length),
+        checkIn: s.checkIn,
+        checkOut: s.checkOut,
+        spread: true,
+      };
+      next.trips[t.id] = { ...c, stays: [...c.stays, copy], dropped: (c.dropped || []).filter((u) => u !== url) };
+      changed = true;
+      out.added.push({ trip: t, url });
+    }
+  }
+  if (changed) write(emp, { ...state, trips: next.trips });
+  return out;
 }
 
 /* ---------- submit / recall ---------- */

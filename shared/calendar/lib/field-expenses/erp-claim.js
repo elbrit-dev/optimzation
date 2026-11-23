@@ -15,6 +15,12 @@
                       is approved AND fuel / toll bills are scanned: then the
                       bills are the TA (no bills = the fare stays)
      Fuel / Toll      those own-car bills, capped at the approved amount
+     Travel (ticket)  23 Nov 2026: RBM and above, no own car -- train / bus
+                      tickets, day by day (departure date): when a day's tickets
+                      come to MORE than the fare of its journey, the tickets
+                      are that journey's TA (one Travel line per ticket, in
+                      full) and the day's fare line keeps only the rest (the
+                      local run); less, the day's fare line stays as it is
      Daily Allowance  the day's DA as the ERP priced it (an outstation day is
                       50 % of its rate until a bill is approved)
      Stay / Food      the trip's checked hotel and food bills, DAY BY DAY: a
@@ -72,7 +78,19 @@ export function tripClaimRows(trip, claim, calc, data) {
   const pooled = new Set(billedNights.map((n) => n.date));
   for (const d of trip.days) {
     if (!d.payable) continue;
-    if (!calc.carBilled && d.ta > 0) {
+    // the day's tickets over its journey fare: they are the journey's TA
+    const tk = !calc.carBilled ? calc.travelDays?.[d.date] : null;
+    const byTicket = !!tk && tk.extra > 0;
+    if (byTicket) {
+      const rest = d.ta - tk.base;
+      if (rest > 0)
+        rows.push({ date: d.date, type: "Travel", sub: "", note: `TA · ${dayLabel(d.date)} · local run (the journey is paid by ticket below)`, amount: rest });
+      const lines = (claim.travels || [])
+        .filter((b) => b.date === d.date)
+        .map((b) => ({ b, type: "Travel", note: `TA by ticket · ${b.vendor || "train / bus"} · ${dayLabel(d.date)} · tickets ₹${tk.tickets} over the fare ₹${tk.base} (+₹${tk.extra})` }));
+      rows.push(...billRows(lines, tk.tickets, "capped"));
+    }
+    if (!calc.carBilled && !byTicket && d.ta > 0) {
       const basis = fareBasis(d, data);
       rows.push({
         date: d.date,
@@ -199,8 +217,9 @@ export function tripLinesOf(lines, trip) {
 const HAND = / · handwritten: ([^·]*?)(?: · proof: (\S+))?$/;
 export function claimFromErp(lines) {
   const byUrl = new Map();
-  const bills = { stays: [], foods: [], fuels: [], tolls: [] };
-  const KIND = { Stay: "stays", Food: "foods", Fuel: "fuels", Toll: "tolls" };
+  const bills = { stays: [], foods: [], fuels: [], tolls: [], travels: [] };
+  // a Travel line with a bill is a travel bill (23 Nov 2026); the fare's own lines have none
+  const KIND = { Stay: "stays", Food: "foods", Fuel: "fuels", Toll: "tolls", Travel: "travels" };
   let ta = 0;
   let da = 0;
   for (const l of lines) {

@@ -16,6 +16,7 @@ const KINDS = [
   ["foods", "Food"],
   ["fuels", "Fuel"],
   ["tolls", "Toll"],
+  ["travels", "Travel"],
 ];
 const inr = (n) => "₹" + Math.round(Number(n) || 0).toLocaleString("en-IN");
 

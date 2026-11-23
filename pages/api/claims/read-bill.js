@@ -119,9 +119,10 @@ async function tripBillStep({ origin, userErp, body, type, read, tripBill, given
     headers: { ...auth, "Content-Type": "application/x-www-form-urlencoded", Accept: "application/json" },
     body: new URLSearchParams({
       action: "claim",
-      // a cab bill (the managers' cab card) is registered as a general "Bill" --
-      // the register knows Stay / Food / Fuel / Toll / Bill (20 Nov 2026)
-      kind: verdict.kind === "Cab" ? "Bill" : verdict.kind,
+      // a cab bill (the managers' cab card) and a trip's travel bill (23 Nov 2026)
+      // are registered as a general "Bill" -- the register knows Stay / Food /
+      // Fuel / Toll / Bill (20 Nov 2026); so one ticket is never claimed twice
+      kind: verdict.kind === "Cab" || verdict.kind === "Travel" ? "Bill" : verdict.kind,
       trip: tripBill.trip.id,
       bill_date: verdict.kind === "Stay" ? verdict.checkIn : verdict.date,
       amount: String(verdict.billed),
@@ -156,7 +157,7 @@ async function tripBillStep({ origin, userErp, body, type, read, tripBill, given
     await dropFile();
     // a cab bill is registered as a general "Bill" (20 Nov 2026), so the register words its own
     // earlier ones as "settlement bills" -- say what they are on the cab card
-    const why = tripBill.slot === "cabs" ? String(fp.reason || "").replace(/on your settlement bills/i, "as one of your cab or settlement bills") : fp.reason;
+    const why = tripBill.slot === "cabs" || verdict.kind === "Travel" ? String(fp.reason || "").replace(/on your settlement bills/i, "as one of your cab, travel or settlement bills") : fp.reason;
     return { verdict: { ok: false, reason: `${why} This attempt is recorded for your reporting officer.`, duplicate: true } };
   }
 
@@ -196,7 +197,7 @@ export default async function handler(req, res) {
     try {
       const tb = JSON.parse(String(req.headers["x-trip-bill"]));
       const iso = /^\d{4}-\d{2}-\d{2}$/;
-      if (!(SLOTS[tb.slot] || tb.slot === "da" || tb.slot === "car" || tb.slot === "all") || !iso.test(tb.trip?.from) || !iso.test(tb.trip?.to)) throw new Error("bad");
+      if (!(SLOTS[tb.slot] || tb.slot === "da" || tb.slot === "dta" || tb.slot === "car" || tb.slot === "all") || !iso.test(tb.trip?.from) || !iso.test(tb.trip?.to)) throw new Error("bad");
       tripBill = { slot: tb.slot, trip: { id: String(tb.trip.id || tb.trip.from).slice(0, 40), from: tb.trip.from, to: tb.trip.to } };
     } catch {
       return res.status(400).json({ error: "Which trip is this bill for?" });
@@ -244,7 +245,7 @@ export default async function handler(req, res) {
           .catch(() => null);
         if (!proofFile?.file_url) return res.status(200).json({ verdict: { ok: false, reason: "The payment proof could not be stored in the ERP — try again." } });
       }
-      const TITLE = { Stay: "Hotel bill", Food: "Food bill", Fuel: "Fuel bill", Toll: "Toll", Cab: "Cab bill" };
+      const TITLE = { Stay: "Hotel bill", Food: "Food bill", Fuel: "Fuel bill", Toll: "Toll", Cab: "Cab bill", Travel: "Travel bill" };
       const read = {
         manual: true,
         title: TITLE[given.kind],

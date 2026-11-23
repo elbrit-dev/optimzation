@@ -222,7 +222,8 @@ export function FieldStrip() {
    trip of theirs -- OS too -- is in it; an RBM and up keeps an outstation
    trip with nights on its own card for the bills. */
 const CAR_ASKED = new Set(["pending", "approved"]);
-const needsBills = (calc) => (calc.billsAllowed && calc.nights.length > 0 && !calc.fullNoBill) || calc.stayBills + calc.foodBills > 0;
+// 23 Nov 2026: an EQ day over 100 km of an RBM and above takes train / bus tickets -> its own card
+const needsBills = (calc) => (calc.billsAllowed && calc.nights.length > 0 && !calc.fullNoBill) || calc.travelAllowed || calc.stayBills + calc.foodBills + (calc.travelBills || 0) > 0;
 export const isLocalTrip = (x) => !CAR_ASKED.has(x.calc.request?.status) && !x.calc.carBilled && !needsBills(x.calc);
 
 // "1 HQ day · 16 EQ days · 2 OS trips"
@@ -1113,7 +1114,7 @@ function TripHelp({ item, day = false }) {
 const HELP_INPUT =
   "w-full min-w-0 rounded-xl border border-gray-300 bg-white px-3 py-2 text-[13.5px] font-normal text-gray-900 outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-100";
 
-const UPLOAD_LABEL = { da: "Upload stay / food bill", car: "Upload fuel bill", all: "Upload stay / food / fuel bill" };
+const UPLOAD_LABEL = { da: "Upload stay / food bill", dta: "Upload stay / food / travel bill", travels: "Upload train / bus ticket", car: "Upload fuel bill", all: "Upload stay / food / fuel bill" };
 
 function TripSheet({ item }) {
   const f = useFieldExpenses();
@@ -1132,9 +1133,13 @@ function TripSheet({ item }) {
   // the trip's ONE upload (16 Nov 2026): what it takes
   const stayFood = calc.billsAllowed && calc.nights.length > 0 && !calc.fullNoBill;
   const fuelOn = carTab;
-  const upSlot = stayFood && fuelOn ? "all" : fuelOn ? "car" : "da";
-  const upCount = (stayFood ? calc.stayBills + calc.foodBills : 0) + (fuelOn ? (claim.fuels || []).length : 0);
-  const upAmount = (stayFood ? calc.pool?.bills || 0 : 0) + (fuelOn ? calc.fuel : 0);
+  // 23 Nov 2026: RBM and above with no own car approved add their train / bus
+  // tickets on the same upload -- "dta" with stay / food, "travels" on an EQ
+  // day over 100 km
+  const travelOn = !fuelOn && calc.travelAllowed;
+  const upSlot = stayFood && fuelOn ? "all" : fuelOn ? "car" : travelOn ? (stayFood ? "dta" : "travels") : "da";
+  const upCount = (stayFood ? calc.stayBills + calc.foodBills : 0) + (fuelOn ? (claim.fuels || []).length : 0) + (travelOn ? calc.travelBills : 0);
+  const upAmount = (stayFood ? calc.pool?.bills || 0 : 0) + (fuelOn ? calc.fuel : 0) + (travelOn ? calc.travel : 0);
   const [sendError, setSendError] = useState(null); // why the last send was refused
   const [billInput, pickBill] = useBillPicker();
   // each day's bills as pictures, and the full-screen viewer (13 Nov 2026)
@@ -1191,7 +1196,7 @@ function TripSheet({ item }) {
           return;
         }
         // "da" / "all": the bill says which it is (stay, food -- and fuel on "all")
-        const slot = { Stay: "stays", Food: "foods", Fuel: "fuels" }[r.bill.kind] || (kind === "car" ? "fuels" : kind);
+        const slot = { Stay: "stays", Food: "foods", Fuel: "fuels", Travel: "travels" }[r.bill.kind] || (kind === "car" ? "fuels" : kind);
         const id = await f.actions.addBill(trip.id, slot, r.bill);
         if (alive.current) setEditing({ kind: slot, id });
         const b = r.bill;
@@ -1202,12 +1207,20 @@ function TripSheet({ item }) {
           { id: tid, duration: 4000 }
         );
         if (b.flag) toast.message(`${b.flag} Your reporting officer will see this.`, { duration: 10000 });
+        if (slot === "stays") tellSpread(f.actions.spreadStays(b.url));
       } catch (e) {
         toast.error(errText(e), { id: tid });
       } finally {
         if (alive.current) setReading((x) => ({ ...x, [kind]: Math.max(0, (x[kind] || 0) - 1) }));
       }
     });
+  /* the hotel bill's other nights, on the cards they fall in (23 Nov 2026):
+     where it went by itself, and the sent cards it could not go to */
+  const tellSpread = (r) => {
+    const names = (xs) => [...new Map(xs.map((x) => [x.trip.id, `${x.trip.name} (${rangeLabel(x.trip.from, x.trip.to)})`])).values()].join(", ");
+    if (r?.added?.length) toast.success(`The same hotel bill is added to ${names(r.added)} for its nights there — no need to upload it again.`, { duration: 8000 });
+    if (r?.waiting?.length) toast.message(`It also covers ${names(r.waiting)}, already sent. Recall that trip and the bill is added to it by itself.`, { duration: 10000 });
+  };
   const removeBill = (kind, id) => {
     run(`rm-${id}`, () => f.actions.removeBill(trip.id, kind, id), "Bill removed");
     setEditing(null);
@@ -1299,7 +1312,9 @@ function TripSheet({ item }) {
   const carShares = calc.carBilled ? carDayShares(trip, calc.taClaimed ?? calc.ta) : null;
   // Trip cost's words: why the TA and the DA are what they are
   const paidDays = trip.days.filter((d) => d.payable).length;
-  const taBasis = calc.car
+  const taBasis = calc.travelBilled
+    ? `fare ${inr(calc.fare)} + ${inr(calc.travelExtra)} by train / bus tickets`
+    : calc.car
     ? calc.carBilled
       ? `own car · fuel bills ${inr(calc.fuel)}${calc.capped ? ` · capped at ${inr(calc.cap)}` : ""} · split by km`
       : "own car · fare until the bills are in"
@@ -1319,7 +1334,11 @@ function TripSheet({ item }) {
       : trip.kind === "hq"
         ? `${paidDays} HQ day${paidDays > 1 ? "s" : ""}`
         : `ex-HQ day${paidDays > 1 ? `s · ${paidDays}` : ""} · return to HQ`;
-  const taNote = calc.car
+  const taNote = calc.travelBilled
+    ? `Fare ${inr(calc.fare)} + ${inr(calc.travelExtra)} where your tickets cost more = TA ${inr(calc.ta)}.`
+    : calc.travel > 0
+      ? `Tickets ${inr(calc.travel)} cost less than the fare — the fare ${inr(calc.fare)} is paid.`
+      : calc.car
     ? !calc.carBilled
       ? `No fuel bill yet · paid the fare ${inr(calc.fare)} · fuel bills pay up to ${inr(calc.cap)}.`
       : null
@@ -1346,6 +1365,7 @@ function TripSheet({ item }) {
               setEditing({ kind: slotKey, id });
               toast.success(`${BILL_NAME[slotKey]} ${inr(bill.billed)} added by hand — a person checks it against the photo`);
               if (bill.flag) toast.message(`${bill.flag} Your reporting officer will see this.`, { duration: 10000 });
+              if (slotKey === "stays") tellSpread(f.actions.spreadStays(bill.url));
             })
           }
         />
@@ -1471,6 +1491,40 @@ function TripSheet({ item }) {
               {nextNight && calc.stayBills > 0 ? ` No stay bill covers ${dayLabel(nextNight.date)}.` : ""}
             </p>
           )}
+        </div>
+      )}
+
+      {/* train / bus tickets (23 Nov 2026): each day, the larger of its journey fare and its tickets */}
+      {calc.travelBills > 0 && (
+        <div>
+          <span className={sectionLabel}>TA · train / bus tickets</span>
+          <div className="mt-2 flex flex-wrap gap-2">
+            {(claim.travels || []).map((b) => (
+              <BillChip key={b.id} kind="travels" bill={b} on={editing?.id === b.id} readOnly={!editable} onClick={() => setEditing(editing?.id === b.id ? null : { kind: "travels", id: b.id })} />
+            ))}
+          </div>
+          {editable && editing?.kind === "travels" && (
+            <BillEditor key={editing.id} bill={(claim.travels || []).find((b) => b.id === editing.id)} kind="travels" onRemove={() => removeBill("travels", editing.id)} />
+          )}
+          {/* by departure date: the day's tickets against its journey fare */}
+          <ul className="mt-2 flex flex-col gap-1 text-[12.5px] leading-snug text-gray-600">
+            {Object.values(calc.travelDays || {})
+              .sort((a, b) => a.date.localeCompare(b.date))
+              .map((t) => (
+                <li key={t.date} className="flex items-start gap-1.5">
+                  <Info className="mt-0.5 h-4 w-4 shrink-0 text-gray-400" aria-hidden />
+                  <span>
+                    {dayLabel(t.date)} · ticket{t.count > 1 ? "s" : ""} {inr(t.tickets)}
+                    {!t.paid
+                      ? " · not a paid day — nothing added"
+                      : t.extra > 0
+                        ? ` · fare ${inr(t.base)} → `
+                        : ` · fare ${inr(t.base)} is more — the fare is paid`}
+                    {t.paid && t.extra > 0 && <b className="text-gray-900">+{inr(t.extra)}</b>}
+                  </span>
+                </li>
+              ))}
+          </ul>
         </div>
       )}
 
@@ -1611,7 +1665,7 @@ function TripSheet({ item }) {
             it is. Stay and food bills on a trip with outstation days; fuel
             once the GM approved the car (asked for on the month summary) --
             with both, the one button takes all three. Tolls are not paid. */}
-        {editable && !confirming && (stayFood || fuelOn) && (
+        {editable && !confirming && (stayFood || fuelOn || travelOn) && (
           <button
             type="button"
             onClick={() => scan(upSlot)}

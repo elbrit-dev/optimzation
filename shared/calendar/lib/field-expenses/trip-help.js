@@ -56,6 +56,7 @@ export function tripDetails({ trip, calc, claim, emp }) {
     `Claim: ${claim?.status || "unclaimed"}${claim?.holder?.name ? ` · ${claim.holder.name}` : ""}`,
   ];
   if (calc.stayBills || calc.foodBills) out.push(`Bills: ${calc.stayBills || 0} stay, ${calc.foodBills || 0} food`);
+  if (calc.travelBills) out.push(`Travel bills: ${calc.travelBills}, ₹${Math.round(calc.travel)} (fare ₹${Math.round(calc.fare)})`);
   out.push("", "Day by day:");
   for (const d of trip.days) {
     const bits = [dayLabel(d.date), d.dayType || d.label || d.kind];
