@@ -10,6 +10,10 @@ import { SurveyScreen } from './SurveyScreen';
 import { SubjectForm } from './SubjectForm';
 import { DiscardChangesSheet, PageHeader, readDrafts, scroller, writeDrafts } from './parts';
 
+/* A survey page scrolls INSIDE the Elbrit frame (under its header, beside its menu) — not the whole browser page,
+   which pushed the list of doctors out below the site. Where the frame has no set height it is as before. */
+const INSIDE_FRAME = 'h-full min-h-0 overflow-y-auto overscroll-contain';
+
 /* ONE SURVEY ON ITS OWN PAGE — /survey/<campaign>, where a survey circle
  * goes when SurveyHome has openInPlace off. No strip: the header (Back +
  * title), the survey (SurveyScreen: tags, progress, its doctors /
@@ -490,7 +494,7 @@ export function SurveyPage({
   }
 
   return (
-    <section ref={rootRef} className={cx('@container/survey flex w-full scroll-mt-3 flex-col', className)}>
+    <section ref={rootRef} className={cx('@container/survey flex w-full scroll-mt-3 flex-col', INSIDE_FRAME, className)}>
       <div className="mx-auto flex w-full max-w-3xl flex-col gap-3 px-4 pb-4 pt-3">
         {row ? (
           <PageHeader onBack={backFromForm} backLabel={`Back to ${survey.title}`} title={row.subject?.label ?? 'Your answers'} parent={shortName(survey.title)} />

@@ -12,6 +12,10 @@ import { SurveyScreen } from './SurveyScreen';
 import { DiscardChangesSheet, PageHeader, readDrafts, scroller, writeDrafts } from './parts';
 import { SubjectForm } from './SubjectForm';
 
+/* A survey page scrolls INSIDE the Elbrit frame (under its header, beside its menu) — not the whole browser page,
+   which pushed the list of doctors out below the site. Where the frame has no set height it is as before. */
+const INSIDE_FRAME = 'h-full min-h-0 overflow-y-auto overscroll-contain';
+
 /* Surveys in the Elbrit app — the rep side of the ERP's Survey system
  * (SURVEYS_CONTEXT.md; Survey Center stays on the ERP).
  *
@@ -178,7 +182,7 @@ export function SurveyHome({
   const offline = typeof navigator !== 'undefined' && navigator.onLine === false;
 
   return (
-    <section ref={rootRef} className={cx('@container/survey flex w-full scroll-mt-3 flex-col', className)}>
+    <section ref={rootRef} className={cx('@container/survey flex w-full scroll-mt-3 flex-col', survey ? INSIDE_FRAME : '', className)}>
       {/* The strip is home's alone: a survey or form is its own page. */}
       {survey ? null : <RingNav items={ringItems} onItemClick={onTile} stickyBar={stickyBar} inset={inset} ariaLabel={ariaLabel} />}
 

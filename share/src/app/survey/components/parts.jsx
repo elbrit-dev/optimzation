@@ -35,7 +35,7 @@ export function PageHeader({ onBack, backLabel, title, parent }) {
 /* The element whose scroll is the page's: the nearest scrolling ancestor,
    else the document. */
 export function scroller(el) {
-  for (let n = el?.parentElement; n; n = n.parentElement) {
+  for (let n = el; n; n = n.parentElement) {   // the page itself first: it scrolls inside the Elbrit frame
     const o = getComputedStyle(n).overflowY;
     if ((o === 'auto' || o === 'scroll') && n.scrollHeight > n.clientHeight) return n;
   }
