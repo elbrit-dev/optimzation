@@ -30,6 +30,12 @@
 #      date and total
 #   4. YOUR OWN bill with the same date, total and vendor, when one of the two
 #      has no bill number read
+#   5. (24 Nov 2026) the same content hash (printed bill date + vendor or bill
+#      no + total): yours -> refused; another's -> flagged (refused when both
+#      keyed on a bill number)
+#   6. (24 Nov 2026) YOUR OWN bill with the same short bill number (under 4
+#      digits), vendor and total, on any date (a stay's date here is its
+#      check-in, which a hand-entered bill takes from the rep)
 # Each against every bill used in the last 2 years, the rep's own (any trip)
 # and every other employee's. FLAGGED only (allowed; the claim goes to
 # Accounts): 4 for another employee's bill (two people can eat at one place
@@ -149,7 +155,7 @@ elif action == "claim" or action == "check":
     key = bill_key(bill_no)
     vkey = vendor_key(vendor)
     since = frappe.utils.add_days(frappe.utils.today(), -730)
-    cols = ["name", "employee", "trip", "kind", "bill_date", "amount", "vendor", "bill_no", "image_hash"]
+    cols = ["name", "employee", "trip", "kind", "bill_date", "amount", "vendor", "bill_no", "image_hash", "content_hash", "strong"]
 
     found = []
     seen = {}
@@ -180,6 +186,21 @@ elif action == "claim" or action == "check":
                     m = {"r": r, "hard": 1, "why": "the same vendor, date and total"}
                 else:
                     m = {"r": r, "hard": 0, "why": "the same vendor, date and total"}
+            # 5. (24 Nov 2026) a stay bill is registered under its CHECK-IN date,
+            # which a hand-entered bill takes from the rep: a second photo of one
+            # hotel bill typed in with another check-in slipped past 4 (HR-EXP-
+            # 2026-00070: bill no 18, Rs 4,400, 5->7 Oct, again as 6->7 Oct). The
+            # content hash is the PRINTED bill date, vendor (or bill no) and total.
+            if not m and ch and str(r.content_hash or "").lower() == ch:
+                if r.employee == emp or (strong and r.strong):
+                    m = {"r": r, "hard": 1, "why": "the same bill: vendor, bill date and total"}
+                else:
+                    m = {"r": r, "hard": 0, "why": "the same vendor, bill date and total"}
+            # 6. YOUR OWN bill with the same short bill number (under 4 digits,
+            # so not in 2), vendor and total -- on any date
+            if not m and r.employee == emp and not key and not rkey and bill_no.strip() and vendor_key(bill_no) == vendor_key(r.bill_no) \
+                    and same_vendor(vkey, vendor_key(r.vendor)):
+                m = {"r": r, "hard": 1, "why": "the same bill: bill no " + str(r.bill_no or "") + ", total Rs " + str(int(round(frappe.utils.flt(r.amount))))}
             if m:
                 seen[r.name] = 1
                 found.append(m)

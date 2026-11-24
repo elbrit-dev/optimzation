@@ -158,7 +158,11 @@ async function tripBillStep({ origin, userErp, body, type, read, tripBill, given
     // a cab bill is registered as a general "Bill" (20 Nov 2026), so the register words its own
     // earlier ones as "settlement bills" -- say what they are on the cab card
     const why = tripBill.slot === "cabs" || verdict.kind === "Travel" ? String(fp.reason || "").replace(/on your settlement bills/i, "as one of your cab, travel or settlement bills") : fp.reason;
-    return { verdict: { ok: false, reason: `${why} This attempt is recorded for your reporting officer.`, duplicate: true } };
+    // a hotel bill already on one card is added to the other cards its nights fall in by itself (spreadStays)
+    const spread = verdict.kind === "Stay" && /on your trip of/i.test(String(fp.reason || ""))
+      ? " A hotel bill covering nights on several cards is added to each of them by itself — no need to upload it again."
+      : "";
+    return { verdict: { ok: false, reason: `${why}${spread} This attempt is recorded for your reporting officer.`, duplicate: true } };
   }
 
   const signedRead = {
