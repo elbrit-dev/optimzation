@@ -9,6 +9,12 @@ class MyDocument extends Document {
           {/* Critical connection hints - prioritized */}
           <link rel="preconnect" href="https://fonts.gstatic.com" crossOrigin="anonymous" />
           <link rel="preconnect" href="https://fonts.googleapis.com" />
+          {/* Inter on every page (24 Nov 2026): the Plasmic pages ask for
+              "Inter" but nothing loaded it unless Home / Claims / Approvals
+              had been opened first (they add this same link) -- so the
+              calendar opened directly fell back to Roboto and looked
+              different. Same URL as theirs, so the browser loads it once. */}
+          <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" />
           <link rel="dns-prefetch" href="//img.plasmic.app" />
           <link rel="dns-prefetch" href="//img.plasmiccdn.com" />
           <link rel="dns-prefetch" href="//images.plasmic.app" />
