@@ -186,6 +186,7 @@ export function filledQuestions(survey, row) {
     /* map_location: where the map starts — the record's own location */
     ...(q.lat != null ? { lat: f(q.lat) } : {}),
     ...(q.lng != null ? { lng: f(q.lng) } : {}),
+    ...(q.latlng != null ? { latlng: f(q.latlng) } : {}),
   }));
 }
 

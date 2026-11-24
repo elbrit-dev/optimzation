@@ -34,10 +34,35 @@ const num = (x) => {
   return Number.isFinite(n) ? n : null;
 };
 export const mapIsPoint = (v) => Boolean(v && typeof v === 'object' && !Array.isArray(v) && num(v.lat) != null && num(v.lng) != null);
+const okPoint = (a, b) => (a != null && b != null && (a || b) && Math.abs(a) <= 90 && Math.abs(b) <= 180 ? { lat: a, lng: b } : null);
+/* one field holding both: {"x": lat, "y": lng} (Lead "Latitude and Longitude"), {lat, lng}, or "lat, lng" text */
+export function mapParseLatLng(s) {
+  const t = String(s ?? '').trim();
+  if (!t || t === '—') return null;
+  let a = null;
+  let b = null;
+  if (t.startsWith('{')) {
+    try {
+      const o = JSON.parse(t);
+      a = num(o.x ?? o.lat ?? o.latitude);
+      b = num(o.y ?? o.lng ?? o.longitude);
+    } catch {
+      /* not JSON */
+    }
+  }
+  if (a == null || b == null) {
+    const m = t.match(/(-?\d+(?:\.\d+)?)\s*[,; ]\s*(-?\d+(?:\.\d+)?)/);
+    if (m) {
+      a = num(m[1]);
+      b = num(m[2]);
+    }
+  }
+  if (a != null && b != null && Math.abs(a) > 90 && Math.abs(b) <= 90) [a, b] = [b, a];
+  return okPoint(a, b);
+}
+/* the record's point: its latitude / longitude fields, else the field holding both (q.latlng) */
 export function mapStart(q) {
-  const a = num(q?.lat);
-  const b = num(q?.lng);
-  return a != null && b != null && (a || b) && Math.abs(a) <= 90 && Math.abs(b) <= 180 ? { lat: a, lng: b } : null;
+  return okPoint(num(q?.lat), num(q?.lng)) ?? mapParseLatLng(q?.latlng);
 }
 export function mapMeters(a, b) {
   const r = Math.PI / 180;
