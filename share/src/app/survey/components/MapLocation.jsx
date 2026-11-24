@@ -272,7 +272,7 @@ export function MapLocation({ q, value, onChange, disabled, api }) {
             </a>
           </div>
           {disabled ? null : (
-            <button type="button" aria-label="Clear the answer" onClick={() => onChange(null)} className="flex size-7 shrink-0 items-center justify-center rounded-md text-ds-muted hover:bg-sunken">
+            <button type="button" aria-label="Clear the answer" onClick={() => onChange(null)} className="-m-2 flex size-11 shrink-0 items-center justify-center rounded-md text-ds-muted hover:bg-sunken">
               <Icon name="times" size="sm" />
             </button>
           )}
