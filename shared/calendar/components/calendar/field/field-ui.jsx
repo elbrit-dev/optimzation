@@ -14,22 +14,33 @@
    claim rules are in lib/field-expenses/claim-rules.js and every action goes
    through lib/field-expenses/trip-claims-store.js. */
 
-import { useEffect, useRef, useState, useSyncExternalStore } from "react";
+import { Fragment, useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 import { toast } from "sonner";
 import {
+  ArrowLeft,
   BedDouble,
   Camera,
   Car,
   Check,
   ChevronDown,
+  CircleCheck,
   CircleHelp,
   ChevronRight,
+  Clock,
+  Ellipsis,
   Eye,
   Fuel,
+  IndianRupee,
   Info,
   Loader2,
   MapPin,
+  MessageSquare,
+  Paperclip,
   Plane,
+  Plus,
+  Receipt,
+  Route as RouteIcon,
+  SendHorizontal,
   ShieldCheck,
   TrainFront,
   Undo2,
@@ -56,7 +67,22 @@ import { addTripToMonth, addTripsToMonth, monthWord, removeTripFromMonth, tripCl
 import { CarRequestSheet, KpiSheet, RequestSheet } from "@calendar/components/calendar/field/field-sheets";
 import { BILL_NAME, BillChip, BillEditor, ChipButton, ManualBill, useBillPicker } from "@calendar/components/calendar/field/field-bills";
 import { useTripBillViewer } from "@calendar/components/calendar/field/field-bill-view";
-import { HELP_STATUS, askedText, htmlText, listTripHelp, addRouteText, sendTripHelp } from "@calendar/lib/field-expenses/trip-help";
+import {
+  HELP_STATE,
+  askedText,
+  helpSeen,
+  helpState,
+  helpSummary,
+  htmlText,
+  listTripHelp,
+  markHelpSeen,
+  replyTripHelp,
+  routeChangeText,
+  sendTripHelp,
+  teamReplies,
+  hasHelpPhoto,
+  HELP_FILE_MAX,
+} from "@calendar/lib/field-expenses/trip-help";
 import { NonReportCard, NonReportDayRow, NonReportSheet } from "@calendar/components/calendar/field/field-nonreport";
 import { CabCard, CabSheet } from "@calendar/components/calendar/field/field-cab";
 
@@ -505,7 +531,10 @@ const CARD = "flex shrink-0 flex-col gap-0.5 overflow-hidden rounded-xl border b
 /* A trip card; an RBM, ZSM or SM asks for the car from here, and the card
    says where that request stands. */
 function TripCard({ item, onOpen }) {
+  const f = useFieldExpenses();
   const { trip, claim, calc } = item;
+  // the trip's help tickets (24 Nov 2026): coloured counts at the right of the icon row
+  const tickets = f.helpFor ? f.helpFor(trip) : null;
   const stays = calc.nights.filter((n) => !cameHome(trip.days.find((d) => d.date === (n.date || n)))).length;
   const meta = [
     rangeLabel(trip.from, trip.to),
@@ -514,10 +543,17 @@ function TripCard({ item, onOpen }) {
     // not one (20 Nov 2026: a 22-24 Oct trip home on the 24th read "3 nights")
     stays ? `${stays} night${stays > 1 ? "s" : ""}` : null,
     calc.car ? "car" : null,
-    trip.days.some((d) => d.flight) ? "travel by company" : null,
   ]
     .filter(Boolean)
     .join(" · ");
+  const req = calc.carAllowed ? calc.request : null;
+  const marks = [
+    trip.days.some((d) => d.flight || d.company === "Travel") && { key: "travel", Icon: Plane, tone: "bg-sky-50 text-sky-700", label: "Travel by company" },
+    trip.days.some((d) => d.company === "Stay") && { key: "stay", Icon: BedDouble, tone: "bg-sky-50 text-sky-700", label: "Stay by company" },
+    req?.status === "approved" && { key: "car", Icon: Car, tone: "bg-green-50 text-green-700", label: "Own car approved" },
+    req?.status === "pending" && { key: "car", Icon: Car, tone: "bg-amber-50 text-amber-700", label: "Own car waiting for the GM" },
+    req?.status === "rejected" && { key: "car", Icon: Car, tone: "bg-red-50 text-red-700", label: "Own car rejected" },
+  ].filter(Boolean);
   return (
     <div
       className={cn(
@@ -561,18 +597,21 @@ function TripCard({ item, onOpen }) {
         </span>
       </div>
     )}
-    {trip.flownFare > 0 && !calc.carBilled && (
-      <div className="border-t border-gray-100 px-2 py-1">
-        <span className="flex w-full items-center gap-1 rounded-md bg-sky-50 px-1.5 py-0.5 text-[10.5px] font-extrabold text-sky-800" title={`Flown: ${trip.flights.map((l) => `${l.from} → ${l.to}`).join(", ")} -- paid by the company`}>
-          <Plane className="h-3.5 w-3.5 shrink-0" aria-hidden />
-          <span className="truncate">
-            By company · TA <s className="font-semibold opacity-70">{inr((calc.taClaimed ?? calc.ta) + trip.flownFare)}</s> → {inr(calc.taClaimed ?? calc.ta)}
+    {/* the extra row: ICONS ONLY (24 Nov 2026, the user) -- what the company
+        paid and the car request; the days inside say the rest. The car is
+        still asked for from the month summary card (14 Nov 2026). */}
+    {(marks.length > 0 || tickets?.total > 0) && (
+      <div className="flex items-center gap-1 border-t border-gray-100 px-2 py-1">
+        {marks.map((m) => (
+          <span key={m.key} title={m.label} aria-label={m.label} className={cn("grid h-[22px] w-6 place-items-center rounded-md", m.tone)}>
+            <m.Icon className="h-3.5 w-3.5" aria-hidden />
           </span>
-        </span>
+        ))}
+        <span className="flex-1" />
+        {tickets?.unread > 0 && <i className="h-2 w-2 shrink-0 rounded-full bg-orange-500" title="New reply on a help request" />}
+        <HelpCounts s={tickets} />
       </div>
     )}
-    {/* no car request on the trip card (14 Nov 2026): it is asked for, and
-        followed, from the month summary card only */}
     </div>
   );
 }
@@ -868,68 +907,365 @@ function CarMode({ calc, editable }) {
   );
 }
 
-/* Help on a trip (14 Nov 2026; a Task since 16 Nov 2026): a wording line in
-   the look of the "Going by car…  Request ›" line, "Help" at its right; tap ->
-   a drawer from the bottom with the rep's requests on this trip so far (each
-   one's progress and the team's replies) and a box to raise a new one. Each
-   request is an ERP Task carrying the trip day by day (trip-help.js). */
-// the Help drawer shows this many of the rep's requests on the trip, newest first
-const HELP_SHOWN = 3;
+/* Help on a trip (14 Nov 2026; a Task since 16 Nov 2026; TICKETS 24 Nov
+   2026, the user): each request is a ticket coloured by where it stands --
+   RED raised (no reply from the team yet), ORANGE in progress (the team
+   replied, not done), GREEN resolved. The Help bar on the trip takes the
+   colour of the ticket that needs most attention; tap -> a sheet with the
+   tickets as short rows (tap one -> its chat: the three steps, the rep's
+   words, the team's replies, and a reply box while it is open) and a new
+   request started from four chips. "Add a place" edits the day's route as
+   stops with a "+" before, between and after them -- several places, on
+   several days, in one request. Each request is an ERP Task carrying the trip
+   day by day (trip-help.js). */
 const HELP_TONE = {
-  blue: "bg-blue-50 text-blue-700",
-  amber: "bg-amber-50 text-amber-800",
-  green: "bg-green-50 text-green-700",
-  gray: "bg-gray-100 text-gray-600",
+  raised: { edge: "bg-red-500", chip: "bg-red-50 text-red-700 ring-red-200", dot: "bg-red-500", bar: "border-red-200 bg-red-50 text-red-800", icon: "bg-white text-red-600", step: "bg-red-500", text: "text-red-700" },
+  prog: { edge: "bg-orange-500", chip: "bg-orange-50 text-orange-700 ring-orange-200", dot: "bg-orange-500", bar: "border-orange-200 bg-orange-50 text-orange-800", icon: "bg-white text-orange-600", step: "bg-orange-500", text: "text-orange-700" },
+  done: { edge: "bg-green-500", chip: "bg-green-50 text-green-700 ring-green-200", dot: "bg-green-500", bar: "border-green-200 bg-green-50 text-green-800", icon: "bg-white text-green-600", step: "bg-green-500", text: "text-green-700" },
 };
+const HELP_ICON = { raised: MessageSquare, prog: Clock, done: CircleCheck };
 const whenText = (s) => {
   const d = new Date(String(s || "").replace(" ", "T"));
   if (Number.isNaN(d.getTime())) return "";
   return d.toLocaleString("en-IN", { day: "numeric", month: "short", hour: "numeric", minute: "2-digit" });
 };
-function HelpRequest({ t }) {
-  const st = HELP_STATUS[t.status] || { label: t.status, tone: "gray" };
-  const asked = askedText(t.description);
-  const done = t.status === "Completed" || t.status === "Cancelled";
+const dayText = (s) => {
+  const d = new Date(String(s || "").replace(" ", "T"));
+  return Number.isNaN(d.getTime()) ? "" : d.toLocaleString("en-IN", { day: "numeric", month: "short" });
+};
+const firstLine = (s) => String(s || "").split("\n").find((x) => x.trim()) || "";
+
+/* the coloured count chips (trip card, sheet header): zero counts left out */
+function HelpCounts({ s, size = "sm" }) {
+  if (!s?.total) return null;
+  const parts = ["raised", "prog", "done"].filter((k) => s[k] > 0);
   return (
-    <li className="flex flex-col gap-1.5 rounded-xl border border-gray-200 bg-white px-3 py-2.5">
-      <span className="flex items-center gap-2">
-        <span className={cn("rounded-md px-1.5 py-0.5 text-[11px] font-bold", HELP_TONE[st.tone])}>{st.label}</span>
-        <small className="min-w-0 flex-1 truncate text-[11.5px] font-semibold text-gray-500">
-          {t.name} · raised {whenText(t.creation)}
-        </small>
-      </span>
-      {asked && <p className="whitespace-pre-line text-[13px] text-gray-800">{asked}</p>}
-      {t.replies.map((r, i) => (
-        <div key={i} className={cn("rounded-lg px-2.5 py-1.5 text-[12.5px]", r.mine ? "bg-gray-50 text-gray-700" : "bg-blue-50 text-blue-900")}>
-          <b className="font-bold">{r.mine ? "You" : r.by}</b> <small className="text-[11px] text-gray-500">{whenText(r.at)}</small>
-          <p className="whitespace-pre-line">{htmlText(r.content)}</p>
-        </div>
-      ))}
-      {!t.replies.length && !done && <small className="text-[11.5px] text-gray-500">No reply yet — it&apos;s with the expense team.</small>}
-    </li>
+    <span className="flex items-center gap-1">
+      {parts.map((k, i) => {
+        const Icon = HELP_ICON[k];
+        return (
+          <span
+            key={k}
+            title={`${s[k]} ${HELP_STATE[k].label.toLowerCase()}`}
+            className={cn("inline-flex items-center gap-0.5 rounded-md font-extrabold tabular-nums", HELP_TONE[k].chip, size === "sm" ? "h-[22px] px-1.5 text-[11px]" : "h-6 px-2 text-[12px]")}
+          >
+            {i === 0 && <Icon className="h-3 w-3" aria-hidden />}
+            {s[k]}
+          </span>
+        );
+      })}
+    </span>
   );
 }
+
+/* the chat of one request */
+function HelpChat({ t, onBack, onReply }) {
+  const f = useFieldExpenses();
+  const team = teamReplies(t);
+  const st = helpState(t.status, team);
+  const tone = HELP_TONE[st];
+  const asked = askedText(t.description);
+  const [text, setText] = useState("");
+  const [busy, setBusy] = useState(false);
+  const endRef = useRef(null);
+  useEffect(() => {
+    markHelpSeen(t.name, team);
+    f.actions?.seenHelp?.();
+  }, [t.name, team]); // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => {
+    endRef.current?.scrollIntoView({ block: "end" });
+  }, [t.replies.length]);
+  const send = async () => {
+    setBusy(true);
+    try {
+      const r = await replyTripHelp(t.name, text);
+      if (r) onReply(t.name, r);
+      setText("");
+      f.actions?.refreshHelp?.();
+    } catch (e) {
+      toast.error(errText(e));
+    } finally {
+      setBusy(false);
+    }
+  };
+  const steps = ["raised", "prog", "done"];
+  const at = steps.indexOf(st);
+  return (
+    <div className="flex min-h-0 flex-1 flex-col">
+      <div className="flex items-center gap-2 border-b border-gray-100 px-4 pb-2.5">
+        <button type="button" onClick={onBack} aria-label="Back to your requests" className="grid h-8 w-8 shrink-0 place-items-center rounded-xl bg-gray-100 text-gray-700 hover:bg-gray-200">
+          <ArrowLeft className="h-4 w-4" />
+        </button>
+        <span className="flex min-w-0 flex-1 flex-col">
+          <b className="truncate text-[14.5px] font-extrabold text-gray-900">{firstLine(asked) || t.subject}</b>
+          <small className="truncate text-[11.5px] font-semibold text-gray-500">
+            {t.name} · raised {dayText(t.creation)}
+          </small>
+        </span>
+        <span className={cn("shrink-0 rounded-full px-2 py-0.5 text-[11px] font-extrabold ring-1", tone.chip)}>{HELP_STATE[st].label}</span>
+      </div>
+      {/* where it stands: Raised -> In progress -> Resolved */}
+      <div className="grid grid-cols-3 gap-1.5 px-4 pt-2.5" aria-label={`Status: ${HELP_STATE[st].label}`}>
+        {steps.map((k, i) => (
+          <span key={k} className="flex flex-col gap-1">
+            <i className={cn("h-1 rounded-full", i <= at ? tone.step : "bg-gray-200")} />
+            <small className={cn("text-[10.5px] font-extrabold", i <= at ? tone.text : "text-gray-400")}>{HELP_STATE[k].label}</small>
+          </span>
+        ))}
+      </div>
+      <div className="flex min-h-0 flex-1 flex-col gap-2.5 overflow-y-auto bg-gray-50/80 px-4 py-3">
+        <span className="self-center rounded-full bg-white px-2.5 py-0.5 text-[11px] font-bold text-gray-500 ring-1 ring-gray-200">Raised · {whenText(t.creation)}</span>
+        {asked && (
+          <div className="flex max-w-[85%] flex-col items-end gap-0.5 self-end">
+            <p className="whitespace-pre-line rounded-2xl rounded-br-md bg-blue-600 px-3 py-2 text-[13.5px] leading-snug text-white">{asked}</p>
+            {hasHelpPhoto(t.description) && (
+              <span className="inline-flex items-center gap-1 rounded-full bg-white px-2 py-0.5 text-[11px] font-bold text-gray-600 ring-1 ring-gray-200">
+                <Paperclip className="h-3 w-3" aria-hidden /> Bill attached
+              </span>
+            )}
+            <small className="text-[10.5px] text-gray-400">You · the trip&apos;s days went with it</small>
+          </div>
+        )}
+        {t.replies.map((r, i) =>
+          r.mine ? (
+            <div key={i} className="flex max-w-[85%] flex-col items-end gap-0.5 self-end">
+              <p className="whitespace-pre-line rounded-2xl rounded-br-md bg-blue-600 px-3 py-2 text-[13.5px] leading-snug text-white">{htmlText(r.content)}</p>
+              <small className="text-[10.5px] text-gray-400">You · {whenText(r.at)}</small>
+            </div>
+          ) : (
+            <div key={i} className="flex max-w-[85%] flex-col gap-0.5 self-start">
+              <small className="text-[11px] font-bold text-gray-500">{r.by}</small>
+              <p className="whitespace-pre-line rounded-2xl rounded-bl-md bg-white px-3 py-2 text-[13.5px] leading-snug text-gray-900 ring-1 ring-gray-200">{htmlText(r.content)}</p>
+              <small className="text-[10.5px] text-gray-400">{whenText(r.at)}</small>
+            </div>
+          )
+        )}
+        {st === "raised" && <span className="self-center text-[11.5px] font-semibold text-gray-400">Waiting for the expense team</span>}
+        {st === "done" && (
+          <span className="inline-flex items-center gap-1 self-center rounded-full bg-green-50 px-2.5 py-0.5 text-[11px] font-extrabold text-green-700 ring-1 ring-green-200">
+            <CircleCheck className="h-3.5 w-3.5" aria-hidden /> Resolved{t.completed_on ? ` · ${dayText(t.completed_on)}` : ""}
+          </span>
+        )}
+        <span ref={endRef} />
+      </div>
+      <div className="border-t border-gray-100 px-4 pt-2.5">
+        {st === "done" ? (
+          <button type="button" onClick={onBack} className="flex w-full items-center justify-between rounded-2xl bg-green-50 px-3 py-2.5 text-left text-[12.5px] font-semibold text-green-800">
+            Resolved. Still wrong? Raise a new request
+            <ChevronRight className="h-4 w-4 shrink-0" aria-hidden />
+          </button>
+        ) : (
+          <HelpComposer value={text} onChange={setText} onSend={send} busy={busy} ready={text.trim().length >= 2} placeholder="Reply to the expense team" rows={1} />
+        )}
+      </div>
+    </div>
+  );
+}
+
+/* a rounded message box with its send button inside; attach: { file,
+   preview, onPick, onRemove } puts a "+" at its left for a bill photo / PDF
+   (24 Nov 2026), the file shown inside the box above the words */
+function HelpComposer({ value, onChange, onSend, busy, ready, placeholder, rows = 2, autoFocus = false, attach = null }) {
+  return (
+    <div className="flex flex-col rounded-2xl border border-gray-200 bg-gray-50 focus-within:border-blue-400 focus-within:bg-white focus-within:ring-2 focus-within:ring-blue-100">
+      {attach?.file && (
+        <div className="flex items-center gap-2.5 border-b border-gray-200 px-2 pb-2 pt-2">
+          {attach.preview ? (
+            // eslint-disable-next-line @next/next/no-img-element
+            <img src={attach.preview} alt="The bill" className="h-11 w-11 shrink-0 rounded-xl object-cover ring-1 ring-gray-200" />
+          ) : (
+            <span className="grid h-11 w-11 shrink-0 place-items-center rounded-xl bg-red-50 text-[11px] font-extrabold text-red-700">PDF</span>
+          )}
+          <span className="flex min-w-0 flex-1 flex-col">
+            <b className="truncate text-[12.5px] font-semibold text-gray-900">{attach.file.name || "Bill"}</b>
+            <small className="text-[11px] text-gray-500">{Math.max(1, Math.round(attach.file.size / 1024))} KB · goes with the request</small>
+          </span>
+          <button type="button" onClick={attach.onRemove} aria-label="Remove the attachment" className="grid h-8 w-8 shrink-0 place-items-center rounded-lg text-gray-500 hover:bg-gray-100 hover:text-red-600">
+            <X className="h-4 w-4" />
+          </button>
+        </div>
+      )}
+      <div className={cn("flex items-end gap-2 py-1.5 pr-1.5", attach ? "pl-1.5" : "pl-3")}>
+        {attach && (
+          <label
+            title={attach.file ? "Change the attachment" : "Attach the bill (photo or PDF)"}
+            className="grid h-9 w-9 shrink-0 cursor-pointer place-items-center rounded-xl text-blue-600 hover:bg-blue-50 focus-within:ring-2 focus-within:ring-blue-200"
+          >
+            <Plus className="h-5 w-5" aria-hidden />
+            <span className="sr-only">{attach.file ? "Change the attachment" : "Attach the bill"}</span>
+            <input type="file" accept="image/*,application/pdf" onChange={attach.onPick} className="sr-only" />
+          </label>
+        )}
+      <textarea
+        autoFocus={autoFocus}
+        rows={rows}
+        value={value}
+        maxLength={1000}
+        onChange={(e) => onChange(e.target.value)}
+        placeholder={placeholder}
+        className="min-h-9 w-full resize-none bg-transparent py-1.5 text-[13.5px] leading-snug text-gray-900 outline-none placeholder:text-gray-400"
+      />
+      <button
+        type="button"
+        onClick={onSend}
+        disabled={busy || !ready}
+        aria-label="Send"
+        className="grid h-9 w-9 shrink-0 place-items-center rounded-xl bg-blue-600 text-white transition-colors disabled:bg-gray-200 disabled:text-gray-400"
+      >
+        {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : <SendHorizontal className="h-4 w-4" />}
+      </button>
+      </div>
+    </div>
+  );
+}
+
+/* the trip's routes with places added: { [date]: [{ name, fixed } | { id, place, km }] } */
+const baseStops = (d) => {
+  const out = [];
+  for (const s of d?.route || []) if (s.place && out[out.length - 1] !== s.place) out.push(s.place);
+  if (!out.length && d?.journey) [d.journey.from, d.journey.to].filter(Boolean).forEach((p) => out.push(p));
+  return out;
+};
+const freshRoutes = (trip) => Object.fromEntries(trip.days.map((d) => [d.date, baseStops(d).map((name) => ({ name, fixed: true }))]));
+let stopSeq = 0;
+
+function RouteAdd({ trip, routes, setRoutes, day, setDay }) {
+  const list = routes[day] || [];
+  const newOf = (date) => (routes[date] || []).filter((s) => !s.fixed);
+  const [focus, setFocus] = useState(null);
+  const insert = (at) => {
+    const id = ++stopSeq;
+    setRoutes((r) => {
+      const next = [...(r[day] || [])];
+      next.splice(at, 0, { id, place: "", km: "" });
+      return { ...r, [day]: next };
+    });
+    setFocus(id);
+  };
+  const edit = (id, k, v) => setRoutes((r) => ({ ...r, [day]: (r[day] || []).map((s) => (s.id === id ? { ...s, [k]: k === "km" ? v.replace(/[^0-9]/g, "").slice(0, 4) : v.slice(0, 80) } : s)) }));
+  const remove = (id) => setRoutes((r) => ({ ...r, [day]: (r[day] || []).filter((s) => s.id !== id) }));
+  // the "+" before the first stop, between any two, and after the last
+  const slot = (at) => {
+    const edge = at === 0 ? "first" : at === list.length ? "last" : "";
+    const label = !list.length ? "Add a stop" : edge === "first" ? `Before ${list[0].name || list[0].place || "the first stop"}` : edge === "last" ? "After" : "Add stop";
+    return (
+      <div key={`slot${at}`} className="grid min-h-7 grid-cols-[18px_minmax(0,1fr)] items-center gap-2.5">
+        <span className={cn("mx-auto h-full min-h-7 w-0", edge || !list.length ? "border-l-2 border-dashed border-gray-200" : "border-l-2 border-gray-200")} />
+        <button
+          type="button"
+          onClick={() => insert(at)}
+          className="inline-flex max-w-full items-center gap-1 justify-self-start truncate rounded-full border border-dashed border-gray-300 py-0.5 pl-1.5 pr-2.5 text-[11.5px] font-bold text-gray-500 hover:border-blue-400 hover:bg-blue-50 hover:text-blue-700"
+        >
+          <Plus className="h-3 w-3 shrink-0" aria-hidden />
+          <span className="truncate">{label}</span>
+        </button>
+      </div>
+    );
+  };
+  return (
+    <div className="flex flex-col gap-2 rounded-2xl border border-gray-200 bg-white p-3">
+      {trip.days.length > 1 && (
+        <div className="-mx-1 flex gap-2.5 overflow-x-auto px-1 pb-1 pr-3 pt-2">
+          {trip.days.map((d) => {
+            const n = newOf(d.date).length;
+            const stops = baseStops(d);
+            return (
+              <button
+                key={d.date}
+                type="button"
+                onClick={() => setDay(d.date)}
+                className={cn(
+                  "relative flex shrink-0 flex-col items-center rounded-xl border py-1 pl-2.5 text-[12px] font-extrabold",
+                  n > 0 ? "pr-4" : "pr-2.5",
+                  d.date === day ? "border-blue-500 bg-blue-50 text-blue-700" : "border-gray-200 text-gray-800"
+                )}
+              >
+                {dayLabel(d.date).split(" ").slice(0, 2).join(" ")}
+                <small className="max-w-[72px] truncate text-[10px] font-semibold text-gray-500">{stops[stops.length - 1] || d.dayType || ""}</small>
+                {n > 0 && <em className="absolute -right-2 -top-2 rounded-full bg-orange-500 px-1.5 text-[9.5px] font-extrabold not-italic text-white ring-2 ring-white">+{n}</em>}
+              </button>
+            );
+          })}
+        </div>
+      )}
+      <div className="flex flex-col">
+        {list.map((s, i) => (
+          <Fragment key={s.fixed ? `f${i}${s.name}` : s.id}>
+            {slot(i)}
+            {s.fixed ? (
+              <div className="grid min-h-8 grid-cols-[18px_minmax(0,1fr)] items-center gap-2.5">
+                <span className="mx-auto h-3 w-3 rounded-full border-[3px] border-blue-500 bg-white" />
+                <span className="flex min-w-0 items-baseline gap-1.5">
+                  <b className="truncate text-[13.5px] font-bold text-gray-900">{s.name}</b>
+                  <small className="shrink-0 text-[10.5px] font-semibold text-gray-400">{i === 0 ? "start" : i === list.length - 1 ? "end" : ""}</small>
+                </span>
+              </div>
+            ) : (
+              <div className="grid grid-cols-[18px_minmax(0,1fr)_64px_28px] items-center gap-2 rounded-xl border border-orange-200 bg-orange-50 py-1.5 pr-1">
+                <span className="mx-auto h-3 w-3 rounded-full border-[3px] border-orange-500 bg-white" />
+                <input
+                  autoFocus={focus === s.id}
+                  value={s.place}
+                  onChange={(e) => edit(s.id, "place", e.target.value)}
+                  placeholder="Place name"
+                  aria-label="Place to add"
+                  className="min-w-0 rounded-lg border border-orange-200 bg-white px-2.5 py-1.5 text-[13px] text-gray-900 outline-none focus:border-orange-400"
+                />
+                <input
+                  value={s.km}
+                  inputMode="numeric"
+                  onChange={(e) => edit(s.id, "km", e.target.value)}
+                  placeholder="+ km"
+                  aria-label="Extra km"
+                  className="min-w-0 rounded-lg border border-orange-200 bg-white px-2 py-1.5 text-[13px] text-gray-900 outline-none focus:border-orange-400"
+                />
+                <button type="button" onClick={() => remove(s.id)} aria-label="Remove this stop" className="grid h-7 w-7 place-items-center rounded-lg text-gray-500 hover:bg-white hover:text-red-600">
+                  <X className="h-3.5 w-3.5" />
+                </button>
+              </div>
+            )}
+          </Fragment>
+        ))}
+        {slot(list.length)}
+      </div>
+    </div>
+  );
+}
+
+const HELP_TOPICS = [
+  { k: "da", label: "DA / TA wrong", Icon: IndianRupee, hint: "What looks wrong? e.g. the DA on 14 Oct looks low" },
+  { k: "bill", label: "Bill not accepted", Icon: Receipt, hint: "Which bill, and what did the app say?" },
+  { k: "route", label: "Add a place", Icon: RouteIcon, hint: "" },
+  { k: "other", label: "Something else", Icon: Ellipsis, hint: "Tell us what is wrong" },
+];
 
 function TripHelp({ item, day = false }) {
   const f = useFieldExpenses();
   const { trip, calc, claim } = item;
   const [open, setOpen] = useState(false);
-  const [text, setText] = useState("");
   const [busy, setBusy] = useState(false);
-  // the rep's requests on this trip: null = loading, [] = none
+  // the rep's requests on this trip, in full: null = loading, [] = none
   const [tasks, setTasks] = useState(null);
   const [loadError, setLoadError] = useState("");
-  // what kind of request (19 Nov 2026): "wrong" = free words, "place" = a
-  // place to add to a day's route (an in-between stop, not a new trip)
-  const [mode, setMode] = useState("wrong");
+  const [chat, setChat] = useState(null); // the request open as a chat
+  const [topic, setTopic] = useState("da");
+  const [text, setText] = useState("");
   const firstDay = (trip.days.find((d) => d.payable) || trip.days[0])?.date || trip.from;
-  const [miss, setMiss] = useState({ date: firstDay, place: "", after: "", km: "", why: "" });
-  const setM = (k) => (e) => setMiss((m) => ({ ...m, [k]: e.target.value }));
-  // the chosen day's route as it is, stop by stop
-  const missDay = trip.days.find((d) => d.date === miss.date) || null;
-  const missStops = (missDay?.route || []).map((x) => x.place).filter(Boolean);
-  const missAfter = missStops.includes(miss.after) ? miss.after : missStops[0] || "";
-  const ready = mode === "place" ? miss.place.trim().length >= 2 && !!miss.date : text.trim().length >= 5;
+  const [routeDay, setRouteDay] = useState(firstDay);
+  const [routes, setRoutes] = useState(() => freshRoutes(trip));
+  const [why, setWhy] = useState("");
+  // "Bill not accepted": the bill itself, attached to the request (24 Nov 2026)
+  const [billFile, setBillFile] = useState(null);
+  const billPreview = useMemo(() => (billFile && /^image\//.test(billFile.type) ? URL.createObjectURL(billFile) : null), [billFile]);
+  useEffect(() => () => billPreview && URL.revokeObjectURL(billPreview), [billPreview]);
+  const pickBill = (e) => {
+    const file = e.target.files?.[0] || null;
+    e.target.value = "";
+    if (!file) return;
+    if (!/^image\/|^application\/pdf$/i.test(file.type || "")) return toast.error("Attach a photo or a PDF of the bill.");
+    if (file.size > HELP_FILE_MAX) return toast.error("The file is over 10 MB — take a smaller photo of the bill.");
+    setBillFile(file);
+  };
   useEffect(() => {
     if (!open) return undefined;
     let alive = true;
@@ -945,174 +1281,231 @@ function TripHelp({ item, day = false }) {
       alive = false;
     };
   }, [open, trip.from, trip.to]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // the colour: the full list once read, else the month's light list
+  const sum = tasks ? helpSummary(tasks.map((t) => ({ name: t.name, status: t.status, team: teamReplies(t) }))) : f.helpFor?.(trip) || helpSummary([]);
+  const added = Object.entries(routes).flatMap(([, l]) => l.filter((s) => !s.fixed));
+  const routeReady = added.some((s) => s.place.trim().length >= 2) && added.every((s) => !s.place.trim() || s.place.trim().length >= 2);
+  const ready = topic === "route" ? routeReady : text.trim().length >= 5;
+  const T = HELP_TOPICS.find((x) => x.k === topic) || HELP_TOPICS[0];
+
   const send = async () => {
     setBusy(true);
     try {
-      const t =
-        mode === "place"
-          ? await sendTripHelp({
-              trip,
-              calc,
-              claim,
-              emp: f.emp,
-              message: addRouteText({ ...miss, route: missStops, after: missAfter }),
-              title: `Add to route · ${miss.place.trim()}`,
-            })
-          : await sendTripHelp({ trip, calc, claim, emp: f.emp, message: text });
-      toast.success(`Request sent${t?.name ? ` · ${t.name}` : ""} — the reply shows here`);
-      setText("");
-      setMiss((m) => ({ ...m, place: "", after: "", km: "", why: "" }));
+      let t;
+      if (topic === "route") {
+        const days = trip.days.map((d) => ({
+          date: d.date,
+          route: baseStops(d),
+          next: (routes[d.date] || []).map((s) => (s.fixed ? { name: s.name } : { name: s.place, km: s.km, added: true })),
+        }));
+        const names = added.map((s) => s.place.trim()).filter(Boolean);
+        t = await sendTripHelp({ trip, calc, claim, emp: f.emp, message: routeChangeText(days, why), title: `Add to route · ${names.join(", ")}` });
+        setRoutes(freshRoutes(trip));
+        setWhy("");
+      } else {
+        const message = topic === "other" ? text : `${T.label}: ${text}`;
+        t = await sendTripHelp({
+          trip,
+          calc,
+          claim,
+          emp: f.emp,
+          message,
+          title: topic === "other" ? trip.name : `${T.label} · ${trip.name}`,
+          file: topic === "bill" ? billFile : null,
+        });
+        setText("");
+        setBillFile(null);
+      }
+      toast.success(`Request sent${t?.name ? ` · ${t.name}` : ""} — replies show here`);
       if (t) setTasks((cur) => [t, ...(cur || [])]);
+      f.actions?.refreshHelp?.();
     } catch (e) {
       toast.error(errText(e));
     } finally {
       setBusy(false);
     }
   };
-  const any = (tasks || []).length > 0;
+  const onReply = (name, r) => setTasks((cur) => (cur || []).map((x) => (x.name === name ? { ...x, replies: [...x.replies, r] } : x)));
+
+  const st = sum.state;
+  const tone = st ? HELP_TONE[st] : null;
+  const Icon = st ? HELP_ICON[st] : CircleHelp;
+  const headline = !st
+    ? day
+      ? trip.kind === "tour"
+        ? "Something wrong in this trip?"
+        : "Something wrong on this day?"
+      : "Something wrong in this trip? Ask for help"
+    : st === "raised"
+      ? `${sum.raised} request${sum.raised > 1 ? "s" : ""} raised · no reply yet`
+      : st === "prog"
+        ? sum.unread
+          ? "New reply from the expense team"
+          : `${sum.prog} request${sum.prog > 1 ? "s" : ""} in progress`
+        : sum.total > 1
+          ? `All ${sum.total} requests resolved`
+          : "Your request is resolved";
+  const open1 = chat && (tasks || []).find((x) => x.name === chat);
   return (
     <>
       <button
         type="button"
         onClick={() => setOpen(true)}
-        className={cn("flex w-full items-center gap-2 rounded-2xl bg-blue-50 text-left text-blue-800 hover:bg-blue-100 active:bg-blue-100", day ? "px-2.5 py-2" : "px-3 py-2.5")}
+        className={cn(
+          "flex w-full items-center gap-2.5 rounded-2xl border text-left transition-colors",
+          tone ? tone.bar : "border-transparent bg-blue-50 text-blue-800 hover:bg-blue-100",
+          day ? "px-2.5 py-2" : "px-3 py-2.5"
+        )}
       >
-        <CircleHelp className="h-4 w-4 shrink-0" aria-hidden />
-        <span className={cn("min-w-0 flex-1 truncate font-semibold", day ? "text-[12.5px]" : "text-[13px]")}>
-          {day ? (trip.kind === "tour" ? "Something wrong in this trip?" : "Something wrong on this day?") : "Something wrong in this trip? Ask for help"}
+        <span className={cn("grid shrink-0 place-items-center rounded-xl", tone ? tone.icon : "", day ? "h-6 w-6" : "h-7 w-7")}>
+          <Icon className="h-4 w-4" aria-hidden />
         </span>
+        <span className={cn("min-w-0 flex-1 truncate font-bold", day ? "text-[12.5px]" : "text-[13px]")}>{headline}</span>
+        {st && !day && <HelpCounts s={sum} />}
         <span className={cn("flex shrink-0 items-center font-extrabold", day ? "text-[12.5px]" : "text-[13px]")}>
-          Help <ChevronRight className="h-4 w-4" aria-hidden />
+          {st ? "Open" : "Help"} <ChevronRight className="h-4 w-4" aria-hidden />
         </span>
       </button>
       {open && (
         // fixed inside the sheet (its panel is transformed): covers the sheet only
-        <div className="fixed inset-0 z-30 flex items-end bg-black/40" onClick={busy ? undefined : () => setOpen(false)}>
+        <div className="fixed inset-0 z-30 flex items-end bg-black/40 backdrop-blur-[1px]" onClick={busy ? undefined : () => setOpen(false)}>
           <div
             role="dialog"
-            aria-label="Ask for help"
-            className="flex max-h-[85%] w-full flex-col gap-2 overflow-y-auto rounded-t-3xl bg-white px-4 pt-2.5 pb-[max(16px,env(safe-area-inset-bottom))] shadow-[0_-6px_24px_rgba(0,0,0,.12)]"
+            aria-label="Help on this trip"
+            className="flex max-h-[88%] w-full flex-col rounded-t-[28px] bg-white pb-[max(14px,env(safe-area-inset-bottom))] pt-2 shadow-[0_-10px_30px_rgba(0,0,0,.14)]"
             onClick={(e) => e.stopPropagation()}
           >
-            <span className="mx-auto mb-1 h-1 w-10 shrink-0 rounded-full bg-gray-300" aria-hidden />
-            <span className="flex items-center gap-2">
-              <b className="min-w-0 flex-1 truncate text-[15px] font-extrabold text-gray-900">Help · {trip.name}</b>
-              <small className="shrink-0 text-[12px] font-semibold text-gray-500">{rangeLabel(trip.from, trip.to)}</small>
-              <button type="button" aria-label="Close" disabled={busy} onClick={() => setOpen(false)} className="rounded-lg p-1 text-gray-500 hover:bg-gray-100">
-                <X className="h-4 w-4" />
-              </button>
-            </span>
-            {tasks === null ? (
-              <span className="flex items-center gap-2 py-1 text-[12.5px] text-gray-500">
-                <Loader2 className="h-4 w-4 animate-spin" aria-hidden /> Checking your requests…
-              </span>
+            <span className="mx-auto mb-2 h-1 w-10 shrink-0 rounded-full bg-gray-300" aria-hidden />
+            {open1 ? (
+              <HelpChat t={open1} onBack={() => setChat(null)} onReply={onReply} />
             ) : (
-              any && (
-                <>
-                  <b className="text-[12.5px] font-bold text-gray-600">Your requests</b>
-                  {/* the 3 latest only (16 Nov 2026) */}
-                  <ul className="flex flex-col gap-2">
-                    {tasks.slice(0, HELP_SHOWN).map((t) => (
-                      <HelpRequest key={t.name} t={t} />
-                    ))}
-                  </ul>
-                </>
-              )
-            )}
-            {loadError && <small className="text-[11.5px] font-semibold text-amber-700">Couldn&apos;t load your earlier requests: {loadError}</small>}
-            {any && <b className="mt-1 text-[12.5px] font-bold text-gray-600">Raise another request</b>}
-            <span className="flex shrink-0 gap-1 rounded-xl bg-gray-100 p-1" role="tablist" aria-label="Kind of request">
-              {[
-                ["wrong", "Something wrong"],
-                ["place", "Add a place to the route"],
-              ].map(([k, label]) => (
-                <button
-                  key={k}
-                  type="button"
-                  role="tab"
-                  aria-selected={mode === k}
-                  onClick={() => setMode(k)}
-                  className={cn("flex-1 rounded-lg py-1.5 text-[12.5px] font-bold", mode === k ? "bg-white text-blue-700 shadow-sm" : "text-gray-500")}
-                >
-                  {label}
-                </button>
-              ))}
-            </span>
-            {mode === "place" ? (
-              <div className="flex shrink-0 flex-col gap-2">
-                <label className="flex flex-col gap-1 text-[11.5px] font-bold text-gray-600">
-                  Day
-                  <select value={miss.date} onChange={setM("date")} className={HELP_INPUT}>
-                    {trip.days.map((d) => (
-                      <option key={d.date} value={d.date}>
-                        {dayLabel(d.date)}
-                      </option>
-                    ))}
-                  </select>
-                </label>
-                <span className="rounded-xl bg-gray-50 px-3 py-2 text-[12px] text-gray-600">
-                  <b className="font-bold text-gray-700">Route now: </b>
-                  {missStops.length ? missStops.join(" → ") : "no route on this day"}
+              <>
+                <span className="flex items-center gap-2 px-4 pb-2.5">
+                  <span className="flex min-w-0 flex-1 flex-col">
+                    <b className="truncate text-[15.5px] font-extrabold text-gray-900">Help · {trip.name}</b>
+                    <small className="text-[11.5px] font-semibold text-gray-500">{rangeLabel(trip.from, trip.to)}</small>
+                  </span>
+                  <button type="button" aria-label="Close" disabled={busy} onClick={() => setOpen(false)} className="grid h-8 w-8 place-items-center rounded-xl bg-gray-100 text-gray-600 hover:bg-gray-200">
+                    <X className="h-4 w-4" />
+                  </button>
                 </span>
-                <span className={cn("grid gap-2", missStops.length ? "grid-cols-2" : "grid-cols-1")}>
-                  <label className="flex min-w-0 flex-col gap-1 text-[11.5px] font-bold text-gray-600">
-                    Place to add
-                    <input value={miss.place} onChange={setM("place")} maxLength={80} placeholder="e.g. Ottapalam" className={HELP_INPUT} />
-                  </label>
-                  {missStops.length > 0 && (
-                    <label className="flex min-w-0 flex-col gap-1 text-[11.5px] font-bold text-gray-600">
-                      Comes after
-                      <select value={missAfter} onChange={setM("after")} className={HELP_INPUT}>
-                        {missStops.map((x) => (
-                          <option key={x} value={x}>
-                            {x}
-                          </option>
-                        ))}
-                      </select>
-                    </label>
+                <div className="flex min-h-0 flex-1 flex-col gap-3 overflow-y-auto px-4 pb-1">
+                  {tasks === null ? (
+                    <span className="flex items-center gap-2 py-1 text-[12.5px] text-gray-500">
+                      <Loader2 className="h-4 w-4 animate-spin" aria-hidden /> Checking your requests…
+                    </span>
+                  ) : (
+                    tasks.length > 0 && (
+                      <section className="flex flex-col gap-2">
+                        <span className="flex items-center gap-2">
+                          <b className="text-[11px] font-extrabold uppercase tracking-wide text-gray-500">Your requests</b>
+                          <span className="ml-auto">
+                            <HelpCounts s={sum} />
+                          </span>
+                        </span>
+                        <ul className="overflow-hidden rounded-2xl border border-gray-200">
+                          {tasks.map((t) => {
+                            const team = teamReplies(t);
+                            const k = helpState(t.status, team);
+                            const fresh = k !== "done" && team > helpSeen(t.name);
+                            return (
+                              <li key={t.name} className="border-t border-gray-100 first:border-t-0">
+                                <button type="button" onClick={() => setChat(t.name)} className="grid w-full grid-cols-[4px_minmax(0,1fr)_auto] items-center gap-x-3 py-2.5 pr-2.5 text-left hover:bg-gray-50">
+                                  <span className={cn("h-full min-h-9 rounded-r", HELP_TONE[k].edge)} />
+                                  <span className="flex min-w-0 flex-col gap-0.5">
+                                    <b className="truncate text-[13px] font-semibold text-gray-900">{firstLine(askedText(t.description)) || t.subject}</b>
+                                    <small className="truncate text-[11px] text-gray-500">
+                                      {t.name} · {dayText(t.creation)} · {k === "done" ? `resolved${t.completed_on ? ` ${dayText(t.completed_on)}` : ""}` : team ? `${team} repl${team > 1 ? "ies" : "y"}` : "no reply yet"}
+                                    </small>
+                                  </span>
+                                  <span className="flex items-center gap-1.5">
+                                    {fresh && <i className="h-2 w-2 rounded-full bg-orange-500" title="New reply" />}
+                                    <span className={cn("rounded-full px-2 py-0.5 text-[10.5px] font-extrabold ring-1", HELP_TONE[k].chip)}>{HELP_STATE[k].label}</span>
+                                    <ChevronRight className="h-4 w-4 text-gray-400" aria-hidden />
+                                  </span>
+                                </button>
+                              </li>
+                            );
+                          })}
+                        </ul>
+                      </section>
+                    )
                   )}
-                </span>
-                <span className="grid grid-cols-[96px_minmax(0,1fr)] gap-2">
-                  <label className="flex min-w-0 flex-col gap-1 text-[11.5px] font-bold text-gray-600">
-                    Extra km
-                    <input type="number" inputMode="numeric" min="0" value={miss.km} onChange={setM("km")} placeholder="38" className={HELP_INPUT} />
-                  </label>
-                  <label className="flex min-w-0 flex-col gap-1 text-[11.5px] font-bold text-gray-600">
-                    Why (optional)
-                    <input value={miss.why} onChange={setM("why")} maxLength={300} placeholder="e.g. check-in missed at this stop" className={HELP_INPUT} />
-                  </label>
-                </span>
-              </div>
-            ) : (
-              <textarea
-                autoFocus={!any}
-                rows={3}
-                value={text}
-                maxLength={1000}
-                onChange={(e) => setText(e.target.value)}
-                placeholder="What is wrong? e.g. the DA on 14 Oct looks low."
-                className="w-full shrink-0 resize-none rounded-xl border border-gray-300 bg-white px-3 py-2.5 text-[13.5px] text-gray-900 outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-100"
-              />
+                  {loadError && <small className="text-[11.5px] font-semibold text-amber-700">Couldn&apos;t load your earlier requests: {loadError}</small>}
+                  <section className="flex flex-col gap-2">
+                    <b className="text-[11px] font-extrabold uppercase tracking-wide text-gray-500">{(tasks || []).length ? "New request" : "What is it about?"}</b>
+                    <div className="flex flex-wrap gap-1.5" role="group" aria-label="What is it about">
+                      {HELP_TOPICS.map((x) => (
+                        <button
+                          key={x.k}
+                          type="button"
+                          aria-pressed={topic === x.k}
+                          onClick={() => setTopic(x.k)}
+                          className={cn(
+                            "inline-flex items-center gap-1.5 rounded-full border px-3 py-1.5 text-[12.5px] font-bold transition-colors",
+                            topic === x.k ? "border-blue-500 bg-blue-50 text-blue-700" : "border-gray-200 bg-white text-gray-700 hover:border-gray-300"
+                          )}
+                        >
+                          <x.Icon className="h-3.5 w-3.5" aria-hidden />
+                          {x.label}
+                        </button>
+                      ))}
+                    </div>
+                    {topic === "route" ? (
+                      <>
+                        <RouteAdd trip={trip} routes={routes} setRoutes={setRoutes} day={routeDay} setDay={setRouteDay} />
+                        {added.some((s) => s.place.trim()) && (
+                          <div className="flex flex-col gap-1">
+                            {trip.days
+                              .filter((d) => (routes[d.date] || []).some((s) => !s.fixed && s.place.trim()))
+                              .map((d) => {
+                                const l = routes[d.date];
+                                const km = l.filter((s) => !s.fixed).reduce((a, s) => a + (Number(s.km) || 0), 0);
+                                return (
+                                  <span key={d.date} className="grid grid-cols-[52px_minmax(0,1fr)_auto] items-baseline gap-2 rounded-xl bg-gray-50 px-2.5 py-1.5 text-[12px]">
+                                    <b className="font-extrabold text-gray-800">{dayLabel(d.date).split(" ").slice(0, 2).join(" ")}</b>
+                                    <span className="min-w-0 break-words text-gray-700">
+                                      {l
+                                        .filter((s) => s.fixed || s.place.trim())
+                                        .map((s, i) => (
+                                          <Fragment key={i}>
+                                            {i > 0 && " → "}
+                                            {s.fixed ? s.name : <b className="font-bold text-orange-700">{s.place.trim()}</b>}
+                                          </Fragment>
+                                        ))}
+                                    </span>
+                                    <b className="whitespace-nowrap font-extrabold text-orange-700">{km ? `+${km} km` : ""}</b>
+                                  </span>
+                                );
+                              })}
+                          </div>
+                        )}
+                        <HelpComposer value={why} onChange={setWhy} onSend={send} busy={busy} ready={ready} placeholder="Why (optional): check-in missed at these stops" rows={1} />
+                      </>
+                    ) : (
+                      <HelpComposer
+                        value={text}
+                        onChange={setText}
+                        onSend={send}
+                        busy={busy}
+                        ready={ready}
+                        placeholder={T.hint}
+                        autoFocus={!(tasks || []).length}
+                        attach={topic === "bill" ? { file: billFile, preview: billPreview, onPick: pickBill, onRemove: () => setBillFile(null) } : null}
+                      />
+                    )}
+                    <small className="text-[11px] text-gray-400">{trip.from === trip.to ? "This day's" : "This trip's"} details go with it, day by day — no need to type the amounts.</small>
+                  </section>
+                </div>
+              </>
             )}
-            <small className="text-[11.5px] text-gray-500">{trip.from === trip.to ? "This day's" : "This trip's"} details go with it, day by day.</small>
-            <button
-              type="button"
-              disabled={busy || !ready}
-              onClick={send}
-              className="flex min-h-11 shrink-0 items-center justify-center gap-2 rounded-xl bg-blue-600 text-[15px] font-bold text-white disabled:bg-gray-200 disabled:text-gray-500"
-            >
-              {busy && <Loader2 className="h-4 w-4 animate-spin" aria-hidden />}
-              Send request
-            </button>
           </div>
         </div>
       )}
     </>
   );
 }
-
-const HELP_INPUT =
-  "w-full min-w-0 rounded-xl border border-gray-300 bg-white px-3 py-2 text-[13.5px] font-normal text-gray-900 outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-100";
 
 const UPLOAD_LABEL = { da: "Upload stay / food bill", dta: "Upload stay / food / travel bill", travels: "Upload train / bus ticket", car: "Upload fuel bill", all: "Upload stay / food / fuel bill" };
 
@@ -1426,18 +1819,8 @@ function TripSheet({ item }) {
             </div>
           )}
 
-          {/* a flown leg: the company's ticket -- the fare it would have paid
-              comes off the trip's TA (13 Nov 2026) */}
-          {trip.flownFare > 0 && !calc.carBilled && (
-            <div className="flex items-start gap-1.5 rounded-xl bg-sky-50 px-2.5 py-2 text-[12.5px] leading-snug text-sky-900">
-              <Plane className="mt-0.5 h-4 w-4 shrink-0" aria-hidden />
-              <span className="min-w-0">
-                By road {inr((calc.taClaimed ?? calc.ta) + trip.flownFare)} − by company {trip.flights.map((l) => `${l.from} → ${l.to}`).join(", ")} {inr(trip.flownFare)} ={" "}
-                <b>TA {inr(calc.taClaimed ?? calc.ta)}</b>
-                <span className="block text-[11.5px] text-sky-700">The company paid for this journey, so it pays no TA.</span>
-              </span>
-            </div>
-          )}
+          {/* a flown leg (the company's ticket, TA ₹0): each day row says it and
+              the total already leaves it out -- no separate box (24 Nov 2026) */}
           {/* normal fare or own car, asked for right here (RBM, ZSM, SM) */}
           {f.canCar && trip.kind !== "hq" && <CarMode calc={calc} editable={editable} />}
         </div>
