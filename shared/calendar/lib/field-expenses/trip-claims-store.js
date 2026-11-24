@@ -83,7 +83,12 @@ export async function setCar(emp, tripId, on) {
    fingerprint (fp). -> the bill's id */
 export async function addBill(emp, tripId, kind, bill) {
   const id = uid();
-  updateTrip(emp, tripId, (c) => ({ ...c, [kind]: [...(c[kind] || []), { id, ...bill }] }));
+  updateTrip(emp, tripId, (c) => {
+    // the same bill again on this card (24 Nov 2026: the ERP now hands back the
+    // rep's own earlier fingerprint when a reworked trip's bill is scanned again)
+    if (bill?.fp && (c[kind] || []).some((b) => b.fp === bill.fp)) throw new Error("This bill is already on this trip.");
+    return { ...c, [kind]: [...(c[kind] || []), { id, ...bill }] };
+  });
   return id;
 }
 
@@ -182,6 +187,74 @@ export function spreadStays(emp, trips, { force = null } = {}) {
     }
   }
   if (changed) write(emp, { ...state, trips: next.trips });
+  return out;
+}
+
+/* REWORKED TRIPS (24 Nov 2026, the user): the office recalculates a month and
+   a trip's days change (15-20 Oct becomes 15-17 Oct + 20 Oct) -- a new trip
+   id, so the card came up empty and the rep's bills, scanned again, were
+   refused as his own duplicates. Now the bills this device holds under a trip
+   id that no longer exists move, by themselves, to the trip that holds their
+   dates now (a hotel bill: its nights, with that share of the bill). Only
+   into a card not yet sent (a sent one gets them once it is recalled); the
+   old record is kept and remembers each card it filled (`carriedTo`), so a
+   bill the rep then takes off is not put back. Bills keep their signed read (dated inside the old trip,
+   which still holds their date). trips: this month's [{ id, from, to }]
+   -> { moved: [{ trip, kind, url }] } */
+const idSpan = (id) => {
+  const m = /^(\d{4}-\d{2}-\d{2})_(\d{4}-\d{2}-\d{2})$/.exec(String(id || ""));
+  return m ? { from: m[1], to: m[2] } : null;
+};
+const BILL_KINDS = ["stays", "foods", "fuels", "tolls", "travels"];
+export function carryBills(emp, trips) {
+  const out = { moved: [] };
+  if (!emp || !(trips || []).length) return out;
+  const state = read(emp);
+  const ids = new Set(trips.map((t) => t.id));
+  const lo = trips.reduce((a, t) => (t.from < a ? t.from : a), trips[0].from);
+  const hi = trips.reduce((a, t) => (t.to > a ? t.to : a), trips[0].to);
+  const next = { ...state.trips };
+  let changed = false;
+  for (const oldId of Object.keys(state.trips || {})) {
+    if (ids.has(oldId)) continue;
+    const done = state.trips[oldId]?.carriedTo || [];
+    const span = idSpan(oldId);
+    if (!span || span.to < lo || span.from > hi) continue;
+    const old = claimOf(state, oldId);
+    if (!BILL_KINDS.some((k) => old[k].length)) continue;
+    for (const t of trips) {
+      if (t.to < span.from || t.from > span.to || done.includes(t.id)) continue;
+      const c = claimOf({ trips: next }, t.id);
+      if (c.status !== "unclaimed") continue; // a sent card: its bills are the ERP's
+      let grew = false;
+      const card = { ...c };
+      for (const k of BILL_KINDS) {
+        for (const b of old[k]) {
+          if (card[k].some((x) => x.url === b.url && (k !== "stays" || (x.nights || []).some((n) => (b.nights || []).includes(n))))) continue;
+          if ((c.dropped || []).includes(b.url)) continue;
+          if (k === "stays") {
+            const sp = spanOf(b);
+            const all = sp ? sp.nights : (b.nights || []).length ? b.nights : [b.date];
+            const mine = all.filter((d) => d >= t.from && d <= t.to);
+            if (!mine.length) continue;
+            const amount = sp
+              ? Math.round((Math.round(Number(b.billed ?? b.amount) || 0) * mine.length) / all.length)
+              : Math.round(((Number(b.amount) || 0) * mine.length) / all.length);
+            card[k] = [...card[k], { ...b, id: uid(), nights: mine, date: mine[0], amount, carried: true }];
+          } else {
+            if (!(b.date >= t.from && b.date <= t.to)) continue;
+            card[k] = [...card[k], { ...b, id: uid(), carried: true }];
+          }
+          grew = true;
+          out.moved.push({ trip: t, kind: k, url: b.url });
+        }
+      }
+      if (grew) next[t.id] = card;
+      next[oldId] = { ...(next[oldId] || state.trips[oldId]), carriedTo: [...((next[oldId] || state.trips[oldId]).carriedTo || []), t.id] };
+      changed = true;
+    }
+  }
+  if (changed) write(emp, { ...state, trips: next });
   return out;
 }
 

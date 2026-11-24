@@ -200,10 +200,16 @@ export async function loadMonthClaim(employee, month) {
 
 /* The trip's own lines in the month's claim: tagged with this trip's dates,
    or (saved before the tag) untagged inside them. */
-export function tripLinesOf(lines, trip) {
+/* trips: the month's trips as they are now. A line tagged with a trip that no
+   longer exists (the office reworked the month: 15-20 Oct is now 15-17 Oct +
+   20 Oct -- 24 Nov 2026) belongs to the trip that holds its date, so the
+   reworked card still shows what was claimed and its bills. */
+export function tripLinesOf(lines, trip, trips = null) {
+  const live = trips ? new Set(trips.map((x) => `${x.from}..${x.to}`)) : null;
   return (lines || []).filter((l) => {
     const t = parseTripTag(l.trip);
-    return t ? t.from === trip.from && t.to === trip.to : l.date >= trip.from && l.date <= trip.to;
+    if (t && (!live || live.has(`${t.from}..${t.to}`))) return t.from === trip.from && t.to === trip.to;
+    return l.date >= trip.from && l.date <= trip.to;
   });
 }
 

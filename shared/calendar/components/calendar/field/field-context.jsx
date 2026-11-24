@@ -92,12 +92,13 @@ export function FieldExpensesProvider({ children }) {
     const rows = state.data?.rows || [];
     if (!rows.length) return;
     const all = monthClaim.claim ? monthClaim.claim.all || [{ lines: monthClaim.claim.lines }] : [];
-    for (const t of buildTrips(rows, state.data?.employee?.hq)) {
+    const monthTrips = buildTrips(rows, state.data?.employee?.hq);
+    for (const t of monthTrips) {
       const c = store.claimOf(claims, t.id);
       if (c.status !== "submitted" && c.status !== "review") continue;
       const sent = Date.parse(c.submittedAt || "") || 0;
       if (sent && sent > monthClaim.at - 5000) continue;
-      if (all.some((x) => monthErp.tripLinesOf(x.lines, t).length)) continue;
+      if (all.some((x) => monthErp.tripLinesOf(x.lines, t, monthTrips).length)) continue;
       store.resetTrip(emp, t.id);
     }
   }, [emp, month, monthClaim, claims, state.data]);
@@ -145,7 +146,7 @@ export function FieldExpensesProvider({ children }) {
       let holder = null;
       let mine = [];
       for (const c of monthClaims) {
-        mine = monthErp.tripLinesOf(c.lines, t);
+        mine = monthErp.tripLinesOf(c.lines, t, trips);
         if (mine.length) {
           holder = c;
           break;
@@ -304,7 +305,10 @@ export function FieldExpensesProvider({ children }) {
   const tripsRef = useRef([]);
   tripsRef.current = value.trips || [];
   useEffect(() => {
-    if (emp && viewingSelf) store.spreadStays(emp, value.trips || []);
+    if (!emp || !viewingSelf) return;
+    // a reworked month (24 Nov 2026): bills under a trip that no longer exists move to the trip holding their dates
+    store.carryBills(emp, value.trips || []);
+    store.spreadStays(emp, value.trips || []);
   }, [emp, viewingSelf, value.trips, claims]);
 
   // actions, bound to this rep; each returns a promise (the ERP later)
