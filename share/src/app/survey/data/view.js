@@ -183,6 +183,9 @@ export function filledQuestions(survey, row) {
     options: Array.isArray(q.options) ? q.options.map(f) : q.options,
     min_label: f(q.min_label),
     max_label: f(q.max_label),
+    /* map_location: where the map starts — the record's own location */
+    ...(q.lat != null ? { lat: f(q.lat) } : {}),
+    ...(q.lng != null ? { lng: f(q.lng) } : {}),
   }));
 }
 

@@ -150,6 +150,12 @@ export function createErpApi({ endpointUrl, gqlEnvironment = 'ERP', gqlToken, al
        its text, or its page pictures, copied out here. The rep only ever hears
        back whether the file could be read: { readable, reason } — never the
        fields, never a decision. Any failure here is not the rep's: { skipped }. */
+    /* 24 Nov 2026 · Map location question: the ERP's Google Maps browser key
+       (as /doctor-connect uses), and the Google place search the ERP runs with
+       its server key → { places: [{ id, title, address, lat, lng, url }] }. */
+    mapsKey: () => call('GET', 'survey_maps_key'),
+    searchPlaces: ({ q, lat, lng }) => call('GET', 'doctor_connect_places', { query: { q, lat, lng, radius_km: lat != null ? 40 : undefined } }),
+
     async readFile({ response, question, file_url, file }) {
       try {
         needAuth();

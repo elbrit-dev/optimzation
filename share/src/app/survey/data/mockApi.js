@@ -136,6 +136,21 @@ export function createMockApi({ role = 'BE', scenario = 'normal', today = MOCK_T
 
     /* The AI read of an uploaded file (erpApi.readFile): the mock reads
        everything fine, except a file named "blurry…" (to see the rep's warning). */
+    /* Map location question: no key in the mock (the map says so); the
+       search finds two places near Chennai. */
+    async mapsKey() {
+      return { key: '' };
+    },
+    async searchPlaces({ q }) {
+      await wait(300);
+      return {
+        places: [
+          { id: 'mock-1', title: `${q} Clinic`, address: '12 Anna Salai, Chennai 600002', lat: 13.0604, lng: 80.2496, url: '' },
+          { id: 'mock-2', title: `${q} Hospital`, address: '4 Poonamallee High Rd, Chennai 600084', lat: 13.0827, lng: 80.2707, url: '' },
+        ],
+      };
+    },
+
     async readFile({ file }) {
       await wait(400);
       return /blurr?y/i.test(file?.name || '') ? { readable: false, reason: 'The photo is blurry.' } : { readable: true };

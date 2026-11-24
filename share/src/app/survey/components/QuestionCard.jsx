@@ -3,6 +3,7 @@
 import { useRef, useState } from 'react';
 import { Card, Icon, ProgressBar, cx } from '@/design-system';
 import { answerText, fileProblem, fileRules, isEmpty, scaleRange } from '../data/shape';
+import { MapLocation } from './MapLocation';
 
 /* One question, by its type (SURVEYS_CONTEXT.md §3) — answered, or shown
  * read-only for a sent or missed response.
@@ -34,6 +35,7 @@ const TYPE_LABEL = {
   linear_scale: 'Scale',
   rating: 'Rating',
   file_upload: 'File',
+  map_location: 'Location',
 };
 
 function Mark({ on, square }) {
@@ -284,8 +286,10 @@ function FileUpload({ q, value, onChange, disabled, onUpload }) {
   );
 }
 
-function Input({ q, value, onChange, disabled, onUpload }) {
+function Input({ q, value, onChange, disabled, onUpload, api }) {
   switch (q.type) {
+    case 'map_location':
+      return <MapLocation q={q} value={value} onChange={onChange} disabled={disabled} api={api} />;
     case 'paragraph':
       return <textarea aria-label={q.label} rows={3} value={value ?? ''} disabled={disabled} placeholder="Your answer…" onChange={(e) => onChange(e.target.value)} className={cx(FIELD, 'w-full resize-y')} />;
     case 'number':
@@ -309,7 +313,7 @@ function Input({ q, value, onChange, disabled, onUpload }) {
   }
 }
 
-export function QuestionCard({ q, index, value, onChange, onUpload, error, readOnly = false, disabled = false }) {
+export function QuestionCard({ q, index, value, onChange, onUpload, api, error, readOnly = false, disabled = false }) {
   const answered = !isEmpty(value);
   return (
     <Card variant="hairline" className={cx('flex scroll-mt-20 flex-col gap-3', error && 'border-danger-border')} data-question={q.id}>
@@ -340,7 +344,7 @@ export function QuestionCard({ q, index, value, onChange, onUpload, error, readO
           {answered ? answerText(q, value) : 'Skipped'}
         </p>
       ) : (
-        <Input q={q} value={value} onChange={onChange} disabled={disabled} onUpload={onUpload} />
+        <Input q={q} value={value} onChange={onChange} disabled={disabled} onUpload={onUpload} api={api} />
       )}
       {error ? (
         <p role="alert" className="flex items-center gap-1.5 text-11 font-medium text-danger-text">

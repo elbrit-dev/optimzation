@@ -22,7 +22,45 @@ export const QUESTION_TYPES = [
   'linear_scale',
   'rating',
   'file_upload',
+  'map_location',
 ];
+
+/* §3 map_location (24 Nov 2026) — the answer is a point:
+   { lat, lng, place_id?, name?, address?, url?, how: same | place | pin | gps,
+     was?: the record's point before, acc?: phone accuracy in metres }.
+   q.lat / q.lng: where the map starts — the record's values (filled {#fields}). */
+const num = (x) => {
+  const n = parseFloat(x);
+  return Number.isFinite(n) ? n : null;
+};
+export const mapIsPoint = (v) => Boolean(v && typeof v === 'object' && !Array.isArray(v) && num(v.lat) != null && num(v.lng) != null);
+export function mapStart(q) {
+  const a = num(q?.lat);
+  const b = num(q?.lng);
+  return a != null && b != null && (a || b) && Math.abs(a) <= 90 && Math.abs(b) <= 180 ? { lat: a, lng: b } : null;
+}
+export function mapMeters(a, b) {
+  const r = Math.PI / 180;
+  const dLa = (b.lat - a.lat) * r;
+  const dLo = (b.lng - a.lng) * r;
+  const h = Math.sin(dLa / 2) ** 2 + Math.cos(a.lat * r) * Math.cos(b.lat * r) * Math.sin(dLo / 2) ** 2;
+  return 2 * 6371000 * Math.asin(Math.sqrt(h));
+}
+export const mapDist = (m) => (m < 1000 ? `${Math.round(m)} m` : `${(m / 1000).toFixed(m < 10000 ? 1 : 0)} km`);
+export function mapMoved(v) {
+  if (!mapIsPoint(v) || v.how === 'same' || !mapIsPoint(v.was)) return '';
+  const m = mapMeters({ lat: +v.was.lat, lng: +v.was.lng }, { lat: +v.lat, lng: +v.lng });
+  return m < 5 ? 'Same point as before' : `Moved ${mapDist(m)} from the location on record`;
+}
+export function mapText(v) {
+  if (!mapIsPoint(v)) return '';
+  if (v.how === 'same') return 'Location on record is correct';
+  return `${v.name || 'Pinned on the map'}${v.address ? ` — ${v.address}` : ''}`;
+}
+export const mapUrl = (v) =>
+  v.url && v.how === 'place'
+    ? v.url
+    : `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(`${(+v.lat).toFixed(7)},${(+v.lng).toFixed(7)}`)}`;
 
 /* §3 file_upload `accept` — the label shown and the extensions allowed
    ([] = any safe file). Same table as the ERP page and Submit Response. */
@@ -69,6 +107,7 @@ export function answerProblem(q, v) {
     if (!q.required) return null;
     if (q.type === 'file_upload') return 'Please upload a file to continue.';
     if (q.type === 'checkboxes') return 'Please choose at least one option to continue.';
+    if (q.type === 'map_location') return 'Please confirm the location or pin the place on the map to continue.';
     return 'Please answer this question to continue.';
   }
   if (q.type === 'number' && !/^-?\d+(\.\d+)?$/.test(String(v).trim())) return 'Please enter a number, for example 12 or 4.5.';
@@ -112,6 +151,7 @@ export function answerText(q, v) {
   if (isEmpty(v)) return '—';
   if (q.type === 'checkboxes') return v.join(', ');
   if (q.type === 'file_upload') return v.map((f) => f.name).join(', ');
+  if (q.type === 'map_location') return mapText(v);
   if (q.type === 'rating') return `${v} of ${scaleRange(q).max} stars`;
   if (q.type === 'linear_scale') return `${v} (scale ${scaleRange(q).min}–${scaleRange(q).max})`;
   return String(v);
