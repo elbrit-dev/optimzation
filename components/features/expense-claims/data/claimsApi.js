@@ -713,6 +713,10 @@ export async function extractBill(conn, file) {
     // is really TA/DA is caught on the form (23 Nov 2026)
     readerKind: readerKindOf(r.md),
     readTitle: r.title || "",
+    // Clef's pick among the reader's TITLES ("Courier", "Stationery", "Mobile
+    // recharge", ...): Gemma only knows the TA/DA kinds + "other", so an own
+    // bill's kind is picked off this (24 Nov 2026) -- never used to refuse one
+    clefTitle: r.clefTitle || "",
     // Gemma's call (16 Nov 2026): a handwritten bill needs a reason and the
     // payment proof (or "paid in cash") before it can be sent
     handwritten: !!r.handwritten,
@@ -1085,6 +1089,8 @@ export function shapeSettlement(r) {
     expenseKind: r.expense_kind || "",
     doctor: r.doctor || "",
     doctorName: r.doctor_name || r.doctor || "",
+    // a doctor service bill with no service (the settings switch off): the day it was done
+    serviceDate: String(r.service_date || "").slice(0, 10),
     service: r.service && r.service.name ? {
       name: r.service.name, service: r.service.service || r.service.name, date: String(r.service.date || "").slice(0, 10),
       amount: num0(r.service.amount), billed: num0(r.service.billed), left: num0(r.service.left),
@@ -1224,8 +1230,17 @@ export async function uploadPrivateFile(conn, file) {
    { ownKinds, taDaKinds: [{ kind, words }], activityLimit, maxAmount,
      maxAgeDays, canRequestCash, level, doctorReady: { activity, service } }.
    Unreadable never blocks the page: the safe answer (own = Other, no cash). */
+/* The words of each own kind (settlement_api DEFAULTS "kinds") -- used when
+   the server does not send own_kind_words (a Settlement API older than 24 Nov
+   2026). The bill sheet picks the kind off the bill with them. */
+const OWN_KIND_WORDS = [
+  { kind: "Courier & postage", words: ["courier", "postage", "post", "parcel"] },
+  { kind: "Printing & stationery", words: ["printing", "print", "xerox", "photocopy", "stationery"] },
+  { kind: "Phone & internet", words: ["phone", "mobile", "recharge", "internet", "broadband", "sim"] },
+  { kind: "Meeting", words: ["meeting", "hall", "venue", "conference"] },
+];
 const SETTLE_SETTINGS_FALLBACK = {
-  ownKinds: ["Other"], taDaKinds: [], activityLimit: 2000, maxAmount: null, maxAgeDays: 365,
+  ownKinds: ["Other"], ownKindWords: OWN_KIND_WORDS, taDaKinds: [], activityLimit: 2000, serviceNeedsRecord: true, maxAmount: null, maxAgeDays: 365,
   canRequestCash: false, level: "", doctorReady: { activity: false, service: false }, fallback: true,
 };
 export function fetchSettlementSettings(conn) {
@@ -1233,8 +1248,14 @@ export function fetchSettlementSettings(conn) {
     const m = (await settleCall(conn, "GET", { action: "settings" })).message || {};
     return {
       ownKinds: (m.own_kinds || []).map(String).filter(Boolean),
+      ownKindWords: Array.isArray(m.own_kind_words)
+        ? m.own_kind_words.map((k) => ({ kind: String(k.kind || ""), words: (k.words || []).map((w) => String(w).toLowerCase()) }))
+        : OWN_KIND_WORDS,
       taDaKinds: (m.ta_da_kinds || []).map((k) => ({ kind: String(k.kind || ""), words: (k.words || []).map((w) => String(w).toLowerCase()) })),
       activityLimit: num0(m.activity_limit) || 2000,
+      // the settings switch (24 Nov 2026): over the limit, tag to a Doctor
+      // Service (true, as before) -- or just give the day the service was done
+      serviceNeedsRecord: m.service_needs_record !== false,
       maxAmount: m.max_amount == null ? null : num0(m.max_amount),
       maxAgeDays: num0(m.max_age_days) || 365,
       canRequestCash: !!m.can_request_cash,
@@ -1267,16 +1288,78 @@ export async function fetchDoctorServices(conn, doctor, date) {
 
 /* A new bill. -> the bill as fetchSettlementBills shapes it
    kind: the own kind (a doctor bill: optional); doctor: the doctor's id;
-   doctorService: only for a doctor bill over the activity limit. The server
-   decides the type from the amount and refuses a wrong combination. */
-export async function addSettlementBill(conn, { date, title, amount, bill, proof, handNote, kind, doctor, doctorService }) {
+   doctorService: only for a doctor bill over the activity limit; serviceDate:
+   instead of it when the settings switch is off. The server decides the type
+   from the amount and refuses a wrong combination. */
+export async function addSettlementBill(conn, { date, title, amount, bill, proof, handNote, kind, doctor, doctorService, serviceDate }) {
   const m = (await settleCall(conn, "POST", {
     action: "add_bill", bill_date: date, title, amount: String(amount), bill,
     ...(proof ? { proof } : {}), ...(handNote ? { hand_note: handNote } : {}),
     ...(kind ? { kind } : {}), ...(doctor ? { doctor } : {}), ...(doctor && doctorService ? { doctor_service: doctorService } : {}),
+    ...(doctor && serviceDate ? { service_date: serviceDate } : {}),
   })).message || {};
   if (!m.bill?.name) throw new Error("The bill was not saved.");
   return m.bill;
+}
+
+/* Help on a bill being added (24 Nov 2026, the user: "like the help in the
+   planner"): the photo goes up (private, the rep's own) and an ERP Task is
+   raised through the planner's Server Script "Field Trip Help API"
+   (method field_trip_help, source=settlement) -- the same team, assigned and
+   shared the same way -- with the photo attached and the form as filled.
+   -> the Task ({ name, status, subject }) */
+export async function raiseBillHelp(conn, { file, date, title, message, details }) {
+  const text = String(message || "").trim();
+  if (text.length < 5) throw new Error("Write what is wrong (a few words at least).");
+  const up = file ? await uploadPrivateFile(conn, file) : null;
+  const day = /^\d{4}-\d{2}-\d{2}$/.test(String(date || "")) ? date : new Date().toISOString().slice(0, 10);
+  const m = (await rest(conn, "/api/method/field_trip_help", {
+    method: "POST",
+    headers: { "Content-Type": "application/x-www-form-urlencoded" },
+    body: new URLSearchParams({
+      action: "raise", source: "settlement", trip_id: `bill-${day}`, from: day, to: day,
+      title: String(title || "Bill").slice(0, 60), message: text, details: String(details || "").slice(0, 8000),
+      ...(up?.file_url ? { file: up.file_url } : {}),
+    }),
+  })).message || {};
+  if (!m.task?.name) throw new Error("The request was not raised — try again.");
+  return m.task;
+}
+
+/* The rep's own settlement help requests (the Settlements page's Help card),
+   newest first -> [{ name, status, title, day, created, closed, asked,
+   replies: [{ by, mine, at, text }], teamReplies, state }]
+   state: "raised" (no answer yet) | "replied" (the team answered, not done) | "done" */
+const htmlText = (html) => String(html || "").replace(/<br\s*\/?>/gi, "\n").replace(/<\/p>/gi, "\n").replace(/<[^>]*>/g, "")
+  .replace(/&nbsp;/g, " ").replace(/&lt;/g, "<").replace(/&gt;/g, ">").replace(/&quot;/g, '"').replace(/&#39;/g, "'").replace(/&amp;/g, "&").trim();
+export async function listBillHelp(conn) {
+  const m = (await rest(conn, "/api/method/field_trip_help", {
+    method: "POST", headers: { "Content-Type": "application/x-www-form-urlencoded" }, body: new URLSearchParams({ action: "settle" }),
+  })).message || {};
+  return (m.tasks || []).map((t) => {
+    // "Settlement help · <what for> · 2026-11-21 — Name (E0…)"
+    const subj = String(t.subject || "").replace(/^Settlement help · /, "").replace(/ — [^—]*$/, "");
+    const day = (subj.match(/(\d{4}-\d{2}-\d{2})$/) || [])[1] || "";
+    const title = subj.replace(/ · \d{4}-\d{2}-\d{2}$/, "").trim() || "Bill";
+    // the description's 2nd paragraph is what the rep wrote
+    const ps = String(t.description || "").split(/<\/p>/i);
+    const asked = htmlText(ps[1] || "");
+    const replies = (t.replies || []).map((c) => ({ by: c.by || "", mine: !!c.mine, at: String(c.at || ""), text: htmlText(c.content) }));
+    const teamReplies = replies.filter((c) => !c.mine).length;
+    const done = t.status === "Completed" || t.status === "Cancelled";
+    return {
+      name: t.name, status: t.status, title, day, created: String(t.creation || ""), closed: done, asked, replies, teamReplies,
+      state: done ? "done" : teamReplies ? "replied" : "raised",
+    };
+  });
+}
+/* The rep answers inside their own request (a comment on the Task). */
+export async function replyBillHelp(conn, name, message) {
+  const text = String(message || "").trim();
+  if (text.length < 2) throw new Error("Write your reply first.");
+  return (await rest(conn, "/api/method/field_trip_help", {
+    method: "POST", headers: { "Content-Type": "application/x-www-form-urlencoded" }, body: new URLSearchParams({ action: "reply", name, message: text }),
+  })).message || {};
 }
 
 /* A bill not sent yet, taken out (its photos and its duplicate-register place go too). */
@@ -1334,6 +1417,7 @@ export function settlementClaim(bills, employee) {
       doctor: b.doctor || "",
       doctorName: b.doctor_name || b.doctor || "",
       doctorService: b.doctor_service || "",
+      serviceDate: String(b.service_date || "").slice(0, 10),
       modified: b.modified,
       ai: null,
     }))

@@ -49,12 +49,15 @@ export function typeLine(x) {
   const t = x?.settleType || x?.type || "Own";
   if (t === "Cash" || x?.kind === "cash") return "";
   if (t === "Own") return x.expenseKind ? `Own · ${x.expenseKind}` : "Own";
-  const sv = t === "Doctor service" ? x.service?.service || x.doctorService || "" : "";
+  // no service tagged (the settings switch off, 24 Nov 2026): the day it was done
+  const sv = t !== "Doctor service" ? ""
+    : x.service?.service || x.doctorService || (/^\d{4}-\d{2}-\d{2}$/.test(x.serviceDate || "") ? `service on ${shortDate(x.serviceDate)}` : "");
   return [t, drName(x.doctorName), sv].filter(Boolean).join(" · ");
 }
-/* A doctor service bill can be approved only once its service is approved
-   (settlement_api decide): until then it waits, and is never picked. */
-export const serviceHeld = (r) => r?.type === "Doctor service" && r.status === "waiting" && !r.service?.approved;
+/* A doctor service bill TAGGED to a service can be approved only once that
+   service is approved (settlement_api decide): until then it waits, and is
+   never picked. One with just a service day (switch off) never waits. */
+export const serviceHeld = (r) => r?.type === "Doctor service" && r.status === "waiting" && !r.serviceDate && !r.service?.approved;
 export const HELD_NOTE = "Approve once the doctor service is approved";
 /* "<service> · ₹amount · ₹billed billed · ₹left left · <state>" */
 export const serviceLine = (s) => (s ? [s.service || s.name, inr(s.amount), `${inr(s.billed)} billed`, `${inr(s.left)} left`, s.state || (s.approved ? "Approved" : "Waiting for approval")].join(" · ") : "");

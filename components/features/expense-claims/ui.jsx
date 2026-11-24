@@ -62,12 +62,13 @@ export const IC = {
   flame: "M12 22c4.4 0 7-2.9 7-6.6 0-2.4-1.3-4.3-2.6-5.9-.4 1.7-1.2 2.8-2.4 3.4-.3-2.9-1.9-5.6-5-7.9.4 3-.8 4.6-2 6.4-.9 1.4-1.4 2.6-1.4 3.9C5.6 19.3 8.1 22 12 22z",
   camera: "M14.5 4h-5L7 7H4a2 2 0 0 0-2 2v9a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2V9a2 2 0 0 0-2-2h-3zM12 16a3 3 0 1 0 0-6 3 3 0 0 0 0 6z",
   arrow: "M5 12h14M13 6l6 6-6 6",
+  help: "M12 22a10 10 0 1 0 0-20 10 10 0 0 0 0 20zM9.1 9a3 3 0 0 1 5.8 1c0 2-3 3-3 3M12 17h.01",
 };
 
 /* The prototype's colour families: field blue, food orange, settle = the Advance purple,
    ok green, reward amber. [ink, soft] */
 export const TONE = { ok: ["#067647", "#ecfdf3"], reward: ["#b54708", "#fffaeb"], field: ["#1d4ed8", "#eef3fe"], settle: ["#7c3aed", "#f4f0ff"] };
-const HL_ICON = { ai: "shield", bill: "clip", cleared: "check", streak: "flame", paid: "check", added: "wallet", bills: "file" };
+const HL_ICON = { ai: "shield", bill: "clip", cleared: "check", streak: "flame", paid: "check", added: "wallet", bills: "file", help: "help" };
 
 /* One line that scrolls sideways, smoothly, on every device: swipe (with snap)
    on touch; on desktop the mouse wheel and a click-drag scroll it, and arrows
@@ -136,7 +137,7 @@ export function Highlights({ items, bleed = "0px", onTip }) {
       {items.map((a) => {
         const [c, s] = TONE[a.tone] || TONE.field;
         return (
-          <button key={a.key} type="button" role="listitem" title={a.tip} onClick={() => onTip?.(a.tip)} style={{ flex: "none", scrollSnapAlign: "start", minWidth: 148, display: "grid", gridTemplateColumns: "auto minmax(0,1fr)", columnGap: 9, alignItems: "center", padding: "10px 12px", borderRadius: 16, border: 0, background: a.tone === "reward" && a.pct === 1 ? s : "#fff", boxShadow: "0 0 0 1px #e4e7ec", cursor: "pointer", textAlign: "left" }}>
+          <button key={a.key} type="button" role="listitem" title={a.tip} onClick={() => (a.onClick ? a.onClick() : onTip?.(a.tip))} style={{ flex: "none", scrollSnapAlign: "start", minWidth: 148, display: "grid", gridTemplateColumns: "auto minmax(0,1fr)", columnGap: 9, alignItems: "center", padding: "10px 12px", borderRadius: 16, border: 0, background: a.tone === "reward" && a.pct === 1 ? s : "#fff", boxShadow: "0 0 0 1px #e4e7ec", cursor: "pointer", textAlign: "left" }}>
             <span style={{ gridRow: "1 / 4", width: 30, height: 30, borderRadius: 10, background: s, color: c, display: "grid", placeItems: "center" }}><Icon d={IC[HL_ICON[a.key] || "check"]} size={16} /></span>
             <span style={{ fontSize: 13.5, fontWeight: 700, letterSpacing: "-0.01em", whiteSpace: "nowrap", ...tabNum }}>{a.value}</span>
             <span style={{ fontSize: 11, color: "#5b6576", ...ell }}>{a.label}</span>

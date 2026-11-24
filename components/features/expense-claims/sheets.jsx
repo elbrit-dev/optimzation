@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import {
   ATTACH_ACCEPT, addSettlementBill, checkFile, checkSettlementBills, extractBill, fetchDoctorServices, fetchSettlementSettings, invalidateClaims,
-  requestCashThroughChain, searchSettlementDoctors, sendBillsForApproval, uploadPrivateFile,
+  raiseBillHelp, requestCashThroughChain, searchSettlementDoctors, sendBillsForApproval, uploadPrivateFile,
 } from "./data/claimsApi";
 import { IC, Icon, Note, Sheet, Spinner, btn, ell, tabNum } from "./ui";
 import { inr, isoDay, ledger, shortDate } from "./model";
@@ -78,7 +78,9 @@ const WRONG = {
    limit a "Doctor activity" (the direct manager approves it), over it tagged
    to a Doctor Service already asked for that doctor. The server decides the
    type from the amount and refuses a wrong combination (settlement_api add_bill). */
-const TA_DA_TEXT = "Hotel, food, fuel and travel bills are paid in your monthly TA/DA claim. If you spent this on a doctor, use the “For a doctor” tab.";
+// 24 Nov 2026 (the user): short, right under the photo, and Send stays off
+const TA_DA_WORD = { Stay: "Hotel", Food: "Food", Fuel: "Fuel", Travel: "Travel" };
+const taDaText = (k) => `${TA_DA_WORD[k] || k} bills go in your monthly TA/DA claim — not here.`;
 // settlement_api words_of: whole words only ("inn" is not "Innova"), a plural "s" allowed
 const wordsOf = (t) => ` ${String(t || "").toLowerCase().replace(/[^a-z0-9]+/g, " ").trim()} `;
 function taDaKindOf(texts, kinds) {
@@ -89,11 +91,17 @@ function taDaKindOf(texts, kinds) {
   }
   return "";
 }
+/* The own kind a bill is (24 Nov 2026, the user: "the type needs to be
+   selected based on the bill"): the same whole-word match on what the reader
+   read (its title, the vendor) -- only kinds the settings allow as own. */
+function ownKindOf(texts, kinds, allowed) {
+  return taDaKindOf(texts, (kinds || []).filter((k) => allowed.includes(k.kind)));
+}
 
 /* Money in short, for the footer: +in hand / −owed on the open claim. */
 const signed = (L) => L.balance - (L.over - L.owedClosed);
 
-export function BillSheet({ conn, me, claims = [], advances = [], cashAdvances = null, today = new Date(), onClose, onSaved, onChecked, desk }) {
+export function BillSheet({ conn, me, claims = [], advances = [], cashAdvances = null, today = new Date(), onClose, onSaved, onChecked, onHelp, desk }) {
   const todayIso = isoDay(today);
   // the server takes no bill older than a year (settlement_api BILL_MAX_AGE_DAYS)
   const minIso = isoDay(new Date(today.getFullYear(), today.getMonth(), today.getDate() - 365));
@@ -139,16 +147,25 @@ export function BillSheet({ conn, me, claims = [], advances = [], cashAdvances =
   }, [conn]);
   const limit = settings?.activityLimit || 2000;
   const ownKinds = settings?.ownKinds || [];
-  const [forWho, setForWho] = useState("");
+  // 24 Nov 2026 (the user): "Own expense" is picked to start with
+  const [forWho, setForWho] = useState("me");
   const [kind, setKind] = useState("");
+  // the kind is picked off the bill until the rep picks one themselves
+  const kindPicked = useRef(false);
+  const [kindAuto, setKindAuto] = useState(false);
   const [doctor, setDoctor] = useState(null); // { id, name, city }
   const [dq, setDq] = useState("");
   const [found, setFound] = useState({ q: "", list: [], busy: false, error: "" });
   const [svcs, setSvcs] = useState({ doctor: "", list: null, busy: false, error: "" });
   const [svc, setSvc] = useState("");
   const over = forWho === "doctor" && amt > limit;
+  // the Settlement Settings switch (24 Nov 2026): over the limit, tag to a
+  // Doctor Service (on, as before) -- or off: just the day the service was
+  // done, and it goes like a doctor activity (one approval)
+  const needSvc = settings?.serviceNeedsRecord !== false;
+  const [svcDay, setSvcDay] = useState("");
   // a blocked Send's message is about the choices made then: drop it once they change
-  useEffect(() => { setError(""); }, [forWho, kind, doctor, svc, amt]);
+  useEffect(() => { setError(""); }, [forWho, kind, doctor, svc, svcDay, amt]);
   // the doctor search: 2+ letters, 300 ms after the last key
   useEffect(() => {
     const q = dq.trim();
@@ -170,7 +187,7 @@ export function BillSheet({ conn, me, claims = [], advances = [], cashAdvances =
   const svcMonth = String(date || "").slice(0, 7);
   const svcKey = doctor ? doctor.id + "|" + svcMonth : "";
   useEffect(() => {
-    if (!over || !doctor || svcAsked.current === svcKey) return;
+    if (!over || !needSvc || !doctor || svcAsked.current === svcKey) return;
     const id = doctor.id;
     const key = svcKey;
     svcAsked.current = key;
@@ -179,12 +196,52 @@ export function BillSheet({ conn, me, claims = [], advances = [], cashAdvances =
     fetchDoctorServices(conn, id, date)
       .then((list) => setSvcs((x) => (x.doctor === key ? { doctor: key, list, busy: false, error: "" } : x)))
       .catch((e) => setSvcs((x) => (x.doctor === key ? { doctor: key, list: null, busy: false, error: e.message } : x)));
-  }, [conn, over, doctor, svcKey]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [conn, over, needSvc, doctor, svcKey]); // eslint-disable-line react-hooks/exhaustive-deps
   const svcList = doctor && svcs.doctor === svcKey ? svcs.list : null;
   const picked = svcList?.find((x) => x.name === svc) || null;
   // an own bill that is really TA/DA: by the reader's kind, its title, or the title typed
   const taDa = forWho === "me" ? taDaKindOf([read?.readerKind, read?.readTitle, title], settings?.taDaKinds) : "";
+  const taDaMsg = taDa ? taDaText(taDa) : "";
+  // a good own bill: its kind from the bill -- else Other -- once it is read
+  useEffect(() => {
+    if (!read || read.busy || read.wrong || !settings || kindPicked.current) return;
+    // a TA/DA bill has no own kind: left empty (it cannot be sent anyway)
+    if (taDaKindOf([read.readerKind, read.readTitle], settings.taDaKinds)) { setKind(""); setKindAuto(false); return; }
+    const k =ownKindOf([read.readTitle, read.clefTitle, read.what, read.vendor], settings.ownKindWords, ownKinds) || (ownKinds.includes("Other") ? "Other" : "");
+    setKind(k);
+    setKindAuto(!!k);
+  }, [read, settings]); // eslint-disable-line react-hooks/exhaustive-deps
   const pickDoctor = (d) => { setDoctor(d); setSvc(""); setDq(""); };
+
+  /* HELP (24 Nov 2026, the user: "like the help in the planner"): once the
+     photo is in, the rep can raise a request -- an ERP Task for the expense
+     team, with the photo and the form exactly as it stands. */
+  const [help, setHelp] = useState({ open: false, text: "", busy: false, error: "", task: null });
+  const helpDetails = () => [
+    `Employee: ${me?.name || me?.id || "-"}${me?.id && me?.name ? ` (${me.id})` : ""}`,
+    `Who it was for: ${forWho === "doctor" ? "For a doctor" : "Own expense"}`,
+    `Photo: ${file?.name || "-"}`,
+    `What was it for: ${title.trim() || "-"}`,
+    `Amount: ${amt ? inr(amt) : "-"}`,
+    `Bill date: ${date || "-"}`,
+    forWho === "doctor" ? `Doctor: ${doctor ? `${doctor.name} (${doctor.id})` : "-"}` : `Kind: ${kind || "-"}`,
+    over && needSvc ? `Doctor service: ${picked ? `${picked.service} (${picked.name})` : "-"}` : "",
+    over && !needSvc ? `Service done on: ${svcDay || "-"}` : "",
+    `Read off the bill: ${[read?.readTitle, read?.vendor].filter(Boolean).join(" · ") || "-"}${read?.handwritten ? " · handwritten" : ""}`,
+    read?.wrong ? `Refused: ${WRONG[read.wrong].title}${read.why ? ` — ${read.why}` : ""}` : "",
+    taDaMsg ? `Blocked: ${taDaMsg}` : "",
+  ].filter(Boolean).join("\n");
+  const sendHelp = async () => {
+    if (help.text.trim().length < 5) return setHelp((h) => ({ ...h, error: "Write what is wrong (a few words at least)." }));
+    setHelp((h) => ({ ...h, busy: true, error: "" }));
+    try {
+      const task = await raiseBillHelp(conn, { file, date, title: title.trim() || read?.readTitle || "Bill", message: help.text, details: `${helpDetails()}${missing ? `\nForm says: ${missing}` : ""}` });
+      setHelp({ open: false, text: "", busy: false, error: "", task });
+      onHelp?.(task);
+    } catch (e) {
+      setHelp((h) => ({ ...h, busy: false, error: e.message }));
+    }
+  };
 
   const attach = (f) => {
     const err = checkFile(f);
@@ -193,6 +250,12 @@ export function BillSheet({ conn, me, claims = [], advances = [], cashAdvances =
     setFile(f);
     setThumb(f.type.startsWith("image/") ? URL.createObjectURL(f) : null);
     setRead({ busy: true, file: f });
+    // a new photo: a new help request, if any
+    setHelp({ open: false, text: "", busy: false, error: "", task: null });
+    // a new bill: its kind is picked off it again
+    kindPicked.current = false;
+    setKind("");
+    setKindAuto(false);
     // The one AI run (Gemma 4 -> Clairic + Clef Flash; 16 Nov 2026): title,
     // amount and date come off the bill; the person checks them,
     // changes any if needed, and sends. The signed read goes along to the check.
@@ -207,7 +270,7 @@ export function BillSheet({ conn, me, claims = [], advances = [], cashAdvances =
         setDate(dated ? x.date : todayIso);
         // what was really read off the bill (the date may be today's, defaulted)
         const got = { title: !!what, amount: !!x.amount, date: dated };
-        setRead((r) => (r?.busy && r.file === f ? { busy: false, filled: !!(x.amount || dated || what), got, signed: x.signed || null, manual: !!x.skipped, handwritten: !!x.handwritten, readerKind: x.readerKind || "", readTitle: x.readTitle || "" } : r));
+        setRead((r) => (r?.busy && r.file === f ? { busy: false, filled: !!(x.amount || dated || what), got, signed: x.signed || null, manual: !!x.skipped, handwritten: !!x.handwritten, readerKind: x.readerKind || "", readTitle: x.readTitle || "", clefTitle: x.clefTitle || "", what, vendor: x.vendor || "" } : r));
       })
       .catch(() => setRead((r) => (r?.busy && r.file === f ? { busy: false, wrong: "failed" } : r)));
   };
@@ -221,14 +284,17 @@ export function BillSheet({ conn, me, claims = [], advances = [], cashAdvances =
     : date < minIso ? "This bill is more than a year old — it cannot be claimed"
     : read?.handwritten && why.trim().length < 5 ? "Say why you have only a handwritten bill"
     : read?.handwritten && !cash && !proof ? "Add the payment proof — or tick “Paid in cash”"
-    : forWho === "me" && taDa ? TA_DA_TEXT
+    : forWho === "me" && taDa ? taDaMsg
     : forWho === "me" && !kind ? "Pick what kind of expense it was"
     : forWho === "doctor" && !doctor ? "Pick the doctor"
-    : over && svcs.doctor === svcKey && svcs.error ? svcs.error
-    : over && !svcList ? "Wait a moment — loading the doctor services"
-    : over && !svcList.length ? "No doctor service of this bill’s month is open for this doctor — ask for one first (Service), then add this bill."
-    : over && !picked ? "Pick the doctor service it was for"
-    : over && amt > picked.left + 0.5 ? `Only ${inr(picked.left)} is left on this doctor service` : "";
+    : over && !needSvc && !svcDay ? "Pick the day the service was done"
+    : over && !needSvc && (svcDay > todayIso || svcDay < minIso) ? "The service day must be within the last year, not in the future"
+    : !over || !needSvc ? ""
+    : svcs.doctor === svcKey && svcs.error ? svcs.error
+    : !svcList ? "Wait a moment — loading the doctor services"
+    : !svcList.length ? "No doctor service of this bill’s month is open for this doctor — ask for one first (Service), then add this bill."
+    : !picked ? "Pick the doctor service it was for"
+    : amt > picked.left + 0.5 ? `Only ${inr(picked.left)} is left on this doctor service` : "";
   const submit = async () => {
     setTried(true);
     if (missing) return setError(missing);
@@ -250,7 +316,7 @@ export function BillSheet({ conn, me, claims = [], advances = [], cashAdvances =
       const handNote = read?.handwritten ? `${why.trim()}${cash ? " · paid in cash" : ""}` : "";
       name = (await addSettlementBill(conn, {
         date, title: title.trim(), amount: amt, bill: up.file_url, proof: proofUrl, handNote,
-        kind: forWho === "me" ? kind : "", doctor: forWho === "doctor" ? doctor?.id : "", doctorService: over ? picked?.name : "",
+        kind: forWho === "me" ? kind : "", doctor: forWho === "doctor" ? doctor?.id : "", doctorService: over && needSvc ? picked?.name : "", serviceDate: over && !needSvc ? svcDay : "",
       })).name;
     } catch (e) {
       setBusy("");
@@ -291,7 +357,7 @@ export function BillSheet({ conn, me, claims = [], advances = [], cashAdvances =
     const first = sent?.requests?.[0];
     const lines = [[`${title.trim()} · ${shortDate(date)}`, inr(amt)]];
     lines.push(["For", typeLine(forWho === "me" ? { settleType: "Own", expenseKind: kind }
-      : { settleType: over ? "Doctor service" : "Doctor activity", doctorName: doctor?.name, doctorService: over ? picked?.service : "" })]);
+      : { settleType: over ? "Doctor service" : "Doctor activity", doctorName: doctor?.name, doctorService: over && needSvc ? picked?.service : "", serviceDate: over && !needSvc ? svcDay : "" })]);
     if (first && waitingOn(first)) lines.push(["Now", waitingOn(first).replace(/^with/, "With")]);
     setDone({ name, sent: !!first, lines, refused });
   };
@@ -311,7 +377,8 @@ export function BillSheet({ conn, me, claims = [], advances = [], cashAdvances =
         <span style={{ fontSize: 12, color: "#5b6576" }}>{!amt ? (now >= 0 ? "In hand now" : "We owe you now") : after >= 0 ? "In hand after this" : "If approved, we owe you"}</span>
         <b style={{ fontSize: 22, letterSpacing: "-0.02em", color: "#0b1220", ...tabNum }}>{inr(Math.abs(amt ? after : now))}</b>
       </div>
-      <button type="button" className="ec-cta" disabled={!!busy} onClick={submit} style={{ ...btn.primary, height: 50, padding: "0 22px", borderRadius: 14, fontSize: 15.5, display: "flex", alignItems: "center", gap: 8, opacity: missing && tried ? 0.55 : 1 }}>
+      {/* an own TA/DA bill (hotel, food, fuel, travel) can never be sent: off */}
+      <button type="button" className="ec-cta" disabled={!!busy || !!taDaMsg} onClick={submit} style={{ ...btn.primary, height: 50, padding: "0 22px", borderRadius: 14, fontSize: 15.5, display: "flex", alignItems: "center", gap: 8, opacity: taDaMsg ? 0.45 : missing && tried ? 0.55 : 1, cursor: taDaMsg ? "not-allowed" : undefined }}>
         {busy ? <><Spinner size={14} />{busy}</> : <><Icon d={IC.arrow} size={18} />Send for approval</>}
       </button>
     </>
@@ -334,14 +401,14 @@ export function BillSheet({ conn, me, claims = [], advances = [], cashAdvances =
           {!forWho && <span style={{ ...hint, marginTop: -6, textAlign: "center" }}>Pick one to add the bill</span>}
           {forWho && (
           <button type="button" className="ecs-drop" onClick={() => pick.current?.click()}
-            style={{ display: "flex", flexDirection: file ? "row" : "column", alignItems: "center", justifyContent: "center", gap: file ? 12 : 6, width: "100%", minHeight: file ? 76 : 150, padding: file ? "10px 12px" : "18px 14px", borderRadius: 16, border: `1.5px ${file ? "solid" : "dashed"} ${read?.wrong ? "#f04438" : file ? "#12b76a" : tried && !file ? "#f04438" : "#b2c8f7"}`, background: read?.wrong ? "#fef3f2" : file ? "#f6fef9" : "#f5f8ff", color: "#0b1220", textAlign: file ? "left" : "center", cursor: "pointer" }}>
+            style={{ display: "flex", flexDirection: file ? "row" : "column", alignItems: "center", justifyContent: "center", gap: file ? 12 : 6, width: "100%", minHeight: file ? 76 : 150, padding: file ? "10px 12px" : "18px 14px", borderRadius: 16, border: `1.5px ${file ? "solid" : "dashed"} ${read?.wrong || (file && taDaMsg) ? "#f04438" : file ? "#12b76a" : tried && !file ? "#f04438" : "#b2c8f7"}`, background: read?.wrong || (file && taDaMsg) ? "#fef3f2" : file ? "#f6fef9" : "#f5f8ff", color: "#0b1220", textAlign: file ? "left" : "center", cursor: "pointer" }}>
             {file ? (
               <>
                 {thumb ? <img src={thumb} alt="" style={{ width: 54, height: 54, borderRadius: 10, objectFit: "cover", flex: "none", boxShadow: "0 0 0 1px #e4e7ec" }} />
                   : <span style={{ width: 54, height: 54, borderRadius: 10, flex: "none", display: "grid", placeItems: "center", background: "#fff", boxShadow: "0 0 0 1px #e4e7ec", color: "#475467" }}><Icon d={IC.file} size={22} /></span>}
                 <span style={{ flex: 1, minWidth: 0, display: "flex", flexDirection: "column", gap: 2 }}>
                   <span style={{ fontSize: 14, fontWeight: 600, ...ell }}>{file.name}</span>
-                  <span style={{ fontSize: 12.5, color: read?.wrong ? "#b42318" : read?.busy ? "#475467" : "#067647", fontWeight: 600 }}>{read?.wrong ? (read.wrong === "failed" ? "Could not check it" : "Not the correct attachment") : read?.busy ? "Reading the bill…" : "Photo added"}</span>
+                  <span style={{ fontSize: 12.5, color: read?.wrong || taDaMsg ? "#b42318" : read?.busy ? "#475467" : "#067647", fontWeight: 600 }}>{read?.wrong ? (read.wrong === "failed" ? "Could not check it" : "Not the correct attachment") : read?.busy ? "Reading the bill…" : taDaMsg ? "Not an own expense" : "Photo added"}</span>
                 </span>
                 <span style={{ fontSize: 13, fontWeight: 600, color: "#1d4ed8" }}>{read?.wrong ? "Choose another" : "Change"}</span>
               </>
@@ -356,6 +423,12 @@ export function BillSheet({ conn, me, claims = [], advances = [], cashAdvances =
           </button>
           )}
           <input ref={pick} type="file" accept={ATTACH_ACCEPT} style={{ display: "none" }} onChange={(e) => { const f = e.target.files?.[0]; e.target.value = ""; if (f) attach(f); }} />
+          {file && !read?.busy && !read?.wrong && taDaMsg && (
+            <div role="alert" style={{ marginTop: -8, padding: "9px 12px", borderRadius: 12, background: "#fef3f2", color: "#b42318", fontSize: 13, fontWeight: 600, lineHeight: 1.4 }}>
+              {taDaMsg}{" "}
+              <button type="button" onClick={() => setForWho("doctor")} style={{ padding: 0, border: 0, background: "transparent", color: "#1d4ed8", font: "inherit", textDecoration: "underline", textUnderlineOffset: 2, cursor: "pointer" }}>Spent on a doctor?</button>
+            </div>
+          )}
           {read?.wrong ? (
             <div role="alert" style={{ display: "flex", gap: 10, padding: "12px 14px", borderRadius: 14, background: "#fef3f2", color: "#b42318" }}>
               <span style={{ display: "flex", flex: "none", marginTop: 1 }}><Icon d={IC.x} size={18} sw={2.2} /></span>
@@ -406,13 +479,13 @@ export function BillSheet({ conn, me, claims = [], advances = [], cashAdvances =
               <>
                 <label style={{ display: "flex", flexDirection: "column", gap: 6 }}>
                   <span style={lbl}>What kind</span>
-                  <select className="ecs-in" value={kind} onChange={(e) => setKind(e.target.value)} disabled={!settings}
+                  <select className="ecs-in" value={kind} onChange={(e) => { kindPicked.current = true; setKindAuto(false); setKind(e.target.value); }} disabled={!settings}
                     style={{ appearance: "auto", borderColor: tried && !kind ? "#f04438" : undefined, color: kind ? "#0b1220" : "#8a93a3" }}>
                     <option value="">{settings ? "Choose the kind of expense" : "Loading…"}</option>
                     {ownKinds.map((k) => <option key={k} value={k}>{k}</option>)}
                   </select>
                 </label>
-                {taDa && <Note>{TA_DA_TEXT}</Note>}
+                {kindAuto && kind && !taDaMsg && <span style={{ ...hint, marginTop: -8 }}>Picked from the bill — change it if it is wrong.</span>}
               </>
             )}
 
@@ -457,7 +530,17 @@ export function BillSheet({ conn, me, claims = [], advances = [], cashAdvances =
                 )}
 
                 {doctor && !over && <Note tone="info">Doctor activity — your manager approves it.</Note>}
-                {doctor && over && (
+                {doctor && over && !needSvc && (
+                  <>
+                    <label style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+                      <span style={lbl}>Which day was the service done?</span>
+                      <input type="date" className="ecs-in" min={minIso} max={todayIso} value={svcDay} onChange={(e) => setSvcDay(e.target.value)}
+                        style={{ height: 58, fontSize: 15, borderColor: tried && !svcDay ? "#f04438" : undefined }} />
+                    </label>
+                    <Note tone="info">Doctor service — your manager approves it.</Note>
+                  </>
+                )}
+                {doctor && over && needSvc && (
                   <div role="radiogroup" aria-label="The doctor service it was for" style={{ display: "flex", flexDirection: "column", gap: 8 }}>
                     <span style={lbl}>Over {inr(limit)} on a doctor — pick the doctor service it was for</span>
                     {svcs.doctor === svcKey && svcs.error ? <Note>{svcs.error}</Note>
@@ -520,7 +603,36 @@ export function BillSheet({ conn, me, claims = [], advances = [], cashAdvances =
             </>
           )}
 
-          {error && error !== TA_DA_TEXT && <Note>{error}</Note>}
+          {error && error !== taDaMsg && <Note>{error}</Note>}
+
+          {/* Help -- only once the photo is in (and read) */}
+          {file && !read?.busy && (help.task ? (
+            <Note tone="info">Help request {help.task.name} sent, with your bill photo and these details. The expense team will reply to you.</Note>
+          ) : help.open ? (
+            <div style={{ display: "flex", flexDirection: "column", gap: 10, padding: 14, borderRadius: 14, background: "#f8fafc", boxShadow: "0 0 0 1px #e4e7ec" }}>
+              <label style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+                <span style={lbl}>What is wrong?</span>
+                <textarea className="ecs-in" rows={3} value={help.text} maxLength={1000} autoFocus disabled={help.busy}
+                  onChange={(e) => setHelp((h) => ({ ...h, text: e.target.value, error: "" }))} placeholder="e.g. The amount read is wrong / it says already claimed but it is my bill"
+                  style={{ height: "auto", minHeight: 80, padding: "10px 12px", fontSize: 14, resize: "vertical" }} />
+              </label>
+              <span style={{ ...hint, marginTop: -4 }}>Your bill photo and the details above go with it.</span>
+              {help.error && <Note>{help.error}</Note>}
+              <span style={{ display: "flex", gap: 8, justifyContent: "flex-end" }}>
+                <button type="button" disabled={help.busy} onClick={() => setHelp((h) => ({ ...h, open: false, error: "" }))}
+                  style={{ minHeight: 44, padding: "0 14px", border: 0, borderRadius: 12, background: "transparent", fontSize: 14, fontWeight: 600, color: "#475467", cursor: "pointer" }}>Cancel</button>
+                <button type="button" disabled={help.busy} onClick={sendHelp}
+                  style={{ ...btn.primary, minHeight: 44, padding: "0 16px", borderRadius: 12, fontSize: 14, display: "flex", alignItems: "center", gap: 8 }}>
+                  {help.busy ? <><Spinner size={13} />Sending…</> : "Send to the help team"}
+                </button>
+              </span>
+            </div>
+          ) : (
+            <button type="button" onClick={() => setHelp((h) => ({ ...h, open: true }))}
+              style={{ alignSelf: "center", minHeight: 44, padding: "0 12px", border: 0, background: "transparent", fontSize: 13.5, fontWeight: 600, color: "#1d4ed8", cursor: "pointer" }}>
+              Something wrong with this bill? <u>Help</u>
+            </button>
+          ))}
         </div>
       )}
     </Sheet>

@@ -69,6 +69,13 @@
 #                     Service already asked for that doctor in the bill's month
 #                     (approved or in approval), up to what is left of it; ONE approval, which
 #                     can be given only once the service is approved
+#                     SWITCH (24 Nov 2026, the user): Settlement Settings "Over the
+#                     limit: tag to a Doctor Service" OFF -> no service is asked:
+#                     the rep gives the day the service was done (service_date)
+#                     and the bill goes like a doctor activity (ONE approval, no
+#                     waiting on a service), still "Doctor service" and booked
+#                     to the service account. ON (default) = as above. A bill
+#                     tagged to a service always waits for that service.
 #   Cash up front only for the seat levels in the settings (RBM and above).
 #
 #   GET  action=settings                     what the app's forms need from Settlement Settings
@@ -77,7 +84,7 @@
 #   GET  action=mine                         the caller's requests + their chain
 #   GET  action=bills        [names=a,b]     the caller's own bills (Settlement Expense), newest first
 #   POST action=add_bill     bill_date, title, amount, bill (file_url), [proof, hand_note],
-#                            kind (own) | doctor [, doctor_service (over the limit)]
+#                            kind (own) | doctor [, doctor_service (over the limit) | service_date (switch off)]
 #                                            a new bill; the photos are the caller's own
 #                                            unattached private Files, attached here
 #   POST action=remove_bill  name            own, not sent (Checking / Checked)
@@ -127,6 +134,9 @@ DEFAULTS = {
     # spent on a doctor: up to this is a "Doctor activity" (one approval);
     # above it must be tagged to a Doctor Service already asked for
     "activity_limit": 2000,
+    # above the limit: tagged to a Doctor Service (1, the switch on) -- or 0:
+    # just the day the service was done, approved like a doctor activity
+    "service_needs_record": 1,
     "activity_account": "",
     "service_account": "",
     # who may ask for cash up front (seat levels)
@@ -169,6 +179,11 @@ def load_settings(dflt):
             out[p[0]] = s.get(p[1])
     if frappe.utils.flt(s.get("doctor_activity_limit")) > 0:
         out["activity_limit"] = frappe.utils.flt(s.get("doctor_activity_limit"), 2)
+    # the switch: only a value SAVED on the page counts -- a Check never saved
+    # reads as 0 on the doc, which must not mean "off" -> the default (on)
+    sw = frappe.db.sql("select value from `tabSingles` where doctype = 'Settlement Settings' and field = 'doctor_service_needs_record'")
+    if sw and str(sw[0][0] if sw[0][0] is not None else "").strip() != "":
+        out["service_needs_record"] = frappe.utils.cint(sw[0][0])
     if frappe.utils.flt(s.get("bill_max_amount")) > 0:
         out["max_amount"] = frappe.utils.flt(s.get("bill_max_amount"), 2)
     if frappe.utils.cint(s.get("bill_max_age_days")) > 0:
@@ -313,7 +328,8 @@ def shape(d):
             "creation": str(d.creation), "modified": str(d.modified), "steps": steps, "bills": bills,
             "type": d.get("settlement_type") or ("Cash" if d.kind == "Cash" else "Own"), "expense_kind": d.get("expense_kind") or "",
             "doctor": d.get("doctor") or "", "doctor_name": d.get("doctor_name") or "",
-            "service": service_state(d.get("doctor_service")) if d.get("doctor_service") else None}
+            "service": service_state(d.get("doctor_service")) if d.get("doctor_service") else None,
+            "service_date": str(d.get("service_date") or "")}
 
 
 def held_up(d, i, now):
@@ -535,7 +551,7 @@ def settlement_advances(employee):
 def book_bill(d, b, cfg):
     # one CEO-approved bill -> ONE submitted Journal Entry -> its name
     se = frappe.db.get_value("Settlement Expense", b.row, ["name", "bill_date", "title", "amount", "bill", "bill_meta", "journal_entry",
-                                                           "settlement_type", "expense_kind", "doctor", "doctor_name", "doctor_service"], as_dict=True)
+                                                           "settlement_type", "expense_kind", "doctor", "doctor_name", "doctor_service", "service_date"], as_dict=True)
     if not se:
         frappe.throw("Bill " + str(b.row) + " is gone -- it cannot be booked.")
     # booked already (a second approval of the same batch): never twice
@@ -549,13 +565,16 @@ def book_bill(d, b, cfg):
     if amt <= 0:
         frappe.throw("Bill " + se.name + " has no amount -- it cannot be booked.")
     acct = book_account(se, cfg)
-    if se.settlement_type == "Doctor service":
+    # tagged to a service: only once it is approved (no service -- the switch
+    # was off -- nothing to wait for)
+    if se.settlement_type == "Doctor service" and se.doctor_service:
         sv = service_state(se.doctor_service, se.name)
         if not sv or not sv["approved"]:
             frappe.throw("Bill " + se.name + ": its doctor service " + str(se.doctor_service) + " is not approved yet -- it can be approved once the service is.")
     who = ""
     if se.doctor:
-        who = " for " + str(se.doctor_name or se.doctor) + " (" + str(se.doctor) + ")" + (", service " + str(se.doctor_service) if se.doctor_service else "")
+        who = " for " + str(se.doctor_name or se.doctor) + " (" + str(se.doctor) + ")" + (", service " + str(se.doctor_service) if se.doctor_service else "") \
+            + (", service done " + str(se.service_date) if se.service_date else "")
     remark = ("Settlement " + d.name + " · " + se.name + " · " + str(se.settlement_type or "Own") + who + ": " + str(se.title or "")
               + " (bill of " + str(se.bill_date) + "), approved in the app.")
     rows = [{"account": acct, "debit_in_account_currency": amt, "cost_center": cfg["cost_center"], "user_remark": str(se.title or "")[:140]}]
@@ -744,7 +763,7 @@ def notify(user, subject, name):
 
 BILL_FIELDS = ["name", "employee", "bill_date", "title", "amount", "bill", "proof", "hand_note", "status", "settlement", "review_note",
                "journal_entry", "from_advance", "payable", "creation", "modified",
-               "settlement_type", "expense_kind", "doctor", "doctor_name", "doctor_service"]
+               "settlement_type", "expense_kind", "doctor", "doctor_name", "doctor_service", "service_date"]
 
 
 def bill_out(b):
@@ -767,6 +786,7 @@ def bill_out(b):
             "from_advance": frappe.utils.flt(b.from_advance), "payable": frappe.utils.flt(b.payable), "paid": paid,
             "type": b.get("settlement_type") or "Own", "kind": b.get("expense_kind") or "", "doctor": b.get("doctor") or "",
             "doctor_name": b.get("doctor_name") or "", "doctor_service": b.get("doctor_service") or "",
+            "service_date": str(b.get("service_date") or ""),
             "creation": str(b.creation), "modified": str(b.modified)}
 
 
@@ -897,6 +917,7 @@ elif action == "add_bill":
     doctor = str(fd.get("doctor") or "").strip()
     kind = " ".join(str(fd.get("kind") or "").split())[:140]
     ds = str(fd.get("doctor_service") or "").strip()
+    sday = str(fd.get("service_date") or "")[:10]
     stype = "Own"
     dname = None
     if doctor:
@@ -908,8 +929,20 @@ elif action == "add_bill":
         if amount <= BOOKING["activity_limit"]:
             stype = "Doctor activity"
             ds = ""
+            sday = ""
+        elif not BOOKING["service_needs_record"] and not ds:
+            # the switch is off (24 Nov 2026): no Doctor Service -- the day the
+            # service was done; approved like a doctor activity
+            stype = "Doctor service"
+            if not (len(sday) == 10 and sday[4] == "-" and sday[7] == "-" and sday[:4].isdigit() and sday[5:7].isdigit() and sday[8:].isdigit()):
+                frappe.throw("Which day was the service done?")
+            if sday > frappe.utils.today():
+                frappe.throw("The service day cannot be in the future.")
+            if sday < frappe.utils.add_days(frappe.utils.today(), -BILL_MAX_AGE_DAYS):
+                frappe.throw("The service day is more than " + str(BILL_MAX_AGE_DAYS) + " days ago.")
         else:
             stype = "Doctor service"
+            sday = ""
             sv = service_state(ds)
             if not sv or sv["doctor"] != doctor:
                 frappe.throw("Over " + frappe.utils.fmt_money(BOOKING["activity_limit"], currency="INR") + " on a doctor: pick the doctor service it was for.")
@@ -921,6 +954,7 @@ elif action == "add_bill":
                 frappe.throw("Only " + frappe.utils.fmt_money(sv["left"], currency="INR") + " is left on that doctor service (of " + frappe.utils.fmt_money(sv["amount"], currency="INR") + ").")
     else:
         ds = ""
+        sday = ""
         k = kind_row(kind, BOOKING)
         if not k or not k["own"]:
             frappe.throw("Pick what the expense was for." if not k else kind + " is paid in your monthly TA/DA claim -- add it there, or choose \"Spent on a doctor\" if it was for a doctor.")
@@ -931,7 +965,7 @@ elif action == "add_bill":
                          "status": "Checking", "bill_date": day, "title": title, "amount": amount, "bill": bill, "proof": proof or None,
                          "hand_note": " ".join(str(fd.get("hand_note") or "").split())[:500] or None,
                          "settlement_type": stype, "expense_kind": kind if stype == "Own" else (kind or None),
-                         "doctor": doctor or None, "doctor_name": dname, "doctor_service": ds or None})
+                         "doctor": doctor or None, "doctor_name": dname, "doctor_service": ds or None, "service_date": sday or None})
     se.insert(ignore_permissions=True)
     for f in files:
         # the rep stays its owner (that is how they open their own photo); the
@@ -994,7 +1028,7 @@ elif action == "send_bills":
         rflt.append(["name", "in", only])
     picked = frappe.get_all("Settlement Expense", filters=rflt,
                             fields=["name", "bill_date", "title", "amount", "bill", "ai_score", "ai_risk", "ai_reason",
-                                    "settlement_type", "expense_kind", "doctor", "doctor_name", "doctor_service", "bill_meta"],
+                                    "settlement_type", "expense_kind", "doctor", "doctor_name", "doctor_service", "service_date", "bill_meta"],
                             order_by="bill_date asc, creation asc", limit_page_length=500)
     claim = None
     if not picked:
@@ -1021,8 +1055,8 @@ elif action == "send_bills":
             if td:
                 refused.append(str(r.title or r.name) + ": this is a " + td["kind"].lower() + " bill -- it is paid in your monthly TA/DA claim. Remove it, or add it again as spent on a doctor if it was for one.")
                 continue
-        # a doctor-service bill: the service must still have room for it
-        if stype == "Doctor service":
+        # a doctor-service bill tagged to a service: it must still have room for it
+        if stype == "Doctor service" and r.doctor_service:
             sv = service_state(r.doctor_service, r.name)
             if not sv or sv["refused"] or frappe.utils.flt(r.amount) > sv["left"] + 0.5:
                 refused.append(str(r.title or r.name) + ": its doctor service " + str(r.doctor_service) + (" was not approved." if sv and sv["refused"] else " has no room left for it."))
@@ -1035,7 +1069,7 @@ elif action == "send_bills":
         # the user); an own bill goes up the whole chain to the CEO
         use = chain if stype == "Own" else [chain[0]]
         extra = {"settlement_type": stype, "expense_kind": r.expense_kind, "doctor": r.doctor, "doctor_name": r.doctor_name,
-                 "doctor_service": r.doctor_service}
+                 "doctor_service": r.doctor_service, "service_date": r.service_date}
         # sent again (17 Nov 2026): back to whoever rejected it, unless the
         # photo changed or the amount went up (looked up BEFORE the new request
         # exists -- it would be the latest one with this bill)
@@ -1180,7 +1214,7 @@ elif action == "decide":
     who = str((emp and emp.employee_name) or me)
     batch = d.get("batch")
     if decision == "Approve":
-        if d.get("settlement_type") == "Doctor service":
+        if d.get("settlement_type") == "Doctor service" and d.get("doctor_service"):
             sv = service_state(d.get("doctor_service"), d.bills[0].row if d.bills else None)
             if not sv or not sv["approved"]:
                 frappe.throw("The doctor service " + str(d.get("doctor_service")) + " is " + (sv["state"].lower() if sv and sv["state"] else "not approved")
@@ -1214,7 +1248,7 @@ elif action == "approve_many":
         if not d or d.status != "Waiting" or d.next_approver != me or (d.user == me and me != CEO_USER):
             skipped.append(name)
             continue
-        if d.get("settlement_type") == "Doctor service":
+        if d.get("settlement_type") == "Doctor service" and d.get("doctor_service"):
             sv = service_state(d.get("doctor_service"), d.bills[0].row if d.bills else None)
             if not sv or not sv["approved"]:
                 skipped.append(name)          # waits for its doctor service
@@ -1268,7 +1302,7 @@ elif action == "decide_batch":
     # oldest first, so the cash advance covers the earliest bills (23 Nov 2026)
     for r in frappe.get_all("Settlement Request", filters={"batch": name, "status": "Waiting", "next_approver": me}, pluck="name", order_by="creation asc", limit_page_length=500):
         d = frappe.get_doc("Settlement Request", r)
-        if d.get("settlement_type") == "Doctor service":
+        if d.get("settlement_type") == "Doctor service" and d.get("doctor_service"):
             sv = service_state(d.get("doctor_service"), d.bills[0].row if d.bills else None)
             if not sv or not sv["approved"]:
                 continue          # waits in the batch for its doctor service
@@ -1286,13 +1320,17 @@ elif action == "settings":
         lv = level_of(frappe.db.get_value("Employee", emp.name, "custom_role_profile"), frappe.db.get_value("Employee", emp.name, "designation"),
                       me, CEO_USER, CEO_DESIGNATION, LEVELS)
     own = []
+    own_words = []
     tada = []
     for k in BOOKING["kinds"]:
         if k["own"]:
             own.append(k["kind"])
+            # the app picks an own bill's kind off the bill with these (24 Nov 2026)
+            own_words.append({"kind": k["kind"], "words": k["words"]})
         if k["ta_da"]:
             tada.append({"kind": k["kind"], "words": k["words"]})
-    frappe.response["message"] = {"own_kinds": own, "ta_da_kinds": tada, "activity_limit": BOOKING["activity_limit"], "max_amount": BILL_MAX_AMOUNT,
+    frappe.response["message"] = {"own_kinds": own, "own_kind_words": own_words, "ta_da_kinds": tada, "activity_limit": BOOKING["activity_limit"],
+                                  "service_needs_record": bool(BOOKING["service_needs_record"]), "max_amount": BILL_MAX_AMOUNT,
                                   "max_age_days": BILL_MAX_AGE_DAYS, "can_request_cash": str(lv).upper() in BOOKING["advance_levels"],
                                   "level": lv, "doctor_ready": {"activity": bool(BOOKING["activity_account"]), "service": bool(BOOKING["service_account"])}}
 

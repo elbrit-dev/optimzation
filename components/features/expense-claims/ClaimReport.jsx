@@ -4,7 +4,8 @@ import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import Router from "next/router";
 import { Dialog } from "@/design-system";
 import { useClaims } from "./data/useClaims";
-import { CASH_REQUESTS, cashAdvancesOf, checkSettlementBills, fetchFileBlob, fetchMySettlements, fetchSettlementSettings, removeSettlementBill, sendBillsForApproval } from "./data/claimsApi";
+import { CASH_REQUESTS, cashAdvancesOf, checkSettlementBills, fetchFileBlob, fetchMySettlements, fetchSettlementSettings, listBillHelp, removeSettlementBill, sendBillsForApproval } from "./data/claimsApi";
+import { HelpRequestsSheet, helpHighlight } from "./helpRequests";
 import { MyRequests, SendBar, serviceHeld, typeLine } from "./settlement";
 import { CSS, FONT_HREF, Highlights, IC, Icon, Note, Rail, Sheet, Spinner, btn, card, ell, tabNum } from "./ui";
 import { BillSheet, CashSheet } from "./sheets";
@@ -318,8 +319,15 @@ export default function ClaimReport({
       .catch((e) => { console.warn("[expense-claims] requests unreadable:", e.message); if (alive) setSettle((s) => ({ ...s, error: e.message || "unreadable" })); });
     return () => { alive = false; };
   }, [conn, claims, settleTick]);
+  // the rep's help requests (24 Nov 2026): a card in the Highlights opens them.
+  // Unreadable (the ERP script older than 24 Nov) -> no card, never an error.
+  const [help, setHelp] = useState([]);
+  const [helpOpen, setHelpOpen] = useState(false);
+  const [helpTick, setHelpTick] = useState(0);
+  const loadHelp = () => listBillHelp(conn).then(setHelp).catch((e) => console.warn("[expense-claims] help requests unreadable:", e.message));
+  useEffect(() => { if (conn) loadHelp(); }, [conn, helpTick]); // eslint-disable-line react-hooks/exhaustive-deps
   // only the advances of the rep's own Cash requests count (null until known: all)
-  const cashAdv = useMemo(() => (settle.loaded ? cashAdvancesOf(settle.requests) : null), [settle]);
+  const cashAdv =useMemo(() => (settle.loaded ? cashAdvancesOf(settle.requests) : null), [settle]);
   // a bill's request, to tell whether it waits for its doctor service
   const reqById = useMemo(() => new Map(settle.requests.map((r) => [r.id, r])), [settle]);
   const heldOf = (l) => !!l?.settlement && serviceHeld(reqById.get(l.settlement));
@@ -393,8 +401,11 @@ export default function ClaimReport({
     const added = inMonth.reduce((s, e) => s + (e.kind === "topup" || e.kind === "payout" ? e.amount : e.kind === "bill" && e.state === "Verified" ? e.paid || 0 : 0), 0);
     if (added) out.push({ key: "added", value: inr(added), label: "paid to you", tone: "settle" });
     if (bills.length) out.push({ key: "bills", value: `${bills.length} ${bills.length === 1 ? "bill" : "bills"}`, label: `${inr(bills.reduce((s, e) => s + e.amount, 0))} this month`, tone: "field" });
+    // the help requests, first (any month: they are not tied to one)
+    const h = helpHighlight(help, () => setHelpOpen(true));
+    if (h) out.unshift(h);
     return out;
-  }, [bills, inMonth]);
+  }, [bills, inMonth, help]);
 
   const send = async () => {
     // never an empty list: the server would then send every checked bill,
@@ -509,6 +520,15 @@ export default function ClaimReport({
             )}
           </section>
 
+          {/* the Highlights right after the hero (24 Nov 2026, the user) -- the
+              help requests card first */}
+          {hl.length > 0 && (
+            <section style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+              <span style={{ fontSize: 15, fontWeight: 700, color: "#5b6576" }}>Highlights · {monthLabel(month).split(" ")[0]}</span>
+              <Highlights items={hl} bleed={wide ? "0px" : pad + "px"} />
+            </section>
+          )}
+
           {sentBack.length > 0 && (
             <section aria-label="Bills sent back" style={{ ...card, padding: 16, display: "flex", flexDirection: "column", gap: 10, boxShadow: "0 0 0 1.5px #d92d20" }}>
               <div style={{ display: "flex", alignItems: "baseline", justifyContent: "space-between", gap: 10 }}>
@@ -541,13 +561,6 @@ export default function ClaimReport({
             </Note>
           )}
           <MyRequests conn={conn} requests={settle.requests} onChanged={(m) => { data.reload(); setSettleTick((t) => t + 1); say(m); }} />
-
-          {hl.length > 0 && (
-            <section style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-              <span style={{ fontSize: 15, fontWeight: 700, color: "#5b6576" }}>Highlights · {monthLabel(month).split(" ")[0]}</span>
-              <Highlights items={hl} bleed={wide ? "0px" : pad + "px"} />
-            </section>
-          )}
           </div>
 
           <section style={{ display: "flex", flexDirection: "column", gap: 8, minWidth: 0 }}>
@@ -573,7 +586,8 @@ export default function ClaimReport({
 
       {bill && <BillDetail conn={conn} e={bill} onClose={() => setBill(null)} busy={!!acting || sending}
         onRemove={removable(bill) ? () => act(bill.line, "remove") : null} onResend={removable(bill) && bill.line.review ? () => act(bill.line, "send") : null} />}
-      {sheet === "bill" && conn && me && <BillSheet conn={conn} me={me} claims={claims} advances={advances} cashAdvances={cashAdv} today={today} desk={isDesk} onClose={() => setSheet(null)} onSaved={saved} onChecked={data.reload} />}
+      {sheet === "bill" && conn && me && <BillSheet conn={conn} me={me} claims={claims} advances={advances} cashAdvances={cashAdv} today={today} desk={isDesk} onClose={() => setSheet(null)} onSaved={saved} onChecked={data.reload} onHelp={() => setHelpTick((t) => t + 1)} />}
+      {helpOpen && conn && <HelpRequestsSheet conn={conn} list={help} desk={isDesk} onClose={() => setHelpOpen(false)} onChanged={loadHelp} />}
       {canCash && sheet === "cash" && conn && me && <CashSheet conn={conn} me={me} claims={claims} advances={advances} cashAdvances={cashAdv} today={today} desk={isDesk} onClose={() => setSheet(null)} onSaved={saved} />}
       {toast && (
         <div role="status" aria-live="polite" style={{ position: "fixed", left: "50%", bottom: isDesk ? 32 : 96, transform: "translateX(-50%)", zIndex: 95, maxWidth: "calc(100vw - 32px)", padding: "11px 18px", borderRadius: 10, background: toast.tone === "error" ? "#b42318" : "#101828", color: "#fff", fontSize: 13, fontWeight: 500, boxShadow: "0 12px 30px -10px rgba(16,24,40,.5)" }}>{toast.m}</div>
