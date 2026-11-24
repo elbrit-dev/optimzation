@@ -95,7 +95,7 @@ export function MapLocation({ q, value, onChange, disabled, api }) {
           streetViewControl: false,
           fullscreenControl: true,
           clickableIcons: false,
-          gestureHandling: 'greedy',
+          gestureHandling: 'cooperative',
         });
         const pin = new gm.Marker({ map, draggable: true, title: 'Drag to the exact spot' });
         const old = new gm.Marker({ map, opacity: 0.45, clickable: false, title: 'Location on record' });
@@ -125,7 +125,10 @@ export function MapLocation({ q, value, onChange, disabled, api }) {
     pinRef.current.setDraggable(!disabledRef.current);
     oldRef.current.setPosition(start ?? null);
     oldRef.current.setVisible(Boolean(start && mapIsPoint(v) && mapMeters(start, v) > 5));
-    if (p) map.panTo(p);
+    if (p) {
+      if ((map.getZoom() || 0) < 15) map.setZoom(17);
+      map.panTo(p);
+    }
   };
   useEffect(sync, [cur?.lat, cur?.lng, start?.lat, start?.lng, disabled]); // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -180,64 +183,6 @@ export function MapLocation({ q, value, onChange, disabled, api }) {
   const moved = cur ? mapMoved(cur) : '';
   return (
     <div className="flex flex-col gap-2.5">
-      <div className="relative h-64 overflow-hidden rounded-lg border border-line bg-sunken">
-        <div ref={boxRef} className="size-full" aria-label="Map" />
-        {mapErr ? (
-          <div className="absolute inset-0 flex items-center justify-center gap-2 p-4 text-center text-12 text-ds-muted">
-            <Icon name="map" size="lg" className="shrink-0" />
-            <span>{mapErr} You can still search the place or use your location.</span>
-          </div>
-        ) : null}
-      </div>
-
-      {cur ? (
-        <div className="flex items-start gap-2.5 rounded-lg border border-success bg-success-wash px-3 py-2.5">
-          <Icon name="check-circle" size="sm" className="mt-0.5 shrink-0 text-success" />
-          <div className="flex min-w-0 flex-1 flex-col gap-0.5">
-            <span className="text-12 font-semibold text-heading [overflow-wrap:anywhere]">{mapText(cur)}</span>
-            <span className="text-11 text-ds-muted [overflow-wrap:anywhere]">
-              {(+cur.lat).toFixed(5)}, {(+cur.lng).toFixed(5)}
-              {cur.acc ? ` · ±${cur.acc} m` : ''}
-              {moved ? ` · ${moved}` : ''}
-            </span>
-            <a href={mapUrl(cur)} target="_blank" rel="noopener noreferrer" className="flex items-center gap-1 text-11 font-semibold text-brand-text">
-              <Icon name="external-link" size="var(--fs-10)" />
-              Open in Google Maps
-            </a>
-          </div>
-          {disabled ? null : (
-            <button type="button" aria-label="Clear the answer" onClick={() => onChange(null)} className="flex size-7 shrink-0 items-center justify-center rounded-md text-ds-muted hover:bg-sunken">
-              <Icon name="times" size="sm" />
-            </button>
-          )}
-        </div>
-      ) : start ? (
-        <div className="flex items-center gap-2.5 rounded-lg border border-line bg-surface px-3 py-2.5">
-          <Icon name="map-marker" size="sm" className="shrink-0 text-danger-text" />
-          <div className="flex min-w-0 flex-1 flex-col gap-0.5">
-            <span className="text-12 font-semibold text-heading">Location on record</span>
-            <a href={mapUrl(start)} target="_blank" rel="noopener noreferrer" className="flex items-center gap-1 text-11 text-brand-text">
-              {start.lat.toFixed(5)}, {start.lng.toFixed(5)}
-              <Icon name="external-link" size="var(--fs-10)" />
-            </a>
-          </div>
-          <button
-            type="button"
-            disabled={disabled}
-            onClick={() => set({ lat: start.lat, lng: start.lng, how: 'same' })}
-            className="flex h-9 shrink-0 items-center gap-1.5 rounded-lg border border-brand px-3 text-12 font-semibold text-brand-text disabled:opacity-50"
-          >
-            <Icon name="check" size="sm" />
-            This is correct
-          </button>
-        </div>
-      ) : (
-        <p className="flex items-center gap-2 rounded-lg bg-sunken px-3 py-2 text-11 text-ds-muted">
-          <Icon name="info-circle" size="sm" />
-          No location on record yet — search the place or use your location.
-        </p>
-      )}
-
       {disabled ? null : (
         <>
           <div className="flex gap-2">
@@ -298,11 +243,72 @@ export function MapLocation({ q, value, onChange, disabled, api }) {
               ))}
             </div>
           ) : null}
-          <p className="flex items-center gap-1.5 text-11 text-ds-muted">
-            <Icon name="arrows-alt" size="var(--fs-10)" />
-            Drag the pin or tap the map to set the exact spot.
-          </p>
         </>
+      )}
+
+      <div className="relative h-64 overflow-hidden rounded-lg border border-line bg-sunken">
+        <div ref={boxRef} className="size-full" aria-label="Map" />
+        {mapErr ? (
+          <div className="absolute inset-0 flex items-center justify-center gap-2 p-4 text-center text-12 text-ds-muted">
+            <Icon name="map" size="lg" className="shrink-0" />
+            <span>{mapErr} You can still search the place or use your location.</span>
+          </div>
+        ) : null}
+      </div>
+
+      {cur ? (
+        <div className="flex items-start gap-2.5 rounded-lg border border-success bg-success-wash px-3 py-2.5">
+          <Icon name="check-circle" size="sm" className="mt-0.5 shrink-0 text-success" />
+          <div className="flex min-w-0 flex-1 flex-col gap-0.5">
+            <span className="text-12 font-semibold text-heading [overflow-wrap:anywhere]">{mapText(cur)}</span>
+            <span className="text-11 text-ds-muted [overflow-wrap:anywhere]">
+              {(+cur.lat).toFixed(5)}, {(+cur.lng).toFixed(5)}
+              {cur.acc ? ` · ±${cur.acc} m` : ''}
+              {moved ? ` · ${moved}` : ''}
+            </span>
+            <a href={mapUrl(cur)} target="_blank" rel="noopener noreferrer" className="flex items-center gap-1 text-11 font-semibold text-brand-text">
+              <Icon name="external-link" size="var(--fs-10)" />
+              Open in Google Maps
+            </a>
+          </div>
+          {disabled ? null : (
+            <button type="button" aria-label="Clear the answer" onClick={() => onChange(null)} className="flex size-7 shrink-0 items-center justify-center rounded-md text-ds-muted hover:bg-sunken">
+              <Icon name="times" size="sm" />
+            </button>
+          )}
+        </div>
+      ) : start ? (
+        <div className="flex items-center gap-2.5 rounded-lg border border-line bg-surface px-3 py-2.5">
+          <Icon name="map-marker" size="sm" className="shrink-0 text-danger-text" />
+          <div className="flex min-w-0 flex-1 flex-col gap-0.5">
+            <span className="text-12 font-semibold text-heading">Location on record</span>
+            <a href={mapUrl(start)} target="_blank" rel="noopener noreferrer" className="flex items-center gap-1 text-11 text-brand-text">
+              {start.lat.toFixed(5)}, {start.lng.toFixed(5)}
+              <Icon name="external-link" size="var(--fs-10)" />
+            </a>
+          </div>
+          <button
+            type="button"
+            disabled={disabled}
+            onClick={() => set({ lat: start.lat, lng: start.lng, how: 'same' })}
+            className="flex h-9 shrink-0 items-center gap-1.5 rounded-lg border border-brand px-3 text-12 font-semibold text-brand-text disabled:opacity-50"
+          >
+            <Icon name="check" size="sm" />
+            This is correct
+          </button>
+        </div>
+      ) : (
+        <p className="flex items-center gap-2 rounded-lg bg-sunken px-3 py-2 text-11 text-ds-muted">
+          <Icon name="info-circle" size="sm" />
+          No location on record yet — search the place above, use your location, or tap the map.
+        </p>
+      )}
+
+      {disabled ? null : (
+        <p className="flex items-center gap-1.5 text-11 text-ds-muted">
+          <Icon name="arrows-alt" size="var(--fs-10)" />
+          Drag the pin or tap the map to set the exact spot.
+        </p>
       )}
     </div>
   );
