@@ -119,7 +119,8 @@ export function tripBillVerdict(read, slot, trip) {
   }
   // "dta" (23 Nov 2026): the trip's ONE upload for RBM and above with no own
   // car approved -- a hotel bill to Stay, a food bill to Food, a train / bus
-  // ticket to Travel. "travels": train / bus tickets only (an EQ day over 100 km).
+  // ticket to Travel. "travels": train / bus tickets only (an EQ day over 100 km,
+  // or a BE / ABM's OS trip -- tickets are for every role since 24 Nov 2026).
   if (slot === "dta" || slot === "travels") {
     const t = read?.title;
     if (slot === "dta" && t === "Hotel bill") return tripBillVerdict(read, "stays", trip);

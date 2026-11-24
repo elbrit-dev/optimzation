@@ -222,7 +222,7 @@ export function FieldStrip() {
    trip of theirs -- OS too -- is in it; an RBM and up keeps an outstation
    trip with nights on its own card for the bills. */
 const CAR_ASKED = new Set(["pending", "approved"]);
-// 23 Nov 2026: an EQ day over 100 km of an RBM and above takes train / bus tickets -> its own card
+// an OS trip or an EQ day over 100 km takes train / bus tickets -> its own card (23 Nov 2026; every role since 24 Nov)
 const needsBills = (calc) => (calc.billsAllowed && calc.nights.length > 0 && !calc.fullNoBill) || calc.travelAllowed || calc.stayBills + calc.foodBills + (calc.travelBills || 0) > 0;
 export const isLocalTrip = (x) => !CAR_ASKED.has(x.calc.request?.status) && !x.calc.carBilled && !needsBills(x.calc);
 
@@ -1133,9 +1133,9 @@ function TripSheet({ item }) {
   // the trip's ONE upload (16 Nov 2026): what it takes
   const stayFood = calc.billsAllowed && calc.nights.length > 0 && !calc.fullNoBill;
   const fuelOn = carTab;
-  // 23 Nov 2026: RBM and above with no own car approved add their train / bus
-  // tickets on the same upload -- "dta" with stay / food, "travels" on an EQ
-  // day over 100 km
+  // 23 Nov 2026: with no own car approved, train / bus tickets go on the same
+  // upload -- "dta" with stay / food (RBM and above), "travels" alone (a BE /
+  // ABM's OS trip, an EQ day over 100 km; every role since 24 Nov 2026)
   const travelOn = !fuelOn && calc.travelAllowed;
   const upSlot = stayFood && fuelOn ? "all" : fuelOn ? "car" : travelOn ? (stayFood ? "dta" : "travels") : "da";
   const upCount = (stayFood ? calc.stayBills + calc.foodBills : 0) + (fuelOn ? (claim.fuels || []).length : 0) + (travelOn ? calc.travelBills : 0);
@@ -1993,13 +1993,13 @@ function TripDay({ row, data, car, last, multi, night, bills, stayOff, billStrip
               </span>
             )}
           </span>
-        )) : row.payable && (bills || stayOff) ? (
-          /* a holiday / weekly-off day inside the stay (13 Nov 2026): no DA, so
-             no share of the hotel bill (it is split over the working nights)
-             and its own food is not paid -- grey, not green */
+        )) : bills || stayOff ? (
+          /* a holiday / weekly-off / leave day inside the stay (24 Nov 2026): no
+             DA, so its share of the hotel bill is not paid (no longer moved onto
+             the working nights) and its own food is not paid -- grey, not green */
           <span className="mt-2 inline-flex items-center gap-1.5 rounded-xl bg-gray-100 px-2.5 py-1.5 text-[12px] font-semibold text-gray-600">
             <BedDouble className="h-3.5 w-3.5 shrink-0 text-gray-400" aria-hidden />
-            {[stayOff ? "Hotel night · split onto working days" : bills?.stay ? `Stay ${inr(bills.stay)}` : null, bills?.food ? `Food ${inr(bills.food)} not paid (no DA)` : null]
+            {[bills?.stay ? `Hotel night ${inr(bills.stay)} not paid (no DA)` : stayOff ? "Hotel night not paid (no DA)" : null, bills?.food ? `Food ${inr(bills.food)} not paid (no DA)` : null]
               .filter(Boolean)
               .join(" · ")}
           </span>

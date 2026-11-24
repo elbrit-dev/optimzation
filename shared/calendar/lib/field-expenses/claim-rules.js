@@ -90,16 +90,15 @@ export const requestFor = (trip, requests) => {
   return live.find((r) => mine(r) && r.status !== "rejected") || live.find(mine) || null;
 };
 
-/* A hotel bill split evenly over the nights it covers, the last night taking
+/* A hotel bill split evenly over EVERY night it covers, the last night taking
    the rounding. -> { date: share } (the screen and the claim lines both use it)
-   13 Nov 2026 (the user's rule): only over its WORKING nights -- the trip's
-   outstation DA days (`work`) -- a holiday or weekly-off night inside the
-   stay takes no share; its rupees go to the working nights. A bill with no
-   working night at all is split over all its nights (nothing pays it). */
-export function stayShares(b, work = null) {
-  const all = (b?.nights || []).length ? b.nights : [b?.date].filter(Boolean);
-  const onWork = work ? all.filter((d) => work.has(d)) : [];
-  const ns = onWork.length ? onWork : all;
+   24 Nov 2026 (the user's rule, replacing 13 Nov's): a holiday / weekly-off /
+   leave night inside the stay takes its share like any other night, and that
+   share is NOT paid (no DA that day) -- it is no longer moved onto the working
+   nights. ₹3,600 for 10-11-12 with 11 a holiday: 10 and 12 get ₹1,200 each,
+   11's ₹1,200 is not paid. A working night of any day type gets its share. */
+export function stayShares(b) {
+  const ns = (b?.nights || []).length ? b.nights : [b?.date].filter(Boolean);
   const amt = Math.round(Number(b?.amount) || 0);
   const each = ns.length ? Math.floor(amt / ns.length) : 0;
   const out = {};
@@ -141,13 +140,13 @@ export function tripClaim(trip, claim, { role, requests, eqKm } = {}) {
      trip's pool below -- this is only where each rupee of the bills fell. */
   const billsByDate = {};
   const onDay = (date) => (billsByDate[date] = billsByDate[date] || { stay: 0, food: 0, stays: 0, foods: 0 });
-  // the working nights a hotel bill is split over; a holiday / weekly-off
-  // night it covers is marked so the day can say where its share went
+  // the nights that are paid; a holiday / weekly-off / leave night a hotel
+  // bill covers is marked so the day can say its share is not paid
   const workNights = new Set(nights);
   const stayOff = {};
   for (const b of stays) {
     if ((b.nights || []).some((d) => workNights.has(d))) for (const d of b.nights || []) if (!workNights.has(d)) stayOff[d] = true;
-    for (const [date, share] of Object.entries(stayShares(b, workNights))) {
+    for (const [date, share] of Object.entries(stayShares(b))) {
       const d = onDay(date);
       d.stay += share;
       d.stays += 1;
@@ -235,15 +234,18 @@ export function tripClaim(trip, claim, { role, requests, eqKm } = {}) {
   // fuel is money spent, not an allowance), never above it.
   const carBilled = car && fuel + tolls > 0;
   const capped = carBilled && fuel + tolls > cap;
-  /* TRAVEL BILLS (23 Nov 2026, the user): RBM and above add their TRAIN / BUS
-     tickets -- on an outstation trip with the stay and food bills, and on an
-     EQ day over 100 km -- when no own car is approved (the car keeps its fuel
-     bills, unchanged). DAY BY DAY, by the ticket's departure date: the day's
-     tickets against the fare of that day's journey (ticketBase) -- the larger
-     is paid. Fare ₹1,000 and tickets ₹1,500 -> ₹500 on top; tickets ₹800 ->
-     the fare ₹1,000 stays. A ticket on a day with nothing paid adds nothing. */
+  /* TRAVEL BILLS (23 Nov 2026, the user): TRAIN / BUS tickets -- on an
+     outstation trip, and on an EQ day over 100 km -- when no own car is
+     approved (the car keeps its fuel bills, unchanged). EVERY ROLE since 24 Nov
+     2026 (the user: a BE / ABM goes OS for a meeting or runs an EQ day over
+     100 km too); the stay / food bills stay RBM and above. DAY BY DAY, by the
+     ticket's departure date: the day's tickets against the fare of that day's
+     journey (ticketBase) -- the larger is paid. Fare ₹1,000 and tickets ₹1,500
+     -> ₹500 on top; tickets ₹800 -> the fare ₹1,000 stays. A ticket on a day
+     with nothing paid adds nothing. */
   const eqFar = trip.kind === "day" && (trip.days || []).some((d) => farEq(d, eqKm ?? 100));
-  const travelAllowed = billsAllowed && !car && ((nights.length > 0 && !nightRows.every((n) => n.fullNoBill)) || eqFar);
+  const osTrip = trip.kind === "tour" && (trip.days || []).some((d) => d.payable && AWAY_TYPES.has(d.dayType));
+  const travelAllowed = !car && (osTrip || eqFar);
   const travels = travelAllowed ? c.travels || [] : [];
   const travel = sum(travels);
   const travelDays = {};

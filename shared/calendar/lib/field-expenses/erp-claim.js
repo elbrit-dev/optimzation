@@ -119,20 +119,21 @@ export function tripClaimRows(trip, claim, calc, data) {
   // share and its own food, paid as billed between the day's 50 % and 100 % --
   // the last bills of a day trimmed above it, a DA top-up below it; what one
   // day goes over is not carried to another
-  // a hotel bill is split over its WORKING nights only (13 Nov 2026)
+  // a hotel bill is split over ALL its nights; a holiday / day-off night's
+  // share is not paid (24 Nov 2026)
   const work = new Set(calc.nights.map((x) => x.date));
   for (const n of billedNights) {
     const lines = [];
     for (const b of claim.stays || []) {
-      const share = stayShares(b, work)[n.date];
+      const share = stayShares(b)[n.date];
       if (!share) continue;
       const all = (b.nights || []).length || 1;
-      const worked = (b.nights || []).filter((d) => work.has(d)).length || all;
+      const off = (b.nights || []).filter((d) => !work.has(d)).length;
       lines.push({
         b: { ...b, amount: share, date: n.date },
         type: "Stay",
         note: `Stay · ${b.vendor || "hotel"} · ${dayLabel(n.date)}${n.eve ? " · arrival night (travelled the day before)" : ""}${
-          worked < all ? ` · 1 of ${worked} working nights of a ₹${b.amount} bill (${all} nights)` : all > 1 ? ` · 1 of ${all} nights of a ₹${b.amount} bill` : ""
+          all > 1 ? ` · 1 of ${all} nights of a ₹${b.amount} bill${off ? ` (${off} on a holiday / day off, not paid)` : ""}` : ""
         }`,
       });
     }
