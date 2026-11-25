@@ -1259,6 +1259,10 @@ export function fetchSettlementSettings(conn) {
       serviceNeedsRecord: m.service_needs_record !== false,
       maxAmount: m.max_amount == null ? null : num0(m.max_amount),
       maxAgeDays: num0(m.max_age_days) || 365,
+      // the bills' date window (25 Nov 2026, Settlement Settings "Bills from / to"): e.g. October alone
+      billsFrom: m.bills_from || null,
+      billsTo: m.bills_to || null,
+      windowText: m.window_text || null,
       canRequestCash: !!m.can_request_cash,
       level: m.level || "",
       doctorReady: { activity: !!m.doctor_ready?.activity, service: !!m.doctor_ready?.service },

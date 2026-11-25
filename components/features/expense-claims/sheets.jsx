@@ -146,6 +146,15 @@ export function BillSheet({ conn, me, claims = [], advances = [], cashAdvances =
     return () => { alive = false; };
   }, [conn]);
   const limit = settings?.activityLimit || 2000;
+  /* the bill's date: within the year, not in the future -- and inside the window the ERP
+     opens Settlement for (25 Nov 2026: October 2026 alone) */
+  const loIso = settings?.billsFrom && settings.billsFrom > minIso ? settings.billsFrom : minIso;
+  const hiIso = settings?.billsTo && settings.billsTo < todayIso ? settings.billsTo : todayIso;
+  const outWin = date < loIso || date > hiIso;
+  // once the window is known, a date still on today's default moves into it
+  useEffect(() => {
+    if (settings?.billsTo && date === todayIso && todayIso > hiIso) setDate(hiIso);
+  }, [settings]); // eslint-disable-line react-hooks/exhaustive-deps
   const ownKinds = settings?.ownKinds || [];
   // 24 Nov 2026 (the user): "Own expense" is picked to start with
   const [forWho, setForWho] = useState("me");
@@ -282,6 +291,7 @@ export function BillSheet({ conn, me, claims = [], advances = [], cashAdvances =
     : !title.trim() ? "Say what it was for"
     : !amt ? "Enter the bill amount"
     : date < minIso ? "This bill is more than a year old — it cannot be claimed"
+    : outWin && settings?.windowText ? settings.windowText
     : read?.handwritten && why.trim().length < 5 ? "Say why you have only a handwritten bill"
     : read?.handwritten && !cash && !proof ? "Add the payment proof — or tick “Paid in cash”"
     : forWho === "me" && taDa ? taDaMsg
@@ -461,7 +471,7 @@ export function BillSheet({ conn, me, claims = [], advances = [], cashAdvances =
               </label>
               <label style={{ display: "flex", flexDirection: "column", gap: 6, minWidth: 0 }}>
                 <span style={lbl}>Bill date</span>
-                <input type="date" className="ecs-in" min={minIso} max={todayIso} value={date} onChange={(e) => e.target.value && setDate(e.target.value)} style={{ height: 58, fontSize: 15, borderColor: tried && date < minIso ? "#f04438" : undefined }} />
+                <input type="date" className="ecs-in" min={loIso} max={hiIso} value={date} onChange={(e) => e.target.value && setDate(e.target.value)} style={{ height: 58, fontSize: 15, borderColor: (tried && date < minIso) || outWin ? "#f04438" : undefined }} />
               </label>
             </div>
             <span style={{ ...hint, marginTop: -8 }}>{(() => {
