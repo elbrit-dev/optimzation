@@ -151,6 +151,21 @@ export function createMockApi({ role = 'BE', scenario = 'normal', today = MOCK_T
       };
     },
 
+    /* hospitals / clinics (survey_places): three around any point, two by name */
+    async places({ mode, lat, lng, q, id }) {
+      await wait(300);
+      const c = { lat: +lat || 13.0604, lng: +lng || 80.2496 };
+      const at = (dl, dg) => ({ lat: c.lat + dl, lng: c.lng + dg });
+      const all = [
+        { id: 'mock-h1', title: 'City Care Hospital', kind: 'Hospital', address: '12 Anna Salai, Chennai 600002', ...at(0.0004, 0.0003), url: '' },
+        { id: 'mock-c1', title: 'Lakshmi Skin & Hair Clinic', kind: 'Clinic', address: '4 Poonamallee High Rd, Chennai 600084', ...at(-0.0006, 0.0008), url: '' },
+        { id: 'mock-d1', title: 'Smile Dental Care', kind: 'Dental clinic', address: '9 Mount Rd, Chennai 600006', ...at(0.0011, -0.0009), url: '' },
+      ];
+      if (mode === 'details') return { places: all.filter((p) => p.id === id) };
+      if (mode === 'text') return { places: all.filter((p) => p.title.toLowerCase().includes(String(q || '').toLowerCase().split(' ')[0])) };
+      return { places: all };
+    },
+
     async readFile({ file }) {
       await wait(400);
       return /blurr?y/i.test(file?.name || '') ? { readable: false, reason: 'The photo is blurry.' } : { readable: true };

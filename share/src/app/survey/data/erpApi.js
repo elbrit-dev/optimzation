@@ -155,6 +155,10 @@ export function createErpApi({ endpointUrl, gqlEnvironment = 'ERP', gqlToken, al
        its server key → { places: [{ id, title, address, lat, lng, url }] }. */
     mapsKey: () => call('GET', 'survey_maps_key'),
     searchPlaces: ({ q, lat, lng }) => call('GET', 'doctor_connect_places', { query: { q, lat, lng, radius_km: lat != null ? 40 : undefined } }),
+    /* 25 Nov 2026 · Google hospitals / clinics only (survey_places, the ERP's server key):
+       mode=nearby (lat, lng, radius_m, split) | text (q, lat?, lng?) | details (id)
+       → { places: [{ id, title, address, lat, lng, url, kind }] } */
+    places: (query) => call('GET', 'survey_places', { query }),
 
     async readFile({ response, question, file_url, file }) {
       try {

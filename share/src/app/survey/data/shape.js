@@ -80,7 +80,9 @@ export function mapMoved(v) {
 export function mapText(v) {
   if (!mapIsPoint(v)) return '';
   if (v.how === 'same') return 'Location on record is correct';
-  return `${v.name || 'Pinned on the map'}${v.address ? ` — ${v.address}` : ''}`;
+  const nm = v.name || 'Pinned on the map';
+  const kind = v.kind && !nm.toLowerCase().includes(String(v.kind).toLowerCase().split(' ')[0]) ? ` (${v.kind})` : '';
+  return `${nm}${kind}${v.address ? ` — ${v.address}` : ''}`;
 }
 export const mapUrl = (v) =>
   v.url && v.how === 'place'
@@ -132,7 +134,7 @@ export function answerProblem(q, v) {
     if (!q.required) return null;
     if (q.type === 'file_upload') return 'Please upload a file to continue.';
     if (q.type === 'checkboxes') return 'Please choose at least one option to continue.';
-    if (q.type === 'map_location') return 'Please confirm the location or pin the place on the map to continue.';
+    if (q.type === 'map_location') return 'Please choose the hospital or clinic on the map to continue.';
     return 'Please answer this question to continue.';
   }
   if (q.type === 'number' && !/^-?\d+(\.\d+)?$/.test(String(v).trim())) return 'Please enter a number, for example 12 or 4.5.';
