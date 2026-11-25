@@ -40,6 +40,8 @@ export const SLOTS = {
   travels: { kind: "Travel", title: "Travel bill", word: "travel" },
 };
 export const TRAVEL_TITLES = ["Train ticket", "Bus ticket"];
+// the ride services whose bills the cab card takes, whatever the vehicle (25 Nov 2026)
+const RIDE_VENDOR = /\b(ola|uber|rapido|red\s*taxi|redtaxi|fast\s*track|namma\s*yatri|blu\s*smart|meru|savaari|eagle fleet|in\s*drive|indrive)\b/i;
 const FLIGHT = "Flights are booked by the company — a flight ticket is not claimed here.";
 const SLOT_OF_TITLE = Object.fromEntries(Object.entries(SLOTS).map(([k, s]) => [s.title, k]));
 
@@ -194,7 +196,11 @@ export function tripBillVerdict(read, slot, trip) {
     };
   }
   // a travel bill is checked as the title it was read as (train, bus, cab, auto)
-  const s = slot === "travels" && TRAVEL_TITLES.includes(read?.title) ? { ...SLOTS.travels, title: read.title } : SLOTS[slot];
+  // THE CAB CARD TAKES EVERY RIDE (25 Nov 2026, the user: "accept all from those services"): a cab or
+  // an auto, and any bill of a ride service (Ola, Uber, Rapido, Red Taxi ...) whatever the reader
+  // called the vehicle -- checked as a cab bill
+  const rideBill = slot === "cabs" && read && (read.title === "Auto bill" || RIDE_VENDOR.test(String(read.values?.vendor || "") + " " + String(read.md || "").slice(0, 400)));
+  const s = slot === "travels" && TRAVEL_TITLES.includes(read?.title) ? { ...SLOTS.travels, title: read.title } : rideBill ? { ...SLOTS.cabs, title: read.title } : SLOTS[slot];
   if (!s) return { ok: false, reason: "Unknown bill slot." };
   if (!trip?.from || !trip?.to) return { ok: false, reason: CLEAR };
   if (!read) return unreadable(null, s.kind);
@@ -208,7 +214,7 @@ export function tripBillVerdict(read, slot, trip) {
     // the cab card takes cab bills only, whatever else it is (20 Nov 2026)
     if (slot === "cabs") {
       const t = String(read.title).toLowerCase();
-      return { ok: false, reason: `This is ${/^[aeiou]/.test(t) ? "an" : "a"} ${t} — only cab bills (Ola, Uber, Rapido, other cabs) go here.` };
+      return { ok: false, reason: `This is ${/^[aeiou]/.test(t) ? "an" : "a"} ${t} — only rides (Ola, Uber, Rapido, cabs and autos) go here.` };
     }
     return {
       ok: false,
