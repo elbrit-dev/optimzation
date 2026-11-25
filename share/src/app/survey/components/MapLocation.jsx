@@ -25,7 +25,7 @@ import { mapDist, mapIsPoint, mapMeters, mapStart, mapUrl } from '../data/shape'
  * The ERP sends it to the rep's ABM to accept / reject (survey_map_review). */
 
 let mapsPromise = null;
-function loadMaps(api) {
+export function loadMaps(api) {
   if (typeof window === 'undefined') return Promise.reject(new Error('no window'));
   if (window.google?.maps?.Map) return Promise.resolve(window.google.maps);
   mapsPromise ??= (async () => {

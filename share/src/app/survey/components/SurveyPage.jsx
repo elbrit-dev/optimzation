@@ -9,6 +9,7 @@ import { rowState, shortName, surveysFromMyList } from '../data/shape';
 import { SurveyScreen } from './SurveyScreen';
 import { SubjectForm } from './SubjectForm';
 import { DiscardChangesSheet, PageHeader, readDrafts, scroller, writeDrafts } from './parts';
+import { MapReview } from './MapReview';
 
 /* A survey page scrolls INSIDE the Elbrit frame (under its header, beside its menu) — not the whole browser page,
    which pushed the list of doctors out below the site. Where the frame has no set height it is as before. */
@@ -148,7 +149,26 @@ function Notice({ tone = 'neutral', icon, title, text, children }) {
   );
 }
 
-export function SurveyPage({
+/* 25 Nov 2026 · /survey/review — the ABM / RBM's "To review" (Map location answers of their team) */
+function ReviewPage({ api: apiProp, source = 'erp', gqlEnvironment = 'ERP', gqlToken, onBack, className }) {
+  const api = useMemo(() => apiProp ?? createSurveyApi({ source, gqlEnvironment, gqlToken, strictEnvironment: true }), [apiProp, source, gqlEnvironment, gqlToken]);
+  const signedIn = Boolean(apiProp) || source !== 'erp' || Boolean(String(gqlToken ?? '').trim());
+  const leave = () => (onBack ? onBack() : window.history.back());
+  return (
+    <section className={cx('@container/survey flex w-full scroll-mt-3 flex-col', INSIDE_FRAME, className)}>
+      <div className="flex w-full flex-col gap-3 px-4 pb-4 pt-3 @2xl/survey:gap-4">
+        <PageHeader onBack={leave} backLabel="Back" title="To review" />
+        {signedIn ? <MapReview api={api} /> : <Notice icon="lock" title="Sign in to review" text="Reviews are read and sent as you — sign in to the app, then open this page again." />}
+      </div>
+    </section>
+  );
+}
+
+export function SurveyPage(props) {
+  return decodeCampaign(props.campaign) === 'review' ? <ReviewPage {...props} /> : <OneSurveyPage {...props} />;
+}
+
+function OneSurveyPage({
   campaign: campaignProp,
   /* Tests and the harness only: a ready api (mock or ERP). */
   api: apiProp,

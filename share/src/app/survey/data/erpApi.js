@@ -159,6 +159,16 @@ export function createErpApi({ endpointUrl, gqlEnvironment = 'ERP', gqlToken, al
        mode=nearby (lat, lng, radius_m, split) | text (q, lat?, lng?) | details (id)
        → { places: [{ id, title, address, lat, lng, url, kind }] } */
     places: (query) => call('GET', 'survey_places', { query }),
+    /* 25 Nov 2026 · the ABM / RBM review of Map location answers (survey_map_review):
+       { action: 'list', which: 'pending' | 'done' } → { items, all, writes }
+       { action: 'decide', response, question, decision: 'accept' | 'reject', note } → { applied } */
+    mapReview(args) {
+      if (args?.action === 'decide') {
+        needWrites();
+        return call('POST', 'survey_map_review', { body: args });
+      }
+      return call('GET', 'survey_map_review', { query: args });
+    },
 
     async readFile({ response, question, file_url, file }) {
       try {

@@ -11,6 +11,7 @@ import { DEFAULT_REFRESH_MS, useErpTiles } from '@/app/ring-nav/data/useErpTiles
 import { SurveyScreen } from './SurveyScreen';
 import { DiscardChangesSheet, PageHeader, readDrafts, scroller, writeDrafts } from './parts';
 import { SubjectForm } from './SubjectForm';
+import { MapReview, reviewTile, useMapReviews } from './MapReview';
 
 /* A survey page scrolls INSIDE the Elbrit frame (under its header, beside its menu) — not the whole browser page,
    which pushed the list of doctors out below the site. Where the frame has no set height it is as before. */
@@ -122,7 +123,15 @@ export function SurveyHome({
      Nav loads them — the same hook, as the signed-in person. */
   const erpTiles = useErpTiles({ enabled: tiles == null && source === 'erp' && !apiProp, gqlEnvironment, gqlToken, today: todayProp, refreshEvery });
   const stripTiles = tiles ?? erpTiles.items;
-  const ringItems = useMemo(() => withSurveyTiles(stripTiles, list ? surveyTiles(list, today, { hrefBase }) : []), [stripTiles, list, today, hrefBase]);
+  /* 25 Nov 2026 · managers: a "To review" circle for their team's Map location answers */
+  const reviews = useMapReviews(api);
+  const reviewItem = reviewTile(reviews, { hrefBase });
+  const ringItems = useMemo(
+    () => withSurveyTiles(stripTiles, [...(list ? surveyTiles(list, today, { hrefBase }) : []), ...(reviewItem ? [reviewItem] : [])]),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [stripTiles, list, today, hrefBase, reviewItem?.count, reviewItem?.caption],
+  );
+  const reviewing = view.campaign === 'review';
 
   const setDraft = (response, answers) =>
     setDrafts((prev) => {
@@ -182,11 +191,16 @@ export function SurveyHome({
   const offline = typeof navigator !== 'undefined' && navigator.onLine === false;
 
   return (
-    <section ref={rootRef} className={cx('@container/survey flex w-full scroll-mt-3 flex-col', survey ? INSIDE_FRAME : '', className)}>
+    <section ref={rootRef} className={cx('@container/survey flex w-full scroll-mt-3 flex-col', survey || reviewing ? INSIDE_FRAME : '', className)}>
       {/* The strip is home's alone: a survey or form is its own page. */}
-      {survey ? null : <RingNav items={ringItems} onItemClick={onTile} stickyBar={stickyBar} inset={inset} ariaLabel={ariaLabel} />}
+      {survey || reviewing ? null : <RingNav items={ringItems} onItemClick={onTile} stickyBar={stickyBar} inset={inset} ariaLabel={ariaLabel} />}
 
-      {survey ? (
+      {reviewing ? (
+        <div className="flex w-full flex-col gap-3 px-4 pb-4 pt-3 @2xl/survey:gap-4">
+          <PageHeader onBack={toHome} backLabel="Back to home" title="To review" />
+          <MapReview api={api} reviews={reviews} />
+        </div>
+      ) : survey ? (
         <div className="flex w-full flex-col gap-3 px-4 pb-4 pt-3 @2xl/survey:gap-4">
           {row ? (
             <PageHeader
