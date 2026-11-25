@@ -54,59 +54,16 @@ function DateInput({ q, value, onChange, disabled }) {
   return <input aria-label={q.label} type="date" value={value ?? ''} disabled={disabled} onChange={(e) => onChange(e.target.value || null)} className={cx(FIELD, 'h-10 w-48')} />;
 }
 
-/* 25 Nov 2026 · Login, confirmed and locked (as the ERP's My Surveys):
-   1 Website URL → Open website (the ERP checks it opens, survey_check_url; then it opens in a new tab)
-   2 the BE signs in there · 3 Username and Password (shown as typed)
-   4 tick "I signed in successfully" → Confirm: all three lock; Edit login unlocks and clears the confirmation.
-   Answer = { url, login, password, verified: 1, confirmed: 1, confirmed_at } — the survey can't be sent unconfirmed. */
-const nowLocal = () => {
-  const d = new Date();
-  return new Date(d.getTime() - d.getTimezoneOffset() * 60000).toISOString().slice(0, 19).replace('T', ' ');
-};
-function LoginInput({ q, value, onChange, disabled, api }) {
+/* 25 Nov 2026 · Login: Website URL · Login ID · Password (shown as typed). Just the details — no test yet.
+   Answer = { url, login, password }; all three are needed once any is typed. */
+function LoginInput({ q, value, onChange, disabled }) {
   const v = value && typeof value === 'object' ? value : {};
-  const [busy, setBusy] = useState(false);
-  const [msg, setMsg] = useState('');
-  const [tick, setTick] = useState(false);
-  const locked = Boolean(v.confirmed);
   const set = (k, x) => {
-    const next = { ...v, [k]: x };
-    delete next.confirmed;
-    delete next.confirmed_at;
-    if (k === 'url') delete next.verified;
-    setMsg('');
+    const next = { url: v.url ?? '', login: v.login ?? '', password: v.password ?? '', [k]: x };
     onChange(next.url || next.login || next.password ? next : null);
   };
-  const open = async () => {
-    if (!String(v.url ?? '').trim()) return setMsg('Type the website address first.');
-    if (typeof api?.checkUrl !== 'function') return setMsg('Checking the website isn’t available here.');
-    const w = window.open('about:blank', '_blank');
-    setBusy(true);
-    setMsg('');
-    try {
-      const m = await api.checkUrl(v.url);
-      if (m?.ok) {
-        const url = m.url || v.url;
-        onChange({ ...v, url, verified: 1 });
-        if (w) {
-          w.opener = null;
-          w.location.href = url;
-        } else window.open(url, '_blank', 'noopener');
-      } else {
-        w?.close();
-        setMsg(m?.message || 'The website does not open. Check the address.');
-      }
-    } catch (e) {
-      w?.close();
-      setMsg(e?.message || 'Couldn’t check the website. Try again.');
-    } finally {
-      setBusy(false);
-    }
-    return undefined;
-  };
-  const ready = v.verified && String(v.login ?? '').trim() && String(v.password ?? '').trim();
   const box = (k, label, type, ph) => (
-    <label className="flex min-w-0 flex-1 flex-col gap-1 text-11 font-semibold text-ds-muted">
+    <label className="flex flex-col gap-1 text-11 font-semibold text-ds-muted">
       {label}
       <input
         aria-label={`${q.label} — ${label}`}
@@ -116,91 +73,18 @@ function LoginInput({ q, value, onChange, disabled, api }) {
         autoComplete="off"
         spellCheck={false}
         value={v[k] ?? ''}
-        readOnly={locked}
         disabled={disabled}
         placeholder={ph}
         onChange={(e) => set(k, e.target.value)}
-        className={cx(FIELD, 'h-10 w-full', locked && 'bg-sunken text-ds-secondary')}
+        className={cx(FIELD, 'h-10 w-full')}
       />
     </label>
   );
-  const step = (n, t) => (
-    <p className="flex items-center gap-2 text-12 font-semibold text-heading">
-      <span className="flex size-5 items-center justify-center rounded-full bg-brand text-10 font-bold text-on-brand">{n}</span>
-      {t}
-    </p>
-  );
-  if (locked) {
-    return (
-      <div className="flex flex-col gap-2.5">
-        <p role="status" className="flex items-center gap-2 rounded-lg bg-success-wash px-3 py-2.5 text-12 text-success">
-          <Icon name="lock" size="sm" />
-          <b>Login confirmed</b>
-          {v.confirmed_at ? ` · ${v.confirmed_at}` : ''}
-        </p>
-        {box('url', 'Website URL', 'url', '')}
-        {box('login', 'Username', 'text', '')}
-        {box('password', 'Password', 'text', '')}
-        {disabled ? null : (
-          <button
-            type="button"
-            onClick={() => {
-              if (!window.confirm('Edit the login? This clears the confirmation — you will open the website and confirm again.')) return;
-              const next = { ...v };
-              delete next.confirmed;
-              delete next.confirmed_at;
-              delete next.verified;
-              setTick(false);
-              onChange(next);
-            }}
-            className="flex h-11 items-center gap-1.5 self-start rounded-lg border border-line bg-surface px-4 text-12 font-semibold text-heading hover:border-line-strong"
-          >
-            <Icon name="pencil" size="sm" />
-            Edit login
-          </button>
-        )}
-      </div>
-    );
-  }
   return (
     <div className="flex flex-col gap-2.5">
-      {step(1, 'Open the website')}
-      <div className="flex items-end gap-2 max-sm:flex-col max-sm:items-stretch">
-        {box('url', 'Website URL', 'url', 'https://…')}
-        <button
-          type="button"
-          onClick={open}
-          disabled={busy || disabled}
-          className="flex h-10 shrink-0 items-center justify-center gap-1.5 rounded-lg bg-brand px-4 text-12 font-semibold text-on-brand hover:bg-brand-hover disabled:opacity-60"
-        >
-          <Icon name={busy ? 'spinner pi-spin' : 'external-link'} size="sm" />
-          {busy ? 'Checking…' : 'Open website'}
-        </button>
-      </div>
-      <span role="status" className={cx('flex items-center gap-1.5 text-12', v.verified ? 'font-semibold text-success' : msg ? 'font-semibold text-danger-text' : 'text-ds-muted')}>
-        <Icon name={v.verified ? 'check-circle' : msg ? 'exclamation-circle' : 'info-circle'} size="sm" />
-        {v.verified ? 'The website opens — sign in there with the distributor, then come back here.' : msg || 'Type the address and tap Open website.'}
-      </span>
-      {step(2, 'The username and password that worked')}
-      {box('login', 'Username', 'text', 'User ID, email or mobile')}
+      {box('url', 'Website URL', 'url', 'https://…')}
+      {box('login', 'Login ID', 'text', 'User ID, email or mobile')}
       {box('password', 'Password', 'text', 'Password')}
-      {step(3, 'Confirm')}
-      <label className="flex items-start gap-2.5 text-13 text-body">
-        <input type="checkbox" checked={tick} disabled={disabled} onChange={(e) => setTick(e.target.checked)} className="mt-0.5 size-5 shrink-0" />
-        I signed in successfully on this website with this username and password.
-      </label>
-      <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
-        <button
-          type="button"
-          disabled={!ready || !tick || disabled}
-          onClick={() => onChange({ ...v, confirmed: 1, confirmed_at: nowLocal() })}
-          className="flex h-11 items-center gap-1.5 rounded-lg bg-brand px-4 text-12 font-semibold text-on-brand hover:bg-brand-hover disabled:opacity-50"
-        >
-          <Icon name="lock" size="sm" />
-          Confirm login
-        </button>
-        {ready ? null : <span className="text-12 text-ds-muted">{v.verified ? 'Fill the username and password.' : 'Open the website first.'}</span>}
-      </div>
     </div>
   );
 }
@@ -483,7 +367,7 @@ function Input({ q, value, onChange, disabled, onUpload, api }) {
     case 'date':
       return <DateInput q={q} value={value} onChange={onChange} disabled={disabled} />;
     case 'login':
-      return <LoginInput q={q} value={value} onChange={onChange} disabled={disabled} api={api} />;
+      return <LoginInput q={q} value={value} onChange={onChange} disabled={disabled} />;
     case 'time':
       return <TimeInput q={q} value={value} onChange={onChange} disabled={disabled} />;
     case 'days':

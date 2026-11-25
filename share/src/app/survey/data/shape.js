@@ -142,8 +142,7 @@ export function answerProblem(q, v) {
   }
   if (q.type === 'number' && !/^-?\d+(\.\d+)?$/.test(String(v).trim())) return 'Please enter a number, for example 12 or 4.5.';
   if (q.type === 'date' && !/^\d{4}-\d{2}-\d{2}$/.test(String(v))) return 'Please enter a valid date.';
-  if (q.type === 'login' && (!String(v.url ?? '').trim() || !String(v.login ?? '').trim() || !String(v.password ?? '').trim())) return 'Please fill the website, login and password.';
-  if (q.type === 'login' && !v.confirmed) return 'Confirm the login before you send.';
+  if (q.type === 'login' && (!String(v.url ?? '').trim() || !String(v.login ?? '').trim() || !String(v.password ?? '').trim())) return 'Please fill the website URL, login ID and password.';
   if (q.type === 'time' && !(q.range ? /^\d{2}:\d{2}-\d{2}:\d{2}$/ : /^\d{2}:\d{2}$/).test(String(v))) return q.range ? 'Please enter both the start and the end time.' : 'Please enter a valid time.';
   if ((q.type === 'multiple_choice' || q.type === 'dropdown') && !(q.options ?? []).includes(v)) return 'Please choose one of the options.';
   if (q.type === 'linear_scale' || q.type === 'rating') {
