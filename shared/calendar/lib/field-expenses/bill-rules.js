@@ -114,7 +114,18 @@ const fairly = (c) => typeof c === "number" && c >= WRONG_KIND_READ;
     | { ok: true, kind, billed, amount, date, nights, checkIn, checkOut, vendor, billNo }
       billed = the bill's total; amount = what counts for this trip (a hotel
       bill's share for its nights inside the trip); date = the row's date. */
+/* A fuel bill is checked against the claim's MONTH, not the trip's dates (25 Nov 2026, the
+   owner: the car is asked for a date range and the tank is filled when it is filled). The
+   duplicate check (fingerprint) is unchanged. */
+const monthSpan = (t) => {
+  if (!t?.from || !t?.to) return t;
+  const y = Number(t.to.slice(0, 4)), m = Number(t.to.slice(5, 7));
+  return { ...t, from: `${t.from.slice(0, 7)}-01`, to: new Date(Date.UTC(y, m, 0)).toISOString().slice(0, 10) };
+};
+const outsideWhat = (slot) => (slot === "cabs" || slot === "fuels" ? "the claim's month" : "this trip");
+
 export function tripBillVerdict(read, slot, trip) {
+  if (slot === "fuels" && !trip?.monthSpan) trip = { ...monthSpan(trip), monthSpan: true };
   // "da": ONE upload for stay and food (12 Nov 2026) -- the bill itself says
   // which it is; anything else is refused
   if (slot === "da") {
@@ -209,7 +220,7 @@ export function tripBillVerdict(read, slot, trip) {
   if (!read.handwritten && slot !== "stays" && ISO.test(String(v.date || "")) && sure(conf.date) && (v.date < trip.from || v.date > trip.to)) {
     const fixed = tripYearDate(v.date, trip.from, trip.to);
     if (fixed) return unreadable({ ...read, values: { ...v, date: fixed } }, s.kind, YEAR_OFF(v.date, fixed));
-    return { ok: false, reason: `This bill is dated ${billDay(v.date, trip)} — outside ${slot === "cabs" ? "the claim's month" : "this trip"} (${span(trip.from, trip.to)}).` };
+    return { ok: false, reason: `This bill is dated ${billDay(v.date, trip)} — outside ${outsideWhat(slot)} (${span(trip.from, trip.to)}).` };
   }
   if (!read.handwritten && slot === "stays") {
     const ci = ISO.test(String(v.check_in || "")) && sure(conf.check_in) ? v.check_in : null;
@@ -266,7 +277,7 @@ export function tripBillVerdict(read, slot, trip) {
   if (v.date < trip.from || v.date > trip.to) {
     const fixed = tripYearDate(v.date, trip.from, trip.to);
     if (fixed) return unreadable({ ...read, values: { ...v, date: fixed } }, s.kind, YEAR_OFF(v.date, fixed));
-    return { ok: false, reason: `This bill is dated ${billDay(v.date, trip)} — outside ${slot === "cabs" ? "the claim's month" : "this trip"} (${span(trip.from, trip.to)}).` };
+    return { ok: false, reason: `This bill is dated ${billDay(v.date, trip)} — outside ${outsideWhat(slot)} (${span(trip.from, trip.to)}).` };
   }
   return { ...base, amount: billed, date: v.date, nights: [] };
 }
@@ -308,6 +319,9 @@ export function manualBillVerdict(entry, slot, trip, opts = {}) {
     return { ...base, amount: Math.round((billed * nights.length) / all.length), date: nights[0], nights, checkIn, checkOut };
   }
   if (!ISO.test(String(e.date || ""))) return { ok: false, reason: "Enter the bill's date." };
-  if (e.date < trip.from || e.date > trip.to) return { ok: false, reason: `${shortDate(e.date)} is outside ${slot === "cabs" ? "the claim's month" : "this trip"} (${span(trip.from, trip.to)}).` };
+  // a fuel bill: anywhere in the claim's month (25 Nov 2026)
+  const fuelBill = e.kind === "Fuel";
+  const win = fuelBill ? monthSpan(trip) : trip;
+  if (e.date < win.from || e.date > win.to) return { ok: false, reason: `${shortDate(e.date)} is outside ${fuelBill ? "the claim's month" : outsideWhat(slot)} (${span(win.from, win.to)}).` };
   return { ...base, amount: billed, date: e.date, nights: [] };
 }
