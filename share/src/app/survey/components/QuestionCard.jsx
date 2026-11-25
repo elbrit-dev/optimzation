@@ -356,10 +356,10 @@ function FileUpload({ q, value, onChange, disabled, onUpload }) {
   );
 }
 
-function Input({ q, value, onChange, disabled, onUpload, api }) {
+function Input({ q, value, onChange, disabled, onUpload, api, response }) {
   switch (q.type) {
     case 'map_location':
-      return <MapLocation q={q} value={value} onChange={onChange} disabled={disabled} api={api} />;
+      return <MapLocation q={q} value={value} onChange={onChange} disabled={disabled} api={api} response={response} />;
     case 'paragraph':
       return <textarea aria-label={q.label} rows={3} value={value ?? ''} disabled={disabled} placeholder="Your answer…" onChange={(e) => onChange(e.target.value)} className={cx(FIELD, 'w-full resize-y')} />;
     case 'number':
@@ -410,7 +410,7 @@ function Input({ q, value, onChange, disabled, onUpload, api }) {
   }
 }
 
-export function QuestionCard({ q, index, value, onChange, onUpload, api, error, readOnly = false, disabled = false }) {
+export function QuestionCard({ q, index, value, onChange, onUpload, api, response, error, readOnly = false, disabled = false }) {
   const answered = !isEmpty(value);
   return (
     <Card variant="hairline" className={cx('flex scroll-mt-20 flex-col gap-3', error && 'border-danger-border')} data-question={q.id}>
@@ -441,7 +441,7 @@ export function QuestionCard({ q, index, value, onChange, onUpload, api, error, 
           {answered ? answerText(q, value) : 'Skipped'}
         </p>
       ) : (
-        <Input q={q} value={value} onChange={onChange} disabled={disabled} onUpload={onUpload} api={api} />
+        <Input q={q} value={value} onChange={onChange} disabled={disabled} onUpload={onUpload} api={api} response={response} />
       )}
       {error ? (
         <p role="alert" className="flex items-center gap-1.5 text-11 font-medium text-danger-text">

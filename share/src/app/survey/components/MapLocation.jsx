@@ -64,7 +64,7 @@ const fitZoom = (pt, far, el) => {
   return Math.max(15, Math.min(18, Math.floor(Math.log2((156543.03 * Math.cos((pt.lat * Math.PI) / 180) * half) / Math.max(far, 1)))));
 };
 
-export function MapLocation({ q, value, onChange, disabled, api }) {
+export function MapLocation({ q, value, onChange, disabled, api, response }) {
   const start = mapStart(q);
   const startKey = start ? `${start.lat},${start.lng}` : '';
   const cur = mapIsPoint(value) && value.place_id ? value : null;
@@ -79,6 +79,8 @@ export function MapLocation({ q, value, onChange, disabled, api }) {
   const [which, setWhich] = useState(null);
   const [hint, setHint] = useState('');
   const [moved, setMoved] = useState(false);
+  /* 25 Nov 2026 · no saved location: where the map starts — the record's locality, else its city (survey_places mode=area) */
+  const [area, setArea] = useState(null);
   const [mapErr, setMapErr] = useState(null);
 
   const boxRef = useRef(null);
@@ -169,7 +171,20 @@ export function MapLocation({ q, value, onChange, disabled, api }) {
     setRes([]);
     setWhich(null);
     setNear({ center: null, label: '', places: [], busy: '', full: false, err: '' });
+    setArea(null);
     if (start) loadNear(start, 'the doctor’s saved location');
+    else if (response && typeof api?.places === 'function') {
+      const gen = genRef.current;
+      api
+        .places({ mode: 'area', response })
+        .then((m) => {
+          const a = m?.area;
+          if (gen !== genRef.current || !a?.lat) return;
+          setArea(a);
+          loadNear({ lat: +a.lat, lng: +a.lng }, `${a.label} (${a.level})`);
+        })
+        .catch(() => {});
+    }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [q.id, startKey]);
 
@@ -199,7 +214,8 @@ export function MapLocation({ q, value, onChange, disabled, api }) {
     let gone = false;
     const timer = setTimeout(() => {
       const L = live.current;
-      const c = L.start || L.near.center;
+      const mc = mapRef.current?.getCenter();
+      const c = (mc ? { lat: mc.lat(), lng: mc.lng() } : null) || L.start || L.near.center;
       setSearching(true);
       api
         .places({ mode: 'text', q: t, kind: live.current.ph ? 'pharmacy' : undefined, ...(c ? { lat: c.lat, lng: c.lng } : {}) })
@@ -209,13 +225,9 @@ export function MapLocation({ q, value, onChange, disabled, api }) {
           loc.forEach((p) => (ids[p.id] = 1));
           const g = (m?.places ?? []).filter((p) => p.lat != null && p.lng != null && !ids[p.id]);
           const both = [...loc, ...g];
-          const st = live.current.start;
-          const list = (st ? both.filter((p) => mapMeters(st, p) <= ZONE * 2) : both).sort((a, b) => (c ? mapMeters(c, a) - mapMeters(c, b) : 0));
+          const list = both.sort((a, b) => (c ? mapMeters(c, a) - mapMeters(c, b) : 0));
           setRes(list);
-          const away = both.length - list.length;
-          if (!list.length)
-            setFindErr(away ? `Found ${away} called “${t}”, but all are more than ${mapDist(ZONE * 2)} from the saved location.` : `No ${live.current.n0} called “${t}”. Try another name.`);
-          else if (st && mapRef.current) mapRef.current.setZoom(fitZoom(st, Math.max(...list.map((p) => mapMeters(st, p))), boxRef.current));
+          if (!list.length) setFindErr(`No ${live.current.n0} called “${t}”. Try another name.`);
         })
         .catch((e) => !gone && !loc.length && setFindErr(e?.message || 'The search failed. Please try again.'))
         .finally(() => !gone && setSearching(false));
@@ -378,8 +390,7 @@ export function MapLocation({ q, value, onChange, disabled, api }) {
           center: s0 ?? INDIA,
           zoom: s0 ? 18 : 5,
           draggableCursor: 'pointer',
-          mapTypeControl: true,
-          mapTypeControlOptions: { mapTypeIds: ['roadmap', 'hybrid'] },
+          mapTypeControl: false,
           streetViewControl: false,
           fullscreenControl: true,
           clickableIcons: false,
@@ -426,8 +437,8 @@ export function MapLocation({ q, value, onChange, disabled, api }) {
     zoneRef.current = null;
     if (start) {
       zoneRef.current = new gm.Circle({ map, center: start, radius: ZONE, clickable: false, strokeColor: '#0958D9', strokeOpacity: 0.55, strokeWeight: 1.5, fillColor: '#0958D9', fillOpacity: 0.04 });
-      lockRef.current = { ...start };
-      map.setOptions({ draggable: false, keyboardShortcuts: false, minZoom: 15 });
+      lockRef.current = null;
+      map.setOptions({ draggable: true, keyboardShortcuts: true, minZoom: null });
       map.setCenter(start);
       map.setZoom(18);
     } else {
@@ -609,8 +620,10 @@ export function MapLocation({ q, value, onChange, disabled, api }) {
             <span className="text-13 font-semibold text-heading">{start ? `Choose the doctor’s ${n0}` : 'No location saved for this doctor'}</span>
             <span className="text-12 text-ds-muted">
               {start
-                ? `The map is fixed on the doctor’s saved location. Zoom in or out, then tap the ${n0} to choose it.`
-                : `Search the ${n0} by name, or tap Near me to see the ones near you.`}
+                ? `The map starts at the doctor’s saved location. Move or zoom it, then tap the ${n0} to choose it.`
+                : area
+                  ? `The map starts at ${area.label} (${area.level}). Move it and tap Search this area, search by name, or tap Near me.`
+                  : `Search the ${n0} by name, or tap Near me to see the ones near you.`}
             </span>
           </div>
         </div>
@@ -690,7 +703,7 @@ export function MapLocation({ q, value, onChange, disabled, api }) {
             <span>{mapErr} You can still search and choose from the list.</span>
           </div>
         ) : null}
-        {moved && !start && !disabled ? (
+        {moved && !disabled ? (
           <button
             type="button"
             onClick={searchHere}

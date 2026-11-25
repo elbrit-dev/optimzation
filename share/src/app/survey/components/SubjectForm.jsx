@@ -180,6 +180,7 @@ export function SubjectForm({ survey, row, rows, me, draft, api, onBack, onDraft
           error={tried ? problems[q.id] : null}
           onUpload={upload}
           api={api}
+          response={row.response}
           onChange={(v) => setAnswers((prev) => ({ ...prev, [q.id]: v }))}
         />
       ))}
