@@ -26,7 +26,44 @@ export const QUESTION_TYPES = [
   'time',
   'days',
   'login',
+  'timings',
 ];
+/* 25 Nov 2026 · Visiting timings — { place_id, place_name, days: { Monday: { state: open | closed | na,
+   slots: [[HH:MM, HH:MM]] } }, source }, linked to the Map location question q.of */
+export const TIMING_DAYS = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'];
+const hm = (x) => (/^\d{2}:\d{2}$/.test(x || '') ? Number(x.slice(0, 2)) * 60 + Number(x.slice(3, 5)) : null);
+export function timingDayError(v, d) {
+  const x = v?.days?.[d] || {};
+  if (x.state !== 'open') return '';
+  const sl = x.slots || [];
+  if (!sl.length) return 'Add a timing, or mark it Closed / Not available.';
+  for (const s of sl) {
+    const a = hm(s[0]);
+    const b = hm(s[1]);
+    if (a == null || b == null) return 'Enter both the start and the end time.';
+    if (a === 0 && b >= 1439) return 'Google shows 24 hours — enter the doctor’s actual timings.';
+    if (b <= a) return 'End time is before the start time.';
+  }
+  const o = sl.map((s) => [hm(s[0]), hm(s[1])]).sort((p, q) => p[0] - q[0]);
+  for (let k = 1; k < o.length; k += 1) if (o[k][0] < o[k - 1][1]) return 'These timings overlap.';
+  return '';
+}
+function timingsProblem(q, v, answers) {
+  const pid = answers?.[q.of]?.place_id;
+  if (!pid) return q.required ? 'Choose the place in the map question first.' : null;
+  if (!v || !v.days || v.place_id !== pid) return q.required ? 'Wait for the timings to load.' : null;
+  if (TIMING_DAYS.some((d) => timingDayError(v, d))) return 'Fix the timings in red.';
+  if (q.required && !TIMING_DAYS.some((d) => v.days[d]?.state === 'open')) return 'Add the timings for at least one day.';
+  return null;
+}
+export function timingsText(v) {
+  if (!v?.days) return '';
+  return TIMING_DAYS.map((d) => {
+    const x = v.days[d] || {};
+    return `${d.slice(0, 3)} ${x.state === 'open' ? (x.slots || []).map((s) => `${s[0]}–${s[1]}`).join(', ') : x.state === 'na' ? 'Not available' : 'Closed'}`;
+  }).join(' · ');
+}
+
 
 /* §3 map_location (24 Nov 2026) — the answer is a point:
    { lat, lng, place_id?, name?, address?, url?, how: same | place | pin | gps,
@@ -132,7 +169,8 @@ export function isEmpty(v) {
 
 /* The message under a question, or null — the ERP page's words, so the app
    and the ERP say the same thing. The server re-checks all of it. */
-export function answerProblem(q, v) {
+export function answerProblem(q, v, answers) {
+  if (q.type === 'timings') return timingsProblem(q, v, answers);
   if (isEmpty(v)) {
     if (!q.required) return null;
     if (q.type === 'file_upload') return 'Please upload a file to continue.';
@@ -158,7 +196,7 @@ export function answerProblem(q, v) {
 export function formProblems(questions, answers) {
   const out = {};
   for (const q of questions) {
-    const p = answerProblem(q, answers?.[q.id]);
+    const p = answerProblem(q, answers?.[q.id], answers);
     if (p) out[q.id] = p;
   }
   return out;
@@ -183,6 +221,7 @@ export function answerText(q, v) {
   if (isEmpty(v)) return '—';
   if (q.type === 'checkboxes' || q.type === 'days') return v.join(', ');
   if (q.type === 'login') return [v.url, v.login, v.password].filter(Boolean).join(' · ');
+  if (q.type === 'timings') return timingsText(v);
   if (q.type === 'file_upload') return v.map((f) => f.name).join(', ');
   if (q.type === 'map_location') return mapText(v);
   if (q.type === 'rating') return `${v} of ${scaleRange(q).max} stars`;

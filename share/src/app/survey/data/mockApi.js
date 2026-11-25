@@ -170,6 +170,13 @@ export function createMockApi({ role = 'BE', scenario = 'normal', today = MOCK_T
         { id: 'mock-d1', title: 'Smile Dental Care', kind: 'Dental clinic', address: '9 Mount Rd, Chennai 600006', ...at(0.0011, -0.0009), url: '' },
       ];
       if (mode === 'details') return { places: all.filter((p) => p.id === id) };
+      if (mode === 'hours') {
+        const days = {};
+        ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'].forEach((d) => {
+          days[d] = d === 'Sunday' ? { state: 'closed', slots: [] } : { state: 'open', slots: [['09:00', '13:00'], ['17:00', '21:00']] };
+        });
+        return { hours: { has: 1, days, h24: [], special: [], name: 'City Care Hospital' } };
+      }
       if (mode === 'text') return { places: all.filter((p) => p.title.toLowerCase().includes(String(q || '').toLowerCase().split(' ')[0])) };
       return { places: all };
     },

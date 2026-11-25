@@ -2,7 +2,7 @@
 
 import { useEffect, useRef, useState } from 'react';
 import { Card, Icon, ProgressBar, cx } from '@/design-system';
-import { answerText, fileProblem, fileRules, isEmpty, scaleRange } from '../data/shape';
+import { TIMING_DAYS, answerText, fileProblem, fileRules, isEmpty, scaleRange, timingDayError } from '../data/shape';
 import { MapLocation } from './MapLocation';
 
 /* One question, by its type (SURVEYS_CONTEXT.md §3) — answered, or shown
@@ -39,6 +39,7 @@ const TYPE_LABEL = {
   time: 'Time',
   days: 'Days',
   login: 'Login',
+  timings: 'Visiting timings',
 };
 
 /* 25 Nov 2026 · Days: Monday … Sunday, pick any */
@@ -85,6 +86,175 @@ function LoginInput({ q, value, onChange, disabled }) {
       {box('url', 'Website URL', 'url', 'https://…')}
       {box('login', 'Login ID', 'text', 'User ID, email or mobile')}
       {box('password', 'Password', 'text', 'Password')}
+    </div>
+  );
+}
+
+/* 25 Nov 2026 · Visiting timings (as the ERP's My Surveys): linked to the Map location question before it (q.of).
+   Once that question has a place, its REGULAR weekly hours load from Google (survey_places mode=hours) and fill
+   Monday … Sunday; the BE keeps or edits them (up to 3 timings a day, or Closed / Not available). A day Google shows
+   as 24 hours must be edited; end before start and overlapping timings are red until fixed. */
+function TimingsInput({ q, value, onChange, disabled, api, answers }) {
+  const mapAns = answers?.[q.of];
+  const pid = mapAns?.place_id || '';
+  const v = value && typeof value === 'object' && value.days ? value : null;
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState('');
+  const [note, setNote] = useState('');
+  const [tries, setTries] = useState(0);
+  useEffect(() => {
+    if (!pid || disabled || (v && v.place_id === pid) || typeof api?.places !== 'function') return undefined;
+    let gone = false;
+    if (v && v.place_id && v.place_id !== pid) setNote('The place changed — its timings were loaded again.');
+    setBusy(true);
+    setErr('');
+    api
+      .places({ mode: 'hours', id: pid })
+      .then((m) => {
+        if (gone) return;
+        const h = m?.hours || {};
+        const days = {};
+        TIMING_DAYS.forEach((d) => {
+          const g = h.days?.[d];
+          days[d] = h.has && g ? { state: g.state === 'open' ? 'open' : 'closed', slots: (g.slots || []).slice(0, 3).map((s) => [s[0], s[1]]) } : { state: 'open', slots: [['', '']] };
+        });
+        onChange({ place_id: pid, place_name: h.name || mapAns?.name || '', days, source: h.has ? 'google' : 'typed', special: h.special || [] });
+      })
+      .catch((e) => !gone && setErr(e?.message || 'Couldn’t load the timings.'))
+      .finally(() => !gone && setBusy(false));
+    return () => {
+      gone = true;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [pid, tries]);
+
+  if (!pid) {
+    return (
+      <p className="flex items-center gap-2 rounded-lg bg-sunken px-3 py-3 text-12 text-ds-muted">
+        <Icon name="info-circle" size="sm" />
+        Choose the place in the map question above first.
+      </p>
+    );
+  }
+  if (!v || v.place_id !== pid) {
+    return err ? (
+      <div className="flex flex-wrap items-center gap-2 rounded-lg bg-danger-wash px-3 py-3 text-12 text-danger-text">
+        <Icon name="exclamation-circle" size="sm" />
+        <span className="flex-1">{err}</span>
+        <button type="button" onClick={() => setTries((n) => n + 1)} className="flex h-10 items-center gap-1.5 rounded-lg border border-line bg-surface px-3 text-12 font-semibold text-heading">
+          <Icon name="refresh" size="sm" />
+          Try again
+        </button>
+      </div>
+    ) : (
+      <p className="flex items-center gap-2 rounded-lg bg-sunken px-3 py-3 text-12 text-ds-muted">
+        <Icon name={busy ? 'spinner pi-spin' : 'clock'} size="sm" />
+        Loading the timings of <b className="text-heading">{mapAns?.name || 'the place'}</b> from Google…
+      </p>
+    );
+  }
+  const edit = (fn) => {
+    const next = JSON.parse(JSON.stringify(v));
+    fn(next);
+    if (next.source === 'google') next.source = 'edited';
+    onChange(next);
+  };
+  const src = v.source === 'google' ? 'From Google — check and correct' : v.source === 'edited' ? 'From Google, edited' : 'No timings on Google — please fill them';
+  return (
+    <div className="flex flex-col gap-2">
+      <p className="flex items-start gap-2 rounded-lg bg-brand-tint-weak px-3 py-2.5">
+        <Icon name="map-marker" size="sm" className="mt-0.5 shrink-0 text-danger-text" />
+        <span className="flex min-w-0 flex-col">
+          <span className="text-13 font-semibold text-heading [overflow-wrap:anywhere]">{v.place_name || mapAns?.name || 'Chosen place'}</span>
+          <span className="text-11 text-ds-muted">{src}</span>
+        </span>
+      </p>
+      {note ? <p className="flex items-center gap-1.5 text-12 text-body"><Icon name="info-circle" size="sm" />{note}</p> : null}
+      {(v.special || []).length ? (
+        <p className="flex items-center gap-1.5 text-12 text-body">
+          <Icon name="calendar" size="sm" />
+          Google shows special hours on {v.special.join(', ')} (e.g. a festival) — the usual weekly timings are filled.
+        </p>
+      ) : null}
+      {TIMING_DAYS.map((d) => {
+        const x = v.days[d] || { state: 'closed', slots: [] };
+        const er = timingDayError(v, d);
+        return (
+          <div key={d} className={cx('flex flex-col gap-2 rounded-lg border px-3 py-2.5', er ? 'border-danger-border bg-danger-wash' : 'border-line bg-surface')}>
+            <div className="flex items-center justify-between gap-2">
+              <b className="text-13 text-heading">{d}</b>
+              <select
+                aria-label={d}
+                value={x.state}
+                disabled={disabled}
+                onChange={(e) =>
+                  edit((n) => {
+                    const y = n.days[d];
+                    y.state = e.target.value;
+                    if (y.state === 'open' && !(y.slots || []).length) y.slots = [['', '']];
+                    if (y.state !== 'open') y.slots = [];
+                  })
+                }
+                className={cx(FIELD, 'h-10 w-40')}
+              >
+                <option value="open">Open</option>
+                <option value="closed">Closed</option>
+                <option value="na">Not available</option>
+              </select>
+            </div>
+            {x.state === 'open' ? (
+              <div className="flex flex-col gap-1.5">
+                {(x.slots || []).map((s, k) => (
+                  <div key={k} className="flex items-center gap-1.5">
+                    <input
+                      aria-label={`${d} start`}
+                      type="time"
+                      value={s[0] || ''}
+                      disabled={disabled}
+                      onChange={(e) => edit((n) => (n.days[d].slots[k][0] = e.target.value))}
+                      className={cx(FIELD, 'h-10 min-w-0 flex-1')}
+                    />
+                    <span className="text-ds-muted">–</span>
+                    <input
+                      aria-label={`${d} end`}
+                      type="time"
+                      value={s[1] || ''}
+                      disabled={disabled}
+                      onChange={(e) => edit((n) => (n.days[d].slots[k][1] = e.target.value))}
+                      className={cx(FIELD, 'h-10 min-w-0 flex-1')}
+                    />
+                    <button
+                      type="button"
+                      aria-label="Remove this timing"
+                      disabled={disabled}
+                      onClick={() => edit((n) => n.days[d].slots.splice(k, 1))}
+                      className="flex size-10 shrink-0 items-center justify-center rounded-md text-ds-muted hover:bg-sunken"
+                    >
+                      <Icon name="times" size="sm" />
+                    </button>
+                  </div>
+                ))}
+                {(x.slots || []).length < 3 && !disabled ? (
+                  <button
+                    type="button"
+                    onClick={() => edit((n) => (n.days[d].slots = (n.days[d].slots || []).concat([['', '']]).slice(0, 3)))}
+                    className="flex items-center gap-1 self-start text-12 font-semibold text-brand-text"
+                  >
+                    <Icon name="plus" size="sm" />
+                    Add a timing
+                  </button>
+                ) : null}
+              </div>
+            ) : null}
+            {er ? (
+              <p role="alert" className="flex items-center gap-1.5 text-12 font-semibold text-danger-text">
+                <Icon name="exclamation-circle" size="sm" />
+                {er}
+              </p>
+            ) : null}
+          </div>
+        );
+      })}
     </div>
   );
 }
@@ -356,7 +526,7 @@ function FileUpload({ q, value, onChange, disabled, onUpload }) {
   );
 }
 
-function Input({ q, value, onChange, disabled, onUpload, api, response }) {
+function Input({ q, value, onChange, disabled, onUpload, api, response, answers }) {
   switch (q.type) {
     case 'map_location':
       return <MapLocation q={q} value={value} onChange={onChange} disabled={disabled} api={api} response={response} />;
@@ -366,6 +536,8 @@ function Input({ q, value, onChange, disabled, onUpload, api, response }) {
       return <input aria-label={q.label} type="text" inputMode="decimal" value={value ?? ''} disabled={disabled} placeholder="0" onChange={(e) => onChange(e.target.value)} className={cx(FIELD, 'h-10 w-40 tabular-nums')} />;
     case 'date':
       return <DateInput q={q} value={value} onChange={onChange} disabled={disabled} />;
+    case 'timings':
+      return <TimingsInput q={q} value={value} onChange={onChange} disabled={disabled} api={api} answers={answers} />;
     case 'login':
       return <LoginInput q={q} value={value} onChange={onChange} disabled={disabled} />;
     case 'time':
@@ -410,7 +582,7 @@ function Input({ q, value, onChange, disabled, onUpload, api, response }) {
   }
 }
 
-export function QuestionCard({ q, index, value, onChange, onUpload, api, response, error, readOnly = false, disabled = false }) {
+export function QuestionCard({ q, index, value, onChange, onUpload, api, response, answers, error, readOnly = false, disabled = false }) {
   const answered = !isEmpty(value);
   return (
     <Card variant="hairline" className={cx('flex scroll-mt-20 flex-col gap-3', error && 'border-danger-border')} data-question={q.id}>
@@ -441,7 +613,7 @@ export function QuestionCard({ q, index, value, onChange, onUpload, api, respons
           {answered ? answerText(q, value) : 'Skipped'}
         </p>
       ) : (
-        <Input q={q} value={value} onChange={onChange} disabled={disabled} onUpload={onUpload} api={api} response={response} />
+        <Input q={q} value={value} onChange={onChange} disabled={disabled} onUpload={onUpload} api={api} response={response} answers={answers} />
       )}
       {error ? (
         <p role="alert" className="flex items-center gap-1.5 text-11 font-medium text-danger-text">
