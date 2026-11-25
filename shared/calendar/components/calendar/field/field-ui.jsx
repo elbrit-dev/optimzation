@@ -1312,16 +1312,15 @@ function TripSheet({ item }) {
                     : "Claimed · in payroll";
   const sectionLabel = "text-[13px] font-bold text-gray-500";
   // the own car's TA, split over the days by the km driven (13 Nov 2026)
-  const carShares = calc.carBilled ? carDayShares(trip, calc.taClaimed ?? calc.ta) : null;
+  // the car's share on each of its days (25 Nov 2026: equal shares on the range's EQ / OS days)
+  const carShares = calc.carDays ? Object.fromEntries(Object.entries(calc.carDays).map(([d, a]) => [d, { amount: a, km: null }])) : null;
   // Trip cost's words: why the TA and the DA are what they are
   const paidDays = trip.days.filter((d) => d.payable).length;
   const taBasis = calc.travelBilled
     ? `fare ${inr(calc.fare)} + ${inr(calc.travelExtra)} by train / bus tickets`
     : calc.car
     ? calc.carBilled
-      ? calc.carPool?.trips > 1
-        ? `own car · ${calc.carPool.days} of ${calc.carPool.totalDays} days of the fuel bills for ${rangeLabel(calc.carPool.from, calc.carPool.to)}`
-        : `own car · fuel bills ${inr(calc.fuel)}${calc.capped ? ` · capped at ${inr(calc.cap)}` : ""} · split by km`
+      ? `own car · ${calc.carPool.days} of ${calc.carPool.totalDays} EQ / OS days of the fuel bills for ${rangeLabel(calc.carPool.from, calc.carPool.to)}`
       : "own car · fare until the bills are in"
     : trip.kind === "hq"
       ? "no travel on an HQ day"
@@ -1398,7 +1397,7 @@ function TripSheet({ item }) {
                 <ShieldCheck className="mt-0.5 h-4 w-4 shrink-0 text-gray-500" aria-hidden />
                 <span>
                   {calc.carApproved ? "approved up to" : "allowed up to"} <b className="text-gray-900">{inr(calc.cap)}</b>
-                  {calc.carPool?.trips > 1 && ` for ${rangeLabel(calc.carPool.from, calc.carPool.to)} · ${calc.carPool.trips} trips · fuel bills of all of them count`}
+                  {calc.carPool && ` for ${rangeLabel(calc.carPool.from, calc.carPool.to)} · its EQ / OS days · every fuel bill of them counts`}
                   {!req?.ask && ` · ${trip.km} km ÷ ${MILEAGE_KM_PER_L} km/l × ₹${FUEL_PRICE.Petrol}`}
                 </span>
               </span>
@@ -1456,7 +1455,7 @@ function TripSheet({ item }) {
             key={d.date}
             row={d}
             data={f.data}
-            car={calc.carBilled}
+            car={!!carShares?.[d.date]}
             last={i === trip.days.length - 1}
             multi={trip.days.length > 1}
             night={calc.nights.find((n) => n.date === d.date)}
@@ -1857,11 +1856,11 @@ function TripDay({ row, data, car, last, multi, night, bills, stayOff, billStrip
         {row.payable ? (
           <div className="mt-2 flex flex-col gap-1.5 rounded-xl bg-gray-50 px-3 py-2.5">
             {car ? (
-              // the own car: one TA line, this day's share of the fuel by km
+              // the own car: one TA line, this day's share of the fuel
               <MoneyRow label="TA" amount={carShare ? carShare.amount : null} note="fuel">
                 <Car className="mr-1 inline h-3.5 w-3.5 align-[-2px]" aria-hidden />
                 {jr ? `${jr.from} → ${jr.to} + local` : "Local"}
-                {carShare ? ` · ${carShare.km} km by car` : ""}
+                {carShare ? (carShare.km ? ` · ${carShare.km} km by car` : " · share of the fuel bills") : ""}
               </MoneyRow>
             ) : (row.travelLegs || []).filter((l) => !l.flown).length > 1 ? (
               // a day with more than one journey (in, a move between OS HQs, home): one line each (21 Nov 2026)

@@ -90,7 +90,8 @@ export function tripClaimRows(trip, claim, calc, data) {
         .map((b) => ({ b, type: "Travel", note: `TA by ticket · ${b.vendor || "train / bus"} · ${dayLabel(d.date)} · tickets ₹${tk.tickets} over the fare ₹${tk.base} (+₹${tk.extra})` }));
       rows.push(...billRows(lines, tk.tickets, "capped"));
     }
-    if (!calc.carBilled && !byTicket && d.ta > 0) {
+    // a car day's TA is its share of the fuel (below); the trip's other days keep their fare
+    if (!(calc.carDays && calc.carDays[d.date] != null) && !byTicket && d.ta > 0) {
       const basis = fareBasis(d, data);
       rows.push({
         date: d.date,
@@ -156,17 +157,18 @@ export function tripClaimRows(trip, claim, calc, data) {
       ...(claim.fuels || []).map((b) => ({ b, type: "Fuel", note: `Own car · fuel · ${trip.name}` })),
     ];
     const p = calc.carPool;
-    const own = billRows(bills, calc.ta, p && p.trips > 1 ? `this trip's share of the fuel bills for ${p.from.slice(8)}–${p.to.slice(8)}` : `capped at the approved ₹${calc.cap}`);
+    const carTotal = Object.values(calc.carDays || {}).reduce((s, x) => s + x, 0);
+    const own = billRows(bills, carTotal, `this trip's ${p.days} day${p.days > 1 ? "s" : ""} of the fuel bills for ${p.from.slice(8)}–${p.to.slice(8)} (approved up to ₹${p.cap})`);
     rows.push(...own);
-    // a range's other trips' bills pay this trip's share too (25 Nov 2026): the rest, no bill of its own
-    const rest = Math.round(calc.ta - own.reduce((s, r) => s + r.amount, 0));
-    if (p && rest > 0) {
-      const d = trip.days.find((x) => x.payable)?.date || trip.from;
+    // the range's other trips' bills pay this trip's days too (25 Nov 2026): the rest, no bill of its own
+    const rest = Math.round(carTotal - own.reduce((s, r) => s + r.amount, 0));
+    if (rest > 0) {
+      const d = Object.keys(calc.carDays).sort()[0];
       rows.push({
         date: d,
         type: "Travel",
         sub: "",
-        note: `TA · own car · ${trip.name} · share of the fuel bills for ${p.from.slice(8)}–${p.to.slice(8)} (${p.days} of ${p.totalDays} days; bills ₹${p.fuel}, approved up to ₹${p.cap})`,
+        note: `TA · own car · ${trip.name} · share of the fuel bills for ${p.from.slice(8)}–${p.to.slice(8)} (${p.days} of ${p.totalDays} EQ / OS days; bills ₹${p.fuel}, approved up to ₹${p.cap})`,
         amount: rest,
       });
     }
