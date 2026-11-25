@@ -1024,9 +1024,8 @@ export function shapeNonReport(t) {
 /* -> { pending, recent } */
 export async function fetchNonReportQueue(conn) {
   const m = (await nrCall(conn, "GET", { action: "queue" })).message || {};
-  // only the days waiting on the officer themselves (25 Nov 2026, the owner): a day that
-  // passed up to them because someone else let it wait ("escalation") is not listed
-  return { pending: (m.pending || []).map(shapeNonReport).filter((r) => r.can !== "escalation"), recent: (m.recent || []).map(shapeNonReport) };
+  // the ERP lists only the days waiting on this user (no passed-up ones, 25 Nov 2026)
+  return { pending: (m.pending || []).map(shapeNonReport), recent: (m.recent || []).map(shapeNonReport) };
 }
 /* decision: "Approve" | "Reject" (note needed) -> { request, events, recalc } */
 export async function decideNonReport(conn, id, decision, note) {
