@@ -818,6 +818,10 @@ function FieldClaimPanel({ conn, claim: c, canAct, history, desk, picked, canPic
   // a pending trip with a handwritten bill is approved on its own, after its confirm
   const handPending = trips.filter((t) => t.decision === "pending" && t.lines.some(isHand)).length;
   const fc = fieldCheck(c);
+  // a one-day trip with no outstation DA is an HQ / EQ day (the planner's "HQ & EQ days" card)
+  const isLocalTrip = (t) => t.from === t.to && !t.lines.some((l) => l.type === "Daily Allowance" && /Outstation/i.test(l.note || ""));
+  const localTrips = trips.filter(isLocalTrip);
+  const tourTrips = trips.filter((t) => !isLocalTrip(t));
   const n = { approved: 0, rejected: 0, pending: 0 };
   for (const t of trips) n[t.decision] += 1;
   // what the still-undecided trips add up to (after the officer's changes)
@@ -866,7 +870,34 @@ function FieldClaimPanel({ conn, claim: c, canAct, history, desk, picked, canPic
         <b style={{ fontSize: 16, ...tabNum }}>{inr(total)}</b>
       </div>
       <div style={{ display: "flex", flexDirection: "column", gap: 6, padding: desk ? "0 14px 12px" : "0 8px 10px" }}>
-        {trips.map((t) => (
+        {/* AS THE PLANNER SHOWS IT (25 Nov 2026, the user): the one-day HQ and EQ days together in one
+            "HQ & EQ days" block -- a row per day, each opened by itself -- and each outstation trip as
+            its own trip below it. */}
+        {localTrips.length > 0 && (
+          <LocalDaysGroup
+            trips={localTrips}
+            open={openOf(`g:${c.id}`, false)}
+            onToggle={() => toggle(`g:${c.id}`)}
+            desk={desk}
+            row={(t) => (
+              <TripRow
+                key={t.key}
+                conn={conn}
+                trip={t}
+                claim={c}
+                canAct={canAct && !busy}
+                desk={desk}
+                open={openOf(`r:${c.id}:${t.key}`, false)}
+                onToggle={() => toggle(`r:${c.id}:${t.key}`)}
+                onDecide={onDecide}
+                onAdjust={onAdjust}
+                visits={visits}
+                onBill={onBill}
+              />
+            )}
+          />
+        )}
+        {tourTrips.map((t) => (
           <TripRow
             key={t.key}
             conn={conn}
@@ -985,6 +1016,40 @@ const lowVisitDay = (visits, date, ls) => {
   return !!v && !v.other && ls.some((l) => TA_TYPES.includes(l.type)) && (v.visits || 0) <= LOW_VISITS;
 };
 const ORDER = { Travel: 0, Fuel: 1, Toll: 2, "Daily Allowance": 3, Stay: 4, Food: 5 };
+
+/* The claim's one-day HQ and EQ days as one block, as in the planner (25 Nov 2026): the header
+   says how many days, how they stand and what they come to; open it for a row per day. */
+function LocalDaysGroup({ trips, open, onToggle, desk, row }) {
+  const days = trips.length;
+  const eq = trips.filter((t) => t.lines.some((l) => l.type === "Travel" && Number(l.amount) > 0)).length;
+  const hq = days - eq;
+  const ta = trips.reduce((s, t) => s + t.lines.filter((l) => l.type === "Travel").reduce((a, l) => a + (Number(l.adjusted ? l.final : l.amount) || 0), 0), 0);
+  const total = trips.reduce((s, t) => s + t.amount, 0);
+  const k = { approved: 0, rejected: 0, pending: 0 };
+  for (const t of trips) k[t.decision] += 1;
+  const tone = k.rejected ? "#f04438" : k.pending ? "#fdb022" : "#12b76a";
+  const pill = (n, word, bg, fg) => (n ? <span style={{ fontSize: 11, fontWeight: 700, padding: "2px 8px", borderRadius: 99, background: bg, color: fg, whiteSpace: "nowrap" }}>{n} {word}</span> : null);
+  return (
+    <div style={{ background: "#fff", borderRadius: 10, boxShadow: `0 0 0 1px #e4e7ec, inset 3px 0 0 ${tone}`, overflow: "hidden" }}>
+      <button type="button" aria-expanded={open} onClick={onToggle} style={{ width: "100%", display: "flex", alignItems: "center", gap: 10, border: 0, background: "transparent", padding: "10px 10px 10px 13px", cursor: "pointer", textAlign: "left" }}>
+        <Chevron open={open} />
+        <span style={{ flex: 1, minWidth: 0, display: "flex", flexDirection: "column", gap: 3 }}>
+          <span style={{ fontSize: 14, fontWeight: 700 }}>HQ &amp; EQ days</span>
+          <span style={{ fontSize: 11.5, color: "#5b6576" }}>
+            {plural(days, "day")}{hq ? ` · ${hq} HQ` : ""}{eq ? ` · ${eq} EQ` : ""} · TA {inr(ta)} · DA {inr(total - ta)}
+          </span>
+          <span style={{ display: "flex", gap: 4, flexWrap: "wrap" }}>
+            {pill(k.pending, "to decide", "#fffaeb", "#b54708")}
+            {pill(k.approved, "approved", "#ecfdf3", "#067647")}
+            {pill(k.rejected, "rejected", "#fef3f2", "#b42318")}
+          </span>
+        </span>
+        <b style={{ fontSize: 15, flex: "none", whiteSpace: "nowrap", ...tabNum }}>{inr(total)}</b>
+      </button>
+      {open && <div style={{ display: "flex", flexDirection: "column", gap: 6, padding: desk ? "0 10px 10px" : "0 6px 8px" }}>{trips.map(row)}</div>}
+    </div>
+  );
+}
 
 function TripRow({ conn, trip: t, claim: c, canAct, desk, open, onToggle, onDecide, onAdjust, visits = {}, onBill }) {
   const [rejecting, setRejecting] = useState(false);
