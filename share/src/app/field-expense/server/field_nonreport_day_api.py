@@ -461,9 +461,11 @@ def main():
         pending = []
         for r in rows:
             x = shape(r, {}, user)
-            # only the days waiting on this user (25 Nov 2026, the owner): one passed up
-            # because its approver let it wait ("escalation") is not listed
-            if x["can"] and x["can"] != "escalation":
+            # only the days this user is the approver of (25 Nov 2026, the owner): not one passed
+            # up because its approver let it wait ("escalation"), nor every open day a System
+            # Manager may unblock ("override" -- a GM with that role saw the whole company).
+            # Both can still decide a day they open; it is just not in their list.
+            if x["can"] == "approver":
                 pending.append(x)
         since = frappe.utils.add_days(today, -30)
         done = frappe.get_all("Task", filters={"project": PROJECT, "subject": ["like", PREFIX + "%"], "status": ["in", ["Completed", "Cancelled"]],
