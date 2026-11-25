@@ -2889,6 +2889,7 @@ PLASMIC.registerComponent(ClaimApprovals, {
   props: {
     url: { type: "string", displayName: "GraphQL URL", description: "ERP GraphQL URL, e.g. https://erp.elbrit.org/api/method/graphql." },
     token: { type: "string", displayName: "Auth token", description: "The signed-in user's ERP token (key:secret)." },
+    variant: { type: "choice", displayName: "Variant", options: ["auto", "expense", "settlement"], defaultValue: "auto", description: "expense = claims, car requests, non-reported days (never settlement bills); settlement = settlement bills / CEO batches only. auto (use this) = settlement when the URL has ?view=settle, else expense." },
     mode: { type: "choice", displayName: "Mode", options: ["auto", "approve", "verify"], defaultValue: "auto", description: "auto (use this) = the views the signed-in person has, from their token: everyone 'To approve' (their own claims to approve); verifiers also 'To verify'; the IT role profile both, as an overview of everyone's. ?view=approve / ?view=verify in the URL picks the tab. approve / verify force one list." },
     verifiers: { type: "object", displayName: "Verifiers", advanced: true, defaultValue: ["sathish.admin@elbrit.org"], description: "Logins that get the 'To verify' view and can Verify. Must match the ERP workflow's verifier." },
     overviewRoleProfile: { type: "string", displayName: "Overview role profile", advanced: true, defaultValue: "IT", description: "Employees with this role profile see both views for everyone (read-only unless the ERP lets them act)." },

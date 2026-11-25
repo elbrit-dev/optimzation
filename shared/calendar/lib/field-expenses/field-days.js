@@ -394,6 +394,23 @@ export function buildTrips(rows, home = null) {
     }
   }
   close();
+  /* THE ARRIVAL NIGHT (23 Nov 2026, the user): a rep who travels out the day
+     BEFORE the first day of an outstation trip (often a holiday or Sunday, or
+     after an HQ day) sleeps there that night -- a hotel bill for it counts
+     on the trip, holiday or not (stay only; its food is not DA). trip.eve =
+     that date, only when it is in this month's days, is not an outstation day
+     itself, and no other outstation trip holds it (its night is that trip's). */
+  for (const t of trips) {
+    t.eve = null;
+    if (t.kind !== "tour") continue;
+    const d = new Date(t.from + "T00:00:00Z");
+    d.setUTCDate(d.getUTCDate() - 1);
+    const eve = d.toISOString().slice(0, 10);
+    const r = byDate.get(eve);
+    if (!r || (r.payable && AWAY_TYPES.has(r.dayType))) continue;
+    if (trips.some((o) => o !== t && o.kind === "tour" && o.from <= eve && o.to >= eve)) continue;
+    t.eve = eve;
+  }
   return trips;
 
   function finish(t) {

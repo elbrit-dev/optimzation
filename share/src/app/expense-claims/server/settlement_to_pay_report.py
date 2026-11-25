@@ -1,21 +1,27 @@
-# Report "Settlement To Pay" -- Script Report (not standard), ref Expense Claim
+# Report "Settlement To Pay" -- Script Report (not standard), ref Settlement Expense
 # (18 Nov 2026). For Accounts, in the ERP (management: paying is Accounts'
 # work in the ERP, not in the app): ONE ROW PER EMPLOYEE with what the CEO
 # approved and is not paid yet --
-#   bills   submitted Expense Claims on 2120 Employee Expense Payable, Unpaid
-#           (booked by the Settlement API at the CEO's approval)
+#   bills   Settlement Expenses the CEO approved, each booked as ONE Journal
+#           Entry (23 Nov 2026; was an Expense Claim) whose credit on 2120
+#           Employee Expense Payable is not paid yet
 #   cash    submitted Employee Advances on "Employee Expense Advances", Unpaid
 # -- with the employee's bank details for the bank upload (Export -> Excel).
 #
-# Paying one employee: Payment Entry -> Pay -> Party Type Employee -> the
-# employee -> Paid To 2120 -> Get Outstanding Documents -> Reference No = the
-# UTR -> Submit (the bills turn Paid). A cash advance: open it -> Payment.
+# Paying: the Settlement Payments page (/settlement-payments) -- per employee a
+# Bank Entry (Journal Entry) against each bill's Journal Entry (ERPNext takes no
+# Payment Entry against a Journal Entry owed to an employee), and it marks the
+# bills Paid. A cash advance: open it -> Payment.
 #
 # Report script (safe_exec, locals apart): no comprehensions over local
 # names, no defs; the answer is `data = [columns, rows]`.
 
 PAYABLE = "2120 - Employee Expense Payable - ELPL"
 ADVANCE = "Employee Expense Advances - ELPL"
+# Settlement Settings (23 Nov 2026) override these when filled in
+if frappe.db.exists("DocType", "Settlement Settings"):
+    PAYABLE = frappe.db.get_single_value("Settlement Settings", "payable_account") or PAYABLE
+    ADVANCE = frappe.db.get_single_value("Settlement Settings", "advance_account") or ADVANCE
 columns = [
     {"fieldname": "employee", "label": "Employee", "fieldtype": "Link", "options": "Employee", "width": 110},
     {"fieldname": "employee_name", "label": "Name", "fieldtype": "Data", "width": 190},
@@ -32,11 +38,17 @@ columns = [
     {"fieldname": "bank_ok", "label": "Bank Details", "fieldtype": "Data", "width": 110},
 ]
 by = {}
-for c in frappe.get_all("Expense Claim", filters={"docstatus": 1, "status": "Unpaid", "payable_account": PAYABLE},
-                        fields=["employee", "employee_name", "posting_date", "grand_total", "total_amount_reimbursed"], limit_page_length=0):
-    due = frappe.utils.flt(c.grand_total) - frappe.utils.flt(c.total_amount_reimbursed)
-    if due <= 0.005:
-        continue
+for c in frappe.get_all("Settlement Expense", filters={"status": "Verified", "journal_entry": ["is", "set"], "payable": [">", 0]},
+                        fields=["employee", "employee_name", "journal_entry", "modified"], limit_page_length=0):
+    # still owed on the bill's Journal Entry (Payment Ledger)
+    led = frappe.db.sql("""select sum(amount_in_account_currency) from `tabPayment Ledger Entry`
+        where against_voucher_type = 'Journal Entry' and against_voucher_no = %s and party_type = 'Employee'
+          and party = %s and account = %s and delinked = 0""", (c.journal_entry, c.employee, PAYABLE))
+    s = frappe.utils.flt(led[0][0] if led and led[0] else 0, 2)
+    due = s if s > 0 else 0        # 2120 is a Payable: below 0 is overpaid, nothing owed
+    if due <= 0.005 or frappe.db.get_value("Journal Entry", c.journal_entry, "docstatus") != 1:
+        continue                   # paid, or its booking cancelled
+    c.posting_date = frappe.db.get_value("Journal Entry", c.journal_entry, "posting_date")
     r = by.get(c.employee) or {"employee": c.employee, "employee_name": c.employee_name, "bills": 0, "bills_amount": 0,
                                "advances": 0, "advance_amount": 0, "total": 0, "oldest": None}
     r["bills"] = r["bills"] + 1

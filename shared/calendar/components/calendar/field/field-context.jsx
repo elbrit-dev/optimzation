@@ -15,6 +15,7 @@ import { TAG_IDS } from "@calendar/components/calendar/constants";
 import * as store from "@calendar/lib/field-expenses/trip-claims-store";
 import * as monthErp from "@calendar/lib/field-expenses/erp-claim";
 import { listMyBills, releaseTripBill, restoreLegacyBill, saveBillCard } from "@calendar/lib/field-expenses/bill-reader";
+import { helpSummary, listMonthHelp } from "@calendar/lib/field-expenses/trip-help";
 
 const FieldContext = createContext(null);
 
@@ -120,6 +121,24 @@ export function FieldExpensesProvider({ children }) {
     refreshCarRequests();
   }, [refreshCarRequests]);
   const carRequests = useMemo(() => (carReqs.emp === emp ? carReqs.list : []), [carReqs, emp]);
+
+  // the rep's help requests on the month's trips (24 Nov 2026): each trip card
+  // and its Help bar take their colour from them -- read once, again after a
+  // request or reply is sent ("seen" is bumped so the dots re-read too)
+  const [help, setHelp] = useState({ key: null, list: [], seen: 0 });
+  const helpKey = emp && viewingSelf ? `${emp}|${month}` : null;
+  const refreshHelp = useCallback(() => {
+    if (!helpKey) return Promise.resolve([]);
+    const last = new Date(Number(month.slice(0, 4)), Number(month.slice(5, 7)), 0).getDate();
+    return listMonthHelp(`${month}-01`, `${month}-${String(last).padStart(2, "0")}`).then((list) => {
+      setHelp((h) => ({ key: helpKey, list, seen: h.seen + 1 }));
+      return list;
+    });
+  }, [helpKey, month]);
+  useEffect(() => {
+    refreshHelp();
+  }, [refreshHelp]);
+  const helpList = useMemo(() => (help.key === helpKey ? help.list : []), [help.key, help.list, helpKey]);
 
   const value = useMemo(() => {
     const rows = state.data?.rows || [];
@@ -268,6 +287,10 @@ export function FieldExpensesProvider({ children }) {
       trips,
       claimed,
       claimFor: (id) => byTrip.get(id) || null,
+      // a trip's help requests, light ({ name, status, team }), and their summary
+      helpOf: (trip) => helpList.filter((t) => t.from === trip.from && t.to === trip.to),
+      helpFor: (trip) => helpSummary(helpList.filter((t) => t.from === trip.from && t.to === trip.to)),
+      helpSeenTick: help.seen,
       requests: liveRequests,
       plans,
       manager,
@@ -286,7 +309,7 @@ export function FieldExpensesProvider({ children }) {
       // the month's ERP claim: { status, claim: { name, status, open, total, lines } | null }
       monthClaim: monthClaim.month === month ? monthClaim : { month, status: "loading", claim: null, error: null },
     };
-  }, [month, viewed, current, setSelectedDate, state, viewingSelf, sheet, stripOpen, claims, emp, allEvents, users, monthClaim, carRequests]);
+  }, [month, viewed, current, setSelectedDate, state, viewingSelf, sheet, stripOpen, claims, emp, allEvents, users, monthClaim, carRequests, helpList, help.seen]);
 
   // from: "local" -- opened from the HQ & EQ days list, closing goes back there
   const openTrip = useCallback((id, from) => setSheet({ kind: "trip", id, ...(from ? { from } : {}) }), []);
@@ -306,12 +329,16 @@ export function FieldExpensesProvider({ children }) {
      added to the cards not yet sent that hold its nights */
   const tripsRef = useRef([]);
   tripsRef.current = value.trips || [];
+  // each trip's claim as shown -- a trip sent from another phone is rebuilt from the ERP
+  const sourcesOf = (claimed) => (claimed || []).map((x) => ({ tripId: x.trip.id, status: x.claim?.status || "unclaimed", stays: x.claim?.stays || [] }));
+  const claimedRef = useRef([]);
+  claimedRef.current = value.claimed || [];
   useEffect(() => {
     if (!emp || !viewingSelf) return;
     // a reworked month (24 Nov 2026): bills under a trip that no longer exists move to the trip holding their dates
     store.carryBills(emp, value.trips || []);
-    store.spreadStays(emp, value.trips || []);
-  }, [emp, viewingSelf, value.trips, claims]);
+    store.spreadStays(emp, value.trips || [], { sources: sourcesOf(value.claimed) });
+  }, [emp, viewingSelf, value.trips, value.claimed, claims]);
 
   /* BILLS ON EVERY DEVICE (25 Nov 2026, the owner): once per sign-in, the rep's uploaded bills
      the ERP holds (not yet on a claim) come back onto their trip cards on this device -- and a
@@ -340,9 +367,14 @@ export function FieldExpensesProvider({ children }) {
           return id;
         }),
       // a hotel bill on several cards (spreadStays): freed only when no sent trip still claims it
-      removeBill: (tripId, kind, id) => store.removeBill(emp, tripId, kind, id).then((gone) => (gone && !gone.stillUsed ? releaseTripBill(gone) : null)),
+      removeBill: (tripId, kind, id) =>
+        store.removeBill(emp, tripId, kind, id).then((gone) => {
+          // also a trip the ERP holds (sent from another phone) that claims the same bill
+          const sentElsewhere = !!gone?.url && claimedRef.current.some((x) => x.trip.id !== tripId && (x.claim?.status || "unclaimed") !== "unclaimed" && (x.claim?.stays || []).some((b) => b.url === gone.url));
+          return gone && !gone.stillUsed && !sentElsewhere ? releaseTripBill(gone) : null;
+        }),
       // a hotel bill onto every other card its nights fall in (23 Nov 2026)
-      spreadStays: (force) => store.spreadStays(emp, tripsRef.current, { force }),
+      spreadStays: (force) => store.spreadStays(emp, tripsRef.current, { force, sources: sourcesOf(claimedRef.current) }),
       submitTrip: (tripId, totals) => store.submitTrip(emp, tripId, totals),
       // the whole month's claim to the reporting officer, and back
       sendMonth: () => monthErp.sendMonth({ employee: emp, month }).finally(refreshMonthClaim),
@@ -353,8 +385,11 @@ export function FieldExpensesProvider({ children }) {
       requestOwnCar: (req) => monthErp.requestCar(req).finally(refreshCarRequests),
       withdrawRequest: (id) => monthErp.withdrawCar(id).finally(refreshCarRequests),
       refreshCarRequests,
+      // after a help request / reply is sent, or one is opened (its dot goes)
+      refreshHelp,
+      seenHelp: () => setHelp((h) => ({ ...h, seen: h.seen + 1 })),
     }),
-    [emp, month, refreshMonthClaim, refreshCarRequests]
+    [emp, month, refreshMonthClaim, refreshCarRequests, refreshHelp]
   );
 
   return (

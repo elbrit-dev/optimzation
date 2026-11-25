@@ -100,6 +100,11 @@ const tripYearDate = (iso, from, to) => {
 const YEAR_OFF = (iso, fixed) =>
   `The year on this bill reads as ${iso.slice(0, 4)}, not ${fixed.slice(0, 4)}. Check the date below (${shortDate(fixed)} ${fixed.slice(0, 4)}) before adding it.`;
 
+/* The first night a hotel bill may count on the trip: the ARRIVAL NIGHT
+   (trip.eve, the night before its first day -- the rep travelled out the day
+   before, holiday or not; 23 Nov 2026), else the trip's first day. Stays only. */
+const stayFrom = (trip) => (trip?.eve && trip.eve === addDays(trip.from, -1) ? trip.eve : trip.from);
+
 const sure = (c) => typeof c === "number" && c >= MIN_READ;
 /* 13 Nov 2026: a bill the reader takes for ANOTHER kind (cab, auto, train ...)
    is refused once it is fairly sure of it -- not sent to "enter it by hand",
@@ -143,7 +148,8 @@ export function tripBillVerdict(read, slot, trip) {
   }
   // "dta" (23 Nov 2026): the trip's ONE upload for RBM and above with no own
   // car approved -- a hotel bill to Stay, a food bill to Food, a train / bus
-  // ticket to Travel. "travels": train / bus tickets only (an EQ day over 100 km).
+  // ticket to Travel. "travels": train / bus tickets only (an EQ day over 100 km,
+  // or a BE / ABM's OS trip -- tickets are for every role since 24 Nov 2026).
   if (slot === "dta" || slot === "travels") {
     const t = read?.title;
     if (slot === "dta" && t === "Hotel bill") return tripBillVerdict(read, "stays", trip);
@@ -225,13 +231,13 @@ export function tripBillVerdict(read, slot, trip) {
   if (!read.handwritten && slot === "stays") {
     const ci = ISO.test(String(v.check_in || "")) && sure(conf.check_in) ? v.check_in : null;
     const co = ISO.test(String(v.check_out || "")) && sure(conf.check_out) ? v.check_out : null;
-    if (ci && co && (co <= trip.from || ci > trip.to)) {
-      const fci = tripYearDate(ci, trip.from, trip.to);
+    if (ci && co && (co <= stayFrom(trip) || ci > trip.to)) {
+      const fci = tripYearDate(ci, stayFrom(trip), trip.to);
       if (fci) {
         const fco = `${fci.slice(0, 4)}${co.slice(4)}` > fci ? `${fci.slice(0, 4)}${co.slice(4)}` : addDays(fci, 1);
         return unreadable({ ...read, values: { ...v, check_in: fci, check_out: fco } }, s.kind, YEAR_OFF(ci, fci));
       }
-      return { ok: false, reason: `This stay is ${span(ci, addDays(co, -1))}${ci.slice(0, 4) !== trip.from.slice(0, 4) ? ` ${ci.slice(0, 4)}` : ""} — outside this trip (${span(trip.from, trip.to)}).` };
+      return { ok: false, reason: `This stay is ${span(ci, addDays(co, -1))}${ci.slice(0, 4) !== trip.from.slice(0, 4) ? ` ${ci.slice(0, 4)}` : ""} — outside this trip (${span(stayFrom(trip), trip.to)}).` };
     }
   }
   // a handwritten bill whose date (read off the handwriting) is off by its year:
@@ -261,15 +267,16 @@ export function tripBillVerdict(read, slot, trip) {
       // check-out -- the night before it, else that day itself
       if (!ISO.test(String(v.date || "")) || !sure(conf.date)) return unreadable(read, s.kind);
       const prev = addDays(v.date, -1);
-      checkIn = prev >= trip.from && prev <= trip.to ? prev : v.date;
+      checkIn = prev >= stayFrom(trip) && prev <= trip.to ? prev : v.date;
       checkOut = addDays(checkIn, 1);
     }
     if (!checkIn) checkIn = addDays(checkOut, -1);
     if (!checkOut || checkOut <= checkIn) checkOut = addDays(checkIn, 1);
     const all = [];
     for (let d = checkIn; d < checkOut && all.length < 62; d = addDays(d, 1)) all.push(d);
-    const nights = all.filter((d) => d >= trip.from && d <= trip.to);
-    if (!nights.length) return { ok: false, reason: `This stay is ${span(checkIn, addDays(checkOut, -1))} — outside this trip (${span(trip.from, trip.to)}).` };
+    // its nights on this trip, the arrival night included (stayFrom)
+    const nights = all.filter((d) => d >= stayFrom(trip) && d <= trip.to);
+    if (!nights.length) return { ok: false, reason: `This stay is ${span(checkIn, addDays(checkOut, -1))} — outside this trip (${span(stayFrom(trip), trip.to)}).` };
     return { ...base, amount: Math.round((billed * nights.length) / all.length), date: nights[0], nights, checkIn, checkOut };
   }
 
@@ -314,8 +321,8 @@ export function manualBillVerdict(entry, slot, trip, opts = {}) {
     if (checkOut <= checkIn) return { ok: false, reason: "Check-out must be after check-in." };
     const all = [];
     for (let d = checkIn; d < checkOut && all.length < 62; d = addDays(d, 1)) all.push(d);
-    const nights = all.filter((d) => d >= trip.from && d <= trip.to);
-    if (!nights.length) return { ok: false, reason: `That stay is ${span(checkIn, addDays(checkOut, -1))} — outside this trip (${span(trip.from, trip.to)}).` };
+    const nights = all.filter((d) => d >= stayFrom(trip) && d <= trip.to);
+    if (!nights.length) return { ok: false, reason: `That stay is ${span(checkIn, addDays(checkOut, -1))} — outside this trip (${span(stayFrom(trip), trip.to)}).` };
     return { ...base, amount: Math.round((billed * nights.length) / all.length), date: nights[0], nights, checkIn, checkOut };
   }
   if (!ISO.test(String(e.date || ""))) return { ok: false, reason: "Enter the bill's date." };

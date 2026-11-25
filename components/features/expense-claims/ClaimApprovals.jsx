@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { addClaimComment, adjustTripTA, applyAction, decideCarRequest, decideNonReport, decideTrip, SETTLEMENT_ON, fetchCarQueue, fetchClaimDepartments, fetchClaimVisits, fetchCeoBatches, fetchMe, fetchNonReportQueue, fetchQueue, fetchSettlementQueue, makeConn, saveSanctioned, withTripMarks } from "./data/claimsApi";
+import { addClaimComment, adjustTripTA, applyAction, decideCarRequest, decideNonReport, decideTrip, fetchCarQueue, fetchClaimDepartments, fetchClaimVisits, fetchCeoBatches, fetchMe, fetchNonReportQueue, fetchQueue, fetchSettlementQueue, makeConn, saveSanctioned, withTripMarks } from "./data/claimsApi";
 import { SettleQueue, SettleSheet } from "./settlement";
 import { CeoBatches } from "./ceoBatches";
 import { tripsOf } from "./fieldTrips";
@@ -94,7 +94,16 @@ const payrollMonth = () => MON[(new Date().getMonth() + 1) % 12];
 // "TA · Thu 22 Oct · Bangalore → Tumkur" -> "Bangalore → Tumkur" (the day is the group's header)
 const dayNote = (note) => String(note || "").replace(/^(TA|DA) · [^·]+ · /, "");
 
-export default function ClaimApprovals({ url, token, mode = "auto", verifiers = VERIFIERS, overviewRoleProfile = "IT", className, onCountChange }) {
+export default function ClaimApprovals({ url, token, mode = "auto", variant = "auto", verifiers = VERIFIERS, overviewRoleProfile = "IT", className, onCountChange }) {
+  // TWO VARIANTS (24 Nov 2026, the user): expense approval never shows the
+  // settlement bills, and settlement approval (?view=settle, the ring nav's
+  // "Settlement approval") shows only them. auto = from the URL.
+  const [kind] = useState(() => {
+    if (variant === "expense" || variant === "settlement") return variant;
+    const v = typeof window !== "undefined" ? new URLSearchParams(window.location.search).get("view") : null;
+    return v === "settle" ? "settlement" : "expense";
+  });
+  const settleOnly = kind === "settlement";
   const rootRef = useRef(null);
   const w = useWidth(rootRef);
   const desk = w >= 900;
@@ -110,6 +119,7 @@ export default function ClaimApprovals({ url, token, mode = "auto", verifiers = 
   // The ring nav tiles link here with ?view=approve / ?view=verify.
   const [tab, setTab] = useState(() => {
     if (mode !== "auto") return mode;
+    if (settleOnly) return "settle";
     const v = typeof window !== "undefined" ? new URLSearchParams(window.location.search).get("view") : null;
     return v === "verify" ? "verify" : v === "cars" ? "cars" : v === "settle" ? "settle" : v === "history" ? "history" : "approve";
   });
@@ -121,7 +131,7 @@ export default function ClaimApprovals({ url, token, mode = "auto", verifiers = 
 
   const load = useCallback(async () => {
     if (!conn) return setLists({ status: "idle" });
-    setLists((s) => ({ ...s, status: s.approve || s.verify ? "ready" : "loading" }));
+    setLists((s) => ({ ...s, status: s.approve || s.verify || s.settle || s.ceo ? "ready" : "loading" }));
     try {
       const me = await loggedUser(conn);
       const [profile] = await Promise.all([
@@ -136,12 +146,22 @@ export default function ClaimApprovals({ url, token, mode = "auto", verifiers = 
       const be = /^BE\d*(-|$)/i.test(String(profile || "").trim());
       // A reporting officer keeps read access to claims they approved, so
       // "In Review" is only ever listed for the verifiers and the overview.
-      const want = mode === "auto" ? ["approve", ...(verifier || overview ? ["verify"] : []), "history"] : [mode];
+      // each variant loads only its own lists: settlement = the settlement
+      // queue / CEO batches; expense = claims, car requests, non-reported days
+      const want = settleOnly ? [] : mode === "auto" ? ["approve", ...(verifier || overview ? ["verify"] : []), "history"] : [mode];
       const out = { overview, verifier, be };
       // settlement requests (16 Nov 2026) and own-car requests (12 Nov 2026),
       // asked for at the same time as the claim lists (17 Nov 2026)
       const extra = mode === "auto" && !be
-        ? Promise.all([SETTLEMENT_ON ? fetchSettlementQueue(conn).catch(() => null) : null, fetchCarQueue(conn).catch(() => null), SETTLEMENT_ON ? fetchCeoBatches(conn).catch(() => null) : null, fetchNonReportQueue(conn).catch(() => null)])
+        // a failed list keeps its tab, with the error and Try again (23 Nov 2026:
+        // it used to become null and the tab silently went away)
+        ? Promise.all([
+            settleOnly ? fetchSettlementQueue(conn).catch((e) => { if (e.status !== 403) out.failed = { ...out.failed, settle: e.message || "no answer from the server" }; return null; }) : null,
+            settleOnly ? null : fetchCarQueue(conn).catch((e) => { if (e.status !== 403) out.failed = { ...out.failed, cars: e.message || "no answer from the server" }; return null; }),
+            // refused (403) = this login is not the CEO: no batches, not a failure
+            settleOnly ? fetchCeoBatches(conn).catch((e) => { if (e.status !== 403) out.failed = { ...out.failed, settle: out.failed?.settle || e.message || "no answer from the server" }; return null; }) : null,
+            settleOnly ? null : fetchNonReportQueue(conn).catch(() => null),
+          ])
         : Promise.resolve([null, null, null, null]);
       await Promise.all(
         want.map(async (m) => {
@@ -192,7 +212,7 @@ export default function ClaimApprovals({ url, token, mode = "auto", verifiers = 
     } catch (e) {
       setLists({ status: "error", error: e.message });
     }
-  }, [conn, mode, verifiers, overviewRoleProfile]);
+  }, [conn, mode, verifiers, overviewRoleProfile, settleOnly]);
 
   useEffect(() => { load(); }, [load, tick]);
 
@@ -202,15 +222,17 @@ export default function ClaimApprovals({ url, token, mode = "auto", verifiers = 
   const has = {
     approve: (lists.approve || []).length,
     verify: (lists.verify || []).length,
-    settle: lists.settle || lists.ceo ? 1 : 0,
-    cars: (lists.cars || []).length + (lists.carsRecent || []).length,
+    settle: lists.settle || lists.ceo || lists.failed?.settle ? 1 : 0,
+    cars: (lists.cars || []).length + (lists.carsRecent || []).length + (lists.failed?.cars ? 1 : 0),
     nonrep: (lists.nonrep || []).length + (lists.nonrepRecent || []).length,
     history: (lists.history || []).length,
   };
-  const TABS = ["approve", "verify", "settle", "nonrep", "cars", "history"];
-  const visible = mode === "auto" ? (TABS.filter((m) => has[m]).length ? TABS.filter((m) => has[m]) : ["approve"]) : [mode];
+  // the settlement variant is the settle view alone (one tab = no tab bar);
+  // the expense variant never has it
+  const TABS = settleOnly ? ["settle"] : ["approve", "verify", "nonrep", "cars", "history"];
+  const visible = mode === "auto" ? (settleOnly ? ["settle"] : TABS.filter((m) => has[m]).length ? TABS.filter((m) => has[m]) : ["approve"]) : [mode];
   // a BE seat with nothing at all here: one line, not an empty approvals page
-  const beIdle = lists.status === "ready" && !!lists.be && !(lists.approve || []).length && !(lists.verify || []).length && !(lists.history || []).length;
+  const beIdle = !settleOnly && lists.status === "ready" && !!lists.be && !(lists.approve || []).length && !(lists.verify || []).length && !(lists.history || []).length;
   const ceoWaiting = (lists.ceo?.batches || []).filter((b) => b.status === "waiting").length;
   const workOf = (m) => (m === "settle" ? (lists.ceo ? ceoWaiting : settleWaiting) : m === "history" ? 0 : (lists[m] || []).length);
   useEffect(() => {
@@ -229,10 +251,14 @@ export default function ClaimApprovals({ url, token, mode = "auto", verifiers = 
   const cars = current === "cars";
   const settleTab = current === "settle";
   const nonrepTab = current === "nonrep";
+  // the settlement / batch or car list of this tab failed to load: its error
+  const failedNow = (settleTab && lists.failed?.settle) || (cars && lists.failed?.cars) || "";
   const claims = useMemo(() => (cars || settleTab || nonrepTab ? [] : lists[current] || []), [cars, settleTab, nonrepTab, lists, current]);
   useEffect(() => {
-    onCountChange?.((lists.approve || []).length + (lists.verify || []).length + (lists.cars || []).length + (lists.settle?.waiting || []).length + (lists.nonrep || []).length);
-  }, [lists, onCountChange]);
+    onCountChange?.(settleOnly
+      ? (lists.ceo ? (lists.ceo.batches || []).filter((b) => b.status === "waiting").length : (lists.settle?.waiting || []).length)
+      : (lists.approve || []).length + (lists.verify || []).length + (lists.cars || []).length + (lists.nonrep || []).length);
+  }, [lists, onCountChange, settleOnly]);
 
   // the accordion: search, open / closed (each key flips its default), the bill preview
   const [preview, setPreview] = useState(null); // { file, files }
@@ -334,10 +360,12 @@ export default function ClaimApprovals({ url, token, mode = "auto", verifiers = 
       <main style={{ padding: pad, display: "flex", flexDirection: "column", gap: 14, maxWidth: 1400, margin: "0 auto" }}>
         <header style={{ display: "flex", alignItems: "flex-end", gap: 12, flexWrap: "wrap" }}>
           <div style={{ flex: 1, minWidth: 0, display: "flex", flexDirection: "column", gap: 3 }}>
-            <span style={{ fontSize: desk ? 24 : 20, fontWeight: 700, letterSpacing: "-0.02em" }}>{mode === "auto" ? "Expense approvals" : MODES[mode].title}</span>
+            <span style={{ fontSize: desk ? 24 : 20, fontWeight: 700, letterSpacing: "-0.02em" }}>{mode === "auto" ? (settleOnly ? "Settlement approvals" : "Expense approvals") : MODES[mode].title}</span>
             <span style={{ fontSize: 13, color: "#5b6576" }}>
               {lists.status !== "ready"
                 ? " "
+                : failedNow && !(settleTab ? lists.settle || lists.ceo : lists.cars)
+                  ? "This list could not be loaded"
                 : nonrepTab
                   ? ((lists.nonrep || []).length ? `${(lists.nonrep || []).length} non-reported ${(lists.nonrep || []).length === 1 ? "day" : "days"} waiting for you` : "No non-reported day waits on you")
                 : cars
@@ -353,9 +381,9 @@ export default function ClaimApprovals({ url, token, mode = "auto", verifiers = 
         </header>
 
         {mode === "auto" && visible.length > 1 && (
-          <div role="tablist" style={{ display: "flex", gap: 4, padding: 4, borderRadius: 12, background: "#e9ecf1", alignSelf: "flex-start" }}>
+          <div role="tablist" style={{ display: "flex", gap: 4, padding: 4, borderRadius: 12, background: "#e9ecf1", alignSelf: "flex-start", maxWidth: "100%", overflowX: "auto", whiteSpace: "nowrap" }}>
             {visible.map((m) => (
-              <button key={m} type="button" role="tab" aria-selected={tab === m} onClick={() => { setTab(m); setPicked(new Set()); }} style={{ height: 36, padding: "0 14px", borderRadius: 9, border: 0, background: tab === m ? "#fff" : "transparent", boxShadow: tab === m ? "0 1px 2px rgba(16,24,40,.12)" : "none", fontSize: 13, fontWeight: 600, cursor: "pointer" }}>
+              <button key={m} type="button" role="tab" aria-selected={tab === m} onClick={() => { setTab(m); setPicked(new Set()); }} style={{ flex: "none", height: 44, padding: "0 14px", borderRadius: 9, border: 0, background: tab === m ? "#fff" : "transparent", boxShadow: tab === m ? "0 1px 2px rgba(16,24,40,.12)" : "none", fontSize: 13, fontWeight: 600, cursor: "pointer", whiteSpace: "nowrap" }}>
                 {m === "approve" ? "Claims" : m === "verify" ? "To verify" : m === "history" ? "History" : m === "settle" ? (lists.ceo ? "Batches" : "Bills") : m === "nonrep" ? "Non-reported days" : "Car requests"}{m !== "history" && <span style={{ color: workOf(m) ? "#b54708" : "#8a93a3" }}> {workOf(m)}</span>}
               </button>
             ))}
@@ -370,10 +398,16 @@ export default function ClaimApprovals({ url, token, mode = "auto", verifiers = 
         {lists[current + "Error"] && <Note>{lists[current + "Error"]}</Note>}
         {lists.status === "loading" && <div aria-busy="true" style={{ ...card, height: 180, display: "grid", placeItems: "center" }}><Spinner size={24} /></div>}
 
-        {lists.status === "ready" && cars && <CarQueue pending={lists.cars || []} recent={lists.carsRecent || []} desk={desk} onOpen={setOpenCar} />}
+        {lists.status === "ready" && failedNow && (
+          <Note style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
+            <span style={{ flex: 1, minWidth: 180 }}>{settleTab ? "Bills" : "Car requests"} could not be loaded: {failedNow}</span>
+            <button type="button" className="ec-ghost" onClick={() => setTick((t) => t + 1)} style={{ ...btn.ghost, height: 44, fontSize: 13 }}>Try again</button>
+          </Note>
+        )}
+        {lists.status === "ready" && cars && !lists.failed?.cars && <CarQueue pending={lists.cars || []} recent={lists.carsRecent || []} desk={desk} onOpen={setOpenCar} />}
         {lists.status === "ready" && nonrepTab && <NonRepQueue pending={lists.nonrep || []} recent={lists.nonrepRecent || []} desk={desk} onOpen={setOpenNr} />}
         {lists.status === "ready" && settleTab && lists.ceo && <CeoBatches conn={conn} data={lists.ceo} desk={desk} onDone={done} onError={(m) => say(m, "error")} onChanged={() => setTick((t) => t + 1)} />}
-        {lists.status === "ready" && settleTab && !lists.ceo && <SettleQueue conn={conn} data={lists.settle} desk={desk} onOpen={(r, act) => setOpenSettle({ r, act })} onDone={done} onError={(m) => { say(m, "error"); setTick((t) => t + 1); }} />}
+        {lists.status === "ready" && settleTab && !lists.ceo && (lists.settle || !lists.failed?.settle) && <SettleQueue conn={conn} data={lists.settle} desk={desk} onOpen={(r, act) => setOpenSettle({ r, act })} onDone={done} onError={(m) => { say(m, "error"); setTick((t) => t + 1); }} />}
 
         {lists.status === "ready" && !beIdle && !cars && !settleTab && !nonrepTab && (
           <>

@@ -14,13 +14,15 @@ def held_up(d, i, now):
     m = frappe.db.get_value("Employee", {"user_id": st.user, "status": "Active"}, "name")
     if not m or not frappe.db.get_value("User", st.user, "enabled"):
         return "No longer active -- skipped"
+    # a High-risk bill never skips a level -- not for leave, not for time: it
+    # waits (23 Nov 2026: was checked after leave, so it skipped an ABM on leave)
+    for b in d.bills or []:
+        if frappe.utils.flt(b.ai_score) < 70:
+            return ""
     day = str(now)[:10]
     if frappe.db.exists("Leave Application", {"employee": m, "status": "Approved", "docstatus": 1,
                                               "from_date": ["<=", day], "to_date": [">=", day]}):
         return "On leave -- skipped"
-    for b in d.bills or []:
-        if frappe.utils.flt(b.ai_score) < 70:
-            return ""        # a High-risk bill never skips a level: it waits
     arrived = frappe.utils.get_datetime(d.creation)
     if i > 0 and d.steps[i - 1].decided_on:
         prev = frappe.utils.get_datetime(d.steps[i - 1].decided_on)
@@ -64,7 +66,7 @@ def sweep(d, now, tell):
             notify(st.user, "Moved up to " + str(d.steps[i + 1].approver_name or d.next_approver) + " (no action in 2 working days): "
                    + str(d.employee_name) + " · " + frappe.utils.fmt_money(d.amount, currency="INR"), d.name)
     if moved and tell:
-        notify(d.next_approver, ("Settlement" if d.kind == "Bills" else "Cash request") + " to approve: " + str(d.employee_name)
+        notify(d.next_approver, ("Settlement" if d.kind == "Bills" else "Advance request") + " to approve: " + str(d.employee_name)
                + " · " + frappe.utils.fmt_money(d.amount, currency="INR"), d.name)
     return moved
 

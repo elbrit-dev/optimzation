@@ -28,9 +28,11 @@ env:
   - variable: NEXT_PUBLIC_EXPENSE_APPROVALS_FOR_ALL
     value: "1"
     availability: [BUILD, RUNTIME]
+  # 25 Nov 2026 (the user): Settlement on for everyone -- the Claims / Settlements pages and the
+  # settlement requests / CEO batches in the approvals (were "0").
   - variable: NEXT_PUBLIC_CLAIMS_FOR_ALL
-    value: "0"
+    value: "1"
     availability: [BUILD, RUNTIME]
   - variable: NEXT_PUBLIC_SETTLEMENT
-    value: "0"
+    value: "1"
     availability: [BUILD, RUNTIME]

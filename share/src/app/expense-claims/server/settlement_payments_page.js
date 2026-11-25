@@ -13,6 +13,8 @@
     var esc = function (s) { return String(s == null ? "" : s).replace(/[&<>"']/g, function (c) { return { "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]; }); };
     var inr = new Intl.NumberFormat("en-IN", { style: "currency", currency: "INR", maximumFractionDigits: 2, minimumFractionDigits: 2 });
     var money = function (v) { return inr.format(v || 0); };
+    // a payment: the bills' Bank Entry is a Journal Entry (ACC-JV-), an advance's a Payment Entry (23 Nov 2026)
+    var docUrl = function (n) { return (/^ACC-JV-/.test(String(n)) ? "/app/journal-entry/" : "/app/payment-entry/") + encodeURIComponent(n); };
     var MON = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
     var dfmt = function (d) { if (!d) return ""; var p = String(d).slice(0, 10).split("-"); return p[2] + " " + MON[+p[1] - 1] + " " + p[0]; };
     var plural = function (n, w, ws) { return n + " " + (n === 1 ? w : (ws || w + "s")); };
@@ -154,7 +156,8 @@
       var docs = r.claims.map(function (c) {
         return '<tr class="sp-doc"><td></td><td colspan="4"><span class="sp-tag">Bill</span><b>' + esc(c.title) + '</b> <span class="sp-sub" style="display:inline">· ' + dfmt(c.bill_date || c.date) + " · " + esc((c.account || "").replace(/ - ELPL$/, "")) + "</span></td>"
           + '<td><span class="sp-sub" style="display:inline">approved ' + dfmt(c.date) + "</span></td>"
-          + '<td><span class="sp-doclinks"><a class="mono" href="/app/expense-claim/' + encodeURIComponent(c.name) + '" target="_blank">' + esc(c.name) + "</a>"
+          + '<td><span class="sp-doclinks"><a class="mono" href="/app/settlement-expense/' + encodeURIComponent(c.name) + '" target="_blank">' + esc(c.name) + "</a>"
+          + (c.entry ? '<a class="mono" href="/app/journal-entry/' + encodeURIComponent(c.entry) + '" target="_blank">' + esc(c.entry) + "</a>" : "")
           + (c.bill ? '<a href="' + esc(c.bill) + '" data-photo="' + esc(c.bill) + '" data-ptitle="' + esc(r.employee_name + " · " + c.title + " · " + money(c.amount)) + '" data-claim="' + esc(c.name) + '">Bill photo</a>' : "") + "</span></td>"
           + '<td class="r sp-amt">' + money(c.amount) + "</td></tr>";
       }).concat(r.advances.map(function (a) {
@@ -203,7 +206,7 @@
         return "<tr><td>" + dfmt(p.posting_date) + '</td><td><span class="sp-name">' + esc(p.party_name || p.party) + '</span><span class="sp-sub mono">' + esc(p.party) + "</span></td>"
           + "<td>" + (String(p.paid_to || "").indexOf("Advance") >= 0 ? "Cash advance" : "Bills") + "</td>"
           + '<td class="mono">' + esc(p.reference_no) + "</td>"
-          + '<td><a class="mono" href="/app/payment-entry/' + encodeURIComponent(p.name) + '" target="_blank">' + esc(p.name) + "</a></td>"
+          + '<td><a class="mono" href="' + docUrl(p.name) + '" target="_blank">' + esc(p.name) + "</a></td>"
           + '<td class="r sp-amt">' + money(p.paid_amount) + "</td></tr>";
       }).join("") : '<tr><td colspan="6" class="sp-empty">No payments recorded in the last 30 days.</td></tr>';
     }
@@ -241,7 +244,7 @@
       dialog("Record this payment?",
         "<p><b>" + money(amt) + "</b> to <b>" + plural(sel.length, "employee") + "</b>, paid from <b>" + esc(params.bank_account.replace(/ - ELPL$/, "")) + "</b> on <b>" + dfmt(date) + "</b>.</p>"
         + "<table>" + sel.map(function (r) { return "<tr><td>" + esc(r.employee_name) + '</td><td class="mono">UTR ' + esc(params["utr_" + r.employee] || common) + '</td><td class="mono" style="text-align:right">' + money(r.total) + "</td></tr>"; }).join("") + "</table>"
-        + '<p class="sp-note">Do this only after the money has left the bank. The ERP makes the Payment Entries, the bills turn Paid and each employee is told.</p>',
+        + '<p class="sp-note">Do this only after the money has left the bank. The ERP records the payments and the bills turn Paid in the employee's app.</p>',
         "Record payment", function () {
           $("[data-pay]").disabled = true;
           $("[data-pay]").textContent = "Recording…";
@@ -251,13 +254,13 @@
             var done = m.paid || [];
             dialog("Payment recorded",
               "<table>" + done.map(function (d) {
-                return "<tr><td><b>" + esc(d.employee_name) + '</b></td><td class="mono">' + d.entries.map(function (e) { return '<a href="/app/payment-entry/' + encodeURIComponent(e) + '" target="_blank">' + esc(e) + "</a>"; }).join(", ")
+                return "<tr><td><b>" + esc(d.employee_name) + '</b></td><td class="mono">' + d.entries.map(function (e) { return '<a href="' + docUrl(e) + '" target="_blank">' + esc(e) + "</a>"; }).join(", ")
                   + '</td><td class="mono" style="text-align:right">' + money(d.amount) + "</td></tr>";
               }).join("") + "</table>"
               + (m.missing_utr && m.missing_utr.length ? "<p>Not recorded (no UTR): " + m.missing_utr.map(esc).join(", ") + "</p>" : ""));
             load();
           }).catch(function (e) {
-            dialog("Not recorded", esc(e.message) + "<p class='sp-note'>Nothing was saved for the employee this stopped at. Check and try again.</p>");
+            dialog("Not recorded", esc(e.message) + "<p class='sp-note'>Nothing was recorded in the ERP for anyone in this run -- every employee is still owed as before. Fix the problem and record the run again (the bank transfers you already made stay as they are).</p>");
             load();
           });
         });
@@ -269,7 +272,7 @@
       var pdf = /\.pdf($|\?)/i.test(url);
       var body = (pdf ? '<iframe class="sp-pdf" src="' + esc(url) + '"></iframe>'
                       : '<div class="sp-photo"><img src="' + esc(url) + '" alt="bill"></div>')
-        + '<p class="sp-note"><a href="' + esc(url) + '" target="_blank">Open full size</a> · <a href="/app/expense-claim/' + encodeURIComponent(claim) + '" target="_blank">Claim ' + esc(claim) + "</a></p>";
+        + '<p class="sp-note"><a href="' + esc(url) + '" target="_blank">Open full size</a> · <a href="/app/settlement-expense/' + encodeURIComponent(claim) + '" target="_blank">Bill ' + esc(claim) + "</a></p>";
       dialog(a.getAttribute("data-ptitle"), body, "Close", null, true);
       var img = $(".sp-photo img");
       if (img) img.onerror = function () { img.parentNode.innerHTML = '<p class="sp-bad">The photo could not be shown here — use "Open full size".</p>'; };

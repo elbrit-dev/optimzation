@@ -4,7 +4,9 @@ import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import Router from "next/router";
 import { Dialog } from "@/design-system";
 import { useClaims } from "./data/useClaims";
-import { CASH_REQUESTS, fetchFileBlob } from "./data/claimsApi";
+import { CASH_REQUESTS, cashAdvancesOf, checkSettlementBills, fetchFileBlob, fetchMySettlements, fetchSettlementSettings, listBillHelp, removeSettlementBill, sendBillsForApproval } from "./data/claimsApi";
+import { HelpRequestsSheet, helpHighlight } from "./helpRequests";
+import { MyRequests, SendBar, serviceHeld, typeLine } from "./settlement";
 import { CSS, FONT_HREF, Highlights, IC, Icon, Note, Rail, Sheet, Spinner, btn, card, ell, tabNum } from "./ui";
 import { BillSheet, CashSheet } from "./sheets";
 import { BILL_STATE, MON, WD, billState, dateOf, inr, ledger, monthKey, monthLabel, shortDate, weeksOf } from "./model";
@@ -68,7 +70,7 @@ function Step({ k, v, color, soft, dashed, small }) {
 const arrow = (k) => <span key={k} aria-hidden style={{ alignSelf: "center", color: "#c0c5cf", display: "flex", flex: "none" }}><Icon d={IC.next} size={14} /></span>;
 
 /* One line of the ledger: a bill (−), cash paid (+), cash asked for, or a pay-back. */
-function Entry({ e, onOpen }) {
+function Entry({ e, held, onOpen }) {
   const dt = dateOf(e.date);
   const day = (
     <span style={{ display: "flex", flexDirection: "column", alignItems: "center", lineHeight: 1, gap: 3 }}>
@@ -80,17 +82,19 @@ function Entry({ e, onOpen }) {
   const after = e.bal < 0 ? `owed ${inr(-e.bal)}` : `${inr(e.bal)} in hand`;
   if (e.kind !== "bill") {
     const req = e.kind === "request";
-    const title = req ? "Cash requested" : e.kind === "payout" ? "Paid back by Accounts" : "Cash from Accounts";
+    // the CEO's approval submits the advance: approved, Accounts still to pay it
+    const approved = req && e.adv?.docstatus === 1;
+    const title = req ? "Advance requested" : e.kind === "payout" ? "Paid back by Accounts" : "Cash from Accounts";
     return (
       <div style={{ ...rowStyle, opacity: req ? 0.85 : 1 }}>
         {day}
         <span style={{ minWidth: 0 }}>
           <span style={{ display: "block", fontSize: 14, fontWeight: 600, ...ell }}>{title}</span>
-          <span style={{ display: "block", fontSize: 12, color: "#5b6576", ...ell }}>{e.note}{req ? " · waiting for Accounts" : ""}</span>
+          <span style={{ display: "block", fontSize: 12, color: "#5b6576", ...ell }}>{e.note}{req ? (approved ? " · approved — to be paid" : " · with your managers") : ""}</span>
         </span>
         <span style={{ textAlign: "right" }}>
           <b style={{ display: "block", fontSize: 15, color: req ? "#b54708" : "#067647", whiteSpace: "nowrap", ...tabNum }}>+ {inr(e.amount)}</b>
-          <span style={{ fontSize: 11, color: "#8a93a3", whiteSpace: "nowrap" }}>{req ? "paid once approved" : after}</span>
+          <span style={{ fontSize: 11, color: "#8a93a3", whiteSpace: "nowrap" }}>{req ? (approved ? "to be paid" : "paid once approved") : after}</span>
         </span>
       </div>
     );
@@ -102,6 +106,9 @@ function Entry({ e, onOpen }) {
       {day}
       <span style={{ minWidth: 0 }}>
         <span style={{ display: "block", fontSize: 14, fontWeight: 600, ...ell }}>{e.line.note || e.line.type}</span>
+        {/* the settlement type (23 Nov 2026): Own · kind, or the doctor */}
+        {e.claim.settlement && <span style={{ display: "block", fontSize: 12, color: "#5b6576", ...ell }}>{typeLine(e.line)}</span>}
+        {held && <span style={{ display: "block", fontSize: 12, fontWeight: 600, color: "#b54708", ...ell }}>Waiting for the doctor service to be approved</span>}
         <span style={{ display: "flex", alignItems: "center", gap: 4, fontSize: 12, fontWeight: 600, color: st.tone, minWidth: 0 }}>
           <span style={{ flex: "none", display: "flex" }}><Icon d={IC[st.icon]} size={12} /></span><span style={{ minWidth: 0, ...ell }}>{st.text}{st.where ? <span style={{ color: "#8a93a3", fontWeight: 500 }}> · {st.where}</span> : null}</span>
         </span>
@@ -114,23 +121,38 @@ function Entry({ e, onOpen }) {
   );
 }
 
-/* A bill's journey, step by step: received -> AI check -> (Accounts review,
-   only when the AI did not pass it) -> verified -> settlement. Each step is
-   done, now (where the bill is), failed, or still to come. */
+/* A bill's journey, step by step: added -> sent for approval up the chain
+   -> verified by the CEO's approval -> settlement. The rep never sees the
+   bill's score (16 Nov 2026): only the approvers do. Each step is done, now
+   (where the bill is), failed, or still to come. */
 function trackOf(e) {
   const l = e.line, s = e.state || "Checking";
-  const score = l.ai?.score != null ? Math.round(l.ai.score) : null;
-  const aiPass = score != null && score >= 90;
-  const steps = [{ k: "Bill received", v: `Saved on ${e.claim.id}`, at: "done" }];
-  if (s === "Checking") steps.push({ k: "AI check", v: "Comparing the bill with what you entered…", at: "now" });
-  else steps.push({ k: "AI check", v: score == null ? "Done" : aiPass ? `Score ${score}/100 — matches the bill` : `Score ${score}/100 — needs a person`, note: aiPass ? null : l.ai?.reason, at: aiPass ? "done" : "flag" });
-  if (s === "In Review") steps.push({ k: "In review", v: "Accounts are checking it by hand", at: "now" });
+  // a settlement bill is its own record (Settlement Expense, 23 Nov 2026)
+  const steps = [{ k: "Bill added", v: e.claim.settlement ? "Saved" : `Saved on ${e.claim.id}`, at: "done" }];
+  // 16 Nov 2026: a checked bill goes up the approval chain to the CEO
+  if (s === "Checking") steps.push({ k: "Approval", v: "Send it for approval (Settlements)", at: "now" });
+  else if (s === "Checked" && l.review) steps.push({ k: "Sent back", v: "Send it again as it is, or remove it and add it again corrected", note: l.review, at: "fail" });
+  else if (s === "Checked") steps.push({ k: "Approval", v: "Send it for approval (Settlements)", at: "now" });
+  else if (s === "In Approval" && e.held) steps.push({ k: "Approval", v: "Waiting for the doctor service to be approved", at: "now" });
+  else if (s === "In Approval") steps.push({ k: "Approval", v: l.settleType && l.settleType !== "Own" ? "With your manager" : "With your managers, up to the CEO", at: "now" });
+  else if (s === "In Review") steps.push({ k: "In review", v: "Accounts are checking it by hand", at: "now" });
   else if (s === "Rejected") steps.push({ k: "Reviewed by Accounts", v: "Not accepted — it does not count", note: l.review, at: "fail" });
-  else if (s === "Verified" && !aiPass) steps.push({ k: "Reviewed by Accounts", v: "Accepted", note: l.review, at: "done" });
+  else if (s === "Verified") steps.push({ k: "Approved", v: "Approved — paid in the next payment run", at: "done" });
   if (s !== "Rejected") {
     steps.push({ k: "Verified", v: s === "Verified" ? "Counts toward your settlement" : "Counts once verified", at: s === "Verified" ? "done" : "next" });
-    const settled = e.claim.docstatus === 1;
-    steps.push({ k: "Settlement", v: settled ? "Settled by Accounts" : s === "Verified" ? "Accounts settle it with you later" : "After it is verified", at: settled ? "done" : s === "Verified" ? "now" : "next" });
+    const settled = e.claim.settlement ? !!l.paid : e.claim.docstatus === 1;
+    // a booked settlement bill: what the cash advance covered, and what Accounts pay
+    // still to be paid: what the advance did not cover, less what Accounts paid
+    // already (no payment date is known -- a part payment says only that)
+    const due = Math.max(0, (l.payable || 0) - (l.paidAmount || 0));
+    const from = l.fromAdvance > 0 ? `${inr(l.fromAdvance)} from your cash advance · ` : "";
+    const how = e.claim.settlement && l.booked
+      ? l.paid
+        ? l.fromAdvance > 0 && l.payable > 0 ? `${inr(l.fromAdvance)} from your cash advance, ${inr(l.payable)} paid to your bank` : l.payable > 0 ? `Paid to your bank` : `Taken from your cash advance`
+        : l.paidAmount > 0 ? `${from}Part paid — ${inr(l.paidAmount)} paid, ${inr(due)} still to be paid to you`
+          : l.fromAdvance > 0 ? `${from}${inr(due)} to be paid to you` : "Accounts pay it in the next payment run"
+      : null;
+    steps.push({ k: "Settlement", v: how || (settled ? "Settled by Accounts" : s === "Verified" ? "Accounts settle it with you later" : "After it is verified"), at: settled ? "done" : s === "Verified" ? "now" : "next" });
   }
   return steps;
 }
@@ -169,9 +191,10 @@ function BillViewer({ src, pdf, onClose }) {
   return (
     <Dialog.Root open onOpenChange={(next) => { if (!next) onClose(); }} backName="expense-claims-bill">
       <Dialog.Portal>
-        <Dialog.Backdrop style={{ background: "rgba(8,11,18,.94)", backdropFilter: "blur(4px)", opacity: 1 }} />
+        {/* forceRender: Base UI leaves a nested dialog's backdrop out by default. */}
+        <Dialog.Backdrop forceRender style={{ background: "rgba(8,11,18,.94)", backdropFilter: "blur(4px)", opacity: 1 }} />
         <Dialog.Viewport>
-          <Dialog.Popup aria-label="The bill" style={{ inlineSize: "100vw", blockSize: "100dvh", maxInlineSize: "none", maxBlockSize: "none", margin: 0, padding: "56px 16px 16px", borderRadius: 0, background: "transparent", boxShadow: "none", display: "flex", alignItems: "center", justifyContent: "center" }}>
+          <Dialog.Popup aria-label="The bill" style={{ inlineSize: "100vw", blockSize: "100dvh", maxInlineSize: "none", maxBlockSize: "none", margin: 0, padding: "56px 16px 16px", borderRadius: 0, background: "rgba(8,11,18,.94)", boxShadow: "none", display: "flex", alignItems: "center", justifyContent: "center" }}>
             <Dialog.Close aria-label="Close" style={{ ...btn.icon, position: "absolute", top: 12, right: 12, background: "rgba(255,255,255,.16)", color: "#fff", borderRadius: 99 }}><Icon d={IC.x} size={20} /></Dialog.Close>
             {pdf
               ? <iframe title="The bill" src={src} style={{ width: "min(900px,100%)", height: "100%", border: 0, borderRadius: 12, background: "#fff" }} />
@@ -185,7 +208,34 @@ function BillViewer({ src, pdf, onClose }) {
 
 /* A bill, opened: its amount, where it is in its journey, what the bill
    says against what was entered, and the photo. */
-function BillDetail({ conn, e, onClose }) {
+/* A bill not sent (or sent back, or taken back): the rep may still remove it
+   (settlement_api remove_bill: Checking / Checked, not in a request). */
+const removable = (e) => !!e?.claim?.settlement && (e.state === "Checking" || e.state === "Checked") && !e.line?.settlement;
+
+/* Remove, asked twice: the first tap asks, the second removes. */
+function RemoveBill({ busy, onRemove, compact }) {
+  const [ask, setAsk] = useState(false);
+  const h = 44;
+  if (!ask) {
+    return (
+      <button type="button" className="ec-ghost" disabled={busy} onClick={() => setAsk(true)}
+        style={{ ...btn.ghost, height: h, minWidth: 44, borderRadius: 12, color: "#b42318", display: "flex", alignItems: "center", justifyContent: "center", gap: 6, ...(compact ? { padding: "0 12px" } : null) }}>
+        <Icon d={IC.trash} size={15} />Remove
+      </button>
+    );
+  }
+  return (
+    <span role="group" aria-label="Remove this bill?" style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+      <span style={{ fontSize: 13, fontWeight: 600, color: "#b42318" }}>Remove this bill and its photo?</span>
+      <button type="button" className="ec-ghost" disabled={busy} onClick={() => setAsk(false)} style={{ ...btn.ghost, height: h, borderRadius: 12, padding: "0 12px" }}>Keep it</button>
+      <button type="button" className="ec-cta" disabled={busy} onClick={onRemove} style={{ ...btn.primary, height: h, borderRadius: 12, padding: "0 14px", display: "flex", alignItems: "center", gap: 6 }}>
+        {busy ? <Spinner size={14} /> : <Icon d={IC.trash} size={15} />}Remove
+      </button>
+    </span>
+  );
+}
+
+function BillDetail({ conn, e, onClose, busy, onRemove, onResend }) {
   const [opening, setOpening] = useState(false);
   const [err, setErr] = useState("");
   const l = e.line;
@@ -206,14 +256,16 @@ function BillDetail({ conn, e, onClose }) {
   };
   const row = (k, v) => v ? <div style={{ display: "flex", justifyContent: "space-between", gap: 12, padding: "10px 0", fontSize: 14, borderTop: "1px solid #eef1f5" }}><span style={{ color: "#5b6576" }}>{k}</span><b style={{ textAlign: "right", ...tabNum }}>{v}</b></div> : null;
   return (
-    <Sheet title={l.note || "Bill"} sub={`${shortDate(l.date)} · ${e.claim.id}`} onClose={onClose} desktop="dialog" maxWidth={480}>
+    <Sheet title={l.note || "Bill"} sub={e.claim.settlement ? shortDate(l.date) : `${shortDate(l.date)} · ${e.claim.id}`} onClose={onClose} desktop="dialog" maxWidth={480}>
       <div style={{ display: "flex", flexDirection: "column", gap: 14, padding: "16px 20px 22px" }}>
         <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12 }}>
           <span style={{ fontSize: 34, fontWeight: 800, letterSpacing: "-0.04em", ...tabNum }}>{inr(l.amount)}</span>
           <span style={{ display: "flex", alignItems: "center", gap: 5, flex: "none", padding: "4px 10px", borderRadius: 99, fontSize: 12.5, fontWeight: 700, color: st.tone, background: `color-mix(in srgb,${st.tone} 10%,#fff)` }}><Icon d={IC[st.icon]} size={13} />{st.text}</span>
         </div>
+        {e.held && <Note tone="info" style={{ color: "#b54708", background: "#fffaeb" }}>Waiting for the doctor service to be approved — you are paid back once it is.</Note>}
         <Track steps={steps} />
         <div style={{ ...card, padding: "0 14px" }}>
+          {e.claim.settlement && row("For", typeLine(l))}
           {row("On the bill", [l.ai?.amount ? inr(l.ai.amount) : null, l.ai?.date ? shortDate(l.ai.date) : null, l.ai?.vendor].filter(Boolean).join(" · ") || null)}
           {row("You entered", `${inr(l.amount)} · ${shortDate(l.date)}`)}
         </div>
@@ -223,6 +275,17 @@ function BillDetail({ conn, e, onClose }) {
           </button>
         )}
         {err && <Note>{err}</Note>}
+        {removable(e) && (onRemove || onResend) && (
+          <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
+            {/* sent back: it goes again only when the rep says so */}
+            {l.review && onResend && (
+              <button type="button" className="ec-cta" disabled={busy} onClick={onResend} style={{ ...btn.primary, flex: 1, height: 48, borderRadius: 14, display: "flex", alignItems: "center", justifyContent: "center", gap: 8 }}>
+                {busy ? <Spinner size={14} /> : <Icon d={IC.arrow} size={16} />}Send again
+              </button>
+            )}
+            {onRemove && <RemoveBill busy={busy} onRemove={onRemove} />}
+          </div>
+        )}
       </div>
       {shown && <BillViewer src={shown.src} pdf={shown.pdf} onClose={() => setShown(null)} />}
     </Sheet>
@@ -244,7 +307,42 @@ export default function ClaimReport({
   const data = useClaims({ url, token, employee });
   const { conn, me, claims = [], advances = [] } = data;
 
-  const L = useMemo(() => ledger(claims, advances), [claims, advances]);
+  // settlement approval (16 Nov 2026): the requests and the chain they go up
+  const [settle, setSettle] = useState({ requests: [], chain: [], loaded: false, error: "" });
+  const [sending, setSending] = useState(false);
+  const [settleTick, setSettleTick] = useState(0);
+  useEffect(() => {
+    if (!conn) return undefined;
+    let alive = true;
+    fetchMySettlements(conn)
+      .then((x) => alive && setSettle({ ...x, loaded: true, error: "" }))
+      .catch((e) => { console.warn("[expense-claims] requests unreadable:", e.message); if (alive) setSettle((s) => ({ ...s, error: e.message || "unreadable" })); });
+    return () => { alive = false; };
+  }, [conn, claims, settleTick]);
+  // the rep's help requests (24 Nov 2026): a card in the Highlights opens them.
+  // Unreadable (the ERP script older than 24 Nov) -> no card, never an error.
+  const [help, setHelp] = useState([]);
+  const [helpOpen, setHelpOpen] = useState(false);
+  const [helpTick, setHelpTick] = useState(0);
+  const loadHelp = () => listBillHelp(conn).then(setHelp).catch((e) => console.warn("[expense-claims] help requests unreadable:", e.message));
+  useEffect(() => { if (conn) loadHelp(); }, [conn, helpTick]); // eslint-disable-line react-hooks/exhaustive-deps
+  // only the advances of the rep's own Cash requests count (null until known: all)
+  const cashAdv =useMemo(() => (settle.loaded ? cashAdvancesOf(settle.requests) : null), [settle]);
+  // a bill's request, to tell whether it waits for its doctor service
+  const reqById = useMemo(() => new Map(settle.requests.map((r) => [r.id, r])), [settle]);
+  const heldOf = (l) => !!l?.settlement && serviceHeld(reqById.get(l.settlement));
+  // 23 Nov 2026: cash up front is only for RBM and above (Settlement Settings);
+  // unreadable settings never offer it
+  const [settings, setSettings] = useState(null);
+  useEffect(() => {
+    if (!conn) return undefined;
+    let alive = true;
+    fetchSettlementSettings(conn).then((x) => alive && setSettings(x));
+    return () => { alive = false; };
+  }, [conn]);
+  const canCash = CASH_REQUESTS && !!settings?.canRequestCash;
+
+  const L = useMemo(() => ledger(claims, advances, cashAdv), [claims, advances, cashAdv]);
   const months = useMemo(() => {
     const set = new Set([cur]);
     for (const e of L.entries) if (e.date && e.date.slice(0, 7) <= cur) set.add(e.date.slice(0, 7));
@@ -252,6 +350,14 @@ export default function ClaimReport({
   }, [L, cur]);
   const [month, setMonth] = useState(cur);
   const mi = months.indexOf(month);
+
+  // every added bill not sent yet (a "Checking" one is scored as it goes)
+  const unsent = (L.open?.lines || []).filter((l) => l.bill && (!l.state || l.state === "Checking" || l.state === "Checked") && !l.settlement);
+  // a sent-back bill goes again only when the rep says so ("Send again" on it);
+  // the send bar sends the others
+  const fresh = unsent.filter((l) => !l.review);
+  const sentBack = unsent.filter((l) => l.review);
+  const [acting, setActing] = useState(""); // the bill being removed / sent again
 
   const [bill, setBill] = useState(null);
   const [sheet, setSheet] = useState(null); // "bill" | "cash"
@@ -290,25 +396,65 @@ export default function ClaimReport({
   const hl = useMemo(() => {
     const out = [];
     const verified = bills.filter((e) => e.state === "Verified");
-    if (verified.length) out.push({ key: "paid", value: inr(verified.reduce((s, e) => s + e.amount, 0)), label: "verified · counted", tone: "ok" });
-    const added = inMonth.filter((e) => e.kind === "topup").reduce((s, e) => s + e.amount, 0);
-    if (added) out.push({ key: "added", value: inr(added), label: "cash from Accounts", tone: "settle" });
+    if (verified.length) out.push({ key: "paid", value: inr(verified.reduce((s, e) => s + e.amount, 0)), label: "approved", tone: "ok" });
+    // cash from Accounts and what they paid for this month's bills
+    const added = inMonth.reduce((s, e) => s + (e.kind === "topup" || e.kind === "payout" ? e.amount : e.kind === "bill" && e.state === "Verified" ? e.paid || 0 : 0), 0);
+    if (added) out.push({ key: "added", value: inr(added), label: "paid to you", tone: "settle" });
     if (bills.length) out.push({ key: "bills", value: `${bills.length} ${bills.length === 1 ? "bill" : "bills"}`, label: `${inr(bills.reduce((s, e) => s + e.amount, 0))} this month`, tone: "field" });
-    const decided = bills.filter((e) => e.state !== "Checking");
-    if (decided.length) {
-      const clean = decided.filter((e) => e.line.ai?.score >= 90).length;
-      out.push({ key: "ai", value: `${clean}/${decided.length}`, label: `AI verified · ${decided.length - clean} by Accounts`, tone: "ok", pct: clean / decided.length });
-    }
+    // the help requests, first (any month: they are not tied to one)
+    const h = helpHighlight(help, () => setHelpOpen(true));
+    if (h) out.unshift(h);
     return out;
-  }, [bills, inMonth]);
+  }, [bills, inMonth, help]);
 
+  const send = async () => {
+    // never an empty list: the server would then send every checked bill,
+    // the sent-back ones too
+    if (!fresh.length) return;
+    setSending(true);
+    try {
+      // a bill whose score never got written: score it now, quietly
+      const left = fresh.filter((l) => !l.state || l.state === "Checking").map((l) => l.id);
+      if (left.length) await checkSettlementBills(conn, left).catch((e) => console.warn("[expense-claims] bill score:", e.message));
+      const r = await sendBillsForApproval(conn, fresh.map((l) => l.id));
+      data.reload();
+      setSettleTick((t) => t + 1);
+      const sent = r?.count ? `${r.count} ${r.count === 1 ? "bill" : "bills"} sent for approval · ${inr(r.amount)}` : "Sent for approval";
+      // the bills the server would not send, in its words
+      if (r?.refused?.length) say(`${sent}. Not sent: ${r.refused.join(" ")}`, "error");
+      else say(sent);
+    } catch (e) {
+      say(e.message, "error");
+    }
+    setSending(false);
+  };
+  // one bill: sent again as it is (sent back), or removed
+  const act = async (l, what) => {
+    setActing(l.id);
+    try {
+      if (what === "remove") await removeSettlementBill(conn, l.id);
+      else {
+        const r = await sendBillsForApproval(conn, [l.id]);
+        if (r?.refused?.length && !r.count) throw new Error(r.refused.join(" "));
+      }
+      setBill(null);
+      data.reload();
+      setSettleTick((t) => t + 1);
+      say(what === "remove" ? "Bill removed" : "Sent again for approval");
+    } catch (e) {
+      say(e.message, "error");
+    }
+    setActing("");
+  };
   const openHistory = () => (onOpenHistory ? onOpenHistory() : go(historyPath));
   const back = () => (onBack ? onBack() : go(homePath));
   const pad = isDesk ? 32 : 16;
-  const saved = ({ name, message }) => {
+  // the record's number (SE-… / SR-…) is never shown to the rep
+  const saved = ({ message }) => {
     setSheet(null);
     data.reload();
-    say(`${message || "Saved"} · ${name}`);
+    setSettleTick((t) => t + 1);
+    say(message || "Saved");
   };
 
   const over = L.over, has = L.added > 0 || L.balance > 0;
@@ -316,8 +462,8 @@ export default function ClaimReport({
     ? <>{inr(over)} of verified bills is owed to you — Accounts settle it with you later.</>
     : has
       ? <>Left of the cash Accounts paid you. Bills you add come out of it once they are verified.</>
-      : CASH_REQUESTS
-        ? <>No cash from Accounts yet. Add your bills as you spend — you are paid back once they are verified — or request cash up front.</>
+      : canCash
+        ? <>No cash from Accounts yet. Add your bills as you spend — you are paid back once they are verified — or request an advance.</>
         : <>Add your bills as you spend — once they are verified, Accounts settle them with you.</>;
 
   return (
@@ -328,15 +474,21 @@ export default function ClaimReport({
         <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
           <button type="button" aria-label="Back" className="ec-ghost" onClick={back} style={{ ...btn.icon, width: 40, height: 40, borderRadius: 12, background: "#fff", boxShadow: "0 0 0 1px #e4e7ec", color: "#344054" }}><Icon d={IC.back} size={18} /></button>
           <span style={{ flex: 1, minWidth: 0, fontSize: isDesk ? 24 : 21, fontWeight: 700, letterSpacing: "-0.02em", ...ell }}>Settlements</span>
-          <span style={{ flex: "none", display: "flex", alignItems: "center", gap: 2, height: 36, padding: "0 4px", borderRadius: 99, background: "#fff", boxShadow: "0 0 0 1px #e4e7ec" }}>
-            <button type="button" aria-label="Previous month" disabled={mi <= 0} onClick={() => setMonth(months[mi - 1])} style={{ ...btn.icon, width: 28, height: 28, opacity: mi <= 0 ? 0.3 : 1 }}><Icon d={IC.back} size={14} /></button>
+          <span style={{ flex: "none", display: "flex", alignItems: "center", gap: 0, height: 44, padding: 0, borderRadius: 99, background: "#fff", boxShadow: "0 0 0 1px #e4e7ec" }}>
+            <button type="button" aria-label="Previous month" disabled={mi <= 0} onClick={() => setMonth(months[mi - 1])} style={{ ...btn.icon, width: 44, height: 44, borderRadius: 99, opacity: mi <= 0 ? 0.3 : 1 }}><Icon d={IC.back} size={14} /></button>
             <span style={{ fontSize: 13, fontWeight: 700, whiteSpace: "nowrap" }}>{MON[m - 1]} {y}</span>
-            <button type="button" aria-label="Next month" disabled={mi >= months.length - 1} onClick={() => setMonth(months[mi + 1])} style={{ ...btn.icon, width: 28, height: 28, opacity: mi >= months.length - 1 ? 0.3 : 1 }}><Icon d={IC.next} size={14} /></button>
+            <button type="button" aria-label="Next month" disabled={mi >= months.length - 1} onClick={() => setMonth(months[mi + 1])} style={{ ...btn.icon, width: 44, height: 44, borderRadius: 99, opacity: mi >= months.length - 1 ? 0.3 : 1 }}><Icon d={IC.next} size={14} /></button>
           </span>
         </div>
 
         {data.status === "idle" && <Note tone="info">Pass the ERP GraphQL URL and the signed-in user’s token to load claims.</Note>}
         {data.status === "error" && <Note>{data.error}</Note>}
+        {data.status === "ready" && claims.settlementError && (
+          <Note style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10, flexWrap: "wrap" }}>
+            <span>Couldn’t load your bills — what is shown may be incomplete.</span>
+            <button type="button" className="ec-ghost" onClick={data.reload} style={{ ...btn.ghost, height: 44, borderRadius: 12 }}>Refresh</button>
+          </Note>
+        )}
         {data.status === "hidden" && <Note tone="info">Expense claims are not open for your role yet.</Note>}
         {data.status === "loading" && <div aria-busy="true" style={{ ...card, height: 260, display: "grid", placeItems: "center" }}><Spinner size={24} /></div>}
 
@@ -358,22 +510,57 @@ export default function ClaimReport({
               <Step k="Paid to you" v={`+ ${inr(L.added)}`} color="#067647" />{arrow("a1")}
               <Step k="Verified bills" v={`− ${inr(L.spent)}`} />{arrow("a2")}
               <Step k={over ? "Owed to you" : "In hand"} v={inr(over || L.balance)} color={over ? "#b42318" : undefined} />
-              {L.requested > 0 && <Step k="Requested" v={`+ ${inr(L.requested)}`} color="#b54708" soft="#fffaeb" dashed small="waiting for Accounts" />}
+              {L.requested > 0 && <Step k="Requested" v={`+ ${inr(L.requested)}`} color="#b54708" soft="#fffaeb" dashed small="waiting for approval" />}
             </Rail>
             <button type="button" className="ec-cta" onClick={() => setSheet("bill")} style={{ ...btn.primary, height: 52, borderRadius: 14, fontSize: 16, display: "flex", alignItems: "center", justifyContent: "center", gap: 8, marginTop: 2 }}><Icon d={IC.camera} size={20} />Scan a bill</button>
-            {CASH_REQUESTS && (
+            {canCash && (
               <div style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: 10, color: "#c0c5cf" }}>
-                <button type="button" className="ec-link" onClick={() => setSheet("cash")} style={link}><Icon d={IC.wallet} size={14} />Request cash</button>
+                <button type="button" className="ec-link" onClick={() => setSheet("cash")} style={link}><Icon d={IC.wallet} size={14} />Request advance</button>
               </div>
             )}
           </section>
 
+          {/* the Highlights right after the hero (24 Nov 2026, the user) -- the
+              help requests card first */}
           {hl.length > 0 && (
             <section style={{ display: "flex", flexDirection: "column", gap: 8 }}>
               <span style={{ fontSize: 15, fontWeight: 700, color: "#5b6576" }}>Highlights · {monthLabel(month).split(" ")[0]}</span>
               <Highlights items={hl} bleed={wide ? "0px" : pad + "px"} />
             </section>
           )}
+
+          {sentBack.length > 0 && (
+            <section aria-label="Bills sent back" style={{ ...card, padding: 16, display: "flex", flexDirection: "column", gap: 10, boxShadow: "0 0 0 1.5px #d92d20" }}>
+              <div style={{ display: "flex", alignItems: "baseline", justifyContent: "space-between", gap: 10 }}>
+                <span style={{ fontSize: 15, fontWeight: 700 }}>{sentBack.length} {sentBack.length === 1 ? "bill" : "bills"} sent back</span>
+                <b style={{ fontSize: 18, ...tabNum }}>{inr(sentBack.reduce((s, l) => s + l.amount, 0))}</b>
+              </div>
+              <span style={{ fontSize: 12.5, color: "#5b6576", lineHeight: 1.45 }}>Send it again as it is, or remove it and add it again corrected.</span>
+              {sentBack.map((l) => (
+                <div key={l.id} style={{ display: "flex", flexDirection: "column", gap: 8, paddingTop: 10, borderTop: "1px solid #eef1f5" }}>
+                  <div style={{ display: "flex", alignItems: "baseline", justifyContent: "space-between", gap: 10 }}>
+                    <b style={{ fontSize: 14, minWidth: 0, ...ell }}>{l.note || "Bill"} · {shortDate(l.date)}</b>
+                    <b style={{ fontSize: 14, ...tabNum }}>{inr(l.amount)}</b>
+                  </div>
+                  <span style={{ fontSize: 12.5, color: "#b42318", lineHeight: 1.45 }}>{l.review}</span>
+                  <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+                    <button type="button" className="ec-cta" disabled={!!acting || sending} onClick={() => act(l, "send")} style={{ ...btn.primary, height: 44, borderRadius: 12, display: "flex", alignItems: "center", gap: 6 }}>
+                      {acting === l.id ? <Spinner size={14} /> : <Icon d={IC.arrow} size={15} />}Send again
+                    </button>
+                    <RemoveBill compact busy={!!acting || sending} onRemove={() => act(l, "remove")} />
+                  </div>
+                </div>
+              ))}
+            </section>
+          )}
+          <SendBar bills={fresh} busy={sending} onSend={send} />
+          {settle.error && (
+            <Note style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10, flexWrap: "wrap" }}>
+              <span>Couldn’t load your requests.</span>
+              <button type="button" className="ec-ghost" onClick={() => setSettleTick((t) => t + 1)} style={{ ...btn.ghost, height: 44, borderRadius: 12 }}>Refresh</button>
+            </Note>
+          )}
+          <MyRequests conn={conn} requests={settle.requests} onChanged={(m) => { data.reload(); setSettleTick((t) => t + 1); say(m); }} />
           </div>
 
           <section style={{ display: "flex", flexDirection: "column", gap: 8, minWidth: 0 }}>
@@ -383,9 +570,9 @@ export default function ClaimReport({
                 <div key={wk.from}>
                   <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8, padding: "12px 2px 4px" }}>
                     <span style={{ fontSize: 13, fontWeight: 700, color: wk.now ? "#1d4ed8" : "#0b1220" }}>{wk.from} – {wk.to} {MON[m - 1]}{wk.now ? " · this week" : ""}</span>
-                    <span style={{ fontSize: 12, color: "#8a93a3", ...tabNum }}>{wk.n ? `${wk.n} ${wk.n === 1 ? "bill" : "bills"} · ${inr(wk.total)}` : "no bills yet"}</span>
+                    <span style={{ fontSize: 12, color: "#8a93a3", ...tabNum }}>{wk.n ? `${wk.n} ${wk.n === 1 ? "bill" : "bills"} · ${inr(wk.total)}` : inMonth.length ? "no bills yet" : ""}</span>
                   </div>
-                  {wk.es.map((e, i) => <Entry key={`${e.kind}|${e.line?.id || e.adv?.id || e.claim?.id}|${i}`} e={e} onOpen={() => setBill(e)} />)}
+                  {wk.es.map((e, i) => <Entry key={`${e.kind}|${e.line?.id || e.adv?.id || e.claim?.id}|${i}`} e={e} held={heldOf(e.line)} onOpen={() => setBill({ ...e, held: heldOf(e.line) })} />)}
                 </div>
               ))}
               {!inMonth.length && (
@@ -397,9 +584,11 @@ export default function ClaimReport({
         </div>}
       </main>
 
-      {bill && <BillDetail conn={conn} e={bill} onClose={() => setBill(null)} />}
-      {sheet === "bill" && conn && me && <BillSheet conn={conn} me={me} claims={claims} advances={advances} today={today} desk={isDesk} onClose={() => setSheet(null)} onSaved={saved} onChecked={data.reload} />}
-      {CASH_REQUESTS && sheet === "cash" && conn && me && <CashSheet conn={conn} me={me} claims={claims} advances={advances} today={today} desk={isDesk} onClose={() => setSheet(null)} onSaved={saved} />}
+      {bill && <BillDetail conn={conn} e={bill} onClose={() => setBill(null)} busy={!!acting || sending}
+        onRemove={removable(bill) ? () => act(bill.line, "remove") : null} onResend={removable(bill) && bill.line.review ? () => act(bill.line, "send") : null} />}
+      {sheet === "bill" && conn && me && <BillSheet conn={conn} me={me} claims={claims} advances={advances} cashAdvances={cashAdv} today={today} desk={isDesk} onClose={() => setSheet(null)} onSaved={saved} onChecked={data.reload} onHelp={() => setHelpTick((t) => t + 1)} />}
+      {helpOpen && conn && <HelpRequestsSheet conn={conn} list={help} desk={isDesk} onClose={() => setHelpOpen(false)} onChanged={loadHelp} />}
+      {canCash && sheet === "cash" && conn && me && <CashSheet conn={conn} me={me} claims={claims} advances={advances} cashAdvances={cashAdv} today={today} desk={isDesk} onClose={() => setSheet(null)} onSaved={saved} />}
       {toast && (
         <div role="status" aria-live="polite" style={{ position: "fixed", left: "50%", bottom: isDesk ? 32 : 96, transform: "translateX(-50%)", zIndex: 95, maxWidth: "calc(100vw - 32px)", padding: "11px 18px", borderRadius: 10, background: toast.tone === "error" ? "#b42318" : "#101828", color: "#fff", fontSize: 13, fontWeight: 500, boxShadow: "0 12px 30px -10px rgba(16,24,40,.5)" }}>{toast.m}</div>
       )}

@@ -129,8 +129,18 @@ export const CLEARED = new Set(["Verified", "Paid"]);
  * bills on the open claim; owed = that shortfall plus what closed claims
  * still owe. Claims of the old flow (one claim per trip, reporting officer)
  * are not part of it -- they stay under "All past claims". */
-export function ledger(claims, advances = []) {
-  const running = claims.filter((c) => c.running && live(c));
+export function ledger(claims, advances = [], cashAdvances = null) {
+  // the settlement bills ride beside the month claims, not in them (claimsApi
+  // fetchClaims: claims.settlement), so the claim history never lists them
+  const all = claims.settlement ? [...claims, claims.settlement] : claims;
+  const running = all.filter((c) => c.running && live(c));
+  // 23 Nov 2026: the server books bills only against the advances of the
+  // rep's own Cash requests (settlement_advances) -- count only those, once
+  // that list is known (null = not loaded: every advance, as before)
+  if (cashAdvances) {
+    const mine = new Set(cashAdvances);
+    advances = advances.filter((a) => mine.has(a.id));
+  }
   const open = running.find((c) => c.docstatus === 0) || null;
   const ev = [];
   for (const a of advances) {
@@ -139,8 +149,12 @@ export function ledger(claims, advances = []) {
     else ev.push({ kind: "topup", date: a.date, amount: a.paid, adv: a, note: a.purpose });
   }
   for (const c of running) {
-    for (const l of c.lines) if (l.date) ev.push({ kind: "bill", date: l.date, amount: l.amount, claim: c, line: l, state: l.state || "Checking", open: c.docstatus === 0 });
+    // paid: what Accounts paid for a settlement bill (no payment date is known,
+    // so it sits on the bill itself, not as a dated row of its own)
+    for (const l of c.lines) if (l.date) ev.push({ kind: "bill", date: l.date, amount: l.amount, paid: l.paidAmount || 0, claim: c, line: l, state: l.state || "Checking", open: c.docstatus === 0 });
     if (c.reimbursed > 0) ev.push({ kind: "payout", date: String(c.modified || c.posting).slice(0, 10), amount: c.reimbursed, claim: c, note: `what ${c.id} owed you` });
+    // the settlement bills (23 Nov 2026): each payment Accounts made for them
+    for (const p of c.payouts || []) ev.push({ kind: "payout", date: p.date, amount: p.amount, claim: c, note: p.note });
   }
   const order = { topup: 0, payout: 1, request: 2, bill: 3 };
   ev.sort((a, b) => a.date.localeCompare(b.date) || order[a.kind] - order[b.kind]);
@@ -148,13 +162,21 @@ export function ledger(claims, advances = []) {
   for (const e of ev) {
     if (e.kind === "topup" || e.kind === "payout") bal += e.amount;
     if (e.kind === "topup") added += e.amount;
-    if (e.kind === "bill" && e.state === "Verified") { bal -= e.amount; spent += e.amount; }
+    if (e.kind === "payout") added += e.amount;
+    if (e.kind === "bill" && e.state === "Verified") {
+      bal -= e.amount;
+      spent += e.amount;
+      // Accounts' payment for the bill is money paid to them too
+      if (e.paid > 0) { bal += e.paid; added += e.paid; }
+    }
     e.bal = bal;
   }
   const sum = (xs, f) => xs.reduce((s, x) => s + f(x), 0);
   const openLines = open ? open.lines : [];
   const unused = sum(advances.filter((a) => !a.waiting && a.docstatus === 1), (a) => a.left);
-  const inHand = unused - sum(openLines.filter((l) => l.state === "Verified"), (l) => l.amount);
+  // a booked settlement bill is already off the advances in the ERP (23 Nov
+  // 2026): only the verified bills not booked yet come off here
+  const inHand = unused - sum(openLines.filter((l) => l.state === "Verified" && !l.booked), (l) => l.amount);
   const owedClosed = sum(running, (c) => c.owed || 0);
   return {
     entries: ev,
@@ -172,8 +194,8 @@ export function ledger(claims, advances = []) {
 }
 
 /* In-hand cash in short (the home Settle bar). */
-export function cashOf(claims, advances) {
-  const L = ledger(claims, advances);
+export function cashOf(claims, advances, cashAdvances = null) {
+  const L = ledger(claims, advances, cashAdvances);
   return { added: L.added, spent: L.spent, balance: L.balance, over: L.over, requested: L.requested, checking: L.checking, any: L.any };
 }
 
@@ -187,7 +209,7 @@ export const BILL_STATE = {
   Checking: { tone: "#0e7490", icon: "check", text: "Added", sub: "send it for approval" },
   Checked: { tone: "#0e7490", icon: "check", text: "Added", sub: "send it for approval" },
   "In Approval": { tone: "#b54708", icon: "hist", text: "In approval", sub: "with your managers" },
-  Verified: { tone: "#067647", icon: "shield", text: "Verified", sub: "approved · counted" },
+  Verified: { tone: "#067647", icon: "shield", text: "Verified", sub: "approved" },
   "In Review": { tone: "#b54708", icon: "eye", text: "In review", sub: "with Accounts" },
   Rejected: { tone: "#b42318", icon: "x", text: "Rejected", sub: "not counted" },
 };
@@ -198,7 +220,9 @@ export function billState(claim, line) {
     // a request sent back: its bills are Checked again, with the approver's reason
     if (line?.state === "Checked" && line.review) return { tone: "#b42318", icon: "x", text: "Sent back", where: line.review };
     const st = BILL_STATE[line?.state] || BILL_STATE.Checking;
-    return { tone: st.tone, icon: st.icon, text: st.text, where: line?.state === "Rejected" && line.review ? line.review : st.sub };
+    // a settlement bill Accounts paid (in full, or part of it)
+    const pay = line?.state === "Verified" ? (line.paid ? "paid" : line.paidAmount > 0 ? "part paid" : "") : "";
+    return { tone: st.tone, icon: st.icon, text: st.text, where: line?.state === "Rejected" && line.review ? line.review : pay || st.sub };
   }
   const s = line?.ai?.score;
   const ai = s == null ? { tone: "#8a93a3", icon: "file", text: claim.status === "Draft" ? "Not sent" : "Not checked yet" }
