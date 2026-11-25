@@ -983,10 +983,13 @@ function TripRow({ conn, trip: t, claim: c, canAct, desk, open, onToggle, onDeci
   }
   const small = { height: 32, padding: "0 12px", borderRadius: 8, fontSize: 12.5, fontWeight: 700, cursor: "pointer", display: "inline-flex", alignItems: "center", gap: 6 };
   const lowDays = days.filter(([date, ls]) => lowVisitDay(visits, date, ls)).length;
+  // phone (25 Nov 2026): the buttons squeezed the trip name to a letter a line -- the trip and its
+  // amount get the first row, the decision and the buttons a row of their own below
+  const actRow = !desk && canAct && !rejecting;
   return (
     <div style={{ background: "#fff", borderRadius: 10, boxShadow: `0 0 0 1px #e4e7ec, inset 3px 0 0 ${tone}`, overflow: "hidden" }}>
       <div style={{ display: "flex", alignItems: "center", gap: 10, padding: "8px 10px 8px 13px", flexWrap: desk ? "nowrap" : "wrap" }}>
-        <button type="button" aria-expanded={open} onClick={onToggle} style={{ flex: 1, minWidth: 0, display: "flex", alignItems: "center", gap: 10, border: 0, background: "transparent", padding: 0, cursor: "pointer", textAlign: "left" }}>
+        <button type="button" aria-expanded={open} onClick={onToggle} style={{ flex: desk ? 1 : "1 1 100%", minWidth: 0, display: "flex", alignItems: "center", gap: 10, border: 0, background: "transparent", padding: 0, cursor: "pointer", textAlign: "left" }}>
           <Chevron open={open} />
           <span style={{ flex: 1, minWidth: 0, display: "flex", flexDirection: "column", gap: 1 }}>
             {/* on a phone the trip and its dates wrap instead of being cut (20 Nov 2026: "Dharapuram …" hid the date) */}
@@ -999,11 +1002,13 @@ function TripRow({ conn, trip: t, claim: c, canAct, desk, open, onToggle, onDeci
               {lowDays ? <span style={{ color: "#b54708", fontWeight: 700 }}> · ⚠ {plural(lowDays, "day")} with few visits</span> : null}
             </span>
           </span>
-          <DecisionPill d={t.decision} />
-          <b style={{ fontSize: 14, ...tabNum }}>{inr(t.amount)}</b>
+          {!actRow && <DecisionPill d={t.decision} />}
+          <b style={{ fontSize: 14, flex: "none", whiteSpace: "nowrap", ...tabNum }}>{inr(t.amount)}</b>
         </button>
         {canAct && !rejecting && (
-          <span style={{ display: "flex", gap: 6, flex: "none", marginLeft: desk ? 0 : "auto" }}>
+          <span style={{ display: "flex", alignItems: "center", gap: 6, flex: "none", ...(desk ? {} : { width: "100%", paddingLeft: 36 }) }}>
+            {actRow && <DecisionPill d={t.decision} />}
+            <span style={{ flex: 1 }} />
             {t.decision === "pending" ? (
               <>
                 <button type="button" disabled={!!busy} onClick={() => { setRejecting(true); if (!open) onToggle(); }} style={{ ...small, border: "1px solid #fecdca", background: "#fff", color: "#b42318" }}>Reject</button>
