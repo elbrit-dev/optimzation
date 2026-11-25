@@ -14,7 +14,7 @@ import { CAR_APPROVER, canClaimCabs, canUseCar, carPools, claimsStays, payrollOf
 import { TAG_IDS } from "@calendar/components/calendar/constants";
 import * as store from "@calendar/lib/field-expenses/trip-claims-store";
 import * as monthErp from "@calendar/lib/field-expenses/erp-claim";
-import { releaseTripBill } from "@calendar/lib/field-expenses/bill-reader";
+import { listMyBills, releaseTripBill, restoreLegacyBill, saveBillCard } from "@calendar/lib/field-expenses/bill-reader";
 
 const FieldContext = createContext(null);
 
@@ -313,12 +313,32 @@ export function FieldExpensesProvider({ children }) {
     store.spreadStays(emp, value.trips || []);
   }, [emp, viewingSelf, value.trips, claims]);
 
+  /* BILLS ON EVERY DEVICE (25 Nov 2026, the owner): once per sign-in, the rep's uploaded bills
+     the ERP holds (not yet on a claim) come back onto their trip cards on this device -- and a
+     bill only this device had gets its copy saved in the ERP for the others. */
+  const restoredFor = useRef(null);
+  useEffect(() => {
+    if (!emp || !viewingSelf || restoredFor.current === emp) return;
+    restoredFor.current = emp;
+    (async () => {
+      const rows = await listMyBills();
+      const r = await store.restoreBills(emp, rows, restoreLegacyBill);
+      for (const x of r.restored) if (x.fresh && x.bill?.fp) saveBillCard(x.bill.fp, { tripId: x.tripId, kind: x.kind, bill: x.bill });
+      for (const x of r.backfill) saveBillCard(x.fp, x.card);
+    })().catch(() => {});
+  }, [emp, viewingSelf]);
+
   // actions, bound to this rep; each returns a promise (the ERP later)
   const actions = useMemo(
     () => ({
       // a checked bill (bill-reader.js readTripBill) onto the trip, and off it
       // again -- its fingerprint freed so the same bill can be scanned again
-      addBill: (tripId, kind, bill) => store.addBill(emp, tripId, kind, bill),
+      // its copy goes to the ERP too, so the bill shows on any device until the trip is sent (25 Nov 2026)
+      addBill: (tripId, kind, bill) =>
+        store.addBill(emp, tripId, kind, bill).then((id) => {
+          saveBillCard(bill?.fp, { tripId, kind, bill });
+          return id;
+        }),
       // a hotel bill on several cards (spreadStays): freed only when no sent trip still claims it
       removeBill: (tripId, kind, id) => store.removeBill(emp, tripId, kind, id).then((gone) => (gone && !gone.stillUsed ? releaseTripBill(gone) : null)),
       // a hotel bill onto every other card its nights fall in (23 Nov 2026)

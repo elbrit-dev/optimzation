@@ -235,6 +235,53 @@ export async function releaseTripBill(bill) {
   }
 }
 
+/* BILLS ON EVERY DEVICE (25 Nov 2026, the owner): the app's copy of each trip bill is kept in
+   the ERP too (Bill Fingerprint API, action card / mine), so a bill shows on any device the rep
+   signs in on until the trip is sent -- not only on the phone that scanned it. Best effort:
+   nothing here stops a bill being added. */
+const fpPost = (params) =>
+  fetch(`${erpOrigin()}/api/method/bill_fingerprint`, {
+    method: "POST",
+    headers: { Authorization: tokenHeader(AUTH_CONFIG.authToken), "Content-Type": "application/x-www-form-urlencoded", Accept: "application/json" },
+    body: new URLSearchParams(params),
+  });
+/* card: { tripId, kind, bill } */
+export async function saveBillCard(fp, card) {
+  if (!fp || !card?.bill) return;
+  try {
+    await fpPost({ action: "card", name: fp, card: JSON.stringify(card) });
+  } catch {
+    /* best effort */
+  }
+}
+/* -> the rep's bills not on any claim line yet: [{ name, kind, trip, bill_date, amount, vendor, bill_no, file_url, card }] */
+export async function listMyBills() {
+  try {
+    const r = await fpPost({ action: "mine" });
+    if (!r.ok) return [];
+    return (await r.json()).message?.bills || [];
+  } catch {
+    return [];
+  }
+}
+/* A bill scanned before the app kept its copy in the ERP: rebuilt by the server from its
+   stored file (/api/claims/restore-bill) -> as readTripBill */
+export async function restoreLegacyBill(name, slot, trip) {
+  try {
+    const res = await fetch("/api/claims/restore-bill", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "x-erp-token": AUTH_CONFIG.authToken, "x-erp-endpoint": AUTH_CONFIG.erpUrl },
+      body: JSON.stringify({ name, slot, trip: { id: trip.id, from: trip.from, to: trip.to } }),
+      signal: AbortSignal.timeout(150000),
+    });
+    const json = await res.json().catch(() => ({}));
+    if (!res.ok) return { ok: false, reason: json.error || `HTTP ${res.status}` };
+    return toBill(json);
+  } catch {
+    return { ok: false, reason: "offline" };
+  }
+}
+
 /* Wakes nothing any more (the reader is a Cloudflare call); kept so callers
    need not change. */
 export function warmReader() {}
