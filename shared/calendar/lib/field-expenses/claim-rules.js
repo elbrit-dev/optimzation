@@ -124,8 +124,7 @@ const farEq = (d, eqKm) =>
 export function tripClaim(trip, claim, { role, requests, eqKm } = {}) {
   const c = claim || {};
   // away days (and their stay / food bills) only for the roles that claim them
-  // ...and on an overnight stay the rep turned into O/S (25 Nov 2026): it needs a stay bill, whatever the role
-  const billsAllowed = claimsStays(role) || (trip?.days || []).some((d) => d.stayRun && !d.stayRun.auto);
+  const billsAllowed = claimsStays(role);
   const nights = billsAllowed ? tripNights(trip) : [];
   const stays = billsAllowed ? c.stays || [] : [];
   const foods = billsAllowed ? c.foods || [] : [];
