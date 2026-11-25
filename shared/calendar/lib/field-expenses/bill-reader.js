@@ -61,14 +61,14 @@ const PAGE_PX = 1600;
 export const PDF_PAGES = 5;
 // enough letters and a figure to be a bill's text, not a stray scanner stamp
 const hasText = (t) => t.replace(/[^A-Za-z0-9]/g, "").length >= 40 && /\d/.test(t);
-export async function pdfForReading(file) {
+export async function pdfForReading(file, { maxPages = PDF_PAGES } = {}) {
   try {
     if (!file || file.type !== "application/pdf" || typeof document === "undefined") return {};
     const pdfjs = await import(/* webpackIgnore: true */ `${PDFJS}/pdf.min.mjs`);
     pdfjs.GlobalWorkerOptions.workerSrc = `${PDFJS}/pdf.worker.min.mjs`;
     const doc = await pdfjs.getDocument({ data: new Uint8Array(await file.arrayBuffer()) }).promise;
     try {
-      const count = Math.min(doc.numPages, PDF_PAGES);
+      const count = Math.min(doc.numPages, maxPages);
       const texts = [];
       for (let n = 1; n <= count; n++) {
         const { items } = await (await doc.getPage(n)).getTextContent();

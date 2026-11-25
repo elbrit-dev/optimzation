@@ -182,7 +182,7 @@ export function createErpApi({ endpointUrl, gqlEnvironment = 'ERP', gqlToken, al
         form.append('file_url', file_url);
         if (file && (file.type === 'application/pdf' || /\.pdf$/i.test(file.name || ''))) {
           const { pdfForReading } = await import('@calendar/lib/field-expenses/bill-reader');
-          const pdf = await pdfForReading(file);
+          const pdf = await pdfForReading(file, { maxPages: 30 });
           if (pdf.text) form.append('text', pdf.text);
           for (const p of pdf.pages || []) form.append('page', p, p.name);
         }
@@ -190,7 +190,7 @@ export function createErpApi({ endpointUrl, gqlEnvironment = 'ERP', gqlToken, al
           method: 'POST',
           headers: { 'x-erp-token': auth, 'x-erp-endpoint': base },
           body: form,
-          signal: AbortSignal.timeout(150000),
+          signal: AbortSignal.timeout(300000),
         });
         const json = await res.json().catch(() => ({}));
         if (!res.ok) return { skipped: json.error || `HTTP ${res.status}` };

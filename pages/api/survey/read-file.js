@@ -22,13 +22,38 @@
 // for Survey Center ("couldn't read it") and the rep is not bothered.
 
 import { allowedErpHosts } from "../../../lib/erpServer";
-import { fileReaderOn, readFile, toJpeg, FILE_MODEL } from "../../../lib/fileReader";
+import { fileReaderOn, readFile, readFileParts, toJpeg, FILE_MODEL } from "../../../lib/fileReader";
 import { limiter } from "../../../lib/limit";
 
 const aiSlot = limiter(Number(process.env.SURVEY_READ_PARALLEL) || 6);
 
 export const config = { api: { bodyParser: false } };
-const MAX = 8 * 1024 * 1024; // a PDF's text and up to 5 page pictures (the file itself is fetched from the ERP)
+const MAX = 40 * 1024 * 1024; // a PDF's text and up to 30 page pictures (the file itself is fetched from the ERP)
+const MAX_PARTS = 30;
+const SHEET_ROWS = 60; // a spreadsheet is read in blocks of this many rows (its heading rows repeated on each)
+/* 26 Nov 2026 · a spreadsheet (xlsx / xls / csv) -> parts: each sheet as text, in blocks of SHEET_ROWS rows, the
+   heading rows repeated on every block so each part keeps its column names */
+async function sheetParts(bytes, name) {
+  const XLSX = await import("xlsx");
+  const wb = XLSX.read(bytes, { type: "buffer", cellDates: true, raw: /\.csv$/i.test(name) ? false : undefined });
+  const parts = [];
+  for (const sn of wb.SheetNames) {
+    const rows = XLSX.utils.sheet_to_csv(wb.Sheets[sn], { blankrows: false }).split(/\r?\n/).filter((l) => l.replace(/[,\s]/g, ""));
+    if (!rows.length) continue;
+    // the heading rows: those before the first row holding two or more numbers (at most 5)
+    let h = rows.findIndex((l) => (l.split(",").filter((c) => /^-?[\d.,]+$/.test(c.trim()) && c.trim() !== "").length >= 2));
+    h = h < 0 ? Math.min(1, rows.length) : Math.min(h, 5);
+    const head = rows.slice(0, h), body = rows.slice(h);
+    if (!body.length) { parts.push({ text: `Sheet "${sn}" (CSV):\n${head.join("\n")}` }); continue; }
+    for (let i = 0; i < body.length; i += SHEET_ROWS) {
+      const block = body.slice(i, i + SHEET_ROWS);
+      parts.push({ text: `Sheet "${sn}", rows ${h + i + 1}-${h + i + block.length} of ${rows.length} (CSV; the first lines are the sheet's headings):\n${head.concat(block).join("\n")}` });
+    }
+  }
+  return parts.slice(0, MAX_PARTS);
+}
+/* a PDF's text ("--- page N ---" between pages) -> one part per page */
+const textParts = (text) => (/^--- page \d+ ---/m.test(text) ? text.split(/^--- page \d+ ---\s*$/m).map((t) => t.trim()).filter(Boolean) : [text]).slice(0, MAX_PARTS).map((t) => ({ text: t }));
 const FILE_MAX = 20 * 1024 * 1024;
 const tokenHeader = (t) => (/^(token|bearer)\s/i.test(t) ? t : `token ${t}`);
 const env = (name) => (process.env[name] || "").trim();
@@ -160,13 +185,29 @@ export default async function handler(req, res) {
   try {
     read = await aiSlot(async () => {
       const text = typeof form.get("text") === "string" ? form.get("text").trim() : "";
-      const pages = form.getAll("page").filter((p) => p && typeof p.arrayBuffer === "function").slice(0, 5);
+      const pages = form.getAll("page").filter((p) => p && typeof p.arrayBuffer === "function").slice(0, MAX_PARTS);
       if (/\.pdf$/i.test(fileUrl)) {
-        if (text) return readFile({ schema: info.schema, label: info.label, text });
-        if (pages.length) return readFile({ schema: info.schema, label: info.label, jpegs: await Promise.all(pages.map(async (p) => toJpeg(Buffer.from(await p.arrayBuffer())))) });
+        // 26 Nov 2026: page by page (each page its own read, joined) — long statements are no longer cut off
+        if (text) return readFileParts({ schema: info.schema, label: info.label, parts: textParts(text) });
+        if (pages.length) return readFileParts({ schema: info.schema, label: info.label, parts: await Promise.all(pages.map(async (p) => ({ jpeg: await toJpeg(Buffer.from(await p.arrayBuffer())) }))) });
         return { readable: false, reason: "This PDF could not be opened.", fields: {}, model: FILE_MODEL, ms: 0 };
       }
-      if (!/\.(jpe?g|png|webp|gif|heic|heif|tiff?|bmp)$/i.test(fileUrl)) return null; // Word, Excel…: not read
+      // 26 Nov 2026: a spreadsheet is read too — its sheets as text, block by block
+      if (/\.(xlsx|xls|csv)$/i.test(fileUrl)) {
+        const sf = await fetch(`${origin}${encodeURI(fileUrl).replace(/%25/g, "%")}`, { headers: { Authorization: tokenHeader(userErp) }, redirect: "manual", signal: AbortSignal.timeout(30000) });
+        if (!sf.ok) throw new Error(`the file could not be fetched from the ERP (HTTP ${sf.status})`);
+        const sb = Buffer.from(await sf.arrayBuffer());
+        if (sb.length > FILE_MAX) throw new Error("the file is over 20 MB");
+        let sp;
+        try {
+          sp = await sheetParts(sb, fileUrl);
+        } catch {
+          return { readable: false, reason: "This spreadsheet could not be opened.", fields: {}, model: FILE_MODEL, ms: 0 };
+        }
+        if (!sp.length) return { readable: false, reason: "The spreadsheet is empty.", fields: {}, model: FILE_MODEL, ms: 0 };
+        return readFileParts({ schema: info.schema, label: info.label, parts: sp });
+      }
+      if (!/\.(jpe?g|png|webp|gif|heic|heif|tiff?|bmp)$/i.test(fileUrl)) return null; // Word…: not read
       const f = await fetch(`${origin}${encodeURI(fileUrl).replace(/%25/g, "%")}`, { headers: { Authorization: tokenHeader(userErp) }, redirect: "manual", signal: AbortSignal.timeout(30000) });
       if (!f.ok) throw new Error(`the file could not be fetched from the ERP (HTTP ${f.status})`);
       const bytes = Buffer.from(await f.arrayBuffer());
