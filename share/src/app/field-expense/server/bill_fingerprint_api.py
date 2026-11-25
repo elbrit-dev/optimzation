@@ -30,12 +30,6 @@
 #      date and total
 #   4. YOUR OWN bill with the same date, total and vendor, when one of the two
 #      has no bill number read
-#   5. (24 Nov 2026) the same content hash (printed bill date + vendor or bill
-#      no + total): yours -> refused; another's -> flagged (refused when both
-#      keyed on a bill number)
-#   6. (24 Nov 2026) YOUR OWN bill with the same short bill number (under 4
-#      digits), vendor and total, on any date (a stay's date here is its
-#      check-in, which a hand-entered bill takes from the rep)
 # Each against every bill used in the last 2 years, the rep's own (any trip)
 # and every other employee's. FLAGGED only (allowed; the claim goes to
 # Accounts): 4 for another employee's bill (two people can eat at one place
@@ -155,7 +149,7 @@ elif action == "claim" or action == "check":
     key = bill_key(bill_no)
     vkey = vendor_key(vendor)
     since = frappe.utils.add_days(frappe.utils.today(), -730)
-    cols = ["name", "employee", "trip", "kind", "bill_date", "amount", "vendor", "bill_no", "image_hash", "content_hash", "strong"]
+    cols = ["name", "employee", "trip", "kind", "bill_date", "amount", "vendor", "bill_no", "image_hash", "file_url"]
 
     found = []
     seen = {}
@@ -186,21 +180,6 @@ elif action == "claim" or action == "check":
                     m = {"r": r, "hard": 1, "why": "the same vendor, date and total"}
                 else:
                     m = {"r": r, "hard": 0, "why": "the same vendor, date and total"}
-            # 5. (24 Nov 2026) a stay bill is registered under its CHECK-IN date,
-            # which a hand-entered bill takes from the rep: a second photo of one
-            # hotel bill typed in with another check-in slipped past 4 (HR-EXP-
-            # 2026-00070: bill no 18, Rs 4,400, 5->7 Oct, again as 6->7 Oct). The
-            # content hash is the PRINTED bill date, vendor (or bill no) and total.
-            if not m and ch and str(r.content_hash or "").lower() == ch:
-                if r.employee == emp or (strong and r.strong):
-                    m = {"r": r, "hard": 1, "why": "the same bill: vendor, bill date and total"}
-                else:
-                    m = {"r": r, "hard": 0, "why": "the same vendor, bill date and total"}
-            # 6. YOUR OWN bill with the same short bill number (under 4 digits,
-            # so not in 2), vendor and total -- on any date
-            if not m and r.employee == emp and not key and not rkey and bill_no.strip() and vendor_key(bill_no) == vendor_key(r.bill_no) \
-                    and same_vendor(vkey, vendor_key(r.vendor)):
-                m = {"r": r, "hard": 1, "why": "the same bill: bill no " + str(r.bill_no or "") + ", total Rs " + str(int(round(frappe.utils.flt(r.amount))))}
             if m:
                 seen[r.name] = 1
                 found.append(m)
@@ -211,6 +190,45 @@ elif action == "claim" or action == "check":
             if not seen.get(r.name) and bits_apart(ih, r.image_hash) <= 6:
                 seen[r.name] = 1
                 found.append({"r": r, "hard": 0, "why": "a near-identical photo"})
+
+    # REWORKED TRIPS (24 Nov 2026): the office recalculates a month and a trip's
+    # days change (15-20 Oct -> 15-17 Oct), so the planner shows a new trip and
+    # the rep scans his bills again. When EVERY hard match is the rep's OWN trip
+    # bill and no claim line pays it on a date outside this trip (that would be
+    # a real second claim), the old fingerprint moves to this trip and is handed
+    # back -- nothing refused, no new row.
+    moved = None
+    tfrom = trip[:10]
+    tto = trip[11:21]
+    hard_found = []
+    for m in found:
+        if m["hard"]:
+            hard_found.append(m)
+    if action == "claim" and kind != "Bill" and len(tfrom) == 10 and len(tto) == 10 and hard_found:
+        movable = 1
+        for m in hard_found:
+            r = m["r"]
+            if r.employee != emp or r.kind == "Bill" or not r.file_url:
+                movable = 0
+                continue
+            for l in frappe.get_all("Expense Claim Detail", filters={"custom_bill": r.file_url, "parenttype": "Expense Claim"}, fields=["parent", "expense_date"], limit_page_length=0):
+                if frappe.db.get_value("Expense Claim", l.parent, "docstatus") == 2:
+                    continue
+                d = str(l.expense_date or "")[:10]
+                if d < tfrom or d > tto:
+                    movable = 0
+        if movable:
+            moved = hard_found[0]["r"]
+            # the fingerprint now follows the file this scan stored: the line
+            # check above looks for that file on the claim next time
+            nu = str(fd.get("file_url") or "")[:400]
+            for m in hard_found:
+                vals = {"trip": trip}
+                if nu:
+                    vals["file_url"] = nu
+                frappe.db.set_value("Bill Fingerprint", m["r"].name, vals, update_modified=False)
+    if moved:
+        frappe.response["message"] = {"ok": 1, "name": moved.name, "flag": None, "moved": 1}
 
     block = None
     flag = None
@@ -248,7 +266,9 @@ elif action == "claim" or action == "check":
         "strong": strong,
     }
 
-    if action == "check":
+    if moved:
+        pass
+    elif action == "check":
         # nothing written: the settlement form asks before the bill is saved
         if block:
             frappe.response["message"] = {"ok": 0, "reason": block["text"], "matched": block["name"]}
@@ -286,6 +306,48 @@ elif action == "claim" or action == "check":
             base["note"] = flag["text"]
         doc = frappe.get_doc(base).insert(ignore_permissions=True)
         frappe.response["message"] = {"ok": 1, "name": doc.name, "flag": flag["text"] if flag else None}
+
+# BILLS ON EVERY DEVICE (25 Nov 2026, the owner): a trip's bills used to live only on the phone that
+# scanned them until the trip was sent. Now the app keeps its copy of each bill here too:
+#   action=card   name, card    the app's copy (JSON) of the rep's own bill, saved after it is added
+#   action=mine                 the rep's bills not on any claim line yet -> { bills: [...] }
+#   action=get    name          one of the rep's own bills, with its hashes (for /api/claims/restore-bill)
+elif action == "card":
+    name = str(fd.get("name") or "")
+    card = str(fd.get("card") or "")
+    row = frappe.db.get_value("Bill Fingerprint", name, ["employee", "status"], as_dict=True) if name else None
+    if row and row.employee == emp and row.status == "Used" and card and len(card) < 200000:
+        frappe.db.set_value("Bill Fingerprint", name, "custom_card", card, update_modified=False)
+        frappe.response["message"] = {"saved": name}
+    else:
+        frappe.response["message"] = {"saved": None}
+
+elif action == "mine":
+    since = frappe.utils.add_days(frappe.utils.today(), -150)
+    rows = frappe.get_all("Bill Fingerprint", filters={"employee": emp, "status": "Used", "trip": ["!=", ""], "creation": [">=", since]},
+                          fields=["name", "kind", "trip", "bill_date", "amount", "vendor", "bill_no", "file_url", "custom_card", "creation"],
+                          order_by="creation asc", limit_page_length=1000)
+    urls = [r.file_url for r in rows if r.file_url]
+    used = {}
+    if urls:
+        for l in frappe.get_all("Expense Claim Detail", filters={"custom_bill": ["in", urls]}, fields=["custom_bill"], limit_page_length=0):
+            used[l.custom_bill] = 1
+    out = []
+    for r in rows:
+        if r.file_url and used.get(r.file_url):
+            continue
+        out.append({"name": r.name, "kind": r.kind, "trip": r.trip, "bill_date": str(r.bill_date or ""), "amount": r.amount,
+                    "vendor": r.vendor, "bill_no": r.bill_no, "file_url": r.file_url, "card": r.custom_card or None})
+    frappe.response["message"] = {"bills": out}
+
+elif action == "get":
+    name = str(fd.get("name") or "")
+    row = frappe.db.get_value("Bill Fingerprint", name, ["name", "employee", "status", "kind", "trip", "bill_date", "amount", "vendor", "bill_no",
+                                                           "file_url", "file_hash", "image_hash", "content_hash", "strong", "note"], as_dict=True) if name else None
+    if not row or row.employee != emp or row.status != "Used":
+        frappe.throw("That is not one of your bills.", frappe.PermissionError)
+    row["bill_date"] = str(row.bill_date or "")
+    frappe.response["message"] = {"bill": row}
 
 else:
     frappe.throw("Unknown action.")
