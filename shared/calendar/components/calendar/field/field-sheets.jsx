@@ -3,8 +3,8 @@
 /* The Field layer's other sheets, after the Elbrit Claims prototype:
      KpiSheet         "October · TA & DA" — the month's TA and DA side by side,
                       each split into in payroll / submitted / to claim
-     CarRequestSheet  "Request car" — pick the dates (every trip with TA in them),
-                      the suggested cap, your ask (date range since 25 Nov 2026)
+     CarRequestSheet  "Request car" — a From-To range (EQ / OS days in it use the car),
+                      km, the suggested cap, your ask (25 Nov 2026)
      RequestSheet     one car request: pending (recall & edit) or approved */
 
 import { useState } from "react";
@@ -13,8 +13,8 @@ import { BedDouble, Car, ChevronRight, Info, Loader2, Route, Undo2, Zap } from "
 import { cn } from "@calendar/lib/utils";
 import { ModalTitle } from "@calendar/components/ui/responsive-modal";
 import { useFieldExpenses } from "@calendar/components/calendar/field/field-context";
-import { dayLabel, inr, rangeLabel } from "@calendar/lib/field-expenses/field-days";
-import { FUEL_PRICE, MILEAGE_KM_PER_L, fuelCost, tripRoute } from "@calendar/lib/field-expenses/claim-rules";
+import { TRAVEL_TYPES, dayLabel, inr, rangeLabel } from "@calendar/lib/field-expenses/field-days";
+import { FUEL_PRICE, MILEAGE_KM_PER_L, fuelCost } from "@calendar/lib/field-expenses/claim-rules";
 
 const MONTH_LONG = ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"];
 const monthName = (ym) => MONTH_LONG[Number(ym.slice(5, 7)) - 1];
@@ -360,83 +360,42 @@ const Stand = ({ label, value, hi }) => (
 
 export function CarRequestSheet({ opts }) {
   const f = useFieldExpenses();
-  const travelled = opts?.tripId ? f.trips.find((t) => t.id === opts.tripId) : null;
   const draft = opts?.draft || null;
 
-  const fromTrip = (t, claim, request) => ({
-    id: t.id,
-    from: t.from,
-    to: t.to,
-    places: tripRoute(t, f.data?.employee?.hq),
-    name: t.name,
-    km: t.km,
-    kmKnown: true,
-    nights: t.nights,
-    travelled: true,
-    // a trip already asked for, or already claimed, cannot be in a new request
-    blocked: request
-      ? request.status === "approved"
-        ? "car approved"
-        : "car requested"
-      : claim && claim.status !== "unclaimed"
-        ? "already claimed"
-        : null,
-  });
-
-  /* 25 Nov 2026 (the owner): the car is asked for a DATE RANGE, not one trip -- every trip
-     paying TA in it (this month's trips, then the upcoming HQ Tour Plan trips) is covered;
-     the km is theirs together. The GM approves one amount; each trip's cap is its share by km. */
-  const options = [
-    ...[...f.claimed]
-      // every trip that pays TA (14 Nov 2026): EQ days and outstation trips, and an HQ run only if it has TA
-      .filter((x) => x.trip.kind !== "hq" || x.trip.ta > 0)
-      .map((x) => fromTrip(x.trip, x.claim, x.calc.request)),
-    ...f.plans.filter((p) => !p.request),
-  ].sort((a, b) => a.from.localeCompare(b.from));
-  const firstOpen = travelled ? options.find((o) => o.id === travelled.id) : options.find((o) => !o.blocked);
-  const [from, setFrom] = useState(draft?.from || firstOpen?.from || "");
-  const [to, setTo] = useState(draft?.to || firstOpen?.to || "");
-  // one month at a time: the cap is paid from that month's claim (25 Nov 2026)
+  /* 25 Nov 2026 (the owner): the car is asked for a literal From-To range of one month. Inside
+     it the car is used on the EQ and OS days only; HQ days keep their pay. The GM approves one
+     amount for the whole range; the fuel bills of those days are shared out over them. */
+  const [from, setFrom] = useState(draft?.from || "");
+  const [to, setTo] = useState(draft?.to || "");
   const oneMonth = !from || !to || from.slice(0, 7) === to.slice(0, 7);
   const range = !!from && !!to && from <= to && oneMonth;
-  const inRange = range ? options.filter((o) => o.from <= to && o.to >= from) : [];
-  const blocked = inRange.filter((o) => o.blocked);
-  const covered = inRange.filter((o) => !o.blocked);
+
+  // what the month already shows in the range: its EQ / OS days, and any already claimed
+  const inR = (d) => d.payable && TRAVEL_TYPES.has(d.dayType) && d.date >= from && d.date <= to;
+  const known = range ? f.claimed.flatMap((x) => x.trip.days.filter(inR).map((d) => ({ d, x }))) : [];
+  const claimedDays = known.filter(({ x }) => x.claim && x.claim.status !== "unclaimed");
+  const kmOf = (d) => (d.legs || []).reduce((a, l) => a + (l.flown ? 0 : (Number(l.rounded_km ?? l.km) || 0) * (l.both_ways ? 2 : 1)), 0);
+  const knownKm = Math.round(known.reduce((a, { d }) => a + kmOf(d), 0));
 
   // one fuel price for every car: petrol (12 Nov 2026)
   const fuel = "Petrol";
   const [kmIn, setKmIn] = useState(draft?.km != null ? String(draft.km) : "");
-  // null: not touched, the ask follows the suggestion; otherwise what was
-  // typed, as typed ("" while the box is being cleared counts as ₹0)
+  // null: not touched, the ask follows the suggestion; otherwise what was typed
   const [askIn, setAskIn] = useState(draft?.ask != null ? String(draft.ask) : null);
   const [busy, setBusy] = useState(false);
 
-  const knownKm = covered.reduce((s, o) => s + (o.kmKnown && o.km ? Number(o.km) : 0), 0);
-  const kmMissing = covered.some((o) => !(o.kmKnown && o.km));
-  const km = kmMissing ? Math.max(0, Math.round(Number(kmIn) || 0)) || Math.round(knownKm) : Math.round(knownKm);
+  const km = kmIn !== "" ? Math.max(0, Math.round(Number(kmIn) || 0)) : knownKm;
   const tolls = 0; // not paid (13 Nov 2026)
   const fuelAmt = fuelCost(km, fuel);
   const sugg = fuelAmt;
   const ask = askIn != null ? Math.max(0, Math.round(Number(askIn) || 0)) : sugg;
-  const ok = range && covered.length > 0 && !blocked.length && km > 0 && ask > 0;
-  const places = [...new Set(covered.map((o) => o.places || o.name).filter(Boolean))].join(" · ");
+  const ok = range && !claimedDays.length && km > 0 && ask > 0;
+  const places = [...new Set(known.map(({ x }) => x.trip.name).filter(Boolean))].join(" · ");
 
   const send = async () => {
     setBusy(true);
     try {
-      await f.actions.requestOwnCar({
-        planId: covered[0].id,
-        tripId: covered.length === 1 && covered[0].travelled ? covered[0].id : null,
-        from,
-        to,
-        places,
-        km,
-        fuel,
-        fuelCost: fuelAmt,
-        tolls,
-        suggested: sugg,
-        ask,
-      });
+      await f.actions.requestOwnCar({ planId: null, tripId: null, from, to, places: places || "EQ / OS days", km, fuel, fuelCost: fuelAmt, tolls, suggested: sugg, ask });
       toast.success(`Car request sent to ${f.carApprover}`);
       f.closeSheet();
     } catch (e) {
@@ -449,9 +408,9 @@ export function CarRequestSheet({ opts }) {
   const input = "h-11 w-full rounded-xl border border-gray-300 bg-white px-3 text-sm outline-none focus:border-blue-500";
   return (
     <div className="-mx-4 flex min-h-0 flex-1 flex-col overflow-y-auto overscroll-contain px-4 [&>*]:shrink-0 gap-3">
-      <ModalTitle className="pr-10 text-lg font-extrabold text-gray-900">Request car · pick the dates</ModalTitle>
+      <ModalTitle className="pr-10 text-lg font-extrabold text-gray-900">Request car</ModalTitle>
       <Note>
-        {`Until ${f.carApprover} approves, these trips are paid the normal allowance. Once approved, the amount is the limit for all the trips in these dates together: scan the fuel bills on any of them (any bill of the month) and they are split over the trips by days. Tolls are not paid.`}
+        {`For the EQ and OS days between these dates (HQ days keep their pay). Until ${f.carApprover} approves, they are paid the normal fare. Once approved, the amount is the limit for the whole range: scan the fuel bills (any bill of the month) and they are shared over those days. Tolls are not paid.`}
       </Note>
 
       <div className="grid grid-cols-2 gap-2">
@@ -464,69 +423,28 @@ export function CarRequestSheet({ opts }) {
           <input type="date" className={input} value={to} min={from || undefined} onChange={(e) => setTo(e.target.value)} />
         </label>
       </div>
+      {!oneMonth && <p className="rounded-xl bg-amber-50 px-3 py-2 text-[12.5px] font-semibold text-amber-800">Pick dates within one month — ask again for the next month.</p>}
+      {range && (
+        <p className="rounded-xl bg-gray-50 px-3 py-2 text-[12.5px] text-gray-600">
+          {known.length ? `${known.length} EQ / OS day${known.length > 1 ? "s" : ""} so far in these dates` : "No EQ / OS day yet in these dates"}
+          {knownKm ? ` · ~${knownKm} km` : ""}
+        </p>
+      )}
+      {claimedDays.length > 0 && (
+        <p className="rounded-xl bg-amber-50 px-3 py-2 text-[12.5px] font-semibold text-amber-800">
+          {claimedDays.length === 1 ? "One EQ / OS day here is" : `${claimedDays.length} EQ / OS days here are`} already claimed — change the dates to leave {claimedDays.length === 1 ? "it" : "them"} out.
+        </p>
+      )}
 
-      <div className="flex flex-col gap-1.5">
-        <span className="text-[13px] font-bold text-gray-700">
-          Trips in these dates{covered.length ? ` · ${covered.length}` : ""}
-        </span>
-        {inRange.length ? (
-          inRange.map((p) => {
-            const b = dateBlock(p.from);
-            return (
-              <div
-                key={p.id}
-                className={cn(
-                  "grid w-full grid-cols-[40px_minmax(0,1fr)_auto] items-center gap-2.5 rounded-2xl border-[1.5px] p-2.5",
-                  p.blocked ? "border-gray-200 bg-white opacity-55" : "border-blue-600 bg-blue-50"
-                )}
-              >
-                <span className="flex flex-col items-center leading-none">
-                  <b className="text-[17px] font-extrabold text-gray-900">{b.dd}</b>
-                  <small className="mt-0.5 text-[10px] font-bold text-gray-500">{b.dow}</small>
-                </span>
-                <span className="min-w-0">
-                  <b className="block truncate text-[13.5px] font-bold text-gray-900">{p.travelled ? p.name : p.places}</b>
-                  <small className="block text-[11.5px] leading-snug text-gray-500">
-                    {rangeLabel(p.from, p.to)} · {p.kmKnown && p.km ? `~${p.km} km` : "km to enter"}
-                    {p.nights ? ` · ${p.nights} night${p.nights > 1 ? "s" : ""}` : ""}
-                    {p.travelled ? "" : " · planned"}
-                  </small>
-                </span>
-                <span className={cn("whitespace-nowrap rounded-full px-2 py-0.5 text-[11px] font-bold", p.blocked ? "bg-gray-100 text-gray-600" : "bg-blue-100 text-blue-800")}>
-                  {p.blocked || "covered"}
-                </span>
-              </div>
-            );
-          })
-        ) : (
-          <p className="rounded-xl bg-gray-50 px-3 py-3 text-[12.5px] text-gray-500">
-            {range ? "No trip with TA in these dates. A future trip needs an HQ Tour Plan in the Planner first." : !oneMonth ? "Pick dates within one month — ask again for the next month." : "Pick the dates the car is for."}
-          </p>
-        )}
-        {blocked.length > 0 && (
-          <p className="rounded-xl bg-amber-50 px-3 py-2 text-[12.5px] font-semibold text-amber-800">
-            {blocked.length === 1 ? "One trip here" : `${blocked.length} trips here`} {blocked.length === 1 ? "is" : "are"} {[...new Set(blocked.map((o) => o.blocked))].join(" / ")} — change the dates to leave {blocked.length === 1 ? "it" : "them"} out.
-          </p>
-        )}
-        <Note icon={Route}>
-          Suggested = km ÷ {MILEAGE_KM_PER_L} km/l × fuel price (fixed) — fuel only, tolls are not paid. Edit the ask before you send; the manager approves the asked amount.
-        </Note>
-      </div>
-
-      {covered.length > 0 && kmMissing && (
+      {range && (
         <label className="flex flex-col gap-1 text-[13px] font-bold text-gray-700">
-          Route km for these dates (out and back)
-          <input type="number" inputMode="numeric" min="0" className={input} placeholder={knownKm ? String(Math.round(knownKm)) : "e.g. 460"} value={kmIn} onChange={(e) => setKmIn(e.target.value)} />
-          <span className="text-[11.5px] font-normal text-gray-500">The Planner has no distance for a planned trip here — enter the total.</span>
+          Km by car in these dates (all of it)
+          <input type="number" inputMode="numeric" min="0" className={input} placeholder={knownKm ? String(knownKm) : "e.g. 460"} value={kmIn} onChange={(e) => setKmIn(e.target.value)} />
         </label>
       )}
 
-      {covered.length > 0 && km > 0 && (
+      {range && km > 0 && (
         <div className="rounded-2xl bg-gray-100 px-3 py-2.5 text-[12.5px] text-gray-600">
-          <div className="flex justify-between gap-2 py-0.5">
-            <span>Fuel price</span>
-            <b className="text-gray-900">₹{FUEL_PRICE[fuel]}/l</b>
-          </div>
           <div className="flex justify-between gap-2 py-0.5">
             <span>
               Fuel · {km} km ÷ {MILEAGE_KM_PER_L} km/l × ₹{FUEL_PRICE[fuel]}
@@ -543,22 +461,13 @@ export function CarRequestSheet({ opts }) {
             </span>
             <span className="flex h-11 items-center gap-1 rounded-xl border border-gray-300 bg-white px-3">
               <span className="text-gray-400">₹</span>
-              <input
-                type="number"
-                inputMode="numeric"
-                min="0"
-                step="10"
-                value={askIn ?? String(sugg)}
-                onChange={(e) => setAskIn(e.target.value)}
-                className="w-full bg-transparent text-sm font-semibold outline-none"
-                aria-label="Amount asked"
-              />
+              <input type="number" inputMode="numeric" min="0" step="10" value={askIn ?? String(sugg)} onChange={(e) => setAskIn(e.target.value)} className="w-full bg-transparent text-sm font-semibold outline-none" aria-label="Amount asked" />
             </span>
           </label>
         </div>
       )}
 
-      <SheetFoot label={covered.length ? (ask === 0 ? "type the amount you ask for" : ask !== sugg ? `asking · suggested ${inr(sugg)}` : "asking · as suggested") : "Pick the dates"} value={covered.length && km ? inr(ask) : "—"}>
+      <SheetFoot label={range ? (ask === 0 ? "type the amount you ask for" : ask !== sugg ? `asking · suggested ${inr(sugg)}` : "asking · as suggested") : "Pick the dates"} value={range && km ? inr(ask) : "—"}>
         <FootBtn disabled={!ok} busy={busy} onClick={send}>
           Request
         </FootBtn>
@@ -617,7 +526,7 @@ export function RequestSheet({ req }) {
       </div>
       <Note>
         {ok
-          ? "Scan the fuel bills on any trip in these dates (any bill of the month). All of them count together up to the approved amount, split over the trips by days. No bill: the fare is paid. Tolls are not paid."
+          ? "For the EQ and OS days in these dates. Scan the fuel bills (any bill of the month) on any of those trips: together they are paid up to the approved amount, an equal share on each of those days. No bill: the fare is paid. HQ days keep their pay. Tolls are not paid."
           : no
             ? "These trips are paid the normal fare. You can ask again."
             : `Until ${f.carApprover} approves, the trip is paid the normal allowance.`}
