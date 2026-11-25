@@ -343,12 +343,22 @@ export default function ClaimReport({
   const canCash = CASH_REQUESTS && !!settings?.canRequestCash;
 
   const L = useMemo(() => ledger(claims, advances, cashAdv), [claims, advances, cashAdv]);
+  // Settlement open for a date window (25 Nov 2026: October alone): the page opens on that month
+  const winMonth = settings?.billsTo ? settings.billsTo.slice(0, 7) : null;
   const months = useMemo(() => {
     const set = new Set([cur]);
+    if (winMonth && winMonth <= cur) set.add(winMonth);
     for (const e of L.entries) if (e.date && e.date.slice(0, 7) <= cur) set.add(e.date.slice(0, 7));
     return [...set].sort();
-  }, [L, cur]);
+  }, [L, cur, winMonth]);
   const [month, setMonth] = useState(cur);
+  const winShown = useRef(false);
+  useEffect(() => {
+    if (winMonth && !winShown.current && winMonth <= cur) {
+      winShown.current = true;
+      setMonth(winMonth);
+    }
+  }, [winMonth, cur]);
   const mi = months.indexOf(month);
 
   // every added bill not sent yet (a "Checking" one is scored as it goes)
