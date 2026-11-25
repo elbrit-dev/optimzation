@@ -283,6 +283,63 @@ export function carryBills(emp, trips) {
   return out;
 }
 
+/* BILLS ON EVERY DEVICE (25 Nov 2026, the owner): the rep's bills the ERP holds (rows from
+   listMyBills: registered, on no claim line yet) that this device does not have are put back on
+   their trip card -- from the app's copy saved with the bill (card), or rebuilt by the server
+   (legacy(name, kind, trip) -> { ok, bill }) for a bill scanned before copies were kept. A bill
+   the rep took off is gone from the ERP too (released), so it does not come back. A card already
+   sent is left alone. A trip that no longer exists keeps the bill under its old id: carryBills
+   moves it. -> { restored: [{ tripId, kind, bill, fresh }], backfill: [{ fp, card }] }
+   backfill: bills this device has whose ERP copy is missing -- for the caller to save. */
+const KIND_SLOT = { Stay: "stays", Food: "foods", Fuel: "fuels", Toll: "tolls", Bill: "travels" };
+export async function restoreBills(emp, rows, legacy) {
+  const out = { restored: [], backfill: [] };
+  if (!emp || !(rows || []).length) return out;
+  const where = (state, row) => {
+    for (const tid of Object.keys(state.trips || {})) {
+      const c = claimOf(state, tid);
+      for (const k of BILL_KINDS) {
+        const b = (c[k] || []).find((x) => x.fp === row.name || (row.file_url && x.url === row.file_url));
+        if (b) return { tid, k, b };
+      }
+      if (row.file_url && (c.dropped || []).includes(row.file_url)) return { tid, k: null, b: null };
+    }
+    return null;
+  };
+  for (const row of rows) {
+    let card = null;
+    try {
+      card = row.card ? JSON.parse(row.card) : null;
+    } catch {
+      card = null;
+    }
+    const here = where(read(emp), row);
+    if (here) {
+      // this device has it and the ERP has no copy yet: send ours (the first time after this change)
+      if (!card && here.b) out.backfill.push({ fp: row.name, card: { tripId: here.tid, kind: here.k, bill: here.b } });
+      continue;
+    }
+    const tripId = card?.tripId || row.trip;
+    const kind = card?.kind || KIND_SLOT[row.kind];
+    const span = idSpan(tripId);
+    if (!span || !kind || claimOf(read(emp), tripId).status !== "unclaimed") continue;
+    let bill = card?.bill || null;
+    const fresh = !bill;
+    if (!bill) {
+      const r = await legacy(row.name, kind, { id: tripId, ...span });
+      if (!r?.ok) continue;
+      bill = r.bill;
+    }
+    const state = read(emp);
+    if (where(state, row)) continue;
+    const c = claimOf(state, tripId);
+    if (c.status !== "unclaimed") continue;
+    write(emp, { ...state, trips: { ...state.trips, [tripId]: { ...c, [kind]: [...(c[kind] || []), { ...bill, id: uid(), restored: true }] } } });
+    out.restored.push({ tripId, kind, bill, fresh });
+  }
+  return out;
+}
+
 /* ---------- submit / recall ---------- */
 
 /* erpClaim: the month's ERP Expense Claim the trip's lines went into (see
