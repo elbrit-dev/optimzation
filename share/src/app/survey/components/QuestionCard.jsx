@@ -309,6 +309,27 @@ function Input({ q, value, onChange, disabled, onUpload, api }) {
     case 'file_upload':
       return <FileUpload q={q} value={value} onChange={onChange} disabled={disabled} onUpload={onUpload} />;
     default:
+      /* 25 Nov 2026 · a password is typed hidden (the ERP saves it encrypted to the record, never in the answers);
+         a website gets the web keyboard (the ERP checks it opens when the survey is sent) */
+      if (q.secret || q.check_url) {
+        return (
+          <div className="flex flex-col gap-1">
+            <input
+              aria-label={q.label}
+              type={q.secret ? 'password' : 'url'}
+              inputMode={q.secret ? undefined : 'url'}
+              autoCapitalize="off"
+              autoComplete={q.secret ? 'new-password' : 'off'}
+              value={value ?? ''}
+              disabled={disabled}
+              placeholder={q.secret ? 'Type the password' : 'https://…'}
+              onChange={(e) => onChange(e.target.value)}
+              className={cx(FIELD, 'h-10 w-full')}
+            />
+            <span className="text-11 text-ds-muted">{q.secret ? 'Saved encrypted to the record — not shown in the answers.' : 'The website must open before you can send.'}</span>
+          </div>
+        );
+      }
       return <input aria-label={q.label} type="text" value={value ?? ''} disabled={disabled} placeholder="Your answer…" onChange={(e) => onChange(e.target.value)} className={cx(FIELD, 'h-10 w-full')} />;
   }
 }
