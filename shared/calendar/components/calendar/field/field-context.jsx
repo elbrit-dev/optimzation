@@ -9,7 +9,7 @@ import { createContext, useCallback, useContext, useEffect, useMemo, useRef, use
 import { format } from "date-fns";
 import { useCalendar } from "@calendar/components/calendar/contexts/calendar-context";
 import { LOGGED_IN_USER } from "@calendar/components/auth/calendar-users";
-import { buildTrips, fetchFieldMonth, monthStats } from "@calendar/lib/field-expenses/field-days";
+import { answerOvernight, buildTrips, dropFieldMonth, fetchFieldMonth, monthStats } from "@calendar/lib/field-expenses/field-days";
 import { CAR_APPROVER, canClaimCabs, canUseCar, claimsStays, payrollOf, plannedTrips, tripChecks, tripClaim } from "@calendar/lib/field-expenses/claim-rules";
 import { TAG_IDS } from "@calendar/components/calendar/constants";
 import * as store from "@calendar/lib/field-expenses/trip-claims-store";
@@ -46,6 +46,8 @@ export function FieldExpensesProvider({ children }) {
   const viewingSelf =
     !selectedUserId?.length || !LOGGED_IN_USER.id || selectedUserId.includes(LOGGED_IN_USER.id);
 
+  // rev: bumped to read the month again (an overnight-stay answer re-runs it -- 25 Nov 2026)
+  const [rev, setRev] = useState(0);
   useEffect(() => {
     let alive = true;
     setState((s) => (s.month === month && s.status === "ready" ? s : { month, status: "loading", data: null, error: null }));
@@ -55,7 +57,36 @@ export function FieldExpensesProvider({ children }) {
     return () => {
       alive = false;
     };
-  }, [month]);
+  }, [month, rev]);
+
+  /* "Stayed overnight?" (25 Nov 2026): store the answer, then read the month again until
+     the engine service has re-run it -- the days turn O/S (yes) or back to EQ (no / undo).
+     info: { from, to, towns, dates }; answer: "yes" | "no" | null (null = back to the question) */
+  const answerStay = useCallback(
+    async (info, answer) => {
+      await answerOvernight({ from: info.from, to: info.to, answer, towns: (info.towns || []).join(", ") });
+      const done = (data) => {
+        const rows = (data?.rows || []).filter((r) => (info.dates || []).includes(r.date));
+        if (!rows.length) return true;
+        if (answer === "yes") return rows.every((r) => r.stayRun && !r.stayRun.auto);
+        if (answer === "no") return rows.every((r) => !r.stayRun && r.stayAsk?.answer === "no");
+        return rows.every((r) => !r.stayRun && r.stayAsk && !r.stayAsk.answer);
+      };
+      // the engine re-runs the month in about half a minute
+      for (let i = 0; i < 15; i++) {
+        await new Promise((ok) => setTimeout(ok, i ? 6000 : 4000));
+        dropFieldMonth(month);
+        const data = await fetchFieldMonth(month).catch(() => null);
+        if (data && done(data)) {
+          setRev((r) => r + 1);
+          return true;
+        }
+      }
+      setRev((r) => r + 1);
+      return false;
+    },
+    [month]
+  );
 
   // the claims belong to whoever the ERP says this is
   const emp = state.data?.employee?.code || null;
@@ -331,8 +362,10 @@ export function FieldExpensesProvider({ children }) {
       requestOwnCar: (req) => monthErp.requestCar(req).finally(refreshCarRequests),
       withdrawRequest: (id) => monthErp.withdrawCar(id).finally(refreshCarRequests),
       refreshCarRequests,
+      // overnight stay (25 Nov 2026): yes / no / null (undo) -> resolves once the days are re-run
+      answerStay,
     }),
-    [emp, month, refreshMonthClaim, refreshCarRequests]
+    [emp, month, refreshMonthClaim, refreshCarRequests, answerStay]
   );
 
   return (

@@ -28,6 +28,33 @@ const authHeader = (t) => (/^(token|bearer)\s/i.test(t) ? t : `token ${t}`);
    failure is not cached, so moving away and back asks again.
    -> { month, pulledAt, employee, bands, rows } -- employee null = the ERP
       has no field days for this person (office staff). */
+/* Forget a month, so the next fetch reads the ERP again (after an answer that
+   re-runs the month -- 25 Nov 2026). */
+export const dropFieldMonth = (month) => cache.delete(month);
+
+/* The rep's answer to "Stayed overnight?" (25 Nov 2026): yes / no, or clear (back to
+   the question). The ERP stores it and re-runs the month on the engine service. */
+export async function answerOvernight({ from, to, answer, towns }) {
+  const { erpUrl, authToken } = AUTH_CONFIG;
+  const body = new URLSearchParams(answer ? { action: "answer", from, to, answer, towns: towns || "" } : { action: "clear", from, to });
+  const r = await fetch(`${erpBase(erpUrl)}/api/method/field_expense_overnight`, {
+    method: "POST",
+    headers: { Authorization: authHeader(authToken), "Content-Type": "application/x-www-form-urlencoded", Accept: "application/json" },
+    body,
+  });
+  const j = await r.json().catch(() => ({}));
+  if (!r.ok) {
+    let msg = j.exception || `HTTP ${r.status}`;
+    try {
+      msg = JSON.parse(JSON.parse(j._server_messages)[0]).message || msg;
+    } catch {
+      /* keep msg */
+    }
+    throw new FieldDaysError(String(msg).replace(/<[^>]*>/g, ""), { status: r.status });
+  }
+  return j.message || {};
+}
+
 export function fetchFieldMonth(month) {
   const hit = cache.get(month);
   if (hit && Date.now() - hit.at < TTL_MS) return hit.promise;
@@ -234,6 +261,12 @@ export function shapeDay(d) {
     visitPlaces: placesOf(x.visitList),
     otherWork: (x.others || []).map((o) => [o?.[1], o?.[2]].filter(Boolean).join(" · ").trim()).filter(Boolean),
     meetAway,
+    // overnight stay (25 Nov 2026): days 150+ km away on consecutive days -- a run the
+    // dashboard made O/S (stayRun: { from, to, towns, auto, key }), or one the rep is asked
+    // about ("Stayed overnight?": stayAsk, answer "no" once they said they came back)
+    stayRun: x.stayRun || null,
+    stayAsk: x.stayAsk || null,
+    stayedOver: x.stayedOver || null,
   };
 }
 
