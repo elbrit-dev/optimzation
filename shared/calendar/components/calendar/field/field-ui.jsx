@@ -308,7 +308,27 @@ function LocalCard({ items, onOpen }) {
 function LocalDaysSheet() {
   const f = useFieldExpenses();
   const items = f.claimed.filter(isLocalTrip).sort((a, b) => a.trip.from.localeCompare(b.trip.from));
-  const open = items.filter((x) => x.claim.status === "unclaimed" && x.calc.total > 0 && !x.calc.carBlock);
+  // "Stayed overnight?" (25 Nov 2026): days still waiting for the rep's answer are not claimed yet
+  const askOf = (x) => (x.trip.kind === "day" && x.trip.days[0]?.stayAsk) || null;
+  const asking = (x) => !!askOf(x) && !askOf(x).answer;
+  const nAsk = items.filter(asking).length;
+  const [stayBusy, setStayBusy] = useState(null); // the stay key being answered
+  const answer = async (info, ans) => {
+    setStayBusy(info.key);
+    const label = rangeLabel(info.from, info.to);
+    const tid = toast.loading(ans === "yes" ? `Moving ${label} to OS…` : ans === "no" ? "Saving…" : "Undoing…");
+    if (ans === "yes") f.closeSheet();
+    try {
+      const ok = await f.actions.answerStay(info, ans);
+      if (ans === "yes") toast.success(ok ? `${label} moved to OS` : `${label} is moving to OS — it shows in a minute`, { id: tid, action: { label: "Undo", onClick: () => f.actions.answerStay(info, null) } });
+      else toast.success(ans === "no" ? `${label} kept as EQ` : `${label} back to the question`, { id: tid });
+    } catch (e) {
+      toast.error(errText(e), { id: tid });
+    } finally {
+      setStayBusy(null);
+    }
+  };
+  const open = items.filter((x) => x.claim.status === "unclaimed" && x.calc.total > 0 && !x.calc.carBlock && !asking(x));
   const openTotal = open.reduce((a, x) => a + x.calc.total, 0);
   const allTotal = items.reduce((a, x) => a + x.calc.total, 0);
   // sent back by the officer: the footer says so instead of "Nothing left to claim"
@@ -362,8 +382,14 @@ function LocalDaysSheet() {
         </p>
       </div>
       <ol className="flex flex-col divide-y divide-gray-100 rounded-2xl border border-gray-200 bg-white">
-        {items.map((x) => {
+        {items.map((x, ix) => {
           const { trip, claim, calc } = x;
+          const sa = askOf(x);
+          const keyOf = (y) => (y ? askOf(y)?.key || null : null);
+          const firstOf = sa && keyOf(items[ix - 1]) !== sa.key;
+          const lastOf = sa && keyOf(items[ix + 1]) !== sa.key;
+          const ask = sa && !sa.answer;
+          const run = trip.days.find((dd) => dd.stayRun)?.stayRun || null;
           const req = calc.request;
           const d = new Date(`${trip.from}T00:00:00`);
           const isHq = trip.kind === "hq";
@@ -372,7 +398,14 @@ function LocalDaysSheet() {
           // a recall still needs the trip's own sheet (the car: month summary)
           const recallable = canRecall(claim);
           return (
-            <li key={trip.id}>
+            <Fragment key={trip.id}>
+            {ask && firstOf && (
+              <li className="border-l-4 border-amber-400 bg-amber-50/70 px-3 pb-1 pt-2.5">
+                <b className="block text-[13px] font-extrabold text-amber-800">Stayed overnight?</b>
+                <span className="block text-[11.5px] text-amber-800">{(sa.towns || []).length > 1 ? `${sa.towns.length} towns · ` : ""}150+ km · stay bill needed</span>
+              </li>
+            )}
+            <li className={cn(ask && "border-l-4 border-amber-400 bg-amber-50/70")}>
               <button type="button" onClick={() => toggle(trip.id)} aria-expanded={on} className={cn("flex w-full items-center gap-3 px-3 py-2.5 text-left active:bg-gray-50", on && "bg-blue-50/80")}>
                 <span className="flex w-10 shrink-0 flex-col items-center leading-none">
                   <b className="text-[17px] font-extrabold text-gray-900">{d.getDate()}</b>
@@ -390,6 +423,9 @@ function LocalDaysSheet() {
                     <span className={calc.taClaimed != null && calc.taClaimed !== calc.ta ? "font-bold text-amber-700" : ""}>{inr(calc.ta)}</span> · DA {inr(calc.da)}
                     {trip.days.some((dd) => dd.flight) ? " · travel by company, TA ₹0 there" : ""}
                   </span>
+                  {run && (
+                    <span className="w-fit max-w-full truncate rounded bg-indigo-50 px-1.5 text-[10.5px] font-bold text-indigo-800">🛏 Stayed · {(run.towns || []).join(" · ")}</span>
+                  )}
                   {req?.status === "rejected" && (
                     <span className="w-fit max-w-full rounded bg-rose-50 px-1.5 text-[10.5px] font-bold text-rose-700">
                       Car not approved · fare paid{req.note ? <span className="font-medium"> — “{req.note}”</span> : null}
@@ -408,7 +444,7 @@ function LocalDaysSheet() {
                     {calc.taClaimed != null && calc.taClaimed !== calc.ta && <s className="text-[11.5px] text-gray-400">{inr(calc.total - calc.ta + calc.taClaimed)}</s>}
                     <b className="text-[14px] font-extrabold text-gray-900">{inr(calc.total)}</b>
                   </span>
-                  <StatusPill claim={claim} className="px-1.5 text-[9.5px]" />
+                  {ask ? <span className="rounded-full bg-amber-100 px-1.5 text-[9.5px] font-bold text-amber-800">Answer</span> : <StatusPill claim={claim} className="px-1.5 text-[9.5px]" />}
                 </span>
                 <ChevronDown className={cn("h-4 w-4 shrink-0 text-gray-400 transition-transform", on && "rotate-180")} aria-hidden />
               </button>
@@ -470,6 +506,26 @@ function LocalDaysSheet() {
                 </div>
               )}
             </li>
+            {ask && lastOf && (
+              <li className="flex gap-2 border-l-4 border-amber-400 bg-amber-50/70 px-3 pb-3 pt-1">
+                <button type="button" disabled={!!stayBusy} onClick={() => answer(sa, "no")} className="min-h-10 flex-1 rounded-xl border border-gray-300 bg-white text-[13px] font-bold text-gray-800 disabled:opacity-60">
+                  No
+                </button>
+                <button type="button" disabled={!!stayBusy} onClick={() => answer(sa, "yes")} className="flex min-h-10 flex-1 items-center justify-center gap-2 rounded-xl bg-indigo-600 text-[13px] font-bold text-white disabled:opacity-60">
+                  {stayBusy === sa.key && <Loader2 className="h-4 w-4 animate-spin" aria-hidden />}
+                  Yes, stayed
+                </button>
+              </li>
+            )}
+            {sa?.answer === "no" && lastOf && (
+              <li className="flex items-center justify-between gap-2 px-3 py-1.5 text-[11.5px] text-gray-500">
+                <span>Came back each day · {rangeLabel(sa.from, sa.to)}</span>
+                <button type="button" disabled={!!stayBusy} onClick={() => answer(sa, null)} className="font-bold text-blue-700 disabled:opacity-60">
+                  Change
+                </button>
+              </li>
+            )}
+            </Fragment>
           );
         })}
       </ol>
@@ -495,7 +551,7 @@ function LocalDaysSheet() {
             <div className="min-w-0">
               <span className={cn("block text-[13px]", !open.length && backItems.length ? "font-semibold text-rose-700" : "text-gray-500")}>
                 {open.length
-                  ? `To claim · ${nDays}`
+                  ? `To claim · ${nDays}${nAsk ? ` · ${nAsk} to answer` : ""}`
                   : backItems.length
                     ? `${backItems.length} sent back · open it to recall and fix`
                     : "Nothing left to claim"}
@@ -1514,6 +1570,23 @@ function TripSheet({ item }) {
   const { trip, claim, calc, checks } = item;
   const editable = claim.status === "unclaimed";
   const [busy, setBusy] = useState(null);
+  // back to EQ (25 Nov 2026): the rep said they stayed, then changed their mind
+  const backToEq = async () => {
+    const run = trip.days.find((d) => d.stayRun && !d.stayRun.auto)?.stayRun;
+    if (!run) return;
+    const info = { ...run, dates: trip.days.filter((d) => d.stayRun?.key === run.key).map((d) => d.date) };
+    setBusy("eq");
+    const tid = toast.loading("Moving back to EQ…");
+    try {
+      f.closeSheet();
+      const ok = await f.actions.answerStay(info, null);
+      toast.success(ok ? `${rangeLabel(run.from, run.to)} back to EQ` : "Back to EQ — it shows in a minute", { id: tid });
+    } catch (e) {
+      toast.error(errText(e), { id: tid });
+    } finally {
+      setBusy(null);
+    }
+  };
   const [editing, setEditing] = useState(null); // { kind, id }
   const [confirming, setConfirming] = useState(false); // Submit asks first
   // a bill the reader could not read: the rep enters it by hand
@@ -2155,6 +2228,13 @@ function TripSheet({ item }) {
           </button>
         )}
         </div>
+        {/* an overnight stay the rep turned into O/S (25 Nov 2026): undo it -- back to EQ days and the question */}
+        {editable && trip.days.some((d) => d.stayRun && !d.stayRun.auto) && (
+          <button type="button" disabled={!!busy} onClick={backToEq} className="-mt-1 flex items-center justify-center gap-1.5 text-[13px] font-bold text-gray-500 disabled:opacity-60">
+            {busy === "eq" ? <Loader2 className="h-4 w-4 animate-spin" aria-hidden /> : <Undo2 className="h-4 w-4" aria-hidden />}
+            Back to EQ
+          </button>
+        )}
       </div>
     </div>
   );
