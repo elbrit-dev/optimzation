@@ -396,7 +396,9 @@ export function CarRequestSheet({ opts }) {
   const firstOpen = travelled ? options.find((o) => o.id === travelled.id) : options.find((o) => !o.blocked);
   const [from, setFrom] = useState(draft?.from || firstOpen?.from || "");
   const [to, setTo] = useState(draft?.to || firstOpen?.to || "");
-  const range = !!from && !!to && from <= to;
+  // one month at a time: the cap is paid from that month's claim (25 Nov 2026)
+  const oneMonth = !from || !to || from.slice(0, 7) === to.slice(0, 7);
+  const range = !!from && !!to && from <= to && oneMonth;
   const inRange = range ? options.filter((o) => o.from <= to && o.to >= from) : [];
   const blocked = inRange.filter((o) => o.blocked);
   const covered = inRange.filter((o) => !o.blocked);
@@ -449,7 +451,7 @@ export function CarRequestSheet({ opts }) {
     <div className="-mx-4 flex min-h-0 flex-1 flex-col overflow-y-auto overscroll-contain px-4 [&>*]:shrink-0 gap-3">
       <ModalTitle className="pr-10 text-lg font-extrabold text-gray-900">Request car · pick the dates</ModalTitle>
       <Note>
-        {`Until ${f.carApprover} approves, these trips are paid the normal allowance. Once approved, the fuel bills replace the fare — scan them in the claim (any bill of the month). Tolls are not paid.`}
+        {`Until ${f.carApprover} approves, these trips are paid the normal allowance. Once approved, the amount is the limit for all the trips in these dates together: scan the fuel bills on any of them (any bill of the month) and they are split over the trips by days. Tolls are not paid.`}
       </Note>
 
       <div className="grid grid-cols-2 gap-2">
@@ -498,7 +500,7 @@ export function CarRequestSheet({ opts }) {
           })
         ) : (
           <p className="rounded-xl bg-gray-50 px-3 py-3 text-[12.5px] text-gray-500">
-            {range ? "No trip with TA in these dates. A future trip needs an HQ Tour Plan in the Planner first." : "Pick the dates the car is for."}
+            {range ? "No trip with TA in these dates. A future trip needs an HQ Tour Plan in the Planner first." : !oneMonth ? "Pick dates within one month — ask again for the next month." : "Pick the dates the car is for."}
           </p>
         )}
         {blocked.length > 0 && (
@@ -615,7 +617,7 @@ export function RequestSheet({ req }) {
       </div>
       <Note>
         {ok
-          ? "Scan the fuel bills on the trips in these dates (any bill of the month) — they replace the fare, each trip up to its share of the approved amount by km. No bill: the fare is paid. Tolls are not paid."
+          ? "Scan the fuel bills on any trip in these dates (any bill of the month). All of them count together up to the approved amount, split over the trips by days. No bill: the fare is paid. Tolls are not paid."
           : no
             ? "These trips are paid the normal fare. You can ask again."
             : `Until ${f.carApprover} approves, the trip is paid the normal allowance.`}
