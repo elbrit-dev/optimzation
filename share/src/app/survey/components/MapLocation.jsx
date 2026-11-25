@@ -51,7 +51,7 @@ export function loadMaps(api) {
 const INDIA = { lat: 20.6, lng: 78.9 };
 const ZONE = 400; /* the doctor's area (m) around the saved point */
 const SAME = 50; /* a place this close to the saved point is the same location */
-const KIND_ICON = { Hospital: 'building', Clinic: 'heart', 'Dental clinic': 'face-smile', Physiotherapy: 'user' };
+const KIND_ICON = { Hospital: 'building', Clinic: 'heart', 'Dental clinic': 'face-smile', Physiotherapy: 'user', Pharmacy: 'shopping-bag' };
 const LABEL_CSS =
   '.sv-mq-lbl{padding:0 2px;text-shadow:0 0 2px #FFF,0 0 2px #FFF,0 0 3px #FFF,0 0 4px #FFF;white-space:nowrap}' +
   '.sv-mq-lbl.sv-mq-on{padding:1px 6px;border-radius:6px;background:#E6F4EA;text-shadow:none;box-shadow:0 1px 3px rgba(15,23,42,.25)}';
@@ -93,7 +93,11 @@ export function MapLocation({ q, value, onChange, disabled, api }) {
 
   /* the latest values for the map's own listeners */
   const live = useRef({});
-  live.current = { start, cur, near, res, term, disabled, onChange };
+  /* 25 Nov 2026 · the question's places: hospitals & clinics (default) or pharmacies (q.places = 'pharmacy') */
+  const ph = q.places === 'pharmacy';
+  const n1 = ph ? 'pharmacies' : 'hospitals and clinics';
+  const n0 = ph ? 'pharmacy' : 'hospital or clinic';
+  live.current = { start, cur, near, res, term, disabled, onChange, ph, n0, n1 };
 
   const all = useCallback(() => {
     const seen = {};
@@ -137,7 +141,7 @@ export function MapLocation({ q, value, onChange, disabled, api }) {
       setNear((n) => (more ? { ...n, busy: 'more', err: '' } : { center, label: label || 'here', places: [], busy: 'first', full: false, err: '' }));
       if (!more) setMoved(false);
       api
-        .places({ mode: 'nearby', lat: center.lat, lng: center.lng, radius_m: ZONE, split: more ? 3 : 0 })
+        .places({ mode: 'nearby', lat: center.lat, lng: center.lng, radius_m: ZONE, split: more ? 3 : 0, kind: live.current.ph ? 'pharmacy' : undefined })
         .then((m) => {
           if (gen !== genRef.current) return;
           const got = (m?.places ?? []).filter((p) => p.lat != null && p.lng != null);
@@ -148,12 +152,12 @@ export function MapLocation({ q, value, onChange, disabled, api }) {
               .sort((x, y) => mapMeters(center, x) - mapMeters(center, y));
             const st = live.current.start;
             if (!more) fitRef.current = places.length > 0 && mapMeters(center, places[0]) > 90;
-            const err = !places.length && (more || !st) ? `Google Maps has no hospital or clinic within ${mapDist(ZONE)} of this point. Search it by name.` : '';
+            const err = !places.length && (more || !st) ? `Google Maps has no ${live.current.n0} within ${mapDist(ZONE)} of this point. Search it by name.` : '';
             return { ...n, center, places, busy: '', full: Boolean(more) || n.full, err };
           });
           if (!more && live.current.start) loadNear(null, null, true);
         })
-        .catch((e) => gen === genRef.current && setNear((n) => ({ ...n, busy: '', err: e?.message || 'Couldn’t load the hospitals. Please try again.' })));
+        .catch((e) => gen === genRef.current && setNear((n) => ({ ...n, busy: '', err: e?.message || `Couldn’t load the ${live.current.n1}. Please try again.` })));
     },
     [api],
   );
@@ -198,7 +202,7 @@ export function MapLocation({ q, value, onChange, disabled, api }) {
       const c = L.start || L.near.center;
       setSearching(true);
       api
-        .places({ mode: 'text', q: t, ...(c ? { lat: c.lat, lng: c.lng } : {}) })
+        .places({ mode: 'text', q: t, kind: live.current.ph ? 'pharmacy' : undefined, ...(c ? { lat: c.lat, lng: c.lng } : {}) })
         .then((m) => {
           if (gone) return;
           const ids = {};
@@ -210,7 +214,7 @@ export function MapLocation({ q, value, onChange, disabled, api }) {
           setRes(list);
           const away = both.length - list.length;
           if (!list.length)
-            setFindErr(away ? `Found ${away} called “${t}”, but all are more than ${mapDist(ZONE * 2)} from the saved location.` : `No hospital or clinic called “${t}”. Try another name.`);
+            setFindErr(away ? `Found ${away} called “${t}”, but all are more than ${mapDist(ZONE * 2)} from the saved location.` : `No ${live.current.n0} called “${t}”. Try another name.`);
           else if (st && mapRef.current) mapRef.current.setZoom(fitZoom(st, Math.max(...list.map((p) => mapMeters(st, p))), boxRef.current));
         })
         .catch((e) => !gone && !loc.length && setFindErr(e?.message || 'The search failed. Please try again.'))
@@ -277,10 +281,10 @@ export function MapLocation({ q, value, onChange, disabled, api }) {
       if (typeof api?.places !== 'function') return undefined;
       flash('Checking the place…');
       return api
-        .places({ mode: 'details', id: pid })
+        .places({ mode: 'details', id: pid, kind: live.current.ph ? 'pharmacy' : undefined })
         .then((m) => {
           const p = (m?.places ?? [])[0];
-          if (!p) return flash('That isn’t a hospital or clinic — choose a hospital or clinic.');
+          if (!p) return flash(`That isn’t a ${live.current.n0} — choose a ${live.current.n0}.`);
           live.current.near = { ...live.current.near, places: [p, ...live.current.near.places.filter((x) => x.id !== p.id)] };
           setNear((n) => ({ ...n, places: [p, ...n.places.filter((x) => x.id !== p.id)] }));
           choose(p.id);
@@ -349,7 +353,7 @@ export function MapLocation({ q, value, onChange, disabled, api }) {
       if (!onName.length && close.length === 1) return choose(close[0].id);
       if (ids.length > 1) return setWhich(ids.slice(0, 8));
       if (e.placeId) return tapPlace(e.placeId);
-      flash('Tap a red dot or its name to choose that hospital / clinic.');
+      flash(`Tap a red dot or its name to choose that ${live.current.n0}.`);
     },
     // eslint-disable-next-line react-hooks/exhaustive-deps
     [choose, tapPlace],
@@ -503,7 +507,7 @@ export function MapLocation({ q, value, onChange, disabled, api }) {
 
   const nearMe = () => {
     if (!navigator.geolocation) return setFindErr('This phone can’t share its location.');
-    flash('Finding hospitals and clinics near you…');
+    flash(`Finding ${n1} near you…`);
     return navigator.geolocation.getCurrentPosition(
       (p) => {
         setTerm('');
@@ -565,12 +569,12 @@ export function MapLocation({ q, value, onChange, disabled, api }) {
           ? 'Searching…'
           : 'No match on the map yet'
       : recs.length
-        ? `Nearby · ${recs.length} hospitals and clinics ${start ? `around the saved location${near.full ? '' : ' so far'}` : `around ${near.label || 'here'}`}`
+        ? `Nearby · ${recs.length} ${n1} ${start ? `around the saved location${near.full ? '' : ' so far'}` : `around ${near.label || 'here'}`}`
         : near.busy
-          ? 'Finding hospitals and clinics nearby…'
+          ? `Finding ${n1} nearby…`
           : start
-            ? 'No hospital or clinic found nearby — search by name'
-            : 'Tap Near me or search to see hospitals and clinics';
+            ? `No ${n0} found nearby — search by name`
+            : `Tap Near me or search to see ${n1}`;
   const err = findErr || near.err;
 
   return (
@@ -583,8 +587,8 @@ export function MapLocation({ q, value, onChange, disabled, api }) {
             <span className="text-13 font-semibold text-heading [overflow-wrap:anywhere]">{cur.name || 'Place'}</span>
             {cur.address ? <span className="text-12 text-ds-muted [overflow-wrap:anywhere]">{cur.address}</span> : null}
             {dCur != null ? (
-              <span className={cx('text-12', dCur <= SAME ? 'text-success' : 'text-ds-muted')}>
-                {dCur <= SAME ? 'At the saved location — the doctor’s latitude / longitude stay as they are' : `${mapDist(dCur)} from the saved location — the ABM will check the change`}
+              <span className={cx('text-12', dCur <= SAME && !ph ? 'text-success' : 'text-ds-muted')}>
+                {ph ? `${mapDist(dCur)} from the doctor’s saved location` : dCur <= SAME ? 'At the saved location — the doctor’s latitude / longitude stay as they are' : `${mapDist(dCur)} from the saved location — the ABM will check the change`}
               </span>
             ) : null}
             <a href={mapUrl(cur)} target="_blank" rel="noopener noreferrer" className="flex items-center gap-1 text-12 font-semibold text-brand-text">
@@ -602,11 +606,11 @@ export function MapLocation({ q, value, onChange, disabled, api }) {
         <div className={cx('flex items-start gap-2.5 rounded-lg border px-3 py-2.5', start ? 'border-line bg-surface' : 'border-line bg-sunken')}>
           <Icon name={start ? 'map-marker' : 'info-circle'} size="sm" className={cx('mt-0.5 shrink-0', start ? 'text-brand-text' : 'text-ds-muted')} />
           <div className="flex min-w-0 flex-col gap-0.5">
-            <span className="text-13 font-semibold text-heading">{start ? 'Choose the doctor’s hospital or clinic' : 'No location saved for this doctor'}</span>
+            <span className="text-13 font-semibold text-heading">{start ? `Choose the doctor’s ${n0}` : 'No location saved for this doctor'}</span>
             <span className="text-12 text-ds-muted">
               {start
-                ? 'The map is fixed on the doctor’s saved location. Zoom in or out, then tap the hospital or clinic to choose it.'
-                : 'Search the hospital or clinic by name, or tap Near me to see the ones near you.'}
+                ? `The map is fixed on the doctor’s saved location. Zoom in or out, then tap the ${n0} to choose it.`
+                : `Search the ${n0} by name, or tap Near me to see the ones near you.`}
             </span>
           </div>
         </div>
@@ -615,13 +619,13 @@ export function MapLocation({ q, value, onChange, disabled, api }) {
       {disabled ? null : (
         <div className="flex gap-2">
           <label className="relative min-w-0 flex-1">
-            <span className="sr-only">Search hospitals and clinics</span>
+            <span className="sr-only">Search {n1}</span>
             <Icon name="search" size="sm" className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-ds-muted" />
             <input
               type="search"
               value={term}
               autoComplete="off"
-              placeholder={start ? 'Can’t see it? Search by name' : 'Search a hospital or clinic'}
+              placeholder={start ? 'Can’t see it? Search by name' : `Search a ${n0}`}
               onChange={(e) => setTerm(e.target.value)}
               className="h-11 w-full rounded-lg bg-surface pl-9 pr-3 text-14 text-body shadow-field placeholder:text-placeholder focus:outline-none"
             />
@@ -660,13 +664,13 @@ export function MapLocation({ q, value, onChange, disabled, api }) {
           the map in the other 70% */}
       <div className="flex h-[620px] flex-col gap-2 max-sm:h-[560px]">
       {disabled ? null : (
-        <div role="region" aria-label="Recommended hospitals and clinics" className="flex min-h-0 basis-[calc(30%-4px)] flex-col overflow-hidden rounded-lg border border-line bg-surface">
+        <div role="region" aria-label={`Recommended ${n1}`} className="flex min-h-0 basis-[calc(30%-4px)] flex-col overflow-hidden rounded-lg border border-line bg-surface">
           <p className="flex shrink-0 items-center gap-1.5 border-b border-line bg-sunken px-3 py-2 text-12 font-semibold text-body">
             <Icon name={typed.length >= 2 ? 'search' : 'map-marker'} size="sm" className="shrink-0 text-danger-text" />
             {recHead}
           </p>
           {recs.length || (typed.length >= 2 && searching) ? (
-            <ul role="listbox" aria-label={typed.length >= 2 ? 'Matching hospitals and clinics' : 'Nearby hospitals and clinics'} className="flex min-h-0 flex-1 flex-col overflow-y-auto p-1">
+            <ul role="listbox" aria-label={typed.length >= 2 ? `Matching ${n1}` : `Nearby ${n1}`} className="flex min-h-0 flex-1 flex-col overflow-y-auto p-1">
               {recs.map((p) => row(p, false))}
               {typed.length >= 2 && searching ? (
                 <li className="flex items-center gap-1.5 px-2.5 py-2 text-12 text-ds-muted">
@@ -679,7 +683,7 @@ export function MapLocation({ q, value, onChange, disabled, api }) {
         </div>
       )}
       <div className="relative min-h-0 flex-1 overflow-hidden rounded-lg border border-line bg-sunken">
-        <div ref={boxRef} className="size-full" role="region" aria-label="Map of hospitals and clinics — tap one to choose it" />
+        <div ref={boxRef} className="size-full" role="region" aria-label={`Map of ${n1} — tap one to choose it`} />
         {mapErr ? (
           <div className="absolute inset-0 flex items-center justify-center gap-2 p-4 text-center text-12 text-ds-muted">
             <Icon name="map" size="lg" className="shrink-0" />
@@ -699,7 +703,7 @@ export function MapLocation({ q, value, onChange, disabled, api }) {
         {near.busy || searching ? (
           <div role="status" className="absolute bottom-2.5 left-1/2 flex -translate-x-1/2 items-center gap-1.5 rounded-full bg-surface px-3 py-1.5 text-12 text-heading shadow-md">
             <Icon name="spinner pi-spin" size="sm" />
-            {searching ? 'Searching…' : near.busy === 'more' ? 'Loading all hospitals and clinics…' : 'Finding hospitals and clinics…'}
+            {searching ? 'Searching…' : near.busy === 'more' ? `Loading all ${n1}…` : `Finding ${n1}…`}
           </div>
         ) : null}
         {hint ? (

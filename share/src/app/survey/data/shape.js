@@ -137,7 +137,7 @@ export function answerProblem(q, v) {
     if (!q.required) return null;
     if (q.type === 'file_upload') return 'Please upload a file to continue.';
     if (q.type === 'checkboxes' || q.type === 'days') return 'Please choose at least one option to continue.';
-    if (q.type === 'map_location') return 'Please choose the hospital or clinic on the map to continue.';
+    if (q.type === 'map_location') return q.places === 'pharmacy' ? 'Please choose the pharmacy on the map to continue.' : 'Please choose the hospital or clinic on the map to continue.';
     return 'Please answer this question to continue.';
   }
   if (q.type === 'number' && !/^-?\d+(\.\d+)?$/.test(String(v).trim())) return 'Please enter a number, for example 12 or 4.5.';
