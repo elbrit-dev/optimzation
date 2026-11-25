@@ -161,6 +161,21 @@ export function createErpApi({ endpointUrl, gqlEnvironment = 'ERP', gqlToken, al
     places: (query) => call('GET', 'survey_places', { query }),
     /* 25 Nov 2026 · the Login question's Verify: does the website open? → { ok, url, message } */
     checkUrl: (url) => call('GET', 'survey_check_url', { query: { url } }),
+    /* 26 Nov 2026 · the Login question's Test login: the app's server signs in to the website (pages/api/survey/test-login)
+       → { result: 'verified' | 'not_verified', code, message } */
+    async testLogin({ response, question, url, login, password }) {
+      needAuth();
+      const base = await origin();
+      const res = await doFetch('/api/survey/test-login', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'x-erp-token': auth, 'x-erp-endpoint': base },
+        body: JSON.stringify({ response, question, url, login, password }),
+        signal: AbortSignal.timeout(90000),
+      });
+      const json = await res.json().catch(() => ({}));
+      if (!res.ok) return { result: 'not_verified', code: 'error', message: json.error || `The test could not run (HTTP ${res.status}).` };
+      return json;
+    },
     /* 25 Nov 2026 · the ABM / RBM review of Map location answers (survey_map_review):
        { action: 'list', which: 'pending' | 'done' } → { items, all, writes }
        { action: 'decide', response, question, decision: 'accept' | 'reject', note } → { applied } */

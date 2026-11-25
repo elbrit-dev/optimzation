@@ -192,6 +192,11 @@ export function createMockApi({ role = 'BE', scenario = 'normal', today = MOCK_T
       return { items: reviews.filter((r) => (which === 'done' ? r.review.status !== 'Pending' : r.review.status === 'Pending')), all: 0, writes: 'erp-uat' };
     },
 
+    async testLogin({ password }) {
+      await wait(600);
+      return password === 'wrong' ? { result: 'not_verified', code: 'wrong', message: 'Not signed in — the website says: “Invalid password”' } : { result: 'verified', code: 'ok', message: 'Signed in successfully.' };
+    },
+
     async checkUrl(url) {
       await wait(300);
       const u = /^https?:\/\//i.test(String(url)) ? String(url) : `https://${url}`;

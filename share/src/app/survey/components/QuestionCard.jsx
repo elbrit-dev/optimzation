@@ -55,13 +55,34 @@ function DateInput({ q, value, onChange, disabled }) {
   return <input aria-label={q.label} type="date" value={value ?? ''} disabled={disabled} onChange={(e) => onChange(e.target.value || null)} className={cx(FIELD, 'h-10 w-48')} />;
 }
 
-/* 25 Nov 2026 · Login: Website URL · Login ID · Password (shown as typed). Just the details — no test yet.
-   Answer = { url, login, password }; all three are needed once any is typed. */
-function LoginInput({ q, value, onChange, disabled }) {
+/* 25 Nov 2026 · Login: Website URL · Login ID · Password (shown as typed).
+   26 Nov 2026 · Test login: the app's server signs in to the website with these details, then signs out; the result
+   is recorded in the ERP. Signed in → Verified; anything else → Not verified + a REQUIRED reason (OTP, email …).
+   Changing any of the three boxes needs a new test. Answer = { url, login, password, test, reason }. */
+const LOGIN_CHIPS = ['OTP needed', 'Email verification needed', 'Captcha on the website', 'Wrong password from the distributor', 'Website down', 'Login is in an app (not a website)'];
+function LoginInput({ q, value, onChange, disabled, api, response }) {
   const v = value && typeof value === 'object' ? value : {};
+  const [busy, setBusy] = useState(false);
+  const ready = String(v.url ?? '').trim() && String(v.login ?? '').trim() && String(v.password ?? '').trim();
   const set = (k, x) => {
-    const next = { url: v.url ?? '', login: v.login ?? '', password: v.password ?? '', [k]: x };
+    const next = { url: v.url ?? '', login: v.login ?? '', password: v.password ?? '', reason: v.reason ?? '', [k]: x };
+    if (k !== 'reason') delete next.test;
+    else if (v.test) next.test = v.test;
     onChange(next.url || next.login || next.password ? next : null);
+  };
+  const test = async () => {
+    if (!ready || busy) return;
+    setBusy(true);
+    let t;
+    try {
+      const m = typeof api?.testLogin === 'function' ? await api.testLogin({ response, question: q.id, url: v.url, login: v.login, password: v.password }) : null;
+      t = m ? { result: m.result === 'verified' ? 'verified' : 'not_verified', code: m.code || '', message: m.message || '' } : { result: 'not_verified', code: 'error', message: 'Testing isn’t available here.' };
+    } catch (e) {
+      t = { result: 'not_verified', code: 'error', message: `The test could not run (${e?.message || 'no connection'}). Try again, or say why below.` };
+    } finally {
+      setBusy(false);
+    }
+    onChange({ ...v, test: t });
   };
   const box = (k, label, type, ph) => (
     <label className="flex flex-col gap-1 text-11 font-semibold text-ds-muted">
@@ -75,17 +96,83 @@ function LoginInput({ q, value, onChange, disabled }) {
         spellCheck={false}
         value={v[k] ?? ''}
         disabled={disabled}
+        readOnly={busy}
         placeholder={ph}
         onChange={(e) => set(k, e.target.value)}
         className={cx(FIELD, 'h-10 w-full')}
       />
     </label>
   );
+  const t = v.test;
   return (
     <div className="flex flex-col gap-2.5">
       {box('url', 'Website URL', 'url', 'https://…')}
       {box('login', 'Login ID', 'text', 'User ID, email or mobile')}
       {box('password', 'Password', 'text', 'Password')}
+      {disabled ? null : busy ? (
+        <p role="status" className="flex items-center gap-2 rounded-lg bg-sunken px-3 py-3 text-12 text-body">
+          <Icon name="spinner pi-spin" size="sm" />
+          Testing — opening the website and signing in…
+        </p>
+      ) : t ? (
+        <>
+          <div role={t.result === 'verified' ? 'status' : 'alert'} className={cx('flex flex-wrap items-center gap-2 rounded-lg px-3 py-3 text-12', t.result === 'verified' ? 'bg-success-wash text-success' : 'bg-danger-wash text-danger-text')}>
+            <Icon name={t.result === 'verified' ? 'check-circle' : 'exclamation-circle'} size="sm" />
+            <span className="min-w-0 flex-1">
+              <b>{t.result === 'verified' ? 'Verified' : 'Not verified'}</b> — {t.message || (t.result === 'verified' ? 'signed in successfully' : 'the sign-in did not work')}
+            </span>
+            <button type="button" onClick={test} className="text-12 font-semibold underline">
+              Test again
+            </button>
+          </div>
+          {t.result !== 'verified' ? (
+            <label className="flex flex-col gap-1.5 text-11 font-semibold text-ds-muted">
+              <span>
+                Why isn’t it verified? <span className="uppercase text-danger-text">required</span>
+              </span>
+              <span className="flex flex-wrap gap-1.5">
+                {LOGIN_CHIPS.map((c) => {
+                  const on = String(v.reason ?? '').includes(c);
+                  return (
+                    <button
+                      key={c}
+                      type="button"
+                      onClick={() => {
+                        const r = String(v.reason ?? '').trim();
+                        set('reason', r.includes(c) ? r : r ? `${r}; ${c}` : c);
+                      }}
+                      className={cx('min-h-9 rounded-full border px-3 text-12 font-medium', on ? 'border-brand bg-brand-tint-weak text-brand-text' : 'border-line bg-surface text-body')}
+                    >
+                      {c}
+                    </button>
+                  );
+                })}
+              </span>
+              <textarea
+                rows={3}
+                maxLength={1000}
+                value={v.reason ?? ''}
+                onChange={(e) => set('reason', e.target.value)}
+                placeholder="e.g. OTP goes to the distributor’s phone; the details were confirmed with him"
+                className={cx(FIELD, 'w-full resize-y text-13 font-normal')}
+              />
+            </label>
+          ) : null}
+        </>
+      ) : (
+        <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
+          <button
+            type="button"
+            onClick={test}
+            disabled={!ready}
+            className="flex h-11 items-center gap-1.5 rounded-lg bg-brand px-4 text-12 font-semibold text-on-brand hover:bg-brand-hover disabled:opacity-50"
+          >
+            <Icon name="shield" size="sm" />
+            Test login
+          </button>
+          <span className="text-12 text-ds-muted">{ready ? 'Signs in to the website with these details, then signs out. Required before sending.' : 'Fill all three, then test the login.'}</span>
+        </div>
+      )}
     </div>
   );
 }
@@ -539,7 +626,7 @@ function Input({ q, value, onChange, disabled, onUpload, api, response, answers 
     case 'timings':
       return <TimingsInput q={q} value={value} onChange={onChange} disabled={disabled} api={api} answers={answers} />;
     case 'login':
-      return <LoginInput q={q} value={value} onChange={onChange} disabled={disabled} />;
+      return <LoginInput q={q} value={value} onChange={onChange} disabled={disabled} api={api} response={response} />;
     case 'time':
       return <TimeInput q={q} value={value} onChange={onChange} disabled={disabled} />;
     case 'days':

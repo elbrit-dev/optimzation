@@ -181,6 +181,8 @@ export function answerProblem(q, v, answers) {
   if (q.type === 'number' && !/^-?\d+(\.\d+)?$/.test(String(v).trim())) return 'Please enter a number, for example 12 or 4.5.';
   if (q.type === 'date' && !/^\d{4}-\d{2}-\d{2}$/.test(String(v))) return 'Please enter a valid date.';
   if (q.type === 'login' && (!String(v.url ?? '').trim() || !String(v.login ?? '').trim() || !String(v.password ?? '').trim())) return 'Please fill the website URL, login ID and password.';
+  if (q.type === 'login' && !v.test) return 'Test the login before sending.';
+  if (q.type === 'login' && v.test.result !== 'verified' && !String(v.reason ?? '').trim()) return 'Say why the login isn’t verified (OTP, email verification …).';
   if (q.type === 'time' && !(q.range ? /^\d{2}:\d{2}-\d{2}:\d{2}$/ : /^\d{2}:\d{2}$/).test(String(v))) return q.range ? 'Please enter both the start and the end time.' : 'Please enter a valid time.';
   if ((q.type === 'multiple_choice' || q.type === 'dropdown') && !(q.options ?? []).includes(v)) return 'Please choose one of the options.';
   if (q.type === 'linear_scale' || q.type === 'rating') {
@@ -220,7 +222,7 @@ export function toPayload(questions, answers) {
 export function answerText(q, v) {
   if (isEmpty(v)) return '—';
   if (q.type === 'checkboxes' || q.type === 'days') return v.join(', ');
-  if (q.type === 'login') return [v.url, v.login, v.password].filter(Boolean).join(' · ');
+  if (q.type === 'login') return [v.url, v.login, v.password].filter(Boolean).join(' · ') + (v.verified || v.test?.result === 'verified' ? ' · Verified' : v.reason ? ` · Not verified: ${v.reason}` : '');
   if (q.type === 'timings') return timingsText(v);
   if (q.type === 'file_upload') return v.map((f) => f.name).join(', ');
   if (q.type === 'map_location') return mapText(v);
