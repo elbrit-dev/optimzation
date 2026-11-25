@@ -267,14 +267,37 @@ const localTitle = (os) => (os ? "HQ, EQ & OS" : "HQ & EQ days");
 /* The trips with no bills, as one card: how many, what they come to, what is
    left to claim -- tap for the date-wise list. */
 function LocalCard({ items, onOpen }) {
+  const f = useFieldExpenses();
   const open = items.filter((x) => x.claim.status === "unclaimed");
   const ta = items.reduce((a, x) => a + x.calc.ta, 0);
   const da = items.reduce((a, x) => a + x.calc.da, 0);
   const total = items.reduce((a, x) => a + x.calc.total, 0);
   const worst = [...items].sort((a, b) => rank(a.claim) - rank(b.claim))[0];
   const { os, text: kinds } = localKinds(items);
+  // as the trip cards (25 Nov 2026): the edge by status -- blue while any day is still to claim,
+  // amber when one is with the officer, red when one was sent back -- and the icon row: what the
+  // company paid, the car request, and the help tickets of all these days together
+  const backN = items.some((x) => x.claim.status === "rejected");
+  const reviewN = items.some((x) => x.claim.status === "review");
+  const edge = open.length ? "border-l-blue-500" : backN ? "border-l-red-500" : reviewN ? "border-l-amber-500" : "border-l-gray-300";
+  const tickets = f.helpFor
+    ? items.reduce((acc, x) => {
+        const t = f.helpFor(x.trip) || {};
+        for (const k of ["total", "raised", "prog", "done", "unread"]) acc[k] = (acc[k] || 0) + (t[k] || 0);
+        return acc;
+      }, {})
+    : null;
+  const days = items.flatMap((x) => x.trip.days);
+  const reqs = items.map((x) => (x.calc.carAllowed ? x.calc.request : null)).filter(Boolean);
+  const marks = [
+    days.some((d) => d.flight || d.company === "Travel") && { key: "travel", Icon: Plane, tone: "bg-sky-50 text-sky-700", label: "Travel by company" },
+    days.some((d) => d.company === "Stay") && { key: "stay", Icon: BedDouble, tone: "bg-sky-50 text-sky-700", label: "Stay by company" },
+    reqs.some((q) => q.status === "approved") && { key: "car-ok", Icon: Car, tone: "bg-green-50 text-green-700", label: "Own car approved" },
+    reqs.some((q) => q.status === "pending") && { key: "car-wait", Icon: Car, tone: "bg-amber-50 text-amber-700", label: "Own car waiting for the GM" },
+    reqs.some((q) => q.status === "rejected") && { key: "car-no", Icon: Car, tone: "bg-red-50 text-red-700", label: "Own car rejected" },
+  ].filter(Boolean);
   return (
-    <div className={cn(CARD, "w-52 bg-white p-0", open.length ? "border-l-blue-500" : "border-l-gray-300")}>
+    <div className={cn(CARD, "w-52 bg-white p-0", edge)}>
       <button type="button" onClick={onOpen} className="flex min-w-0 flex-col gap-0.5 px-2.5 pb-1.5 pt-2 text-left">
         <span className="flex min-w-0 items-center gap-1.5">
           <b className="min-w-0 flex-1 truncate text-[13px] font-bold text-gray-900">{localTitle(os)}</b>
@@ -297,6 +320,18 @@ function LocalCard({ items, onOpen }) {
           </span>
         </span>
       </button>
+      {(marks.length > 0 || tickets?.total > 0) && (
+        <div className="flex items-center gap-1 border-t border-gray-100 px-2 py-1">
+          {marks.map((m) => (
+            <span key={m.key} title={m.label} aria-label={m.label} className={cn("grid h-[22px] w-6 place-items-center rounded-md", m.tone)}>
+              <m.Icon className="h-3.5 w-3.5" aria-hidden />
+            </span>
+          ))}
+          <span className="flex-1" />
+          {tickets?.unread > 0 && <i className="h-2 w-2 shrink-0 rounded-full bg-orange-500" title="New reply on a help request" />}
+          <HelpCounts s={tickets} />
+        </div>
+      )}
     </div>
   );
 }
