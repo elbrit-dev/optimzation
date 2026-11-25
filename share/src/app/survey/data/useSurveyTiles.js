@@ -14,20 +14,25 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { createSurveyApi } from '../api';
 import { surveyTiles } from './tiles';
+import { reviewTile } from '../components/MapReview';
 import { DEFAULT_REFRESH_MS } from '@/app/ring-nav/data/useErpTiles';
 
 const MIN_WAKE_MS = 60 * 1000;
 const last = new Map();
+const lastReview = new Map();
 
 export function useSurveyTiles({ enabled, gqlEnvironment = 'ERP', gqlToken, today, refreshEvery, hrefBase = '/survey' }) {
   const key = `${gqlEnvironment}|${gqlToken ?? ''}`;
   const [list, setList] = useState(() => last.get(key) ?? null);
+  /* 25 Nov 2026 · managers: their team's map locations to review (survey_map_review) → a "To review" circle */
+  const [review, setReview] = useState(() => lastReview.get(key) ?? null);
   const lastFetch = useRef(0);
 
   useEffect(() => {
     if (!enabled || !gqlToken?.trim()) return undefined;
     let stale = false;
     setList(last.get(key) ?? null);
+    setReview(lastReview.get(key) ?? null);
     const api = createSurveyApi({ source: 'erp', gqlEnvironment, gqlToken });
     const load = async () => {
       lastFetch.current = Date.now();
@@ -37,6 +42,14 @@ export function useSurveyTiles({ enabled, gqlEnvironment = 'ERP', gqlToken, toda
         if (!stale) setList(res);
       } catch (error) {
         console.warn('[RingNav] could not load the survey circles.', error);
+      }
+      try {
+        const [p, d] = await Promise.all([api.mapReview({ action: 'list', which: 'pending' }), api.mapReview({ action: 'list', which: 'done' })]);
+        const rv = { loaded: true, items: p?.items ?? [], done: d?.items ?? [] };
+        lastReview.set(key, rv);
+        if (!stale) setReview(rv);
+      } catch (error) {
+        console.warn('[RingNav] could not load the reviews.', error);
       }
     };
     load();
@@ -56,10 +69,11 @@ export function useSurveyTiles({ enabled, gqlEnvironment = 'ERP', gqlToken, toda
   }, [enabled, key, gqlEnvironment, gqlToken, refreshEvery]);
 
   return useMemo(() => {
-    if (!enabled || !list) return NONE;
-    const day = today || list.today || new Date().toISOString().slice(0, 10);
-    return surveyTiles(list, day, { hrefBase });
-  }, [enabled, list, today, hrefBase]);
+    if (!enabled || (!list && !review)) return NONE;
+    const rt = reviewTile(review, { hrefBase });
+    const day = today || list?.today || new Date().toISOString().slice(0, 10);
+    return [...(list ? surveyTiles(list, day, { hrefBase }) : []), ...(rt ? [rt] : [])];
+  }, [enabled, list, review, today, hrefBase]);
 }
 
 const NONE = [];
