@@ -818,8 +818,19 @@ function FieldClaimPanel({ conn, claim: c, canAct, history, desk, picked, canPic
   // a pending trip with a handwritten bill is approved on its own, after its confirm
   const handPending = trips.filter((t) => t.decision === "pending" && t.lines.some(isHand)).length;
   const fc = fieldCheck(c);
-  // a one-day trip with no outstation DA is an HQ / EQ day (the planner's "HQ & EQ days" card)
-  const isLocalTrip = (t) => t.from === t.to && !t.lines.some((l) => l.type === "Daily Allowance" && /Outstation/i.test(l.note || ""));
+  /* the planner's own rule for its "HQ & EQ days" card (25 Nov 2026, the user: "use same rules"):
+     no day of the trip is an outstation day (OS / OS-HQ / OS-EQ in Field Expense Day -- the day
+     types come with the visits), no bill on it, and not an EQ day over 100 km (that one takes
+     train / bus tickets, its own card in the planner). Until the day types are in, nothing is grouped. */
+  const typesIn = Object.values(visits || {}).some((v) => v && v.type);
+  const dayType = (d) => String(visits?.[d]?.type || "");
+  const isLocalTrip = (t) => {
+    if (!typesIn) return false;
+    const ds = [...new Set(t.lines.map((l) => l.date))];
+    if (!ds.length || ds.some((d) => !dayType(d) || dayType(d).startsWith("OS"))) return false;
+    if (t.lines.some((l) => l.bill)) return false;
+    return !t.lines.some((l) => l.type === "Travel" && Number((/(\d+(?:\.\d+)?) km/.exec(l.note || "") || [])[1]) > 100);
+  };
   const localTrips = trips.filter(isLocalTrip);
   const tourTrips = trips.filter((t) => !isLocalTrip(t));
   const n = { approved: 0, rejected: 0, pending: 0 };
