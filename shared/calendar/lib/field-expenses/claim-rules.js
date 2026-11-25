@@ -224,9 +224,14 @@ export function tripClaim(trip, claim, { role, requests, eqKm } = {}) {
   const fuel = sum(c.fuels);
   const tolls = 0; // not paid (13 Nov 2026); old toll scans are ignored
   const fare = trip.ta; // the console's TA for the trip: the fare by rail or per km
+  // 25 Nov 2026: a request is for a date range that may hold several trips -- each trip's
+  // cap is its share of the approved amount by km (the request's km = its trips' km);
+  // a request for exactly this trip gives it the whole amount
+  const whole = !req || req.tripId === trip.id || (req.from === trip.from && req.to === trip.to) || !(Number(req.km) > 0);
+  const share = whole ? 1 : Math.min(1, (Number(trip.km) || 0) / Number(req.km));
   const cap = req?.status === "approved" && req.ask
-    ? req.ask
-    : carCap(req?.km || trip.km, req?.fuel || "Petrol");
+    ? Math.round(req.ask * share)
+    : carCap(whole ? req?.km || trip.km : trip.km, req?.fuel || "Petrol");
 
   // 12 Nov 2026: the bills replace the fare only once there are some; an
   // approved car with no fuel / toll bill is paid the ERP's fare as it is.

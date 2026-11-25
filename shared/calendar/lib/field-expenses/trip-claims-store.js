@@ -262,7 +262,12 @@ export function carryBills(emp, trips) {
               : Math.round(((Number(b.amount) || 0) * mine.length) / all.length);
             card[k] = [...card[k], { ...b, id: uid(), nights: mine, date: mine[0], amount, carried: true }];
           } else {
-            if (!(b.date >= t.from && b.date <= t.to)) continue;
+            // a fuel bill may be dated outside its trip (checked against the month since
+            // 25 Nov 2026): one no new trip holds by date goes to the first that overlaps the old
+            const firstOver = trips.filter((x) => !(x.to < span.from || x.from > span.to)).sort((x, y) => x.from.localeCompare(y.from))[0];
+            const held = (x) => b.date >= x.from && b.date <= x.to;
+            const fuelHere = k === "fuels" && !trips.some((x) => !(x.to < span.from || x.from > span.to) && held(x)) && firstOver?.id === t.id;
+            if (!held(t) && !fuelHere) continue;
             card[k] = [...card[k], { ...b, id: uid(), carried: true }];
           }
           grew = true;

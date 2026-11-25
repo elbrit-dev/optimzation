@@ -277,7 +277,15 @@ export function ManualBill({ file, slot, trip, prefill, reason, onCancel, onDone
         {kind && !stay && (
           <label className={label}>
             {kind === "Travel" ? "Journey date" : "Bill date"}
-            <input type="date" className={input} min={trip.from} max={trip.to} value={date} onChange={(e) => setDate(e.target.value)} />
+            <input
+              type="date"
+              className={input}
+              // a fuel bill: any day of the claim's month (25 Nov 2026)
+              min={kind === "Fuel" ? `${trip.from.slice(0, 7)}-01` : trip.from}
+              max={kind === "Fuel" ? new Date(Date.UTC(Number(trip.to.slice(0, 4)), Number(trip.to.slice(5, 7)), 0)).toISOString().slice(0, 10) : trip.to}
+              value={date}
+              onChange={(e) => setDate(e.target.value)}
+            />
           </label>
         )}
         {kind && (
