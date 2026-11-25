@@ -625,6 +625,22 @@ function billsOf(t) {
   return [...m.values()];
 }
 
+/* Could the rep have added a bill to this trip? (25 Nov 2026, the owner: a trip nobody could
+   bill has nothing for the officer to check -- it shows approved, no Reject.) Same rule as the
+   planner (claim-rules tripClaim): only RBM and above add bills -- stay / food on an outstation
+   trip paid 50 % without one, train / bus tickets on an EQ day over 100 km; own-car fuel and any
+   bill already on the trip count too. role null = not known yet: treated as billable. */
+const BILL_ROLES = ["GM", "ZSM", "SM", "Sr RBM", "RBM"];
+const roleKeyOf = (r) => {
+  const s = String(r || "").trim();
+  return BILL_ROLES.includes(s) ? s : s.split("-")[0].replace(/[0-9]/g, "").trim();
+};
+function tripBillable(t, role) {
+  if (role == null || billsOf(t).length) return true;
+  if (!BILL_ROLES.includes(roleKeyOf(role))) return false;
+  return t.lines.some((l) => /50 % of ₹/.test(l.note) || l.type === "Fuel" || (l.type === "Travel" && Number((/(\d+(?:\.\d+)?) km/.exec(l.note) || [])[1]) > 100));
+}
+
 /* A manager's cab bills of the month (20 Nov 2026): one claim (remark
    "Field Cab · YYYY-MM"), its bills listed -- date, cab, amount, the bill
    check, the bill itself -- decided as ONE: Approve (final; a record only,
@@ -741,7 +757,17 @@ function CabClaimPanel({ conn, claim: c, canAct, history, desk, onBill, onDone }
 /* One planner field claim (the rep's month): its trips, each decided on its
    own, then one button to finish the claim. */
 function FieldClaimPanel({ conn, claim: c, canAct, history, desk, picked, canPick, onPick, openOf, toggle, onDecide, onAdjust, onFinish, onBill, onFull }) {
-  const trips = tripsOf(c.lines).map((t) => (history ? { ...t, decision: tripDecision(c, t) } : t));
+  // the rep's role: who could have added bills (null until known)
+  const [role, setRole] = useState(null);
+  useEffect(() => {
+    let alive = true;
+    if (c.employee) fetchMe(conn, c.employee).then((e) => alive && setRole(e.roleProfile || e.designation || "")).catch(() => {});
+    return () => {
+      alive = false;
+    };
+  }, [conn, c.employee]);
+  // a trip the rep could not bill shows approved and goes with the claim; a decision already made stays
+  const trips = tripsOf(c.lines).map((t) => (history ? { ...t, decision: tripDecision(c, t) } : t.decision === "pending" && !tripBillable(t, role) ? { ...t, decision: "approved", auto: true } : t));
   // each day's visits, per town (the rep's Field Expense Day, through the ERP)
   const [visits, setVisits] = useState({});
   useEffect(() => {
@@ -930,7 +956,7 @@ function TripRow({ conn, trip: t, claim: c, canAct, desk, open, onToggle, onDeci
   const [rejecting, setRejecting] = useState(false);
   // changing a TA line: { id, amount, reason }
   const [editTa, setEditTa] = useState(null);
-  const canEditTa = canAct && t.decision === "pending" && !!onAdjust;
+  const canEditTa = canAct && (t.decision === "pending" || t.auto) && !!onAdjust;
   const saveTa = async (l) => {
     setError("");
     const amount = Math.round(Number(editTa.amount));
@@ -985,7 +1011,7 @@ function TripRow({ conn, trip: t, claim: c, canAct, desk, open, onToggle, onDeci
   const lowDays = days.filter(([date, ls]) => lowVisitDay(visits, date, ls)).length;
   // phone (25 Nov 2026): the buttons squeezed the trip name to a letter a line -- the trip and its
   // amount get the first row, the decision and the buttons a row of their own below
-  const actRow = !desk && canAct && !rejecting;
+  const actRow = !desk && canAct && !rejecting && !t.auto;
   return (
     <div style={{ background: "#fff", borderRadius: 10, boxShadow: `0 0 0 1px #e4e7ec, inset 3px 0 0 ${tone}`, overflow: "hidden" }}>
       <div style={{ display: "flex", alignItems: "center", gap: 10, padding: "8px 10px 8px 13px", flexWrap: desk ? "nowrap" : "wrap" }}>
@@ -1005,7 +1031,7 @@ function TripRow({ conn, trip: t, claim: c, canAct, desk, open, onToggle, onDeci
           {!actRow && <DecisionPill d={t.decision} />}
           <b style={{ fontSize: 14, flex: "none", whiteSpace: "nowrap", ...tabNum }}>{inr(t.amount)}</b>
         </button>
-        {canAct && !rejecting && (
+        {canAct && !rejecting && !t.auto && (
           <span style={{ display: "flex", alignItems: "center", gap: 6, flex: "none", ...(desk ? {} : { width: "100%", paddingLeft: 36 }) }}>
             {actRow && <DecisionPill d={t.decision} />}
             <span style={{ flex: 1 }} />
