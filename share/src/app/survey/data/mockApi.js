@@ -185,6 +185,12 @@ export function createMockApi({ role = 'BE', scenario = 'normal', today = MOCK_T
       return { items: reviews.filter((r) => (which === 'done' ? r.review.status !== 'Pending' : r.review.status === 'Pending')), all: 0, writes: 'erp-uat' };
     },
 
+    async checkUrl(url) {
+      await wait(300);
+      const u = /^https?:\/\//i.test(String(url)) ? String(url) : `https://${url}`;
+      return /\./.test(u) ? { ok: 1, url: u, message: 'The website opens.' } : { ok: 0, url: u, message: 'The website does not open. Check the address.' };
+    },
+
     async readFile({ file }) {
       await wait(400);
       return /blurr?y/i.test(file?.name || '') ? { readable: false, reason: 'The photo is blurry.' } : { readable: true };

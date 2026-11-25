@@ -51,7 +51,6 @@ export function loadMaps(api) {
 const INDIA = { lat: 20.6, lng: 78.9 };
 const ZONE = 400; /* the doctor's area (m) around the saved point */
 const SAME = 50; /* a place this close to the saved point is the same location */
-const SUG_MAX = 8;
 const KIND_ICON = { Hospital: 'building', Clinic: 'heart', 'Dental clinic': 'face-smile', Physiotherapy: 'user' };
 const LABEL_CSS =
   '.sv-mq-lbl{padding:0 2px;text-shadow:0 0 2px #FFF,0 0 2px #FFF,0 0 3px #FFF,0 0 4px #FFF;white-space:nowrap}' +
@@ -557,7 +556,21 @@ export function MapLocation({ q, value, onChange, disabled, api }) {
   const pool = all();
   const whichList = (which ?? []).map((id) => pool.find((x) => x.id === id)).filter(Boolean);
   const dCur = cur && start ? mapMeters(start, cur) : null;
-  const n = typed.length >= 2 && (res.length || searching || findErr) ? res.length : near.places.length;
+  const recs = typed.length >= 2 ? res : near.places;
+  const recHead =
+    typed.length >= 2
+      ? res.length
+        ? `${res.length} found for “${typed}”`
+        : searching
+          ? 'Searching…'
+          : 'No match on the map yet'
+      : recs.length
+        ? `Nearby · ${recs.length} hospitals and clinics ${start ? `around the saved location${near.full ? '' : ' so far'}` : `around ${near.label || 'here'}`}`
+        : near.busy
+          ? 'Finding hospitals and clinics nearby…'
+          : start
+            ? 'No hospital or clinic found nearby — search by name'
+            : 'Tap Near me or search to see hospitals and clinics';
   const err = findErr || near.err;
 
   return (
@@ -626,19 +639,6 @@ export function MapLocation({ q, value, onChange, disabled, api }) {
         </div>
       )}
 
-      {!disabled && typed.length >= 2 && res.length ? (
-        <ul role="listbox" aria-label="Matching hospitals and clinics" className="flex max-h-[360px] flex-col overflow-y-auto rounded-lg border border-line bg-surface p-1 shadow-sm">
-          {res.slice(0, SUG_MAX).map((p) => row(p, false))}
-          {res.length > SUG_MAX ? <li className="px-2.5 py-2 text-12 text-ds-muted">{res.length - SUG_MAX} more — type more of the name, or see them on the map</li> : null}
-          {searching ? (
-            <li className="flex items-center gap-1.5 px-2.5 py-2 text-12 text-ds-muted">
-              <Icon name="spinner pi-spin" size="sm" />
-              Looking on Google Maps too…
-            </li>
-          ) : null}
-        </ul>
-      ) : null}
-
       {!disabled && whichList.length > 1 ? (
         <div role="dialog" aria-label="Which one did you tap?" className="flex flex-col gap-1.5 rounded-lg border-[1.5px] border-brand bg-surface p-2">
           <div className="flex items-center justify-between gap-2 px-1">
@@ -656,7 +656,29 @@ export function MapLocation({ q, value, onChange, disabled, api }) {
         </div>
       ) : null}
 
-      <div className="relative h-[380px] overflow-hidden rounded-lg border border-line bg-sunken">
+      {/* 25 Nov 2026 · the recommendations (nearest to the saved point, or the matches while typing) in the top 30%,
+          the map in the other 70% */}
+      <div className="flex h-[620px] flex-col gap-2 max-sm:h-[560px]">
+      {disabled ? null : (
+        <div role="region" aria-label="Recommended hospitals and clinics" className="flex min-h-0 basis-[calc(30%-4px)] flex-col overflow-hidden rounded-lg border border-line bg-surface">
+          <p className="flex shrink-0 items-center gap-1.5 border-b border-line bg-sunken px-3 py-2 text-12 font-semibold text-body">
+            <Icon name={typed.length >= 2 ? 'search' : 'map-marker'} size="sm" className="shrink-0 text-danger-text" />
+            {recHead}
+          </p>
+          {recs.length || (typed.length >= 2 && searching) ? (
+            <ul role="listbox" aria-label={typed.length >= 2 ? 'Matching hospitals and clinics' : 'Nearby hospitals and clinics'} className="flex min-h-0 flex-1 flex-col overflow-y-auto p-1">
+              {recs.map((p) => row(p, false))}
+              {typed.length >= 2 && searching ? (
+                <li className="flex items-center gap-1.5 px-2.5 py-2 text-12 text-ds-muted">
+                  <Icon name="spinner pi-spin" size="sm" />
+                  Looking on Google Maps too…
+                </li>
+              ) : null}
+            </ul>
+          ) : null}
+        </div>
+      )}
+      <div className="relative min-h-0 flex-1 overflow-hidden rounded-lg border border-line bg-sunken">
         <div ref={boxRef} className="size-full" role="region" aria-label="Map of hospitals and clinics — tap one to choose it" />
         {mapErr ? (
           <div className="absolute inset-0 flex items-center justify-center gap-2 p-4 text-center text-12 text-ds-muted">
@@ -686,18 +708,7 @@ export function MapLocation({ q, value, onChange, disabled, api }) {
           </div>
         ) : null}
       </div>
-
-      {n && !disabled ? (
-        <p className="flex items-center gap-1.5 text-12 text-ds-muted">
-          <Icon name="map-marker" size="sm" className="shrink-0 text-danger-text" />
-          {typed.length >= 2 && res.length
-            ? `${n} found for “${typed}”`
-            : start
-              ? `${n} hospitals and clinics around the saved location${near.full ? '' : ' so far'}`
-              : `${n} hospitals and clinics around ${near.label || 'here'}`}
-          {start ? (near.full ? ' — tap a red dot or its name to choose it' : ' — more are loading') : ' — tap one on the map to choose it'}
-        </p>
-      ) : null}
+      </div>
       {err ? (
         <p role="alert" className="flex items-center gap-1.5 text-12 font-medium text-danger-text">
           <Icon name="exclamation-circle" size="sm" />

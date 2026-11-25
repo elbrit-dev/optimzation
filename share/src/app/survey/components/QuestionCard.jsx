@@ -38,6 +38,7 @@ const TYPE_LABEL = {
   map_location: 'Location',
   time: 'Time',
   days: 'Days',
+  login: 'Login',
 };
 
 /* 25 Nov 2026 · Days: Monday … Sunday, pick any */
@@ -51,6 +52,78 @@ function DateInput({ q, value, onChange, disabled }) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [q.id]);
   return <input aria-label={q.label} type="date" value={value ?? ''} disabled={disabled} onChange={(e) => onChange(e.target.value || null)} className={cx(FIELD, 'h-10 w-48')} />;
+}
+
+/* 25 Nov 2026 · Login: website, login and password (shown as typed) and Verify — the ERP checks the website
+   opens (survey_check_url); the answer must be verified before the survey can be sent */
+function LoginInput({ q, value, onChange, disabled, api }) {
+  const v = value && typeof value === 'object' ? value : {};
+  const [busy, setBusy] = useState(false);
+  const [msg, setMsg] = useState('');
+  const set = (k, x) => {
+    const next = { ...v, [k]: x };
+    delete next.verified;
+    setMsg('');
+    onChange(next.url || next.login || next.password ? next : null);
+  };
+  const verify = async () => {
+    if (!String(v.url ?? '').trim() || !String(v.login ?? '').trim() || !String(v.password ?? '').trim()) return setMsg('Fill the website, login and password first.');
+    if (typeof api?.checkUrl !== 'function') return setMsg('Verify isn’t available here.');
+    setBusy(true);
+    setMsg('');
+    try {
+      const m = await api.checkUrl(v.url);
+      if (m?.ok) onChange({ ...v, url: m.url || v.url, verified: 1 });
+      else setMsg(m?.message || 'The website does not open. Check the address.');
+    } catch (e) {
+      setMsg(e?.message || 'Couldn’t check the website. Try again.');
+    } finally {
+      setBusy(false);
+    }
+    return undefined;
+  };
+  const box = (k, label, type, ph) => (
+    <label className="flex flex-col gap-1 text-11 font-semibold text-ds-muted">
+      {label}
+      <input
+        aria-label={`${q.label} — ${label}`}
+        type={type}
+        inputMode={type === 'url' ? 'url' : undefined}
+        autoCapitalize="off"
+        autoComplete="off"
+        spellCheck={false}
+        value={v[k] ?? ''}
+        disabled={disabled}
+        placeholder={ph}
+        onChange={(e) => set(k, e.target.value)}
+        className={cx(FIELD, 'h-10 w-full')}
+      />
+    </label>
+  );
+  return (
+    <div className="flex flex-col gap-2.5">
+      {box('url', 'Website URL', 'url', 'https://…')}
+      {box('login', 'Login', 'text', 'User ID, email or mobile')}
+      {box('password', 'Password', 'text', 'Password')}
+      {disabled ? null : (
+        <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
+          <button
+            type="button"
+            onClick={verify}
+            disabled={busy}
+            className="flex h-11 items-center gap-1.5 rounded-lg bg-brand px-4 text-12 font-semibold text-on-brand hover:bg-brand-hover disabled:opacity-60"
+          >
+            <Icon name={busy ? 'spinner pi-spin' : 'shield'} size="sm" />
+            {busy ? 'Verifying…' : v.verified ? 'Verify again' : 'Verify'}
+          </button>
+          <span role="status" className={cx('flex items-center gap-1.5 text-12', v.verified ? 'font-semibold text-success' : msg ? 'font-semibold text-danger-text' : 'text-ds-muted')}>
+            <Icon name={v.verified ? 'check-circle' : msg ? 'exclamation-circle' : 'info-circle'} size="sm" />
+            {v.verified ? 'Verified — the website opens' : msg || 'Fill all three, then tap Verify.'}
+          </span>
+        </div>
+      )}
+    </div>
+  );
 }
 
 /* Time: one time ("09:30"), or a start and an end ("09:30-12:00") when q.range */
@@ -330,6 +403,8 @@ function Input({ q, value, onChange, disabled, onUpload, api }) {
       return <input aria-label={q.label} type="text" inputMode="decimal" value={value ?? ''} disabled={disabled} placeholder="0" onChange={(e) => onChange(e.target.value)} className={cx(FIELD, 'h-10 w-40 tabular-nums')} />;
     case 'date':
       return <DateInput q={q} value={value} onChange={onChange} disabled={disabled} />;
+    case 'login':
+      return <LoginInput q={q} value={value} onChange={onChange} disabled={disabled} api={api} />;
     case 'time':
       return <TimeInput q={q} value={value} onChange={onChange} disabled={disabled} />;
     case 'days':

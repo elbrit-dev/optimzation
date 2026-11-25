@@ -159,6 +159,8 @@ export function createErpApi({ endpointUrl, gqlEnvironment = 'ERP', gqlToken, al
        mode=nearby (lat, lng, radius_m, split) | text (q, lat?, lng?) | details (id)
        → { places: [{ id, title, address, lat, lng, url, kind }] } */
     places: (query) => call('GET', 'survey_places', { query }),
+    /* 25 Nov 2026 · the Login question's Verify: does the website open? → { ok, url, message } */
+    checkUrl: (url) => call('GET', 'survey_check_url', { query: { url } }),
     /* 25 Nov 2026 · the ABM / RBM review of Map location answers (survey_map_review):
        { action: 'list', which: 'pending' | 'done' } → { items, all, writes }
        { action: 'decide', response, question, decision: 'accept' | 'reject', note } → { applied } */
