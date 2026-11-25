@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useClaims } from "./data/useClaims";
-import { fetchCashAdvanceIds } from "./data/claimsApi";
+import { fetchCashAdvanceIds, fetchSettlementSettings } from "./data/claimsApi";
 import { Icon, ell, tabNum } from "./ui";
 import { BillSheet } from "./sheets";
 import { MON, cashOf, inr, isoDay, ledger, typeColor } from "./model";
@@ -55,15 +55,25 @@ export default function ClaimsStrip({ url, token, employee, today = new Date(), 
     return () => { alive = false; };
   }, [sample, data.conn, data.status, data.claims]);
 
+  /* Settlement open for a date window (25 Nov 2026: October alone): the card names that month
+     and counts its bills, instead of this month / this week */
+  const [win, setWin] = useState(null);
+  useEffect(() => {
+    if (sample || !data.conn) return undefined;
+    let alive = true;
+    fetchSettlementSettings(data.conn).then((x) => alive && x?.billsTo && setWin({ from: x.billsFrom || "", to: x.billsTo })).catch(() => {});
+    return () => { alive = false; };
+  }, [sample, data.conn]);
+
   const view = useMemo(() => {
     if (sample) return SAMPLE;
     if (data.status !== "ready") return null;
     // This week's bills: Monday to today, on the running claims.
     const mon = new Date(today.getFullYear(), today.getMonth(), today.getDate() - ((today.getDay() + 6) % 7));
-    const from = isoDay(mon), to = isoDay(today);
+    const from = win ? win.from : isoDay(mon), to = win ? win.to : isoDay(today);
     const bills = ledger(data.claims, data.advances, cashAdv).entries.filter((e) => e.kind === "bill" && e.date >= from && e.date <= to).length;
     return { cash: cashOf(data.claims, data.advances, cashAdv), bills };
-  }, [sample, data.status, data.claims, data.advances, cashAdv, today]);
+  }, [sample, data.status, data.claims, data.advances, cashAdv, today, win]);
 
   if (!view || (!sample && (!url || !token))) return null;
   const canAdd = sample || (data.conn && data.me);
@@ -78,16 +88,16 @@ export default function ClaimsStrip({ url, token, employee, today = new Date(), 
       <style>{CSS}</style>
       {/* Same eyebrow as the home page's other sections. */}
       <span style={{ display: "flex", alignItems: "center", gap: 7, fontSize: 12, fontWeight: 600, letterSpacing: ".08em", textTransform: "uppercase", color: "#5b6576" }}>
-        <span style={{ width: 6, height: 6, borderRadius: "50%", background: cashC.c }} />Expense · {MON[today.getMonth()]}
+        <span style={{ width: 6, height: 6, borderRadius: "50%", background: cashC.c }} />Expense · {win ? MON[Number(win.to.slice(5, 7)) - 1] : MON[today.getMonth()]}
       </span>
       <div className="ec-row" style={{ borderRadius: 14, boxShadow: "0 0 0 1px #e4e7ec", overflow: "hidden", background: "#fff", maxWidth: desk ? 520 : undefined, transition: "box-shadow .2s" }}>
       <div style={{ ...row, boxShadow: "none", borderRadius: 0, minHeight: 60, padding: "0 8px 0 14px", background: `linear-gradient(90deg,${tint(cashC.c)} ${cashPct}%,#fff ${cashPct}%)` }}>
         <button type="button" onClick={onOpen} style={{ flex: 1, minWidth: 0, display: "flex", flexDirection: "column", justifyContent: "center", gap: 2, minHeight: 60, border: 0, padding: 0, background: "transparent", cursor: "pointer", textAlign: "left" }}
-          aria-label={`Settle: ${cash.over ? `${inr(cash.over)} owed to you` : `${inr(cash.balance)} in hand`}, ${view.bills} bills this week. Open settlements`}>
+          aria-label={`Settle: ${cash.over ? `${inr(cash.over)} owed to you` : `${inr(cash.balance)} in hand`}, ${view.bills} bills ${win ? `in ${MON[Number(win.to.slice(5, 7)) - 1]}` : "this week"}. Open settlements`}>
           <span style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 12.5, fontWeight: 600, color: "#5b6576" }}><span style={{ color: cashC.c, display: "flex" }}><Icon d={RECEIPT} size={15} /></span>Settle</span>
           <span style={{ display: "flex", alignItems: "baseline", gap: 6, minWidth: 0 }}>
             <span style={{ fontSize: 18, fontWeight: 700, letterSpacing: "-0.02em", whiteSpace: "nowrap", color: "#0b1220", ...tabNum }}>{inr(cash.over || cash.balance)}</span>
-            <span style={{ fontSize: 12, color: "#8a93a3", ...ell }}>{cash.over ? "owed to you" : "in hand"} · {view.bills} this week{cash.checking ? ` · ${inr(cash.checking)} checking` : ""}</span>
+            <span style={{ fontSize: 12, color: "#8a93a3", ...ell }}>{cash.over ? "owed to you" : "in hand"} · {view.bills} {win ? `in ${MON[Number(win.to.slice(5, 7)) - 1]}` : "this week"}{cash.checking ? ` · ${inr(cash.checking)} checking` : ""}</span>
           </span>
         </button>
         <button type="button" className="ec-act" onClick={() => canAdd && !sample && setForm(true)} aria-label="Add a bill" title="Add a bill"
