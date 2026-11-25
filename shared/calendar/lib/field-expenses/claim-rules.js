@@ -90,6 +90,36 @@ export const requestFor = (trip, requests) => {
   return live.find((r) => mine(r) && r.status !== "rejected") || live.find(mine) || null;
 };
 
+/* OWN CAR FOR A DATE RANGE (25 Nov 2026, the owner): the approved amount is the cap for the
+   whole range, not per trip. The fuel bills of every trip in the range are one pool; what is
+   paid -- the pool up to the cap -- is split over the range's trips by their working days in it
+   (the last trip takes the rounding). A trip without a bill of its own still gets its share.
+   items: [{ trip, claim }] (the month's trips) -> Map(tripId -> { req, from, to, fuel, cap,
+   paid, amount, days, totalDays, trips }) for trips under an APPROVED request; role gates it. */
+export function carPools(items, requests, role) {
+  const out = new Map();
+  if (!canUseCar(role)) return out;
+  for (const req of (requests || []).filter((r) => r.status === "approved")) {
+    const mine = (items || [])
+      .filter(({ trip }) => requestFor(trip, requests) === req)
+      .sort((a, b) => a.trip.from.localeCompare(b.trip.from));
+    if (!mine.length) continue;
+    const daysOf = (t) => (t.days || []).filter((d) => d.payable && d.date >= req.from && d.date <= req.to).length;
+    const days = mine.map(({ trip }) => daysOf(trip));
+    const totalDays = days.reduce((s, x) => s + x, 0);
+    const fuel = mine.reduce((s, { claim }) => s + sum(claim?.fuels), 0);
+    const cap = Math.round(Number(req.ask) || 0);
+    const paid = Math.min(fuel, cap);
+    let left = paid;
+    mine.forEach(({ trip }, i) => {
+      const amount = i === mine.length - 1 ? left : totalDays > 0 ? Math.round((paid * days[i]) / totalDays) : Math.round(paid / mine.length);
+      left -= amount;
+      out.set(trip.id, { req, from: req.from, to: req.to, fuel, cap, paid, amount, days: days[i], totalDays, trips: mine.length });
+    });
+  }
+  return out;
+}
+
 /* A hotel bill split evenly over EVERY night it covers, the last night taking
    the rounding. -> { date: share } (the screen and the claim lines both use it)
    24 Nov 2026 (the user's rule, replacing 13 Nov's): a holiday / weekly-off /
@@ -120,7 +150,7 @@ const ticketBase = (d) => (d.dayType === "EQ" || !d.journey ? d.ta || 0 : Math.m
 const farEq = (d, eqKm) =>
   d.payable && d.dayType === "EQ" && (d.legs || []).some((l) => l.leg === "Local" && Number(l.fare) > 0 && Number(l.rounded_km ?? l.km) > eqKm);
 
-export function tripClaim(trip, claim, { role, requests, eqKm } = {}) {
+export function tripClaim(trip, claim, { role, requests, eqKm, carPool = null } = {}) {
   const c = claim || {};
   // away days (and their stay / food bills) only for the roles that claim them
   const billsAllowed = claimsStays(role);
@@ -224,21 +254,17 @@ export function tripClaim(trip, claim, { role, requests, eqKm } = {}) {
   const fuel = sum(c.fuels);
   const tolls = 0; // not paid (13 Nov 2026); old toll scans are ignored
   const fare = trip.ta; // the console's TA for the trip: the fare by rail or per km
-  // 25 Nov 2026: a request is for a date range that may hold several trips -- each trip's
-  // cap is its share of the approved amount by km (the request's km = its trips' km);
-  // a request for exactly this trip gives it the whole amount
-  const whole = !req || req.tripId === trip.id || (req.from === trip.from && req.to === trip.to) || !(Number(req.km) > 0);
-  const share = whole ? 1 : Math.min(1, (Number(trip.km) || 0) / Number(req.km));
-  const cap = req?.status === "approved" && req.ask
-    ? Math.round(req.ask * share)
-    : carCap(whole ? req?.km || trip.km : trip.km, req?.fuel || "Petrol");
+  // an approved request's cap is for its whole date range (carPools, 25 Nov 2026)
+  const cpool = car ? carPool : null;
+  const cap = req?.status === "approved" && req.ask ? Math.round(req.ask) : carCap(req?.km || trip.km, req?.fuel || "Petrol");
 
   // 12 Nov 2026: the bills replace the fare only once there are some; an
   // approved car with no fuel / toll bill is paid the ERP's fare as it is.
   // Bills are paid as they are up to the approved amount (no 50 % floor:
   // fuel is money spent, not an allowance), never above it.
-  const carBilled = car && fuel + tolls > 0;
-  const capped = carBilled && fuel + tolls > cap;
+  // with a pool: any bill of the range bills the car on every trip in it
+  const carBilled = car && (cpool ? cpool.fuel > 0 : fuel + tolls > 0);
+  const capped = carBilled && (cpool ? cpool.fuel : fuel + tolls) > cap;
   /* TRAVEL BILLS (23 Nov 2026, the user): TRAIN / BUS tickets -- on an
      outstation trip, and on an EQ day over 100 km -- when no own car is
      approved (the car keeps its fuel bills, unchanged). EVERY ROLE since 24 Nov
@@ -267,7 +293,7 @@ export function tripClaim(trip, claim, { role, requests, eqKm } = {}) {
   }
   const travelExtra = carBilled ? 0 : Object.values(travelDays).reduce((s, t) => s + t.extra, 0);
   const travelBilled = travelExtra > 0;
-  const ta = carBilled ? Math.min(fuel + tolls, cap) : fare + travelExtra;
+  const ta = carBilled ? (cpool ? cpool.amount : Math.min(fuel + tolls, cap)) : fare + travelExtra;
   // stay and food come under DA (RBM and SM and above attach the bills): the
   // outstation days' 50 % swapped for what the pool pays
   const food = sum(foods);
@@ -282,6 +308,7 @@ export function tripClaim(trip, claim, { role, requests, eqKm } = {}) {
     eveNight: nightRows.find((n) => n.eve) || null,
     nightDA,
     request: req,
+    carPool: cpool,
     carAllowed,
     carApproved,
     carPending,
@@ -328,7 +355,12 @@ export function tripChecks(trip, claim, calc) {
     // 12 Nov 2026: the amount is never a reason for review -- bills are paid
     // as they are up to the approved amount, and capped above it
     // short (12 Nov 2026): what is paid, then the limit
-    if (!calc.fuel && !calc.tolls) out.push({ ok: true, text: `No car bill yet · fare ₹${fmt(calc.fare)} paid.` });
+    const p = calc.carPool;
+    if (p && p.trips > 1) {
+      // a range with several trips: the pool, the cap, this trip's share by days
+      if (!p.fuel) out.push({ ok: true, text: `No fuel bill yet for ${p.from.slice(8)}–${p.to.slice(8)} · fare ₹${fmt(calc.fare)} paid.` });
+      else out.push({ ok: true, text: `Fuel bills ₹${fmt(p.fuel)} for ${p.trips} trips · paid ₹${fmt(p.paid)}${calc.capped ? " (approved max)" : ""} · this trip ${p.days} of ${p.totalDays} days = ₹${fmt(p.amount)}.` });
+    } else if (!calc.fuel && !calc.tolls) out.push({ ok: true, text: `No car bill yet · fare ₹${fmt(calc.fare)} paid.` });
     else if (calc.capped) out.push({ ok: true, text: `Car bills ₹${fmt(calc.fuel + calc.tolls)} → ₹${fmt(calc.cap)} (approved max).` });
     else out.push({ ok: true, text: `Car bills ₹${fmt(calc.fuel + calc.tolls)} paid · up to ₹${fmt(calc.cap)}.` });
   }

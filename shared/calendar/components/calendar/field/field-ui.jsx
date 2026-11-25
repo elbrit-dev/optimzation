@@ -1712,7 +1712,9 @@ function TripSheet({ item }) {
     ? `fare ${inr(calc.fare)} + ${inr(calc.travelExtra)} by train / bus tickets`
     : calc.car
     ? calc.carBilled
-      ? `own car · fuel bills ${inr(calc.fuel)}${calc.capped ? ` · capped at ${inr(calc.cap)}` : ""} · split by km`
+      ? calc.carPool?.trips > 1
+        ? `own car · ${calc.carPool.days} of ${calc.carPool.totalDays} days of the fuel bills for ${rangeLabel(calc.carPool.from, calc.carPool.to)}`
+        : `own car · fuel bills ${inr(calc.fuel)}${calc.capped ? ` · capped at ${inr(calc.cap)}` : ""} · split by km`
       : "own car · fare until the bills are in"
     : trip.kind === "hq"
       ? "no travel on an HQ day"
@@ -1789,6 +1791,7 @@ function TripSheet({ item }) {
                 <ShieldCheck className="mt-0.5 h-4 w-4 shrink-0 text-gray-500" aria-hidden />
                 <span>
                   {calc.carApproved ? "approved up to" : "allowed up to"} <b className="text-gray-900">{inr(calc.cap)}</b>
+                  {calc.carPool?.trips > 1 && ` for ${rangeLabel(calc.carPool.from, calc.carPool.to)} · ${calc.carPool.trips} trips · fuel bills of all of them count`}
                   {!req?.ask && ` · ${trip.km} km ÷ ${MILEAGE_KM_PER_L} km/l × ₹${FUEL_PRICE.Petrol}`}
                 </span>
               </span>
@@ -1796,11 +1799,11 @@ function TripSheet({ item }) {
                 <span className="block h-1.5 flex-1 overflow-hidden rounded-full bg-gray-100">
                   <i
                     className={cn("block h-full rounded-full", calc.capped ? "bg-amber-500" : "bg-green-600")}
-                    style={{ width: `${Math.min(100, Math.round(((calc.fuel + calc.tolls) / (calc.cap || 1)) * 100))}%` }}
+                    style={{ width: `${Math.min(100, Math.round(((calc.carPool ? calc.carPool.fuel : calc.fuel + calc.tolls) / (calc.cap || 1)) * 100))}%` }}
                   />
                 </span>
                 <b className={cn("shrink-0", calc.capped ? "text-amber-700" : "text-gray-900")}>
-                  {inr(calc.fuel + calc.tolls)} / {inr(calc.cap)}
+                  {inr(calc.carPool ? calc.carPool.fuel : calc.fuel + calc.tolls)} / {inr(calc.cap)}
                 </b>
               </span>
 

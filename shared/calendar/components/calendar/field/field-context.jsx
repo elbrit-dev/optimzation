@@ -10,7 +10,7 @@ import { format } from "date-fns";
 import { useCalendar } from "@calendar/components/calendar/contexts/calendar-context";
 import { LOGGED_IN_USER } from "@calendar/components/auth/calendar-users";
 import { buildTrips, fetchFieldMonth, monthStats } from "@calendar/lib/field-expenses/field-days";
-import { CAR_APPROVER, canClaimCabs, canUseCar, claimsStays, payrollOf, plannedTrips, tripChecks, tripClaim } from "@calendar/lib/field-expenses/claim-rules";
+import { CAR_APPROVER, canClaimCabs, canUseCar, carPools, claimsStays, payrollOf, plannedTrips, tripChecks, tripClaim } from "@calendar/lib/field-expenses/claim-rules";
 import { TAG_IDS } from "@calendar/components/calendar/constants";
 import * as store from "@calendar/lib/field-expenses/trip-claims-store";
 import * as monthErp from "@calendar/lib/field-expenses/erp-claim";
@@ -220,9 +220,11 @@ export function FieldExpensesProvider({ children }) {
         holder: { name: holder.name, status: holder.status, open: holder.open },
       };
     };
-    const claimed = trips.map((t) => {
-      const claim = live(store.claimOf(claims, t.id), t);
-      const base = tripClaim(t, claim, ctx);
+    const withClaims = trips.map((t) => ({ trip: t, claim: live(store.claimOf(claims, t.id), t) }));
+    // own car for a date range: one pool of fuel bills, capped once, split by days (25 Nov 2026)
+    const pools = carPools(withClaims, carRequests, role);
+    const claimed = withClaims.map(({ trip: t, claim }) => {
+      const base = tripClaim(t, claim, { ...ctx, carPool: pools.get(t.id) || null });
       const dTa = Math.round(claim.taDelta || 0);
       const dDa = Math.round(claim.daDelta || 0);
       // once a claim is approved, the dashboard writes its own amounts -- after
