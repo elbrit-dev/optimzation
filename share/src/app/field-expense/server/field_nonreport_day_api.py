@@ -461,7 +461,9 @@ def main():
         pending = []
         for r in rows:
             x = shape(r, {}, user)
-            if x["can"]:
+            # only the days waiting on this user (25 Nov 2026, the owner): one passed up
+            # because its approver let it wait ("escalation") is not listed
+            if x["can"] and x["can"] != "escalation":
                 pending.append(x)
         since = frappe.utils.add_days(today, -30)
         done = frappe.get_all("Task", filters={"project": PROJECT, "subject": ["like", PREFIX + "%"], "status": ["in", ["Completed", "Cancelled"]],
