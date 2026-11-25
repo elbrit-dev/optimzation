@@ -406,8 +406,13 @@ function LocalDaysSheet() {
           const on = expanded.has(trip.id);
           // a recall still needs the trip's own sheet (the car: month summary)
           const recallable = canRecall(claim);
+          // the day's help tickets (25 Nov 2026): the row's left edge takes the colour of the one that
+          // needs most attention -- red no reply yet, orange in progress, green resolved -- and the
+          // coloured counts sit under the amount, as on the cards
+          const tk = f.helpFor ? f.helpFor(trip) : null;
           return (
-            <li key={trip.id}>
+            <li key={trip.id} className="relative">
+              {tk?.state && <span aria-hidden className={cn("absolute inset-y-0 left-0 w-1", HELP_TONE[tk.state].edge)} />}
               <button type="button" onClick={() => toggle(trip.id)} aria-expanded={on} className={cn("flex w-full items-center gap-3 px-3 py-2.5 text-left active:bg-gray-50", on && "bg-blue-50/80")}>
                 <span className="flex w-10 shrink-0 flex-col items-center leading-none">
                   <b className="text-[17px] font-extrabold text-gray-900">{d.getDate()}</b>
@@ -447,6 +452,12 @@ function LocalDaysSheet() {
                     <b className="text-[14px] font-extrabold text-gray-900">{inr(calc.total)}</b>
                   </span>
                   <StatusPill claim={claim} className="px-1.5 text-[9.5px]" />
+                  {tk?.total > 0 && (
+                    <span className="flex items-center gap-1">
+                      {tk.unread > 0 && <i className="h-2 w-2 shrink-0 rounded-full bg-orange-500" title="New reply on a help request" />}
+                      <HelpCounts s={tk} />
+                    </span>
+                  )}
                 </span>
                 <ChevronDown className={cn("h-4 w-4 shrink-0 text-gray-400 transition-transform", on && "rotate-180")} aria-hidden />
               </button>
