@@ -1,6 +1,6 @@
 'use client';
 
-import { useRef, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { Card, Icon, ProgressBar, cx } from '@/design-system';
 import { answerText, fileProblem, fileRules, isEmpty, scaleRange } from '../data/shape';
 import { MapLocation } from './MapLocation';
@@ -36,7 +36,41 @@ const TYPE_LABEL = {
   rating: 'Rating',
   file_upload: 'File',
   map_location: 'Location',
+  time: 'Time',
+  days: 'Days',
 };
+
+/* 25 Nov 2026 · Days: Monday … Sunday, pick any */
+const WEEK = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'];
+const todayISO = () => new Date(Date.now() - new Date().getTimezoneOffset() * 60000).toISOString().slice(0, 10);
+
+/* a Date question can start on today's date (q.today); the person can change it */
+function DateInput({ q, value, onChange, disabled }) {
+  useEffect(() => {
+    if (q.today && !value && !disabled) onChange(todayISO());
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [q.id]);
+  return <input aria-label={q.label} type="date" value={value ?? ''} disabled={disabled} onChange={(e) => onChange(e.target.value || null)} className={cx(FIELD, 'h-10 w-48')} />;
+}
+
+/* Time: one time ("09:30"), or a start and an end ("09:30-12:00") when q.range */
+function TimeInput({ q, value, onChange, disabled }) {
+  if (!q.range) return <input aria-label={q.label} type="time" value={value ?? ''} disabled={disabled} onChange={(e) => onChange(e.target.value || null)} className={cx(FIELD, 'h-10 w-40')} />;
+  const [a = '', b = ''] = String(value ?? '').split('-');
+  const set = (x, y) => onChange(x || y ? `${x}-${y}` : null);
+  return (
+    <div className="grid grid-cols-2 gap-3">
+      <label className="flex flex-col gap-1 text-11 font-semibold text-ds-muted">
+        Start
+        <input aria-label={`${q.label} — start`} type="time" value={a} disabled={disabled} onChange={(e) => set(e.target.value, b)} className={cx(FIELD, 'h-10 w-full')} />
+      </label>
+      <label className="flex flex-col gap-1 text-11 font-semibold text-ds-muted">
+        End
+        <input aria-label={`${q.label} — end`} type="time" value={b} disabled={disabled} onChange={(e) => set(a, e.target.value)} className={cx(FIELD, 'h-10 w-full')} />
+      </label>
+    </div>
+  );
+}
 
 function Mark({ on, square }) {
   return (
@@ -295,7 +329,11 @@ function Input({ q, value, onChange, disabled, onUpload, api }) {
     case 'number':
       return <input aria-label={q.label} type="text" inputMode="decimal" value={value ?? ''} disabled={disabled} placeholder="0" onChange={(e) => onChange(e.target.value)} className={cx(FIELD, 'h-10 w-40 tabular-nums')} />;
     case 'date':
-      return <input aria-label={q.label} type="date" value={value ?? ''} disabled={disabled} onChange={(e) => onChange(e.target.value || null)} className={cx(FIELD, 'h-10 w-48')} />;
+      return <DateInput q={q} value={value} onChange={onChange} disabled={disabled} />;
+    case 'time':
+      return <TimeInput q={q} value={value} onChange={onChange} disabled={disabled} />;
+    case 'days':
+      return <Choices q={{ ...q, options: q.options?.length ? q.options : WEEK }} value={value} onChange={onChange} disabled={disabled} multi />;
     case 'multiple_choice':
       return <Choices q={q} value={value} onChange={onChange} disabled={disabled} />;
     case 'checkboxes':

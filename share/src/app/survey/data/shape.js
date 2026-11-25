@@ -23,6 +23,8 @@ export const QUESTION_TYPES = [
   'rating',
   'file_upload',
   'map_location',
+  'time',
+  'days',
 ];
 
 /* §3 map_location (24 Nov 2026) — the answer is a point:
@@ -133,12 +135,13 @@ export function answerProblem(q, v) {
   if (isEmpty(v)) {
     if (!q.required) return null;
     if (q.type === 'file_upload') return 'Please upload a file to continue.';
-    if (q.type === 'checkboxes') return 'Please choose at least one option to continue.';
+    if (q.type === 'checkboxes' || q.type === 'days') return 'Please choose at least one option to continue.';
     if (q.type === 'map_location') return 'Please choose the hospital or clinic on the map to continue.';
     return 'Please answer this question to continue.';
   }
   if (q.type === 'number' && !/^-?\d+(\.\d+)?$/.test(String(v).trim())) return 'Please enter a number, for example 12 or 4.5.';
   if (q.type === 'date' && !/^\d{4}-\d{2}-\d{2}$/.test(String(v))) return 'Please enter a valid date.';
+  if (q.type === 'time' && !(q.range ? /^\d{2}:\d{2}-\d{2}:\d{2}$/ : /^\d{2}:\d{2}$/).test(String(v))) return q.range ? 'Please enter both the start and the end time.' : 'Please enter a valid time.';
   if ((q.type === 'multiple_choice' || q.type === 'dropdown') && !(q.options ?? []).includes(v)) return 'Please choose one of the options.';
   if (q.type === 'linear_scale' || q.type === 'rating') {
     const { min, max } = scaleRange(q);
@@ -176,7 +179,7 @@ export function toPayload(questions, answers) {
 /* One answer as a line of text — done and missed responses, read-only. */
 export function answerText(q, v) {
   if (isEmpty(v)) return '—';
-  if (q.type === 'checkboxes') return v.join(', ');
+  if (q.type === 'checkboxes' || q.type === 'days') return v.join(', ');
   if (q.type === 'file_upload') return v.map((f) => f.name).join(', ');
   if (q.type === 'map_location') return mapText(v);
   if (q.type === 'rating') return `${v} of ${scaleRange(q).max} stars`;
