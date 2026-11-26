@@ -214,3 +214,17 @@ describe('26 Nov 2026 · Separated map question (q.multi): a list of places', ()
     expect(answerText(q, [a, b])).toBe('Apollo Pharmacy — Anna Nagar\nMedPlus');
   });
 });
+
+describe('26 Nov 2026 · visiting timings of a Separated map question: one timetable per place', () => {
+  const days = (open) => Object.fromEntries(['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'].map((d) => [d, d === 'Monday' && open ? { state: 'open', slots: [['09:00', '13:00']] } : { state: 'closed', slots: [] }]));
+  const q = { id: 't', type: 'timings', label: 'Timings', required: 1, of: 'p' };
+  const answers = { p: [{ place_id: 'A', name: 'Apollo' }, { place_id: 'B', name: 'MedPlus' }] };
+  it('asks for the timings of every place', () => {
+    expect(answerProblem(q, [{ place_id: 'A', days: days(true) }], answers)).toBe('Wait for the timings to load — MedPlus.');
+    expect(answerProblem(q, [{ place_id: 'A', days: days(true) }, { place_id: 'B', days: days(false) }], answers)).toBe('Add the timings for at least one day — MedPlus.');
+    expect(answerProblem(q, [{ place_id: 'A', days: days(true) }, { place_id: 'B', days: days(true) }], answers)).toBeNull();
+  });
+  it('reads as one line per place', () => {
+    expect(answerText(q, [{ place_id: 'A', place_name: 'Apollo', days: days(true) }]).startsWith('Apollo: Mon 09:00–13:00')).toBe(true);
+  });
+});

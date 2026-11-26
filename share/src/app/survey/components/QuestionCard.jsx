@@ -195,8 +195,40 @@ function LoginInput({ q, value, onChange, disabled, api, response, onBusy }) {
    Once that question has a place, its REGULAR weekly hours load from Google (survey_places mode=hours) and fill
    Monday … Sunday; the BE keeps or edits them (up to 3 timings a day, or Closed / Not available). A day Google shows
    as 24 hours must be edited; end before start and overlapping timings are red until fixed. */
+/* 26 Nov 2026 · a Separated map question (a list of places): one timetable per chosen place; the answer is the list */
 function TimingsInput({ q, value, onChange, disabled, api, answers }) {
-  const mapAns = answers?.[q.of];
+  const m = answers?.[q.of];
+  const listRef = useRef([]);
+  listRef.current = Array.isArray(value) ? value : [];
+  if (!Array.isArray(m)) return <TimingsOne q={q} mapAns={m} value={value} onChange={onChange} disabled={disabled} api={api} />;
+  const P = m.filter((p) => p?.place_id);
+  if (!P.length) {
+    return (
+      <p className="flex items-center gap-2 rounded-lg bg-sunken px-3 py-3 text-12 text-ds-muted">
+        <Icon name="info-circle" size="sm" />
+        Choose the places in the map question above first.
+      </p>
+    );
+  }
+  /* each place's timings in the places' order — read from a ref, so two loading at once don't undo each other */
+  const setOne = (pid, one) => {
+    const cur = listRef.current;
+    const next = P.map((p) => (p.place_id === pid ? one : cur.find((x) => x?.place_id === p.place_id))).filter(Boolean);
+    listRef.current = next;
+    onChange(next);
+  };
+  return (
+    <div className="flex flex-col gap-4">
+      {P.map((p, i) => (
+        <div key={p.place_id} className="flex flex-col gap-1.5">
+          {P.length > 1 ? <span className="text-11 font-semibold uppercase tracking-wide text-ds-muted">Place {i + 1} of {P.length}</span> : null}
+          <TimingsOne q={q} mapAns={p} value={listRef.current.find((x) => x?.place_id === p.place_id) ?? null} onChange={(one) => setOne(p.place_id, one)} disabled={disabled} api={api} />
+        </div>
+      ))}
+    </div>
+  );
+}
+function TimingsOne({ q, mapAns, value, onChange, disabled, api }) {
   const pid = mapAns?.place_id || '';
   const v = value && typeof value === 'object' && value.days ? value : null;
   const [busy, setBusy] = useState(false);

@@ -48,8 +48,23 @@ export function timingDayError(v, d) {
   for (let k = 1; k < o.length; k += 1) if (o[k][0] < o[k - 1][1]) return 'These timings overlap.';
   return '';
 }
+/* 26 Nov 2026 · a Separated map question: one timetable per chosen place (the answer is a list) */
 function timingsProblem(q, v, answers) {
-  const pid = answers?.[q.of]?.place_id;
+  const m = answers?.[q.of];
+  if (Array.isArray(m)) {
+    const P = m.filter((p) => p?.place_id);
+    if (!P.length) return q.required ? 'Choose the places in the map question first.' : null;
+    const list = Array.isArray(v) ? v : [];
+    for (const p of P) {
+      const one = list.find((x) => x?.place_id === p.place_id);
+      const nm = P.length > 1 ? ` — ${p.name || 'a place'}` : '';
+      if (!one?.days) return q.required ? `Wait for the timings to load${nm}.` : null;
+      if (TIMING_DAYS.some((d) => timingDayError(one, d))) return `Fix the timings in red${nm}.`;
+      if (q.required && !TIMING_DAYS.some((d) => one.days[d]?.state === 'open')) return `Add the timings for at least one day${nm}.`;
+    }
+    return null;
+  }
+  const pid = m?.place_id;
   if (!pid) return q.required ? 'Choose the place in the map question first.' : null;
   if (!v || !v.days || v.place_id !== pid) return q.required ? 'Wait for the timings to load.' : null;
   if (TIMING_DAYS.some((d) => timingDayError(v, d))) return 'Fix the timings in red.';
@@ -57,6 +72,7 @@ function timingsProblem(q, v, answers) {
   return null;
 }
 export function timingsText(v) {
+  if (Array.isArray(v)) return v.filter((x) => x?.days).map((x) => `${x.place_name || 'Place'}: ${timingsText(x)}`).join('\n');
   if (!v?.days) return '';
   return TIMING_DAYS.map((d) => {
     const x = v.days[d] || {};
