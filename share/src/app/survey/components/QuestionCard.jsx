@@ -2,7 +2,7 @@
 
 import { useEffect, useRef, useState } from 'react';
 import { Card, Icon, ProgressBar, cx } from '@/design-system';
-import { LOGIN_EXCEPTIONS, TIMING_DAYS, answerText, fileProblem, fileRules, isEmpty, loginExceptions, scaleRange, timingDayError } from '../data/shape';
+import { LOGIN_EXCEPTIONS, TIMING_DAYS, answerText, fileProblem, fileRules, isAnswered, isEmpty, loginExceptions, scaleRange, timingDayError } from '../data/shape';
 import { MapLocation } from './MapLocation';
 
 /* One question, by its type (SURVEYS_CONTEXT.md §3) — answered, or shown
@@ -198,11 +198,11 @@ function LoginInput({ q, value, onChange, disabled, api, response, onBusy }) {
    Monday … Sunday; the BE keeps or edits them (up to 3 timings a day, or Closed / Not available). A day Google shows
    as 24 hours must be edited; end before start and overlapping timings are red until fixed. */
 /* 26 Nov 2026 · a Separated map question (a list of places): one timetable per chosen place; the answer is the list */
-function TimingsInput({ q, value, onChange, disabled, api, answers }) {
+function TimingsInput({ q, value, onChange, disabled, api, answers, showErrors = false }) {
   const m = answers?.[q.of];
   const listRef = useRef([]);
   listRef.current = Array.isArray(value) ? value : [];
-  if (!Array.isArray(m)) return <TimingsOne q={q} mapAns={m} value={value} onChange={onChange} disabled={disabled} api={api} />;
+  if (!Array.isArray(m)) return <TimingsOne q={q} mapAns={m} value={value} onChange={onChange} disabled={disabled} api={api} showErrors={showErrors} />;
   const P = m.filter((p) => p?.place_id);
   if (!P.length) {
     return (
@@ -224,13 +224,15 @@ function TimingsInput({ q, value, onChange, disabled, api, answers }) {
       {P.map((p, i) => (
         <div key={p.place_id} className="flex flex-col gap-1.5">
           {P.length > 1 ? <span className="text-11 font-semibold uppercase tracking-wide text-ds-muted">Place {i + 1} of {P.length}</span> : null}
-          <TimingsOne q={q} mapAns={p} value={listRef.current.find((x) => x?.place_id === p.place_id) ?? null} onChange={(one) => setOne(p.place_id, one)} disabled={disabled} api={api} />
+          <TimingsOne q={q} mapAns={p} value={listRef.current.find((x) => x?.place_id === p.place_id) ?? null} onChange={(one) => setOne(p.place_id, one)} disabled={disabled} api={api} showErrors={showErrors} />
         </div>
       ))}
     </div>
   );
 }
-function TimingsOne({ q, mapAns, value, onChange, disabled, api }) {
+function TimingsOne({ q, mapAns, value, onChange, disabled, api, showErrors = false }) {
+  /* 27 Nov 2026 · a day's problem shows once that day is touched, or after Submit was tried — not before */
+  const [touched, setTouched] = useState({});
   const pid = mapAns?.place_id || '';
   const v = value && typeof value === 'object' && value.days ? value : null;
   const [busy, setBusy] = useState(false);
@@ -313,9 +315,9 @@ function TimingsOne({ q, mapAns, value, onChange, disabled, api }) {
       ) : null}
       {TIMING_DAYS.map((d) => {
         const x = v.days[d] || { state: 'closed', slots: [] };
-        const er = timingDayError(v, d);
+        const er = touched[d] || showErrors ? timingDayError(v, d) : '';
         return (
-          <div key={d} className={cx('flex flex-col gap-2 rounded-lg border px-3 py-2.5', er ? 'border-danger-border bg-danger-wash' : 'border-line bg-surface')}>
+          <div key={d} onChangeCapture={() => !touched[d] && setTouched((t) => ({ ...t, [d]: true }))} className={cx('flex flex-col gap-2 rounded-lg border px-3 py-2.5', er ? 'border-danger-border bg-danger-wash' : 'border-line bg-surface')}>
             <div className="flex items-center justify-between gap-2">
               <b className="text-13 text-heading">{d}</b>
               <select
@@ -783,7 +785,7 @@ function FileUpload({ q, value, onChange, disabled, onUpload }) {
   );
 }
 
-function Input({ q, value, onChange, disabled, onUpload, api, response, answers, onBusy }) {
+function Input({ q, value, onChange, disabled, onUpload, api, response, answers, onBusy, showErrors = false }) {
   switch (q.type) {
     case 'map_location':
       return <MapLocation q={q} value={value} onChange={onChange} disabled={disabled} api={api} response={response} />;
@@ -794,7 +796,7 @@ function Input({ q, value, onChange, disabled, onUpload, api, response, answers,
     case 'date':
       return <DateInput q={q} value={value} onChange={onChange} disabled={disabled} />;
     case 'timings':
-      return <TimingsInput q={q} value={value} onChange={onChange} disabled={disabled} api={api} answers={answers} />;
+      return <TimingsInput q={q} value={value} onChange={onChange} disabled={disabled} api={api} answers={answers} showErrors={showErrors} />;
     case 'login':
       return <LoginInput q={q} value={value} onChange={onChange} disabled={disabled} api={api} response={response} onBusy={onBusy} />;
     case 'time':
@@ -906,7 +908,11 @@ export function QuestionCard(props) {
 }
 
 function AnswerCard({ q, index, value, onChange, onUpload, api, response, answers, error, readOnly = false, disabled = false }) {
-  const answered = !isEmpty(value);
+  const answered = isAnswered(q, value);
+  /* 27 Nov 2026 · Survey Studio (the artifact's phone): a short text / number's help sits under its box; a map's
+     help that only repeats where the map starts is left out (the map's own tile says it, right for this doctor) */
+  const helpBelow = (q.studio_type === 'text' || q.studio_type === 'number') && Boolean(q.description);
+  const helpRepeats = q.type === 'map_location' && /^\s*the map starts at/i.test(q.description || '');
   const [busy, setBusy] = useState(false);
   const shownError = busy ? null : error;
   return (
@@ -930,7 +936,7 @@ function AnswerCard({ q, index, value, onChange, onUpload, api, response, answer
           {q.label}
           {q.required && !readOnly ? <span className="text-danger-text"> *</span> : null}
         </p>
-        {q.description && !readOnly ? <p className="text-13 text-ds-muted">{q.description}</p> : null}
+        {q.description && !readOnly && !helpBelow && !helpRepeats ? <p className="text-13 text-ds-muted">{q.description}</p> : null}
       </div>
       {readOnly ? (
         <p className={cx('flex items-center gap-2 whitespace-pre-line rounded-lg bg-sunken px-3 py-2 text-12', answered ? 'font-semibold text-heading' : 'text-ds-muted')}>
@@ -938,13 +944,14 @@ function AnswerCard({ q, index, value, onChange, onUpload, api, response, answer
           {answered ? answerText(q, value) : 'Skipped'}
         </p>
       ) : (
-        <Input q={q} value={value} onChange={onChange} disabled={disabled} onUpload={onUpload} api={api} response={response} answers={answers} onBusy={setBusy} />
+        <Input q={q} value={value} onChange={onChange} disabled={disabled} onUpload={onUpload} api={api} response={response} answers={answers} onBusy={setBusy} showErrors={Boolean(error)} />
       )}
+      {helpBelow && !readOnly ? <p className="-mt-1 text-13 text-ds-muted">{q.description}</p> : null}
       {!readOnly && q.type === 'file_upload' && q.ai?.schema && aiReads(q) ? (
         <p className="flex items-start gap-1.5 text-11 text-ds-muted">
           <Icon name="eye" size="sm" className="mt-px shrink-0" />
           <span>
-            We read this automatically: {aiReads(q)}. You can correct the values before you submit.{q.ai.check_phone ? ' It is checked on your phone first.' : ''}
+            We read this automatically: {aiReads(q)}{Array.isArray(q.ai?.lines) && q.ai.lines.length ? `, and every line (${q.ai.lines.join(', ')})` : ''}. You can correct the values before you submit.{q.ai.check_phone ? ' It is checked on your phone first.' : ''}
           </span>
         </p>
       ) : null}

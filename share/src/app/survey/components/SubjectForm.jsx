@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { Button, Card, Icon, ProgressBar } from '@/design-system';
 import { PinnedBar, PinnedBarSpacer } from '@/app/secondary-entry/components/PinnedBar';
-import { formProblems, isEmpty, shortDate, shortName, toPayload } from '../data/shape';
+import { formProblems, isAnswered, shortDate, shortName, toPayload } from '../data/shape';
 import { filledQuestions } from '../data/view';
 import { SubjectCard } from './SubjectCard';
 import { QuestionCard } from './QuestionCard';
@@ -48,7 +48,34 @@ function SectionHead({ title, done, total }) {
   );
 }
 
-export function SubjectForm({ survey, row, rows, me, draft, api, onBack, onDraft, onSubmitted, onDirtyChange, onAnswersChange, onSwitchRow, bottomGap = 'var(--space-12)' }) {
+/* 27 Nov 2026 · the pinned Save for later / Submit bar sits ABOVE the app's bottom navigation while it shows
+   (on a phone it covered Planner / Doctor / Product / Chat). The nav is fixed at the bottom of the screen; its height
+   is measured, so a gap set in Plasmic is still added on top of it. No nav (desktop, a fullscreen page): unchanged. */
+function useBottomNavGap(gap) {
+  const [nav, setNav] = useState(0);
+  useEffect(() => {
+    if (typeof window === 'undefined') return undefined;
+    const measure = () => {
+      let h = 0;
+      document.querySelectorAll('nav').forEach((n) => {
+        const r = n.getBoundingClientRect();
+        if (window.getComputedStyle(n).position === 'fixed' && r.height > 0 && r.height < 160 && Math.abs(r.bottom - window.innerHeight) < 3 && r.width >= window.innerWidth * 0.6) h = Math.max(h, Math.round(r.height));
+      });
+      setNav(h);
+    };
+    measure();
+    const timers = [window.setTimeout(measure, 300), window.setTimeout(measure, 1500)];
+    window.addEventListener('resize', measure);
+    return () => {
+      timers.forEach((t) => window.clearTimeout(t));
+      window.removeEventListener('resize', measure);
+    };
+  }, []);
+  return nav ? `calc(${nav}px + ${gap})` : gap;
+}
+
+export function SubjectForm({ survey, row, rows, me, draft, api, onBack, onDraft, onSubmitted, onDirtyChange, onAnswersChange, onSwitchRow, bottomGap: bottomGapProp = 'var(--space-12)' }) {
+  const bottomGap = useBottomNavGap(bottomGapProp);
   /* The questions with this record's values in their {#fields} (data/view.js). */
   const questions = useMemo(() => filledQuestions(survey, row), [survey, row]);
   const rootRef = useRef(null);
@@ -80,7 +107,7 @@ export function SubjectForm({ survey, row, rows, me, draft, api, onBack, onDraft
   const problems = useMemo(() => formProblems(questions, answers), [questions, answers]);
   /* 26 Nov 2026 · Survey Studio: "Show from ERP" cards are read, not answered — not counted or numbered */
   const answerable = useMemo(() => questions.filter((q) => q.type !== 'erp_info'), [questions]);
-  const answered = answerable.filter((q) => !isEmpty(answers[q.id])).length;
+  const answered = answerable.filter((q) => isAnswered(q, answers[q.id])).length;
   const required = answerable.filter((q) => q.required);
   /* sections: a question with a section title starts one; each shows how many of its questions are answered */
   const sections = useMemo(() => {
@@ -103,7 +130,7 @@ export function SubjectForm({ survey, row, rows, me, draft, api, onBack, onDraft
     });
     return m;
   }, [answerable]);
-  const requiredLeft = required.filter((q) => isEmpty(answers[q.id])).length;
+  const requiredLeft = required.filter((q) => !isAnswered(q, answers[q.id])).length;
 
   /* Count uploads in flight, so Submit waits for them. */
   /* 23 Nov 2026: a question with an AI schema — the file is read right after it
@@ -185,7 +212,7 @@ export function SubjectForm({ survey, row, rows, me, draft, api, onBack, onDraft
   return (
     <div ref={rootRef} className="flex flex-col gap-3">
       {/* 26 Nov 2026: the doctors / records strip and the progress are the survey's (SurveyScreen), above this form. */}
-      <SubjectCard subject={row.subject} me={me} state={row.state === 'todo' ? (draft ? 'draft' : 'new') : row.state} fields={(survey.studio?.card ?? []).map((f) => ({ k: f.k, l: f.l, v: row.values?.[f.k] ?? '' }))} added={Boolean(row.added)} />
+      <SubjectCard subject={row.subject} me={me} state={row.state === 'todo' ? (row.returned ? 'returned' : draft ? 'draft' : 'new') : row.state} fields={(survey.studio?.card ?? []).map((f) => ({ k: f.k, l: f.l, v: row.values?.[f.k] ?? '' }))} added={Boolean(row.added)} />
       <SurveyView survey={survey} row={row} />
 
       {/* the whole-form count — only when the questions have no sections (each section has its own) */}
@@ -207,7 +234,7 @@ export function SubjectForm({ survey, row, rows, me, draft, api, onBack, onDraft
           <Icon name="replay" size="sm" className="mt-px shrink-0" />
           <span>
             <b className="font-semibold">Returned{row.returned.by_name ? ` by ${row.returned.by_name}` : ''}</b>
-            {row.returned.note ? ` — “${row.returned.note}”` : ''}. Fix it and send it again.
+            {row.returned.note ? ` — “${row.returned.note}” ` : '. '}Fix it and send it again.
           </span>
         </p>
       ) : null}
@@ -232,7 +259,7 @@ export function SubjectForm({ survey, row, rows, me, draft, api, onBack, onDraft
 
       {questions.map((q) => (
         <div key={q.id} className="contents">
-          {sections[q.id] ? <SectionHead title={sections[q.id].title} done={sections[q.id].ids.filter((id) => !isEmpty(answers[id])).length} total={sections[q.id].ids.length} /> : null}
+          {sections[q.id] ? <SectionHead title={sections[q.id].title} done={sections[q.id].ids.filter((id) => isAnswered(questions.find((x) => x.id === id), answers[id])).length} total={sections[q.id].ids.length} /> : null}
         <QuestionCard
           q={q}
           index={numberOf[q.id] ?? 0}

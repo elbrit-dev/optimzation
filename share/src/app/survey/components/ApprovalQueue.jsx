@@ -10,6 +10,18 @@ import { answerText } from '../data/shape';
  *   Waiting, the first answer (all of them on tap) · Return (with a reason the rep sees) / Approve.
  * A returned answer goes back to the rep as a to-do. Survey Managers see everyone's (head office on the approver's behalf). */
 
+/* 27 Nov 2026 · when it was sent, as the artifact's queue says it: "Today 10:12", "Yesterday", "3 days ago" */
+export function whenText(at, now = new Date()) {
+  const m = /^(\d{4})-(\d{2})-(\d{2})(?:[ T](\d{2}):(\d{2}))?/.exec(String(at || ''));
+  if (!m) return at || '';
+  const day = new Date(Number(m[1]), Number(m[2]) - 1, Number(m[3]));
+  const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+  const n = Math.round((today - day) / 86400000);
+  if (n <= 0) return m[4] ? `Today ${m[4]}:${m[5]}` : 'Today';
+  if (n === 1) return 'Yesterday';
+  return `${n} days ago`;
+}
+
 export function useApprovals(api, enabled = true) {
   const [state, setState] = useState({ loaded: false, items: [], done: [], all: 0, err: '' });
   const load = useCallback(async () => {
@@ -74,7 +86,7 @@ function Item({ it, busy, onDecide }) {
           <b className="truncate text-15 font-semibold text-heading">{it.subject?.label || it.title}</b>
           <span className="truncate text-12 text-ds-muted">
             {it.subject?.label ? `${it.title} · ` : ''}
-            {it.submitted_on}
+            {whenText(it.submitted_on)}
             {it.overdue ? ' · overdue' : ''}
           </span>
         </div>
@@ -251,7 +263,8 @@ export function ApprovalQueue({ api, approvals }) {
         <p className="flex items-start gap-2 text-13 text-ds-muted">
           <Icon name="verified" size="sm" className="mt-px shrink-0 text-brand-text" />
           <span>
-            {byAi} answer{byAi === 1 ? ' was' : 's were'} Clear and approved automatically. {ap.items.length} need you, by employee.
+            {byAi} answer{byAi === 1 ? ' was' : 's were'} Clear and approved automatically.{' '}
+            {ap.items.length ? `${ap.items.length} need${ap.items.length === 1 ? 's' : ''} you, by employee.` : 'Nothing needs you right now.'}
           </span>
         </p>
       ) : null}

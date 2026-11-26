@@ -1,7 +1,8 @@
 import { describe, expect, it } from 'vitest';
 import { render, screen } from '@testing-library/react';
 import { QuestionCard } from '../components/QuestionCard';
-import { answerProblem, formProblems, toPayload } from '../data/shape';
+import { whenText } from '../components/ApprovalQueue';
+import { TIMING_DAYS, answerProblem, formProblems, isAnswered, toPayload } from '../data/shape';
 import { filledQuestions } from '../data/view';
 
 /* 26 Nov 2026 · Survey Studio questions on the phone: "Show from ERP" (read-only fields of the record),
@@ -82,5 +83,34 @@ describe('Survey Studio controls', () => {
     expect(screen.getByText('Specialty')).toBeTruthy();
     expect(screen.getByText('CARDIO')).toBeTruthy();
     expect(screen.getByText('Added by you')).toBeTruthy();
+  });
+});
+
+/* 27 Nov 2026 · phone check against the artifact */
+describe('Answered, and help where the artifact puts it', () => {
+  it('visiting timings with an Open day left empty is not answered yet; filled days are', () => {
+    const q = { id: 't', type: 'timings', of: 'm', required: 1 };
+    const days = {};
+    TIMING_DAYS.forEach((d) => { days[d] = { state: 'closed', slots: [] }; });
+    expect(isAnswered(q, { place_id: 'p', days: { ...days, Monday: { state: 'open', slots: [['', '']] } } })).toBe(false);
+    expect(isAnswered(q, { place_id: 'p', days: { ...days, Monday: { state: 'open', slots: [['10:00', '13:00']] } } })).toBe(true);
+    expect(isAnswered({ id: 'x', type: 'short_text' }, 'Gate 2')).toBe(true);
+    expect(isAnswered({ id: 'x', type: 'short_text' }, '  ')).toBe(false);
+  });
+
+  it('a short text shows its help under the box; a map help that only repeats where the map starts is left out', () => {
+    render(<QuestionCard q={{ id: 's', type: 'short_text', studio_type: 'text', label: 'Nearest landmark', description: 'A gate, a bus stop, a shop.', required: 1 }} index={0} value="" onChange={() => {}} />);
+    const box = screen.getByRole('textbox');
+    const help = screen.getByText('A gate, a bus stop, a shop.');
+    expect(box.compareDocumentPosition(help) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  });
+});
+
+describe('To approve: when it was sent', () => {
+  it('reads Today HH:MM, Yesterday, N days ago', () => {
+    const now = new Date(2026, 10, 27, 15, 0);
+    expect(whenText('2026-11-27 01:57', now)).toBe('Today 01:57');
+    expect(whenText('2026-11-26 18:10', now)).toBe('Yesterday');
+    expect(whenText('2026-11-24 09:00', now)).toBe('3 days ago');
   });
 });

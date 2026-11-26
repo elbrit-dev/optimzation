@@ -183,6 +183,17 @@ export function isEmpty(v) {
   return v == null || (typeof v === 'string' && v.trim() === '') || (Array.isArray(v) && v.length === 0);
 }
 
+/* 27 Nov 2026 · answered = something usable is there. Visiting timings with a day still to fill (an Open day with no
+   times, end before start …) is not answered yet — it no longer says "Answered" or counts as done while red. */
+export function isAnswered(q, v) {
+  if (isEmpty(v)) return false;
+  if (q?.type === 'timings') {
+    const one = (x) => Boolean(x && x.days) && TIMING_DAYS.every((d) => !timingDayError(x, d));
+    return Array.isArray(v) ? v.length > 0 && v.every(one) : one(v);
+  }
+  return true;
+}
+
 /* The message under a question, or null — the ERP page's words, so the app
    and the ERP say the same thing. The server re-checks all of it. */
 /* 26 Nov 2026 · Login: "Any exceptions?" (required). OTP / Mail / Other count as the reason when not verified. */
@@ -282,8 +293,8 @@ export const targetOf = (t, about) => {
 
 /* A row's state on screen: the ERP's state, with a todo that has a draft on
    this device shown as "Saved". */
-export const ROW_LABEL = { new: 'Not started', draft: 'Saved', done: 'Submitted', missed: 'Missed' };
-export const ROW_TONE = { new: 'neutral', draft: 'warning', done: 'success', missed: 'neutral' };
+export const ROW_LABEL = { new: 'Not started', draft: 'Saved', done: 'Submitted', missed: 'Missed', returned: 'Returned' };
+export const ROW_TONE = { new: 'neutral', draft: 'warning', done: 'success', missed: 'neutral', returned: 'danger' };
 
 export function rowState(r, drafts) {
   if (r.state === 'done') return 'done';
