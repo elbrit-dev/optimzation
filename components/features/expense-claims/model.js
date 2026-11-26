@@ -211,14 +211,15 @@ export const BILL_STATE = {
   "In Approval": { tone: "#b54708", icon: "hist", text: "In approval", sub: "with your managers" },
   Verified: { tone: "#067647", icon: "shield", text: "Verified", sub: "approved" },
   "In Review": { tone: "#b54708", icon: "eye", text: "In review", sub: "with Accounts" },
-  Rejected: { tone: "#b42318", icon: "x", text: "Rejected", sub: "not counted" },
+  Rejected: { tone: "#b42318", icon: "x", text: "Not a valid bill", sub: "" },
 };
 
 /* One bill row's state in a line: the AI check and where the claim is. */
 export function billState(claim, line) {
   if (claim?.running) {
     // a request sent back: its bills are Checked again, with the approver's reason
-    if (line?.state === "Checked" && line.review) return { tone: "#b42318", icon: "x", text: "Sent back", where: line.review };
+    // 26 Nov 2026 (the user): a bill sent back reads "Not a valid bill"
+    if (line?.state === "Checked" && line.review) return { tone: "#b42318", icon: "x", text: "Not a valid bill", where: line.review };
     const st = BILL_STATE[line?.state] || BILL_STATE.Checking;
     // a settlement bill Accounts paid (in full, or part of it)
     const pay = line?.state === "Verified" ? (line.paid ? "paid" : line.paidAmount > 0 ? "part paid" : "") : "";

@@ -197,7 +197,7 @@ export function SendBar({ bills, busy, onSend }) {
     <section style={{ ...card, padding: 16, display: "flex", flexDirection: "column", gap: 10, boxShadow: `0 0 0 1.5px ${allBack ? "#d92d20" : "#0e7490"}` }}>
       <div style={{ display: "flex", alignItems: "baseline", justifyContent: "space-between", gap: 10 }}>
         <span style={{ fontSize: 15, fontWeight: 700 }}>
-          {allBack ? `${back} ${back === 1 ? "bill" : "bills"} sent back` : `${bills.length} ${bills.length === 1 ? "bill" : "bills"} not sent yet`}
+          {allBack ? `${back} not valid ${back === 1 ? "bill" : "bills"}` : `${bills.length} ${bills.length === 1 ? "bill" : "bills"} not sent yet`}
         </span>
         <b style={{ fontSize: 18, ...tabNum }}>{inr(total)}</b>
       </div>
@@ -219,7 +219,7 @@ export function MyRequests({ conn, requests, onChanged }) {
   const shown = all ? list : list.slice(0, 5);
   return (
     <section style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-      <span style={{ fontSize: 15, fontWeight: 700, color: "#5b6576" }}>Your requests</span>
+      <span style={{ fontSize: 15, fontWeight: 700, color: "#5b6576" }}>Advance requests</span>
       <div style={{ ...card, padding: "2px 14px" }}>
         {shown.map((r, i) => (
           <button key={r.id} type="button" onClick={() => setOpen(r)}
@@ -250,7 +250,7 @@ export function MyRequests({ conn, requests, onChanged }) {
 /* One of my requests, opened: the chain as a timeline, the bills (no score --
    that is for the approvers), the reason it came back, and Take back while
    nobody has approved it yet. */
-function MyRequestSheet({ conn, r, onClose, onChanged }) {
+export function MyRequestSheet({ conn, r, onClose, onChanged }) {
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState("");
   const [preview, setPreview] = useState(null);

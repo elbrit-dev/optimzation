@@ -4,10 +4,10 @@ import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import Router from "next/router";
 import { Dialog } from "@/design-system";
 import { useClaims } from "./data/useClaims";
-import { CASH_REQUESTS, cashAdvancesOf, checkSettlementBills, fetchFileBlob, fetchMySettlements, fetchSettlementSettings, listBillHelp, removeSettlementBill, sendBillsForApproval } from "./data/claimsApi";
+import { CASH_REQUESTS, cashAdvancesOf, checkSettlementBills, fetchMySettlements, fetchSettlementSettings, listBillHelp, removeSettlementBill, sendBillsForApproval } from "./data/claimsApi";
 import { AskHelpSheet, HelpRequestsSheet, askHighlight, helpHighlight } from "./helpRequests";
-import { MyRequests, SendBar, serviceHeld, typeLine } from "./settlement";
-import { CSS, FONT_HREF, Highlights, IC, Icon, Note, Rail, Sheet, Spinner, btn, card, ell, tabNum } from "./ui";
+import { ChainTrack, MyRequestSheet, MyRequests, SendBar, serviceHeld, typeLine, waitingOn } from "./settlement";
+import { CSS, FONT_HREF, Highlights, IC, Icon, Note, Rail, Sheet, Spinner, billFile, btn, card, ell, tabNum, useFileUrl } from "./ui";
 import { BillSheet, CashSheet } from "./sheets";
 import { BILL_STATE, MON, WD, billState, dateOf, inr, ledger, monthKey, monthLabel, shortDate, weeksOf } from "./model";
 
@@ -70,7 +70,7 @@ function Step({ k, v, color, soft, dashed, small }) {
 const arrow = (k) => <span key={k} aria-hidden style={{ alignSelf: "center", color: "#c0c5cf", display: "flex", flex: "none" }}><Icon d={IC.next} size={14} /></span>;
 
 /* One line of the ledger: a bill (−), cash paid (+), cash asked for, or a pay-back. */
-function Entry({ e, held, onOpen }) {
+function Entry({ e, held, req, onOpen }) {
   const dt = dateOf(e.date);
   const day = (
     <span style={{ display: "flex", flexDirection: "column", alignItems: "center", lineHeight: 1, gap: 3 }}>
@@ -101,21 +101,32 @@ function Entry({ e, held, onOpen }) {
   }
   const st = billState(e.claim, e.line);
   const counted = e.state === "Verified";
+  // 26 Nov 2026 (the user): the request sits on its bill -- its chain right
+  // here, and in words WHO has it now; a bill sent back is "Not a valid bill"
+  const back = e.state === "Rejected" || (e.line?.state === "Checked" && !!e.line.review);
+  const waiting = req?.status === "waiting";
+  const who = waiting && !held ? (waitingOn(req) || "").replace(/^with/, "With") : "";
+  const status = back ? { tone: "#b42318", icon: "x", text: "Not a valid bill", where: e.line.review || "" }
+    : held ? { tone: "#b54708", icon: "hist", text: "Waiting on doctor service", where: "" }
+    : who ? { tone: "#b54708", icon: "hist", text: who, where: "" }
+    : e.state === "Checking" || e.state === "Checked" ? { tone: "#0e7490", icon: "check", text: "Not sent", where: "" }
+    : st;
+  const side = counted ? after : back ? "not valid" : e.state === "Checking" || e.state === "Checked" ? "not sent" : "pending";
   return (
     <button type="button" className="ec-ghost" onClick={onOpen} style={{ ...rowStyle, cursor: "pointer" }}>
       {day}
-      <span style={{ minWidth: 0 }}>
+      <span style={{ minWidth: 0, display: "flex", flexDirection: "column", gap: 2 }}>
         <span style={{ display: "block", fontSize: 14, fontWeight: 600, ...ell }}>{e.line.note || e.line.type}</span>
         {/* the settlement type (23 Nov 2026): Own · kind, or the doctor */}
         {e.claim.settlement && <span style={{ display: "block", fontSize: 12, color: "#5b6576", ...ell }}>{typeLine(e.line)}</span>}
-        {held && <span style={{ display: "block", fontSize: 12, fontWeight: 600, color: "#b54708", ...ell }}>Waiting for the doctor service to be approved</span>}
-        <span style={{ display: "flex", alignItems: "center", gap: 4, fontSize: 12, fontWeight: 600, color: st.tone, minWidth: 0 }}>
-          <span style={{ flex: "none", display: "flex" }}><Icon d={IC[st.icon]} size={12} /></span><span style={{ minWidth: 0, ...ell }}>{st.text}{st.where ? <span style={{ color: "#8a93a3", fontWeight: 500 }}> · {st.where}</span> : null}</span>
+        <span style={{ display: "flex", alignItems: "center", gap: 4, fontSize: 12, fontWeight: 600, color: status.tone, minWidth: 0 }}>
+          <span style={{ flex: "none", display: "flex" }}><Icon d={IC[status.icon]} size={12} /></span><span style={{ minWidth: 0, ...ell }}>{status.text}{status.where ? <span style={{ color: "#8a93a3", fontWeight: 500 }}> · {status.where}</span> : null}</span>
         </span>
+        {req && req.steps?.length > 0 && !back && <span style={{ marginTop: 2 }}><ChainTrack r={req} compact /></span>}
       </span>
       <span style={{ textAlign: "right" }}>
-        <b style={{ display: "block", fontSize: 15, whiteSpace: "nowrap", color: e.state === "Rejected" ? "#98a2b3" : "#0b1220", textDecoration: e.state === "Rejected" ? "line-through" : "none", ...tabNum }}>− {inr(e.amount)}</b>
-        <span style={{ fontSize: 11, whiteSpace: "nowrap", color: counted && e.bal < 0 ? "#b42318" : "#8a93a3" }}>{counted ? after : e.state === "Rejected" ? "not counted" : "not counted yet"}</span>
+        <b style={{ display: "block", fontSize: 15, whiteSpace: "nowrap", color: back ? "#98a2b3" : "#0b1220", textDecoration: back ? "line-through" : "none", ...tabNum }}>− {inr(e.amount)}</b>
+        <span style={{ fontSize: 11, whiteSpace: "nowrap", color: back ? "#b42318" : counted && e.bal < 0 ? "#b42318" : "#8a93a3" }}>{side}</span>
       </span>
     </button>
   );
@@ -134,7 +145,8 @@ function trackOf(e) {
   else if (s === "Checked" && l.review) steps.push({ k: "Sent back", v: "Fix or send again", note: l.review, at: "fail" });
   else if (s === "Checked") steps.push({ k: "Approval", v: "Not sent yet", at: "now" });
   else if (s === "In Approval" && e.held) steps.push({ k: "Approval", v: "Waiting on doctor service", at: "now" });
-  else if (s === "In Approval") steps.push({ k: "Approval", v: l.settleType && l.settleType !== "Own" ? "With your manager" : "With your managers", at: "now" });
+  // who has it now, by name (26 Nov 2026) -- "with your managers" said nothing
+  else if (s === "In Approval") steps.push({ k: "Approval", v: (e.req && waitingOn(e.req) ? waitingOn(e.req).replace(/^with/, "With") : "") || (l.settleType && l.settleType !== "Own" ? "With your manager" : "With your managers"), at: "now" });
   else if (s === "In Review") steps.push({ k: "In review", v: "Accounts checking", at: "now" });
   else if (s === "Rejected") steps.push({ k: "Reviewed by Accounts", v: "Not accepted", note: l.review, at: "fail" });
   else if (s === "Verified") steps.push({ k: "Approved", v: "Paid next run", at: "done" });
@@ -187,7 +199,7 @@ function Track({ steps }) {
 /* The bill's photo (or PDF) in a popup over the page -- never a new tab. A
    nested dialog, so it sits above the bill's own popup (Esc / back / the X
    close it alone) on a solid dark backdrop. */
-function BillViewer({ src, pdf, onClose }) {
+function BillViewer({ src, pdf, error, onClose }) {
   return (
     <Dialog.Root open onOpenChange={(next) => { if (!next) onClose(); }} backName="expense-claims-bill">
       <Dialog.Portal>
@@ -196,9 +208,12 @@ function BillViewer({ src, pdf, onClose }) {
         <Dialog.Viewport>
           <Dialog.Popup aria-label="The bill" style={{ inlineSize: "100vw", blockSize: "100dvh", maxInlineSize: "none", maxBlockSize: "none", margin: 0, padding: "56px 16px 16px", borderRadius: 0, background: "rgba(8,11,18,.94)", boxShadow: "none", display: "flex", alignItems: "center", justifyContent: "center" }}>
             <Dialog.Close aria-label="Close" style={{ ...btn.icon, position: "absolute", top: 12, right: 12, background: "rgba(255,255,255,.16)", color: "#fff", borderRadius: 99 }}><Icon d={IC.x} size={20} /></Dialog.Close>
-            {pdf
-              ? <iframe title="The bill" src={src} style={{ width: "min(900px,100%)", height: "100%", border: 0, borderRadius: 12, background: "#fff" }} />
-              : <img src={src} alt="The bill" style={{ maxWidth: "100%", maxHeight: "100%", objectFit: "contain", borderRadius: 10, boxShadow: "0 20px 50px -20px rgba(0,0,0,.7)" }} />}
+            {/* opens at once: the photo is already loading (or loaded) since the bill opened */}
+            {error ? <Note>{error}</Note>
+              : !src ? <Spinner size={28} />
+              : pdf
+                ? <iframe title="The bill" src={src} style={{ width: "min(900px,100%)", height: "100%", border: 0, borderRadius: 12, background: "#fff" }} />
+                : <img src={src} alt="The bill" style={{ maxWidth: "100%", maxHeight: "100%", objectFit: "contain", borderRadius: 10, boxShadow: "0 20px 50px -20px rgba(0,0,0,.7)" }} />}
           </Dialog.Popup>
         </Dialog.Viewport>
       </Dialog.Portal>
@@ -236,24 +251,16 @@ function RemoveBill({ busy, onRemove, compact }) {
 }
 
 function BillDetail({ conn, e, onClose, busy, onRemove, onResend }) {
-  const [opening, setOpening] = useState(false);
-  const [err, setErr] = useState("");
   const l = e.line;
   const st = BILL_STATE[e.state] || BILL_STATE.Checking;
   const steps = trackOf(e);
-  const [shown, setShown] = useState(null); // { src, pdf }
-  useEffect(() => () => { if (shown) URL.revokeObjectURL(shown.src); }, [shown]);
-  const view = async () => {
-    setOpening(true);
-    setErr("");
-    try {
-      const blob = await fetchFileBlob(conn, l.bill);
-      setShown({ src: URL.createObjectURL(blob), pdf: blob.type === "application/pdf" || /\.pdf$/i.test(l.bill) });
-    } catch (x) {
-      setErr(x.message);
-    }
-    setOpening(false);
-  };
+  // 26 Nov 2026 (the user: "the preview needs to be instant"): the photo is
+  // fetched the moment the bill opens (into the shared cache), so View shows it
+  // at once -- before, it was fetched only on the tap
+  const bf = useMemo(() => billFile(l.bill), [l.bill]);
+  const photo = useFileUrl(l.bill ? conn : null, bf);
+  const [shown, setShown] = useState(false);
+  const view = () => setShown(true);
   const row = (k, v) => v ? <div style={{ display: "flex", justifyContent: "space-between", gap: 12, padding: "10px 0", fontSize: 14, borderTop: "1px solid #eef1f5" }}><span style={{ color: "#5b6576" }}>{k}</span><b style={{ textAlign: "right", ...tabNum }}>{v}</b></div> : null;
   return (
     <Sheet title={l.note || "Bill"} sub={e.claim.settlement ? shortDate(l.date) : `${shortDate(l.date)} · ${e.claim.id}`} onClose={onClose} desktop="dialog" maxWidth={480}>
@@ -270,11 +277,10 @@ function BillDetail({ conn, e, onClose, busy, onRemove, onResend }) {
           {row("You entered", `${inr(l.amount)} · ${shortDate(l.date)}`)}
         </div>
         {l.bill && (
-          <button type="button" className="ec-ghost" disabled={opening} onClick={view} style={{ ...btn.ghost, height: 48, borderRadius: 14, display: "flex", alignItems: "center", justifyContent: "center", gap: 8 }}>
-            {opening ? <Spinner size={14} /> : <Icon d={IC.eye} size={16} />}View the bill
+          <button type="button" className="ec-ghost" onClick={view} style={{ ...btn.ghost, height: 48, borderRadius: 14, display: "flex", alignItems: "center", justifyContent: "center", gap: 8 }}>
+            <Icon d={IC.eye} size={16} />View the bill
           </button>
         )}
-        {err && <Note>{err}</Note>}
         {removable(e) && (onRemove || onResend) && (
           <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
             {/* sent back: it goes again only when the rep says so */}
@@ -287,7 +293,7 @@ function BillDetail({ conn, e, onClose, busy, onRemove, onResend }) {
           </div>
         )}
       </div>
-      {shown && <BillViewer src={shown.src} pdf={shown.pdf} onClose={() => setShown(null)} />}
+      {shown && <BillViewer src={photo.status === "ready" ? photo.url : null} pdf={bf?.kind === "pdf"} error={photo.status === "error" ? photo.error : ""} onClose={() => setShown(false)} />}
     </Sheet>
   );
 }
@@ -373,6 +379,8 @@ export default function ClaimReport({
   const [acting, setActing] = useState(""); // the bill being removed / sent again
 
   const [bill, setBill] = useState(null);
+  // a bill's request, opened from its row (the chain, Take back)
+  const [reqOpen, setReqOpen] = useState(null);
   const [sheet, setSheet] = useState(null); // "bill" | "cash"
   const [toast, setToast] = useState(null);
   const tt = useRef(null);
@@ -547,7 +555,7 @@ export default function ClaimReport({
           {sentBack.length > 0 && (
             <section aria-label="Bills sent back" style={{ ...card, padding: 16, display: "flex", flexDirection: "column", gap: 10, boxShadow: "0 0 0 1.5px #d92d20" }}>
               <div style={{ display: "flex", alignItems: "baseline", justifyContent: "space-between", gap: 10 }}>
-                <span style={{ fontSize: 15, fontWeight: 700 }}>{sentBack.length} {sentBack.length === 1 ? "bill" : "bills"} sent back</span>
+                <span style={{ fontSize: 15, fontWeight: 700 }}>{sentBack.length} not valid {sentBack.length === 1 ? "bill" : "bills"}</span>
                 <b style={{ fontSize: 18, ...tabNum }}>{inr(sentBack.reduce((s, l) => s + l.amount, 0))}</b>
               </div>
               {sentBack.map((l) => (
@@ -574,7 +582,8 @@ export default function ClaimReport({
               <button type="button" className="ec-ghost" onClick={() => setSettleTick((t) => t + 1)} style={{ ...btn.ghost, height: 44, borderRadius: 12 }}>Refresh</button>
             </Note>
           )}
-          <MyRequests conn={conn} requests={settle.requests} onChanged={(m) => { data.reload(); setSettleTick((t) => t + 1); say(m); }} />
+          {/* 26 Nov 2026 (the user): a bill's request shows ON the bill (Bills & cash) -- only advances here */}
+          <MyRequests conn={conn} requests={settle.requests.filter((r) => r.kind === "cash")} onChanged={(m) => { data.reload(); setSettleTick((t) => t + 1); say(m); }} />
           </div>
 
           <section style={{ display: "flex", flexDirection: "column", gap: 8, minWidth: 0 }}>
@@ -586,7 +595,13 @@ export default function ClaimReport({
                     <span style={{ fontSize: 13, fontWeight: 700, color: wk.now ? "#1d4ed8" : "#0b1220" }}>{wk.from} – {wk.to} {MON[m - 1]}{wk.now ? " · this week" : ""}</span>
                     <span style={{ fontSize: 12, color: "#8a93a3", ...tabNum }}>{wk.n ? `${wk.n} ${wk.n === 1 ? "bill" : "bills"} · ${inr(wk.total)}` : inMonth.length ? "no bills yet" : ""}</span>
                   </div>
-                  {wk.es.map((e, i) => <Entry key={`${e.kind}|${e.line?.id || e.adv?.id || e.claim?.id}|${i}`} e={e} held={heldOf(e.line)} onOpen={() => setBill({ ...e, held: heldOf(e.line) })} />)}
+                  {wk.es.map((e, i) => {
+                    const req = e.line?.settlement ? reqById.get(e.line.settlement) : null;
+                    // in approval / approved: open its request (the chain, Take back); else the bill
+                    const toReq = req && (req.status === "waiting" || req.status === "approved");
+                    return <Entry key={`${e.kind}|${e.line?.id || e.adv?.id || e.claim?.id}|${i}`} e={e} held={heldOf(e.line)} req={req}
+                      onOpen={() => (toReq ? setReqOpen(req) : setBill({ ...e, held: heldOf(e.line), req }))} />;
+                  })}
                 </div>
               ))}
               {!inMonth.length && (
@@ -598,6 +613,7 @@ export default function ClaimReport({
         </div>}
       </main>
 
+      {reqOpen && conn && <MyRequestSheet conn={conn} r={reqOpen} onClose={() => setReqOpen(null)} onChanged={(m) => { setReqOpen(null); data.reload(); setSettleTick((t) => t + 1); say(m); }} />}
       {bill && <BillDetail conn={conn} e={bill} onClose={() => setBill(null)} busy={!!acting || sending}
         onRemove={removable(bill) ? () => act(bill.line, "remove") : null} onResend={removable(bill) && bill.line.review ? () => act(bill.line, "send") : null} />}
       {sheet === "bill" && conn && me && <BillSheet conn={conn} me={me} claims={claims} advances={advances} cashAdvances={cashAdv} today={today} desk={isDesk} onClose={() => setSheet(null)} onSaved={saved} onChecked={data.reload} onHelp={() => setHelpTick((t) => t + 1)} />}
