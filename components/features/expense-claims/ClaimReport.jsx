@@ -119,9 +119,12 @@ function Entry({ e, held, req, onOpen }) {
         <span style={{ display: "block", fontSize: 14, fontWeight: 600, ...ell }}>{e.line.note || e.line.type}</span>
         {/* the settlement type (23 Nov 2026): Own · kind, or the doctor */}
         {e.claim.settlement && <span style={{ display: "block", fontSize: 12, color: "#5b6576", ...ell }}>{typeLine(e.line)}</span>}
+        {/* 26 Nov 2026 (the user): the chain below already shows who has it -- no "With X" line */}
+        {!(who && req.steps?.length > 0) && (
         <span style={{ display: "flex", alignItems: "center", gap: 4, fontSize: 12, fontWeight: 600, color: status.tone, minWidth: 0 }}>
           <span style={{ flex: "none", display: "flex" }}><Icon d={IC[status.icon]} size={12} /></span><span style={{ minWidth: 0, ...ell }}>{status.text}{status.where ? <span style={{ color: "#8a93a3", fontWeight: 500 }}> · {status.where}</span> : null}</span>
         </span>
+        )}
         {req && req.steps?.length > 0 && !back && <span style={{ marginTop: 2 }}><ChainTrack r={req} compact /></span>}
       </span>
       <span style={{ textAlign: "right" }}>
