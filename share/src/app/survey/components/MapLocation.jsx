@@ -22,7 +22,11 @@ import { mapDist, mapIsPoint, mapMeters, mapStart, mapUrl } from '../data/shape'
  *
  * The answer: { lat, lng, how: 'place', place_id, name, address, url, kind,
  * was?: the saved point, was_place?: the Google place at the saved point }.
- * The ERP sends it to the rep's ABM to accept / reject (survey_map_review). */
+ * The ERP sends it to the rep's ABM to accept / reject (survey_map_review).
+ *
+ * 26 Nov 2026 · SEPARATED (q.multi): more than one hospital / pharmacy can be chosen — the answer is a list of
+ * those points; a tap on a chosen one (or its ✕) takes it off. No ABM review for these.
+ * The map with a saved point starts zoomed out enough to show the whole 400 m circle. */
 
 let mapsPromise = null;
 export function loadMaps(api) {
@@ -67,7 +71,12 @@ const fitZoom = (pt, far, el) => {
 export function MapLocation({ q, value, onChange, disabled, api, response }) {
   const start = mapStart(q);
   const startKey = start ? `${start.lat},${start.lng}` : '';
-  const cur = mapIsPoint(value) && value.place_id ? value : null;
+  /* 26 Nov 2026 · Separated: a list of chosen places */
+  const multi = Boolean(q.multi);
+  const picks = multi ? (Array.isArray(value) ? value : mapIsPoint(value) ? [value] : []).filter((p) => mapIsPoint(p) && p.place_id) : [];
+  const cur = !multi && mapIsPoint(value) && value.place_id ? value : null;
+  const chosen = multi ? picks : cur ? [cur] : [];
+  const isOn = (id) => chosen.some((p) => p.place_id === id);
 
   /* every hospital / clinic around a point */
   const [near, setNear] = useState({ center: null, label: '', places: [], busy: '', full: false, err: '' });
@@ -99,7 +108,7 @@ export function MapLocation({ q, value, onChange, disabled, api, response }) {
   const ph = q.places === 'pharmacy';
   const n1 = ph ? 'pharmacies' : 'hospitals and clinics';
   const n0 = ph ? 'pharmacy' : 'hospital or clinic';
-  live.current = { start, cur, near, res, term, disabled, onChange, ph, n0, n1 };
+  live.current = { start, cur, chosen, multi, near, res, term, disabled, onChange, ph, n0, n1 };
 
   const all = useCallback(() => {
     const seen = {};
@@ -129,6 +138,12 @@ export function MapLocation({ q, value, onChange, disabled, api, response }) {
         if (at) v.was_place = { id: at.x.id, name: at.x.title || '', url: at.x.url || '', dist: Math.round(at.d) };
       }
       setWhich(null);
+      if (L.multi) {
+        /* Separated: a chosen one is taken off; another is added */
+        const has = L.chosen.some((x) => x.place_id === v.place_id);
+        L.onChange(has ? (L.chosen.length > 1 ? L.chosen.filter((x) => x.place_id !== v.place_id) : null) : [...L.chosen, v]);
+        return;
+      }
       L.onChange(v);
     },
     [all],
@@ -259,14 +274,13 @@ export function MapLocation({ q, value, onChange, disabled, api, response }) {
       .sort((x, y) => mapMeters(mid, pos(x)) - mapMeters(mid, pos(y)));
     Object.keys(dots).forEach((id) => !ids.includes(id) && dots[id].setLabel(null));
     const taken = [];
-    const v = live.current.cur;
-    if (v) {
+    live.current.chosen.forEach((v) => {
       const pt = proj.fromLatLngToPoint(new gm.LatLng(+v.lat, +v.lng));
       const x = (pt.x - nw.x) * sc;
       const y = (pt.y - nw.y) * sc;
       const w = Math.min((v.name || '').length + 2, 32) * 6.8 + 10;
       taken.push({ l: x - 14, r: x + 14, t: y - 44, b: y + 2, cx: x, cy: y, dot: 1 }, { l: x - w / 2, r: x + w / 2, t: y + 2, b: y + 20 });
-    }
+    });
     ids.forEach((id) => {
       const m = dots[id];
       const pt = proj.fromLatLngToPoint(m.getPosition());
@@ -388,7 +402,7 @@ export function MapLocation({ q, value, onChange, disabled, api, response }) {
         const s0 = live.current.start;
         const map = new gm.Map(boxRef.current, {
           center: s0 ?? INDIA,
-          zoom: s0 ? 18 : 5,
+          zoom: s0 ? fitZoom(s0, ZONE * 1.15, boxRef.current) : 5,
           draggableCursor: 'pointer',
           mapTypeControl: false,
           streetViewControl: false,
@@ -416,7 +430,7 @@ export function MapLocation({ q, value, onChange, disabled, api, response }) {
           tapRef.current(e);
         });
         map.addListener('dragend', () => !lockRef.current && setMoved(true));
-        pickRef.current = new gm.Marker({ map, zIndex: 20, clickable: false, title: 'Chosen' });
+        pickRef.current = {};
         mapRef.current = map;
         setMapErr(null);
         setNear((n) => ({ ...n })); /* draw what is already loaded */
@@ -440,11 +454,11 @@ export function MapLocation({ q, value, onChange, disabled, api, response }) {
       lockRef.current = null;
       map.setOptions({ draggable: true, keyboardShortcuts: true, minZoom: null });
       map.setCenter(start);
-      map.setZoom(18);
+      map.setZoom(fitZoom(start, ZONE * 1.15, boxRef.current)); /* 26 Nov 2026: the whole circle in view */
     } else {
       lockRef.current = null;
       map.setOptions({ draggable: true, keyboardShortcuts: true, minZoom: null });
-      if (!cur) {
+      if (!chosen.length) {
         map.setCenter(INDIA);
         map.setZoom(5);
       }
@@ -458,11 +472,23 @@ export function MapLocation({ q, value, onChange, disabled, api, response }) {
     const map = mapRef.current;
     const gm = window.google?.maps;
     if (!map || !gm) return;
-    const pick = pickRef.current;
-    pick.setPosition(cur ? { lat: +cur.lat, lng: +cur.lng } : null);
-    pick.setVisible(Boolean(cur));
-    pick.setIcon(cur ? { url: 'https://maps.google.com/mapfiles/ms/icons/green-dot.png', scaledSize: new gm.Size(44, 44), labelOrigin: new gm.Point(22, 54) } : null);
-    pick.setLabel(cur ? { text: `✓ ${shortName(cur.name || 'Chosen', 30)}`, className: 'sv-mq-lbl sv-mq-on', color: '#137333', fontSize: '12px', fontWeight: '700' } : null);
+    const pins = pickRef.current || {};
+    const keepPin = {};
+    chosen.forEach((c) => {
+      keepPin[c.place_id] = 1;
+      if (!pins[c.place_id]) pins[c.place_id] = new gm.Marker({ map, zIndex: 20, clickable: false, title: 'Chosen' });
+      const pin = pins[c.place_id];
+      pin.setPosition({ lat: +c.lat, lng: +c.lng });
+      pin.setIcon({ url: 'https://maps.google.com/mapfiles/ms/icons/green-dot.png', scaledSize: new gm.Size(44, 44), labelOrigin: new gm.Point(22, 54) });
+      pin.setLabel({ text: `✓ ${shortName(c.name || 'Chosen', 30)}`, className: 'sv-mq-lbl sv-mq-on', color: '#137333', fontSize: '12px', fontWeight: '700' });
+    });
+    Object.keys(pins).forEach((id) => {
+      if (!keepPin[id]) {
+        pins[id].setMap(null);
+        delete pins[id];
+      }
+    });
+    pickRef.current = pins;
     const dots = dotsRef.current;
     const want = {};
     (showRes ? res : near.places).forEach((p) => (want[p.id] = p));
@@ -484,7 +510,7 @@ export function MapLocation({ q, value, onChange, disabled, api, response }) {
         });
         dots[p.id].svName = shortName(p.title, 26);
       }
-      dots[p.id].setVisible(!(cur && cur.place_id === p.id));
+      dots[p.id].setVisible(!isOn(p.id));
     });
     /* nothing close to the saved location: zoom out to the nearest few */
     if (fitRef.current && start && near.places.length) {
@@ -492,7 +518,7 @@ export function MapLocation({ q, value, onChange, disabled, api, response }) {
       map.setZoom(fitZoom(start, Math.max(...near.places.slice(0, 4).map((p) => mapMeters(start, p))), boxRef.current));
     }
     labels();
-  }, [cur?.place_id, cur?.lat, cur?.lng, near.places, res, showRes, mapErr, labels]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [chosen.map((c) => c.place_id).join('|'), near.places, res, showRes, mapErr, labels]); // eslint-disable-line react-hooks/exhaustive-deps
 
   /* without a saved point the map goes where the answer / results / searched point are */
   useEffect(() => {
@@ -539,7 +565,7 @@ export function MapLocation({ q, value, onChange, disabled, api, response }) {
   /* one row: a hospital / clinic to choose */
   const ref = start || near.center;
   const row = (p, fromWhich) => {
-    const on = cur?.place_id === p.id;
+    const on = isOn(p.id);
     const d = ref ? mapMeters(ref, p) : null;
     return (
       <li key={p.id} role="option" aria-selected={on}>
@@ -561,7 +587,7 @@ export function MapLocation({ q, value, onChange, disabled, api, response }) {
               {[p.kind, d != null ? `${mapDist(d)}${start ? ' from the saved location' : ' away'}` : '', p.address].filter(Boolean).join(' · ')}
             </span>
           </span>
-          <Icon name={on ? 'check-circle' : 'angle-right'} size="sm" className={cx('shrink-0', on ? 'text-success' : 'text-ds-muted')} />
+          <Icon name={on ? 'check-circle' : multi ? 'plus-circle' : 'angle-right'} size="sm" className={cx('shrink-0', on ? 'text-success' : 'text-ds-muted')} />
         </button>
       </li>
     );
@@ -590,7 +616,36 @@ export function MapLocation({ q, value, onChange, disabled, api, response }) {
 
   return (
     <div className="flex flex-col gap-2.5">
-      {cur ? (
+      {multi ? (
+        <div className="flex flex-col gap-1.5 rounded-lg border border-line bg-surface px-3 py-2.5">
+          <span className="text-13 font-semibold text-heading">
+            {picks.length ? `${picks.length} ${picks.length === 1 ? n0 : n1} chosen` : `Choose the ${n1}`}
+          </span>
+          <span className="text-12 text-ds-muted">
+            {start ? `The map starts at the doctor’s saved location. Tap every ${n0} to add it; tap a chosen one again to take it off.` : `Search or tap Near me, then tap every ${n0} to add it.`}
+          </span>
+          {picks.length ? (
+            <ul className="flex flex-col gap-1.5 pt-1" aria-label={`Chosen ${n1}`}>
+              {picks.map((p) => (
+                <li key={p.place_id} className="flex items-start gap-2 rounded-md border border-success bg-success-wash px-2.5 py-2">
+                  <Icon name="check-circle" size="sm" className="mt-0.5 shrink-0 text-success" />
+                  <span className="flex min-w-0 flex-1 flex-col">
+                    <span className="text-13 font-semibold text-heading [overflow-wrap:anywhere]">{p.name || 'Place'}</span>
+                    <span className="text-12 text-ds-muted [overflow-wrap:anywhere]">
+                      {[p.kind, start ? `${mapDist(mapMeters(start, p))} from the saved location` : '', p.address].filter(Boolean).join(' · ')}
+                    </span>
+                  </span>
+                  {disabled ? null : (
+                    <button type="button" aria-label={`Take off ${p.name || 'this place'}`} onClick={() => onChange(picks.length > 1 ? picks.filter((x) => x.place_id !== p.place_id) : null)} className="-m-1.5 flex size-10 shrink-0 items-center justify-center rounded-md text-ds-muted hover:bg-sunken">
+                      <Icon name="times" size="sm" />
+                    </button>
+                  )}
+                </li>
+              ))}
+            </ul>
+          ) : null}
+        </div>
+      ) : cur ? (
         <div className="flex items-start gap-2.5 rounded-lg border border-success bg-success-wash px-3 py-2.5">
           <Icon name="check-circle" size="sm" className="mt-0.5 shrink-0 text-success" />
           <div className="flex min-w-0 flex-1 flex-col gap-0.5">

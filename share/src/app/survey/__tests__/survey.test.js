@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { answerProblem, distinctNames, fileProblem, formProblems, ROW_LABEL, rowState, shortName, surveysFromMyList, toPayload } from '../data/shape';
+import { answerProblem, answerText, distinctNames, fileProblem, formProblems, ROW_LABEL, rowState, shortName, surveysFromMyList, toPayload } from '../data/shape';
 import { surveyTiles, withSurveyTiles } from '../data/tiles';
 import { DEFAULT_RING_NAV_ITEMS } from '@/app/ring-nav/data/defaultRingNavItems';
 import { createSurveyApi } from '../api';
@@ -199,5 +199,18 @@ describe('the mock ERP (SURVEYS_CONTEXT.md §4)', () => {
     const titles = async (role) => surveysFromMyList(await createSurveyApi({ source: 'mock', role, delay: 0 }).getMyList()).map((s) => s.title).sort();
     expect(await titles('RBM')).toEqual(['Diwali CME invitation', 'Field app feedback']);
     expect(await titles('ABM')).toContain('Field app feedback');
+  });
+});
+
+describe('26 Nov 2026 · Separated map question (q.multi): a list of places', () => {
+  const q = { id: 'p', type: 'map_location', label: 'Pharmacies', required: 1, places: 'pharmacy', multi: 1 };
+  const a = { lat: 13.05, lng: 80.24, how: 'place', place_id: 'PH1', name: 'Apollo Pharmacy', address: 'Anna Nagar' };
+  const b = { lat: 13.06, lng: 80.25, how: 'place', place_id: 'PH2', name: 'MedPlus' };
+  it('asks for at least one when nothing is chosen', () => {
+    expect(answerProblem(q, [])).toBe('Please choose at least one pharmacy on the map to continue.');
+    expect(answerProblem(q, [a, b])).toBeNull();
+  });
+  it('reads as one line per place', () => {
+    expect(answerText(q, [a, b])).toBe('Apollo Pharmacy — Anna Nagar\nMedPlus');
   });
 });

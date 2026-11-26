@@ -711,7 +711,7 @@ export function QuestionCard({ q, index, value, onChange, onUpload, api, respons
         {q.description && !readOnly ? <p className="text-11 text-ds-muted">{q.description}</p> : null}
       </div>
       {readOnly ? (
-        <p className={cx('flex items-center gap-2 rounded-lg bg-sunken px-3 py-2 text-12', answered ? 'font-semibold text-heading' : 'text-ds-muted')}>
+        <p className={cx('flex items-center gap-2 whitespace-pre-line rounded-lg bg-sunken px-3 py-2 text-12', answered ? 'font-semibold text-heading' : 'text-ds-muted')}>
           {q.type === 'file_upload' && answered ? <Icon name="paperclip" size="sm" className="text-ds-muted" /> : null}
           {answered ? answerText(q, value) : 'Skipped'}
         </p>

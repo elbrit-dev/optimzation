@@ -181,7 +181,7 @@ export function answerProblem(q, v, answers) {
     if (!q.required) return null;
     if (q.type === 'file_upload') return 'Please upload a file to continue.';
     if (q.type === 'checkboxes' || q.type === 'days') return 'Please choose at least one option to continue.';
-    if (q.type === 'map_location') return q.places === 'pharmacy' ? 'Please choose the pharmacy on the map to continue.' : 'Please choose the hospital or clinic on the map to continue.';
+    if (q.type === 'map_location') return q.multi ? (q.places === 'pharmacy' ? 'Please choose at least one pharmacy on the map to continue.' : 'Please choose at least one hospital or clinic on the map to continue.') : q.places === 'pharmacy' ? 'Please choose the pharmacy on the map to continue.' : 'Please choose the hospital or clinic on the map to continue.';
     return 'Please answer this question to continue.';
   }
   if (q.type === 'number' && !/^-?\d+(\.\d+)?$/.test(String(v).trim())) return 'Please enter a number, for example 12 or 4.5.';
@@ -236,7 +236,7 @@ export function answerText(q, v) {
   }
   if (q.type === 'timings') return timingsText(v);
   if (q.type === 'file_upload') return v.map((f) => f.name).join(', ');
-  if (q.type === 'map_location') return mapText(v);
+  if (q.type === 'map_location') return Array.isArray(v) ? v.map(mapText).filter(Boolean).join('\n') : mapText(v); /* 26 Nov 2026: Separated — a list */
   if (q.type === 'rating') return `${v} of ${scaleRange(q).max} stars`;
   if (q.type === 'linear_scale') return `${v} (scale ${scaleRange(q).min}–${scaleRange(q).max})`;
   return String(v);
