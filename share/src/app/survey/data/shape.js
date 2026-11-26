@@ -169,6 +169,12 @@ export function isEmpty(v) {
 
 /* The message under a question, or null — the ERP page's words, so the app
    and the ERP say the same thing. The server re-checks all of it. */
+/* 26 Nov 2026 · Login: "Any exceptions?" (required). OTP / Mail / Other count as the reason when not verified. */
+export const LOGIN_EXCEPTIONS = ['No exceptions', 'OTP required', 'Mail required', 'Other'];
+export function loginExceptions(v) {
+  return Array.isArray(v?.exceptions) ? v.exceptions.filter((x) => LOGIN_EXCEPTIONS.includes(x)) : [];
+}
+
 export function answerProblem(q, v, answers) {
   if (q.type === 'timings') return timingsProblem(q, v, answers);
   if (isEmpty(v)) {
@@ -182,7 +188,9 @@ export function answerProblem(q, v, answers) {
   if (q.type === 'date' && !/^\d{4}-\d{2}-\d{2}$/.test(String(v))) return 'Please enter a valid date.';
   if (q.type === 'login' && (!String(v.url ?? '').trim() || !String(v.login ?? '').trim() || !String(v.password ?? '').trim())) return 'Please fill the website URL, login ID and password.';
   if (q.type === 'login' && !v.test) return 'Test the login before sending.';
-  if (q.type === 'login' && v.test.result !== 'verified' && !String(v.reason ?? '').trim()) return 'Say why the login isn’t verified (OTP, email verification …).';
+  if (q.type === 'login' && !loginExceptions(v).length) return 'Say if there are any exceptions (OTP required, Mail required …).';
+  if (q.type === 'login' && loginExceptions(v).includes('Other') && !String(v.reason ?? '').trim()) return 'Write the other exception in the note.';
+  if (q.type === 'login' && v.test.result !== 'verified' && !String(v.reason ?? '').trim() && !loginExceptions(v).some((x) => x !== 'No exceptions')) return 'Say why the login isn’t verified — pick OTP required / Mail required, or write a note.';
   if (q.type === 'time' && !(q.range ? /^\d{2}:\d{2}-\d{2}:\d{2}$/ : /^\d{2}:\d{2}$/).test(String(v))) return q.range ? 'Please enter both the start and the end time.' : 'Please enter a valid time.';
   if ((q.type === 'multiple_choice' || q.type === 'dropdown') && !(q.options ?? []).includes(v)) return 'Please choose one of the options.';
   if (q.type === 'linear_scale' || q.type === 'rating') {
@@ -222,7 +230,10 @@ export function toPayload(questions, answers) {
 export function answerText(q, v) {
   if (isEmpty(v)) return '—';
   if (q.type === 'checkboxes' || q.type === 'days') return v.join(', ');
-  if (q.type === 'login') return [v.url, v.login, v.password].filter(Boolean).join(' · ') + (v.verified || v.test?.result === 'verified' ? ' · Verified' : v.reason ? ` · Not verified: ${v.reason}` : '');
+  if (q.type === 'login') {
+    const ex = loginExceptions(v), note = String(v.reason ?? '').trim();
+    return [v.url, v.login, v.password].filter(Boolean).join(' · ') + (v.verified || v.test?.result === 'verified' ? ' · Verified' : v.test ? ' · Not verified' : '') + (ex.length ? ` · ${ex.join(', ')}` : '') + (note ? ` — ${note}` : '');
+  }
   if (q.type === 'timings') return timingsText(v);
   if (q.type === 'file_upload') return v.map((f) => f.name).join(', ');
   if (q.type === 'map_location') return mapText(v);

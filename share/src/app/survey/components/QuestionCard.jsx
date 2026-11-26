@@ -2,7 +2,7 @@
 
 import { useEffect, useRef, useState } from 'react';
 import { Card, Icon, ProgressBar, cx } from '@/design-system';
-import { TIMING_DAYS, answerText, fileProblem, fileRules, isEmpty, scaleRange, timingDayError } from '../data/shape';
+import { LOGIN_EXCEPTIONS, TIMING_DAYS, answerText, fileProblem, fileRules, isEmpty, loginExceptions, scaleRange, timingDayError } from '../data/shape';
 import { MapLocation } from './MapLocation';
 
 /* One question, by its type (SURVEYS_CONTEXT.md §3) — answered, or shown
@@ -59,14 +59,15 @@ function DateInput({ q, value, onChange, disabled }) {
    26 Nov 2026 · Test login: the app's server signs in to the website with these details, then signs out; the result
    is recorded in the ERP. Signed in → Verified; anything else → Not verified + a REQUIRED reason (OTP, email …).
    Changing any of the three boxes needs a new test. Answer = { url, login, password, test, reason }. */
-const LOGIN_CHIPS = ['OTP needed', 'Email verification needed', 'Captcha on the website', 'Wrong password from the distributor', 'Website down', 'Login is in an app (not a website)'];
+/* 26 Nov 2026 · "Any exceptions?" (required): No exceptions / OTP required / Mail required / Other (+ a note).
+   OTP / Mail / Other count as the reason when the login isn't verified. Answer adds exceptions: [..]. */
 function LoginInput({ q, value, onChange, disabled, api, response, onBusy }) {
   const v = value && typeof value === 'object' ? value : {};
   const [busy, setBusy] = useState(false);
   const ready = String(v.url ?? '').trim() && String(v.login ?? '').trim() && String(v.password ?? '').trim();
   const set = (k, x) => {
-    const next = { url: v.url ?? '', login: v.login ?? '', password: v.password ?? '', reason: v.reason ?? '', [k]: x };
-    if (k !== 'reason') delete next.test;
+    const next = { url: v.url ?? '', login: v.login ?? '', password: v.password ?? '', reason: v.reason ?? '', exceptions: loginExceptions(v), [k]: x };
+    if (k !== 'reason' && k !== 'exceptions') delete next.test;
     else if (v.test) next.test = v.test;
     onChange(next.url || next.login || next.password ? next : null);
   };
@@ -106,6 +107,10 @@ function LoginInput({ q, value, onChange, disabled, api, response, onBusy }) {
     </label>
   );
   const t = v.test;
+  const exc = loginExceptions(v);
+  const other = exc.includes('Other');
+  const bad = !!t && t.result !== 'verified';
+  const needNote = other || (bad && !exc.some((x) => x !== 'No exceptions'));
   return (
     <div className="flex flex-col gap-2.5">
       {box('url', 'Website URL', 'url', 'https://…')}
@@ -127,39 +132,6 @@ function LoginInput({ q, value, onChange, disabled, api, response, onBusy }) {
               Test again
             </button>
           </div>
-          {t.result !== 'verified' ? (
-            <label className="flex flex-col gap-1.5 text-11 font-semibold text-ds-muted">
-              <span>
-                Why isn’t it verified? <span className="uppercase text-danger-text">required</span>
-              </span>
-              <span className="flex flex-wrap gap-1.5">
-                {LOGIN_CHIPS.map((c) => {
-                  const on = String(v.reason ?? '').includes(c);
-                  return (
-                    <button
-                      key={c}
-                      type="button"
-                      onClick={() => {
-                        const r = String(v.reason ?? '').trim();
-                        set('reason', r.includes(c) ? r : r ? `${r}; ${c}` : c);
-                      }}
-                      className={cx('min-h-9 rounded-full border px-3 text-12 font-medium', on ? 'border-brand bg-brand-tint-weak text-brand-text' : 'border-line bg-surface text-body')}
-                    >
-                      {c}
-                    </button>
-                  );
-                })}
-              </span>
-              <textarea
-                rows={3}
-                maxLength={1000}
-                value={v.reason ?? ''}
-                onChange={(e) => set('reason', e.target.value)}
-                placeholder="e.g. OTP goes to the distributor’s phone; the details were confirmed with him"
-                className={cx(FIELD, 'w-full resize-y text-13 font-normal')}
-              />
-            </label>
-          ) : null}
         </>
       ) : (
         <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
@@ -175,6 +147,46 @@ function LoginInput({ q, value, onChange, disabled, api, response, onBusy }) {
           <span className="text-12 text-ds-muted">{ready ? 'Signs in to the website with these details, then signs out. Required before sending.' : 'Fill all three, then test the login.'}</span>
         </div>
       )}
+      {disabled ? null : (
+        <div className="flex flex-col gap-1.5 text-11 font-semibold text-ds-muted" role="group" aria-label="Any exceptions">
+          <span>
+            Any exceptions? <span className="uppercase text-danger-text">required</span>
+          </span>
+          <span className="flex flex-wrap gap-1.5">
+            {LOGIN_EXCEPTIONS.map((c) => {
+              const on = exc.includes(c);
+              return (
+                <button
+                  key={c}
+                  type="button"
+                  aria-pressed={on}
+                  onClick={() => set('exceptions', on ? exc.filter((x) => x !== c) : c === 'No exceptions' ? [c] : exc.filter((x) => x !== 'No exceptions').concat(c))}
+                  className={cx('flex min-h-10 items-center gap-1 rounded-full border px-3 text-12 font-semibold', on ? 'border-brand bg-brand-tint-weak text-brand-text' : 'border-line bg-surface text-body')}
+                >
+                  {on ? <Icon name="check" size="var(--fs-11)" /> : null}
+                  {c}
+                </button>
+              );
+            })}
+          </span>
+        </div>
+      )}
+      {!disabled && (other || bad || String(v.reason ?? '').trim()) ? (
+        <label className="flex flex-col gap-1.5 text-11 font-semibold text-ds-muted">
+          <span>
+            {other ? 'The other exception' : bad ? 'Why isn’t it verified?' : 'Note'}{' '}
+            {needNote ? <span className="uppercase text-danger-text">required</span> : <span className="font-normal">(optional)</span>}
+          </span>
+          <textarea
+            rows={3}
+            maxLength={1000}
+            value={v.reason ?? ''}
+            onChange={(e) => set('reason', e.target.value)}
+            placeholder={other ? 'e.g. works only on the office computer' : 'e.g. OTP goes to the distributor’s phone; the details were confirmed with him'}
+            className={cx(FIELD, 'w-full resize-y text-13 font-normal')}
+          />
+        </label>
+      ) : null}
     </div>
   );
 }

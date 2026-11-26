@@ -50,6 +50,22 @@ describe('surveys and circles', () => {
     expect(shortName('Pharmacovigilance')).toBe('Pharmacovi…');
   });
 
+  it('gives two circles with the same short name names that tell them apart', () => {
+    expect(distinctNames(['ZZ Test – Prescription (AI)', 'ZZ Test – Distributor statements (AI)', 'ZZ Test – Distributor login', 'Rx audit']))
+      .toEqual(['Prescripti…', 'statements', 'login', 'Rx audit']);
+    expect(distinctNames(['Same title', 'Same title'])).toEqual(['Same tit… 1', 'Same tit… 2']);
+  });
+
+  it('asks the Login question for its exceptions', () => {
+    const q = { id: 'ql', type: 'login', required: 1 };
+    const base = { url: 'portal.example.com', login: 'u1', password: 'p1' };
+    expect(answerProblem(q, { ...base, test: { result: 'verified' } })).toMatch(/exceptions/);
+    expect(answerProblem(q, { ...base, test: { result: 'verified' }, exceptions: ['No exceptions'] })).toBe(null);
+    expect(answerProblem(q, { ...base, test: { result: 'not_verified' }, exceptions: ['No exceptions'] })).toMatch(/why the login/);
+    expect(answerProblem(q, { ...base, test: { result: 'not_verified' }, exceptions: ['OTP required'] })).toBe(null);
+    expect(answerProblem(q, { ...base, test: { result: 'verified' }, exceptions: ['Other'] })).toMatch(/other exception/);
+  });
+
   it('groups survey_my_list per campaign, with Self-tag ones before anything is added', async () => {
     const api = createSurveyApi({ source: 'mock', role: 'BE', delay: 0 });
     const surveys = surveysFromMyList(await api.getMyList());
