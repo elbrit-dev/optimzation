@@ -556,12 +556,16 @@ function FileUpload({ q, value, onChange, disabled, onUpload }) {
   /* 23 Nov 2026: a file the AI could not read (blurry, dark, cut off): { url: reason }.
      The only thing the rep is ever told about the AI read. */
   const [unread, setUnread] = useState({});
+  /* 26 Nov 2026: files the AI is still reading ({ url: true }) — the file is already in the answer */
+  const [reading, setReading] = useState({});
+  /* a one-file question: Replace swaps the file (the box no longer just disappears) */
+  const replaceRef = useRef(false);
   const busy = ups.some((u) => !u.error);
   const room = rules.maxFiles - files.length - ups.filter((u) => !u.error).length;
   const valueRef = useRef(files);
   valueRef.current = files;
 
-  const start = (list) => {
+  const start = (list, replace) => {
     for (const file of list) {
       const id = `${Date.now()}-${Math.random()}`;
       const problem = fileProblem(q, file);
@@ -574,7 +578,19 @@ function FileUpload({ q, value, onChange, disabled, onUpload }) {
         .then((res) => {
           setUps((u) => u.filter((x) => x.id !== id));
           if (res.read && res.read.readable === false) setUnread((m) => ({ ...m, [res.file_url]: res.read.reason || 'The file could not be read.' }));
-          onChange([...valueRef.current, { url: res.file_url, name: res.file_name, size: res.file_size }]);
+          const added = { url: res.file_url, name: res.file_name, size: res.file_size };
+          onChange(replace ? [added] : [...valueRef.current, added]);
+          if (res.reading && typeof res.reading.then === 'function') {
+            setReading((m) => ({ ...m, [res.file_url]: true }));
+            res.reading.then((read) => {
+              setReading((m) => {
+                const n = { ...m };
+                delete n[res.file_url];
+                return n;
+              });
+              if (read && read.readable === false) setUnread((m) => ({ ...m, [res.file_url]: read.reason || 'The file could not be read.' }));
+            });
+          }
         })
         .catch((e) => setUps((u) => u.map((x) => (x.id === id ? { ...x, error: e?.message || 'Upload failed.' } : x))));
     }
@@ -599,6 +615,18 @@ function FileUpload({ q, value, onChange, disabled, onUpload }) {
             </span>
           </span>
         </button>
+      ) : rules.maxFiles === 1 && files.length === 1 && !busy && !disabled ? (
+        <button
+          type="button"
+          onClick={() => {
+            replaceRef.current = true;
+            inputRef.current?.click();
+          }}
+          className="flex items-center gap-1.5 self-start rounded-lg border border-line bg-surface px-3 py-2 text-12 font-semibold text-brand-text hover:border-brand"
+        >
+          <Icon name="refresh" size="sm" />
+          Replace the file
+        </button>
       ) : null}
       <input
         ref={inputRef}
@@ -608,9 +636,11 @@ function FileUpload({ q, value, onChange, disabled, onUpload }) {
         multiple={room > 1}
         aria-label={q.label}
         onChange={(e) => {
-          const list = [...(e.target.files ?? [])].slice(0, Math.max(room, 0));
+          const replace = replaceRef.current;
+          replaceRef.current = false;
+          const list = [...(e.target.files ?? [])].slice(0, replace ? 1 : Math.max(room, 0));
           e.target.value = '';
-          start(list);
+          start(list, replace);
         }}
       />
 
@@ -647,6 +677,12 @@ function FileUpload({ q, value, onChange, disabled, onUpload }) {
               <Icon name="times" size="sm" />
             </button>
           </div>
+          {reading[f.url] ? (
+            <p role="status" className="flex items-center gap-1.5 text-11 text-ds-muted">
+              <Icon name="spinner pi-spin" size="sm" className="shrink-0" />
+              <span>Uploaded · checking the file… (you can carry on)</span>
+            </p>
+          ) : null}
           {unread[f.url] ? (
             <p role="status" className="flex items-start gap-1.5 text-11 font-medium text-warning-text">
               <Icon name="exclamation-triangle" size="sm" className="mt-px shrink-0" />

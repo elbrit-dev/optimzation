@@ -9,8 +9,8 @@ import { SubjectCard } from './SubjectCard';
 import { QuestionCard } from './QuestionCard';
 import { SurveyView } from './SurveyView';
 
-/* the longest a rep waits for the AI read of a file (the server finishes it anyway) */
-const READ_WAIT = 25000;
+/* the longest the file shows "Checking the file…" (the server finishes and keeps the read anyway) */
+const READ_WAIT = 120000;
 
 /* One response — "S2 › D1" (the page's top bar, SurveyHome's): the survey's questions for one distributor,
  * doctor, or the person themself. Secondary Entry's EntryForm, with
@@ -64,17 +64,20 @@ export function SubjectForm({ survey, row, rows, me, draft, api, onBack, onDraft
      is stored (api.readFile; our server keeps what it read for Survey Center).
      The upload stays "in progress" while it is read, at most READ_WAIT; the rep
      only learns whether it could be read (res.read.readable). */
+  /* 26 Nov 2026: the file is ready as soon as it is stored — the AI read goes on by itself (`reading`, a promise
+     of the read; the server keeps it on the response even after Submit). A PDF can take ~1 minute to read; the rep
+     no longer waits on it. */
   const upload = (file, onProgress, q) => {
     setUploading((n) => n + 1);
     return api
       .uploadFile(file, onProgress)
-      .then(async (res) => {
+      .then((res) => {
         if (!q?.ai?.schema || typeof api.readFile !== 'function') return res;
-        const read = await Promise.race([
+        const reading = Promise.race([
           api.readFile({ response: row.response, question: q.id, file_url: res.file_url, file }),
           new Promise((r) => setTimeout(() => r(null), READ_WAIT)),
         ]).catch(() => null);
-        return { ...res, read };
+        return { ...res, reading };
       })
       .finally(() => setUploading((n) => n - 1));
   };
