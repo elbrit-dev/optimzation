@@ -30,6 +30,8 @@ elif MARK in cur:
 else:
     new = cur.replace(chr(13), "")
     for p in PATCHES:
+        if new.count(p[0]) == 0 and new.count(p[1]) == 1:
+            continue          # this one is in already (e.g. the book-by-kind console ran first)
         n = new.count(p[0])
         if n != 1:
             bad.append("a patch spot was found " + str(n) + " times (needs 1): " + p[0].strip().split(chr(10))[0][:90])
