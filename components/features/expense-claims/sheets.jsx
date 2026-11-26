@@ -156,8 +156,12 @@ export function BillSheet({ conn, me, claims = [], advances = [], cashAdvances =
     if (settings?.billsTo && date === todayIso && todayIso > hiIso) setDate(hiIso);
   }, [settings]); // eslint-disable-line react-hooks/exhaustive-deps
   const ownKinds = settings?.ownKinds || [];
+  const allKinds = settings?.allKinds?.length ? settings.allKinds : [...(settings?.taDaKinds || []).map((k) => k.kind), ...ownKinds];
   // 24 Nov 2026 (the user): "Own expense" is picked to start with
   const [forWho, setForWho] = useState("me");
+  /* a doctor bill has a kind too (26 Nov 2026, the user): it is booked by what
+     the bill is -- a cake to Food, a pen to Stationery -- so any kind */
+  const kindList = forWho === "doctor" ? allKinds : ownKinds;
   const [kind, setKind] = useState("");
   // the kind is picked off the bill until the rep picks one themselves
   const kindPicked = useRef(false);
@@ -213,13 +217,17 @@ export function BillSheet({ conn, me, claims = [], advances = [], cashAdvances =
   const taDaMsg = taDa ? taDaText(taDa) : "";
   // a good own bill: its kind from the bill -- else Other -- once it is read
   useEffect(() => {
-    if (!read || read.busy || read.wrong || !settings || kindPicked.current) return;
-    // a TA/DA bill has no own kind: left empty (it cannot be sent anyway)
-    if (taDaKindOf([read.readerKind, read.readTitle], settings.taDaKinds)) { setKind(""); setKindAuto(false); return; }
-    const k =ownKindOf([read.readTitle, read.clefTitle, read.what, read.vendor], settings.ownKindWords, ownKinds) || (ownKinds.includes("Other") ? "Other" : "");
+    if (!read || read.busy || read.wrong || !settings) return;
+    // picked by hand: kept, unless the other tab does not offer it
+    if (kindPicked.current) { if (kind && !kindList.includes(kind)) { setKind(""); kindPicked.current = false; } else return; }
+    // a TA/DA bill: no own kind (it cannot be sent anyway); for a doctor, its TA/DA kind
+    const td = taDaKindOf([read.readerKind, read.readTitle], settings.taDaKinds);
+    if (td && !kindList.includes(td)) { setKind(""); setKindAuto(false); return; }
+    if (td) { setKind(td); setKindAuto(true); return; }
+    const k = ownKindOf([read.readTitle, read.clefTitle, read.what, read.vendor], settings.ownKindWords, kindList) || (kindList.includes("Other") ? "Other" : "");
     setKind(k);
     setKindAuto(!!k);
-  }, [read, settings]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [read, settings, forWho]); // eslint-disable-line react-hooks/exhaustive-deps
   const pickDoctor = (d) => { setDoctor(d); setSvc(""); setDq(""); };
 
   /* HELP (24 Nov 2026, the user: "like the help in the planner"): once the
@@ -233,7 +241,8 @@ export function BillSheet({ conn, me, claims = [], advances = [], cashAdvances =
     `What was it for: ${title.trim() || "-"}`,
     `Amount: ${amt ? inr(amt) : "-"}`,
     `Bill date: ${date || "-"}`,
-    forWho === "doctor" ? `Doctor: ${doctor ? `${doctor.name} (${doctor.id})` : "-"}` : `Kind: ${kind || "-"}`,
+    ...(forWho === "doctor" ? [`Doctor: ${doctor ? `${doctor.name} (${doctor.id})` : "-"}`] : []),
+    `Kind: ${kind || "-"}`,
     over && needSvc ? `Doctor service: ${picked ? `${picked.service} (${picked.name})` : "-"}` : "",
     over && !needSvc ? `Service done on: ${svcDay || "-"}` : "",
     `Read off the bill: ${[read?.readTitle, read?.vendor].filter(Boolean).join(" · ") || "-"}${read?.handwritten ? " · handwritten" : ""}`,
@@ -295,8 +304,8 @@ export function BillSheet({ conn, me, claims = [], advances = [], cashAdvances =
     : read?.handwritten && why.trim().length < 5 ? "Say why you have only a handwritten bill"
     : read?.handwritten && !cash && !proof ? "Add the payment proof — or tick “Paid in cash”"
     : forWho === "me" && taDa ? taDaMsg
-    : forWho === "me" && !kind ? "Pick what kind of expense it was"
     : forWho === "doctor" && !doctor ? "Pick the doctor"
+    : !kind ? "Pick what kind of expense it was"
     : over && !needSvc && !svcDay ? "Pick the day the service was done"
     : over && !needSvc && (svcDay > todayIso || svcDay < minIso) ? "The service day must be within the last year, not in the future"
     : !over || !needSvc ? ""
@@ -326,7 +335,7 @@ export function BillSheet({ conn, me, claims = [], advances = [], cashAdvances =
       const handNote = read?.handwritten ? `${why.trim()}${cash ? " · paid in cash" : ""}` : "";
       name = (await addSettlementBill(conn, {
         date, title: title.trim(), amount: amt, bill: up.file_url, proof: proofUrl, handNote,
-        kind: forWho === "me" ? kind : "", doctor: forWho === "doctor" ? doctor?.id : "", doctorService: over && needSvc ? picked?.name : "", serviceDate: over && !needSvc ? svcDay : "",
+        kind, doctor: forWho === "doctor" ? doctor?.id : "", doctorService: over && needSvc ? picked?.name : "", serviceDate: over && !needSvc ? svcDay : "",
       })).name;
     } catch (e) {
       setBusy("");
@@ -485,14 +494,14 @@ export function BillSheet({ conn, me, claims = [], advances = [], cashAdvances =
             })()}</span>
 
 
-            {forWho === "me" && (
+            {forWho && (
               <>
                 <label style={{ display: "flex", flexDirection: "column", gap: 6 }}>
                   <span style={lbl}>What kind</span>
                   <select className="ecs-in" value={kind} onChange={(e) => { kindPicked.current = true; setKindAuto(false); setKind(e.target.value); }} disabled={!settings}
                     style={{ appearance: "auto", borderColor: tried && !kind ? "#f04438" : undefined, color: kind ? "#0b1220" : "#8a93a3" }}>
                     <option value="">{settings ? "Choose the kind of expense" : "Loading…"}</option>
-                    {ownKinds.map((k) => <option key={k} value={k}>{k}</option>)}
+                    {kindList.map((k) => <option key={k} value={k}>{k}</option>)}
                   </select>
                 </label>
                 {kindAuto && kind && !taDaMsg && <span style={{ ...hint, marginTop: -8 }}>Picked from the bill — change it if it is wrong.</span>}

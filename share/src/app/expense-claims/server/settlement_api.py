@@ -476,18 +476,20 @@ def ta_da_kind(reader_kind, title, cfg):
 
 
 def book_account(se, cfg):
-    # the account a bill is booked to: by its settlement type (the doctor ones
-    # from the settings), an own bill by its kind
-    t = se.get("settlement_type") or "Own"
-    if t == "Doctor activity" or t == "Doctor service":
-        acct = cfg["activity_account"] if t == "Doctor activity" else cfg["service_account"]
-        if not acct:
-            frappe.throw("No account is set for " + t.lower() + " bills -- Accounts must set it in Settlement Settings first.")
-        return acct
+    # 26 Nov 2026 (the user): EVERY bill -- own or for a doctor -- is booked by
+    # what the bill is (a cake to Food, a pen to Stationery): its kind, else the
+    # bill's words / what the reader saw. A doctor account in the settings is
+    # only the fallback for a doctor bill nothing else matches; never a stop.
     k = kind_row(se.get("expense_kind"), cfg)
     if k and k["account"]:
         return k["account"]
-    return account_for(se.get("title"), cfg, read_kind(se.get("bill_meta")))
+    acct = account_for(se.get("title"), cfg, read_kind(se.get("bill_meta")))
+    t = se.get("settlement_type") or "Own"
+    if acct == cfg["other"] and (t == "Doctor activity" or t == "Doctor service"):
+        dacct = cfg["activity_account"] if t == "Doctor activity" else cfg["service_account"]
+        if dacct:
+            return dacct
+    return acct
 
 
 def service_state(ds, but=None):
