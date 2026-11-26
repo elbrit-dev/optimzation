@@ -28,18 +28,23 @@ const READ_WAIT = 120000;
  * now, so the page's "Leave this form?" can save them for later. */
 /* 26 Nov 2026 · Survey Studio: a section's title over its questions, with how many are answered */
 function SectionHead({ title, done, total }) {
+  /* the artifact's section card: its title, how many are answered, a thin bar */
   return (
-    <div className="flex flex-col gap-1.5 pt-1">
-      <div className="flex items-baseline justify-between gap-3">
-        <h3 className="min-w-0 truncate text-14 font-semibold text-heading">{title}</h3>
+    <Card variant="hairline" className="flex flex-col gap-2.5 rounded-xl px-4 pb-3 pt-4">
+      <div className="flex items-center justify-between gap-3">
+        <h3 className="min-w-0 truncate text-15 font-semibold text-heading">{title}</h3>
         {total ? (
-          <span className="shrink-0 text-11 tabular-nums text-ds-muted">
-            <span className="font-semibold text-heading">{done}</span>/{total} answered
+          <span className="shrink-0 text-13 font-medium tabular-nums text-ds-muted">
+            <span className="text-heading">{done}</span>/{total} answered
           </span>
         ) : null}
       </div>
-      {total ? <ProgressBar value={done} max={total} size="sm" tone={done === total ? 'success' : 'brand'} label={`${title}: ${done} of ${total} answered`} /> : null}
-    </div>
+      {total ? (
+        <div className="h-1 w-full overflow-hidden rounded-full bg-sunken" role="progressbar" aria-valuemin={0} aria-valuemax={total} aria-valuenow={done} aria-label={`${title}: ${done} of ${total} answered`}>
+          <span className="block h-full rounded-full bg-success" style={{ width: `${Math.round((done / total) * 100)}%` }} />
+        </div>
+      ) : null}
+    </Card>
   );
 }
 
@@ -83,7 +88,7 @@ export function SubjectForm({ survey, row, rows, me, draft, api, onBack, onDraft
     let cur = null;
     questions.forEach((q) => {
       const t = String(q.section ?? '').trim();
-      if (t) {
+      if (t && (!cur || cur.title !== t)) {
         cur = { title: t, ids: [] };
         out[q.id] = cur;
       }
@@ -180,9 +185,11 @@ export function SubjectForm({ survey, row, rows, me, draft, api, onBack, onDraft
   return (
     <div ref={rootRef} className="flex flex-col gap-3">
       {/* 26 Nov 2026: the doctors / records strip and the progress are the survey's (SurveyScreen), above this form. */}
-      <SubjectCard subject={row.subject} me={me} state={row.state === 'todo' ? (draft ? 'draft' : 'new') : row.state} />
+      <SubjectCard subject={row.subject} me={me} state={row.state === 'todo' ? (draft ? 'draft' : 'new') : row.state} fields={(survey.studio?.card ?? []).map((f) => ({ k: f.k, l: f.l, v: row.values?.[f.k] ?? '' }))} added={Boolean(row.added)} />
       <SurveyView survey={survey} row={row} />
 
+      {/* the whole-form count — only when the questions have no sections (each section has its own) */}
+      {Object.keys(sections).length ? null : (
       <Card className="flex flex-col gap-2">
         <div className="flex items-baseline justify-between gap-3">
           <span className="min-w-0 truncate text-12 font-semibold text-heading">{survey.title}</span>
@@ -193,6 +200,7 @@ export function SubjectForm({ survey, row, rows, me, draft, api, onBack, onDraft
         </div>
         <ProgressBar value={answered} max={answerable.length || 1} size="sm" tone={requiredLeft ? 'brand' : 'success'} label={`${answered} of ${answerable.length} answered`} />
       </Card>
+      )}
 
       {editable && row.returned ? (
         <p role="alert" className="flex items-start gap-2 rounded-lg bg-warning-wash px-3 py-2.5 text-12 text-warning-text">

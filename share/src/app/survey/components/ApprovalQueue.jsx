@@ -318,7 +318,7 @@ export function ApprovalQueue({ api, approvals }) {
           <span className="text-13 text-ds-muted">Answers from your team that need approval show up here.</span>
         </div>
       )}
-      <p className="text-center text-12 text-ds-muted">Approve within {days} days. Returned answers go back to the rep with your reason.</p>
+      <p className="text-center text-12 text-ds-muted">Approve within {days} days. Returned answers go back to the employee with your reason.</p>
     </div>
   );
 }

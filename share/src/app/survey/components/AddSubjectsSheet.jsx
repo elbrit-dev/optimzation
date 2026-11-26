@@ -14,7 +14,8 @@ import { targetOf } from '../data/shape';
  * show as such and cannot be picked again. Done hands back the chosen
  * names; the screen starts each (survey_start_subject). */
 
-export function AddSubjectsSheet({ open, onClose, survey, api, busy = false, error = null, onDone }) {
+export function AddSubjectsSheet({ open, onClose, survey, near = false, api, busy = false, error = null, onDone }) {
+  const studio = Boolean(survey?.studio);
   const t = targetOf(survey?.target, survey?.about);
   const [query, setQuery] = useState('');
   const [rows, setRows] = useState(null);
@@ -35,13 +36,17 @@ export function AddSubjectsSheet({ open, onClose, survey, api, busy = false, err
     const id = ++seq.current;
     setLoadError(null);
     const timer = setTimeout(() => {
-      api
-        .getMySubjects(survey.campaign, query.trim())
+      /* Survey Studio: "near me" asks the phone where it is (5 km around); otherwise a search of the whole ERP */
+      const where = near && !query.trim()
+        ? new Promise((ok, no) => (typeof navigator !== 'undefined' && navigator.geolocation ? navigator.geolocation.getCurrentPosition((p) => ok({ lat: p.coords.latitude, lng: p.coords.longitude }), () => no(new Error('Turn on location to see who is near you.')), { timeout: 15000, maximumAge: 60000 }) : no(new Error('This phone cannot share its location.'))))
+        : Promise.resolve({});
+      where
+        .then((pos) => api.getMySubjects(survey.campaign, query.trim(), pos))
         .then((res) => id === seq.current && setRows(res.rows))
         .catch((e) => id === seq.current && setLoadError(e?.message || 'Could not load the list.'));
     }, query ? 250 : 0);
     return () => clearTimeout(timer);
-  }, [open, survey, api, query]);
+  }, [open, survey, api, query, near]);
 
   const toggle = (name) =>
     setChosen((prev) => {
@@ -56,14 +61,14 @@ export function AddSubjectsSheet({ open, onClose, survey, api, busy = false, err
       <Sheet.Popup surface="app">
         <Sheet.Header>
           <Sheet.Title>{`Add ${t.one}`}</Sheet.Title>
-          <Sheet.Description>{`The ${t.many} you cover. Pick the ones you collected from.`}</Sheet.Description>
+          <Sheet.Description>{studio ? (near ? `${t.Many} near you, nearest first (5 km).` : `Search the ERP by name, code or city. Only ${t.many} already in the ERP can be added.`) : `The ${t.many} you cover. Pick the ones you collected from.`}</Sheet.Description>
           <Sheet.Close disabled={busy} />
         </Sheet.Header>
         <Sheet.Toolbar>
           <Field
             size="lg"
             type="search"
-            placeholder={`Search ${t.one} name or code…`}
+            placeholder={studio ? `Search by name, code or city…` : `Search ${t.one} name or code…`}
             value={query}
             onChange={setQuery}
             aria-label={`Search ${t.many}`}
@@ -107,7 +112,7 @@ export function AddSubjectsSheet({ open, onClose, survey, api, busy = false, err
                       </span>
                       <span className="flex min-w-0 flex-1 flex-col">
                         <span className={cx('truncate text-13 font-semibold', added ? 'text-ds-secondary' : 'text-heading')}>{r.label}</span>
-                        <span className="truncate text-11 text-ds-muted">{[r.code, r.hq?.replace(/^HQ[-\s]*/i, '')].filter(Boolean).join(' · ')}</span>
+                        <span className="truncate text-11 text-ds-muted">{[r.code, r.extra, r.city || r.hq?.replace(/^HQ[-\s]*/i, ''), r.km != null ? `${r.km} km` : ''].filter(Boolean).join(' · ')}</span>
                       </span>
                       {added ? (
                         <span className="shrink-0 text-10 font-semibold text-ds-muted">{r.state === 'done' ? 'Submitted' : 'Added'}</span>
@@ -118,7 +123,7 @@ export function AddSubjectsSheet({ open, onClose, survey, api, busy = false, err
               })}
             </ul>
           ) : (
-            <p className="py-10 text-center text-12 text-ds-muted">{query ? `No ${t.one} matches “${query}”.` : `No ${t.many} are linked to your territory.`}</p>
+            <p className="py-10 text-center text-12 text-ds-muted">{query ? `No ${t.one} matches “${query}”.` : near ? `No ${t.many} within 5 km of you.` : studio ? `Type a name, code or city to search the ERP.` : `No ${t.many} are linked to your territory.`}</p>
           )}
         </Sheet.Body>
         <Sheet.Footer>

@@ -318,6 +318,8 @@ export function surveysFromMyList(list) {
         announcement: src.announcement ?? null,
         about: src.about ?? null,
         summary: src.summary ?? '',
+        /* 27 Nov 2026 · Survey Studio: how this employee gets records, the limits, the card's fields */
+        studio: src.studio ?? null,
         rows: [],
         selfTagOpen: false,
       });
@@ -329,6 +331,7 @@ export function surveysFromMyList(list) {
     g.rows.push(r);
     if (!g.summary && r.summary) g.summary = r.summary;
     if (!g.about && r.about) g.about = r.about;
+    if (!g.studio && r.studio) g.studio = r.studio;
   }
   for (const s of list?.selftag ?? []) {
     const g = get({ ...s, tagging: 'Self-tag' });

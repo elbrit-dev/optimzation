@@ -98,8 +98,9 @@ export function createErpApi({ endpointUrl, gqlEnvironment = 'ERP', gqlToken, al
 
     getMyList: () => call('GET', 'survey_my_list'),
 
-    getMySubjects: (campaign, q = '', { start = 0, limit = 200 } = {}) =>
-      call('GET', 'survey_my_subjects', { query: { campaign, q: q.trim(), start, limit } }),
+    /* 27 Nov 2026 · Survey Studio: lat / lng = "near me" (5 km), q = search the whole ERP */
+    getMySubjects: (campaign, q = '', { start = 0, limit = 200, lat, lng } = {}) =>
+      call('GET', 'survey_my_subjects', { query: { campaign, q: q.trim(), start, limit, ...(lat != null && lng != null ? { lat, lng } : {}) } }),
 
     async startSubject(campaign, subject) {
       needWrites();

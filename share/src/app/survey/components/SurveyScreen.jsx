@@ -1,7 +1,7 @@
 'use client';
 
 import { useMemo, useState } from 'react';
-import { Button, Card, Icon, cx, toneFill } from '@/design-system';
+import { Button, Card, Icon, StatusPill, cx, toneFill } from '@/design-system';
 import { daysLeft, dueText, rowState, shortDate, targetOf } from '../data/shape';
 import { AddSubjectsSheet } from './AddSubjectsSheet';
 import { AnnouncementScreen } from './AnnouncementScreen';
@@ -38,6 +38,7 @@ export function SurveyScreen({ survey, today, drafts, api, onOpenRow, onChanged,
   const t = targetOf(survey.target, survey.about);
   const [adding, setAdding] = useState(false);
   const [busy, setBusy] = useState(false);
+  const [near, setNear] = useState(false);
   const [error, setError] = useState(null);
   const [notice, setNotice] = useState(null);
 
@@ -47,7 +48,12 @@ export function SurveyScreen({ survey, today, drafts, api, onOpenRow, onChanged,
   const multi = rows.length >= 2;
   const days = daysLeft(today, survey.due_date);
   const late = survey.state === 'todo' && days != null && days <= 0;
-  const canAdd = survey.selfTag && survey.open;
+  /* Survey Studio: Self-tag (they add their own) and Both (the mapping, and they can add more) */
+  const studio = survey.studio || null;
+  const canAdd = (survey.selfTag && survey.open) || (studio?.mode === 'both' && survey.state !== 'missed');
+  const minN = studio?.selfMin || 0;
+  const maxN = studio?.selfMax || 0;
+  const selfEmpty = canAdd && !rows.length;
 
   const add = async (names) => {
     setBusy(true);
@@ -76,7 +82,7 @@ export function SurveyScreen({ survey, today, drafts, api, onOpenRow, onChanged,
   const left = rows.length - done;
   const pct = rows.length ? Math.round((done / rows.length) * 100) : 0;
   const nextRow = rowsOfTab(rows, 'todo').find((r) => r.response !== openResponse) ?? null;
-  const chip = 'inline-flex h-8 shrink-0 items-center gap-1.5 rounded-full border px-3 text-11 font-semibold transition-colors';
+  const chip = 'inline-flex h-10 shrink-0 items-center gap-1.5 rounded-full border px-3.5 text-13 font-medium transition-colors';
   const leading = multi && history ? (
     <button type="button" onClick={() => onTab?.('todo')} className={cx(chip, TAB_TONE.todo[0])}>
       <Icon name="arrow-left" size="var(--fs-10)" />
@@ -105,56 +111,60 @@ export function SurveyScreen({ survey, today, drafts, api, onOpenRow, onChanged,
 
   return (
     <div className="flex flex-col gap-3">
-      <Card className="flex flex-col gap-3">
-        <p className="flex flex-wrap items-center gap-x-2 gap-y-0.5 text-11 text-ds-muted">
-          <span>from {survey.from || 'Head office'}</span>
-          <span aria-hidden="true">·</span>
-          <span className={cx(late && 'font-semibold text-danger-text')}>
-            {survey.state === 'missed' ? `Closed ${shortDate(survey.due_date)}` : dueText(today, survey.due_date)}
-          </span>
-        </p>
-        {survey.description ? <p className="text-12 text-ds-secondary">{survey.description}</p> : null}
-        {multi ? (
-          <div className="flex flex-col gap-1.5 border-t border-line-subtle pt-3">
-            <div className="flex items-center justify-between gap-3">
-              <span className="tabular-nums text-12 text-ds-secondary">
-                <span className="text-16 font-semibold text-heading">{done}</span> of {rows.length} {t.many} done
-              </span>
-              {done ? (
-                <button
-                  type="button"
-                  aria-pressed={history}
-                  aria-label={`History, ${done} done`}
-                  onClick={() => onTab?.(history ? 'todo' : 'done')}
-                  className={cx(chip, history ? TAB_TONE.done[1] : TAB_TONE.done[0])}
-                >
-                  <Icon name="history" size="var(--fs-12)" />
-                  History · {done}
-                </button>
-              ) : null}
-            </div>
-            {/* one sorted bar: submitted, in progress, missed, to do */}
-            <StateBar rows={rows} />
-            <div className="flex items-center justify-between gap-3 text-11 text-ds-muted">
-              <span className="min-w-0 truncate">
-                {left} to do{left && nextRow?.subject?.label ? ` · next: ${nextRow.subject.label}` : ''}
-              </span>
-              <span className="shrink-0 tabular-nums">{pct}%</span>
-            </div>
+      {/* 27 Nov 2026 · Survey Studio: the campaign's name and due date on top, then the progress (the artifact's phone) */}
+      <div className="flex flex-col gap-1 pt-1">
+        <div className="flex items-start justify-between gap-2">
+          <p className="min-w-0 text-20 font-semibold leading-[26px] tracking-[-0.01em] text-heading">{survey.title}</p>
+          <StatusPill status={survey.state === 'missed' ? 'neutral' : late ? 'danger' : 'warning'} className="shrink-0">
+            {survey.state === 'missed' ? `Closed ${shortDate(survey.due_date)}` : survey.due_date ? `Due ${shortDate(survey.due_date)}` : 'Open'}
+          </StatusPill>
+        </div>
+        {survey.description ? <p className="text-14 leading-5 text-ds-secondary">{survey.description}</p> : null}
+      </div>
+      {selfEmpty ? (
+        <div className="flex flex-col gap-2">
+          <div className="flex items-center justify-between gap-2 text-13 font-medium text-ds-secondary">
+            <span className="tabular-nums">
+              <span className="text-16 font-semibold text-heading">0</span> of {minN || 1} {t.many} added
+            </span>
+            {minN ? <StatusPill status="warning" className="shrink-0">At least {minN}</StatusPill> : null}
           </div>
-        ) : rows.length ? (
-          <div className="flex flex-col gap-1.5 border-t border-line-subtle pt-3">
-            <div className="flex items-center justify-between gap-3">
-              <span className="text-12 text-ds-secondary">Progress</span>
-              <span className="tabular-nums text-12">
-                <span className="text-16 font-semibold text-heading">{done}</span>
-                <span className="text-ds-muted"> of {rows.length} submitted</span>
-              </span>
-            </div>
-            <StateBar rows={rows} />
+          <div className="h-1.5 w-full overflow-hidden rounded-full bg-sunken" role="progressbar" aria-valuemin={0} aria-valuemax={100} aria-valuenow={0} />
+          <div className="flex justify-between gap-3 text-12 text-ds-muted">
+            <span>Add who you will report on{studio?.approval ? ' · your manager approves each one' : ''}</span>
+            <span className="tabular-nums">0%</span>
           </div>
-        ) : null}
-      </Card>
+        </div>
+      ) : rows.length ? (
+        <div className="flex flex-col gap-2">
+          <div className="flex items-center justify-between gap-2 text-13 font-medium text-ds-secondary">
+            <span className="tabular-nums">
+              <span className="text-16 font-semibold text-heading">{done}</span> of {rows.length} {rows.length === 1 ? t.one : t.many} done
+            </span>
+            {multi ? (
+              <button
+                type="button"
+                aria-pressed={history}
+                aria-label={`History, ${done} done`}
+                onClick={() => onTab?.(history ? 'todo' : 'done')}
+                className={cx('inline-flex h-7 shrink-0 items-center gap-1 rounded-full px-2.5 text-13 font-medium transition-colors', history ? 'bg-success text-on-brand' : 'bg-success-wash text-success')}
+              >
+                <Icon name="check" size="var(--fs-14)" />
+                History · {done}
+              </button>
+            ) : null}
+          </div>
+          <div className="flex h-1.5 w-full overflow-hidden rounded-full bg-sunken" role="progressbar" aria-valuemin={0} aria-valuemax={rows.length} aria-valuenow={done} aria-label={`${done} of ${rows.length} done`}>
+            <span className="h-full rounded-full bg-success" style={{ width: `${pct}%`, minWidth: done ? 6 : 0 }} />
+          </div>
+          <div className="flex items-center justify-between gap-3 text-12 text-ds-muted">
+            <span className="min-w-0 truncate">
+              {left} to do{left && nextRow?.subject?.label ? ` · next: ${nextRow.subject.label}` : ''}
+            </span>
+            <span className="shrink-0 tabular-nums">{pct}%</span>
+          </div>
+        </div>
+      ) : null}
 
       {shownNotice ? (
         <p role="status" className="flex items-center gap-2 rounded-lg bg-success-wash px-3 py-2 text-12 font-medium text-success">
@@ -189,18 +199,33 @@ export function SurveyScreen({ survey, today, drafts, api, onOpenRow, onChanged,
             {tab === 'done' ? 'Nothing submitted yet.' : tab === 'todo' ? `Nothing left to do — every one is submitted${canAdd ? `. Add more ${t.many} if you met others.` : '. Thank you.'}` : 'Nothing here.'}
           </p>
         ) : canAdd ? (
-          <Card variant="hairline" className="flex flex-col items-center gap-3 py-8 text-center">
-            <span className="flex size-12 items-center justify-center rounded-full bg-brand-tint-weak text-brand-text" aria-hidden="true">
-              <Icon name="user-plus" size="md" />
-            </span>
-            <div className="flex flex-col gap-1">
-              <p className="text-13 font-semibold text-heading">{`No ${t.many} added yet`}</p>
-              <p className="text-12 text-ds-muted">{`Add the ${t.many} you collected from, then fill the survey for each.`}</p>
-            </div>
-            <Button type="primary" size="app" icon={<Icon name="plus" size="sm" />} onClick={() => setAdding(true)}>
-              Add {t.one}
-            </Button>
-          </Card>
+          /* Survey Studio, self-tag: the row starts empty — add from the ERP */
+          <div className="flex flex-col gap-3">
+            <Card variant="hairline" className="flex flex-col gap-2.5 rounded-xl p-4">
+              <p className="text-16 font-semibold leading-[22px] text-heading">{`Add your first ${t.one}`}</p>
+              <p className="text-14 text-ds-secondary">{`Each one you add becomes a tab up here.${minN ? ` You need at least ${minN}${maxN ? `, at most ${maxN}` : ''}.` : ''}`}</p>
+              <button type="button" onClick={() => { setNear(false); setAdding(true); }} className="flex w-full items-start gap-3 rounded-[10px] border border-line px-3.5 py-3 text-left hover:bg-sunken">
+                <Icon name="database" size="md" className="mt-0.5 text-heading" />
+                <span className="flex flex-col">
+                  <span className="text-15 font-semibold text-heading">Search the ERP</span>
+                  <span className="text-14 text-ds-muted">{`By name, code or city. Only ${t.many} already in the ERP can be added.`}</span>
+                </span>
+              </button>
+              {survey.target === 'Doctor' ? (
+                <button type="button" onClick={() => { setNear(true); setAdding(true); }} className="flex w-full items-start gap-3 rounded-[10px] border border-line px-3.5 py-3 text-left hover:bg-sunken">
+                  <Icon name="map-marker" size="md" className="mt-0.5 text-heading" />
+                  <span className="flex flex-col">
+                    <span className="text-15 font-semibold text-heading">{`${t.Many} near me`}</span>
+                    <span className="text-14 text-ds-muted">From your saved location, 5 km around.</span>
+                  </span>
+                </button>
+              ) : null}
+            </Card>
+            <button type="button" onClick={() => { setNear(false); setAdding(true); }} className="flex h-12 w-full items-center justify-center gap-2 rounded-xl border border-dashed border-line-strong bg-surface text-15 font-medium text-brand-text">
+              <Icon name="plus" size="sm" />
+              {`Add a ${t.one}`}
+            </button>
+          </div>
         ) : (
           <p className="py-8 text-center text-12 text-ds-muted">Nothing to answer here.</p>
         ))}
@@ -212,6 +237,7 @@ export function SurveyScreen({ survey, today, drafts, api, onOpenRow, onChanged,
           setError(null);
         }}
         survey={survey}
+        near={near}
         api={api}
         busy={busy}
         error={error}

@@ -24,6 +24,8 @@ const OFF = 'border-line bg-surface text-body hover:border-line-strong';
 const FIELD =
   'rounded-lg bg-surface px-3 py-2 text-13 text-body shadow-field placeholder:text-placeholder focus:outline-none disabled:bg-sunken';
 
+/* 27 Nov 2026 · Survey Studio's own names for the answer types (the artifact's "Q1 · Location") */
+const STUDIO_LABEL = { location: 'Location', text: 'Short', number: 'Number', single: 'Single', multi: 'Multiple', yesno: 'Yes', rating: 'Rating', photo: 'Photo', date: 'Date', file: 'File' };
 const TYPE_LABEL = {
   short_text: 'Short answer',
   paragraph: 'Paragraph',
@@ -552,18 +554,60 @@ function sizeText(bytes) {
    Submit (if it is wrong, they replace the file). */
 const readWord = (k) => String(k).replace(/_/g, ' ').replace(/^./, (c) => c.toUpperCase());
 const readText = (v) => (v == null || v === '' ? '—' : Array.isArray(v) ? `${v.length} row${v.length === 1 ? '' : 's'}` : typeof v === 'object' ? Object.values(v).filter((x) => x != null && x !== '').join(' · ') : v === true ? 'Yes' : v === false ? 'No' : String(v));
-function ReadValues({ fields }) {
+/* 27 Nov 2026 · Survey Studio "Also read every line of a table": the lines the AI read (medicines, products), read only */
+function ReadLines({ fields }) {
+  const lists = Object.entries(fields).filter(([, v]) => Array.isArray(v) && v.length && v.every((x) => x && typeof x === 'object'));
+  if (!lists.length) return null;
+  return lists.map(([k, rows]) => {
+    const cols = [...new Set(rows.flatMap((x) => Object.keys(x)))].slice(0, 8);
+    return (
+      <div key={k} className="flex flex-col gap-1">
+        <span className="text-10 font-semibold uppercase tracking-wide text-ds-muted">{rows.length} {rows.length === 1 ? 'line' : 'lines'} read</span>
+        <div className="overflow-x-auto rounded-md border border-line bg-surface">
+          <table className="w-full text-11">
+            <thead>
+              <tr>{cols.map((c) => <th key={c} className="whitespace-nowrap px-2 py-1 text-left font-medium text-ds-muted">{readWord(c)}</th>)}</tr>
+            </thead>
+            <tbody>
+              {rows.slice(0, 50).map((x, i) => (
+                <tr key={i} className="border-t border-line">{cols.map((c) => <td key={c} className="px-2 py-1 text-heading">{x[c] == null ? '' : String(x[c])}</td>)}</tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      </div>
+    );
+  });
+}
+
+function ReadValues({ fields, onEdit }) {
+  /* 27 Nov 2026 · Survey Studio: "You can correct the values before you submit" */
+  if (onEdit) {
+    return (
+      <div className="flex flex-col gap-1.5 rounded-md bg-sunken px-2.5 py-2">
+        <span className="text-10 font-semibold uppercase tracking-wide text-ds-muted">We read · check and correct</span>
+        {Object.entries(fields).slice(0, 20).filter(([k, v]) => !/^check_/.test(k) && !Array.isArray(v)).map(([k, v]) => (
+          <label key={k} className="flex items-center gap-2 text-12">
+            <span className="w-28 shrink-0 text-ds-muted">{readWord(k)}</span>
+            <input type="text" value={v == null ? '' : typeof v === 'boolean' ? (v ? 'Yes' : 'No') : typeof v === 'object' ? JSON.stringify(v) : String(v)} onChange={(e) => onEdit(k, e.target.value)} className="h-8 min-w-0 flex-1 rounded-md border border-line-strong bg-surface px-2 text-12 text-heading" />
+          </label>
+        ))}
+        <ReadLines fields={fields} />
+      </div>
+    );
+  }
   return (
     <div className="flex flex-col gap-1 rounded-md bg-sunken px-2.5 py-2">
       <span className="text-10 font-semibold uppercase tracking-wide text-ds-muted">We read</span>
       <dl className="grid grid-cols-[auto_1fr] gap-x-3 gap-y-0.5 text-11">
-        {Object.entries(fields).slice(0, 12).map(([k, v]) => (
+        {Object.entries(fields).slice(0, 12).filter(([, v]) => !Array.isArray(v)).map(([k, v]) => (
           <div key={k} className="contents">
             <dt className="text-ds-muted">{readWord(k)}</dt>
             <dd className="min-w-0 break-words font-semibold text-heading">{readText(v)}</dd>
           </div>
         ))}
       </dl>
+      <ReadLines fields={fields} />
       <span className="text-10 text-ds-muted">Something wrong? Replace the file with a clearer one.</span>
     </div>
   );
@@ -635,7 +679,7 @@ function FileUpload({ q, value, onChange, disabled, onUpload }) {
             <Icon name={q.camera ? 'camera' : 'upload'} size="sm" />
           </span>
           <span className="flex min-w-0 flex-col">
-            <span className="text-12 font-semibold text-heading">{q.camera ? (files.length ? 'Take another photo' : 'Take a photo') : files.length ? 'Add another file' : 'Choose a file'}</span>
+            <span className="text-15 font-semibold text-heading">{q.camera ? (files.length ? 'Take another photo' : 'Take a photo') : files.length ? 'Add another file' : 'Attach a file'}</span>
             <span className="text-11 text-ds-muted">
               {rules.label} · up to {rules.maxMb} MB{rules.maxFiles > 1 ? ` · up to ${rules.maxFiles} files` : ''}
             </span>
@@ -721,7 +765,12 @@ function FileUpload({ q, value, onChange, disabled, onUpload }) {
               Checked — it looks right.
             </p>
           ) : null}
-          {f.ai?.fields && Object.keys(f.ai.fields).length ? <ReadValues fields={f.ai.fields} /> : null}
+          {f.ai?.fields && Object.keys(f.ai.fields).length ? (
+            <ReadValues
+              fields={f.ai.fields}
+              onEdit={disabled ? null : (k, v) => onChange(valueRef.current.map((x) => (x.url === f.url ? { ...x, ai: { ...x.ai, fields: { ...x.ai.fields, [k]: v }, corrected: 1 } } : x)))}
+            />
+          ) : null}
           {unread[f.url] ? (
             <p role="status" className="flex items-start gap-1.5 text-11 font-medium text-warning-text">
               <Icon name="exclamation-triangle" size="sm" className="mt-px shrink-0" />
@@ -753,6 +802,7 @@ function Input({ q, value, onChange, disabled, onUpload, api, response, answers,
     case 'days':
       return <Choices q={{ ...q, options: q.options?.length ? q.options : WEEK }} value={value} onChange={onChange} disabled={disabled} multi />;
     case 'multiple_choice':
+      if (q.studio_type === 'yesno') return <YesNo q={q} value={value} onChange={onChange} disabled={disabled} />;
       return <Choices q={q} value={value} onChange={onChange} disabled={disabled} />;
     case 'checkboxes':
       return <Choices q={q} value={value} onChange={onChange} disabled={disabled} multi />;
@@ -761,6 +811,7 @@ function Input({ q, value, onChange, disabled, onUpload, api, response, answers,
     case 'linear_scale':
       return <Scale q={q} value={value} onChange={onChange} disabled={disabled} />;
     case 'rating':
+      if (q.studio_type === 'rating') return <Rate5 q={q} value={value} onChange={onChange} disabled={disabled} />;
       return <Stars q={q} value={value} onChange={onChange} disabled={disabled} />;
     case 'file_upload':
       return <FileUpload q={q} value={value} onChange={onChange} disabled={disabled} onUpload={onUpload} />;
@@ -815,8 +866,35 @@ function ErpInfoCard({ q }) {
   );
 }
 
+/* 27 Nov 2026 · Survey Studio: Yes / No as two tiles, and Rating 1 to 5 as numbered circles (the artifact's controls) */
+function YesNo({ q, value, onChange, disabled }) {
+  return (
+    <div className="grid grid-cols-2 gap-2.5" role="radiogroup" aria-label={q.label}>
+      {['Yes', 'No'].map((o) => (
+        <button key={o} type="button" role="radio" aria-checked={value === o} disabled={disabled} onClick={() => onChange(value === o ? '' : o)}
+          className={cx('flex h-12 items-center justify-center rounded-[10px] border text-15 font-semibold transition-colors', value === o ? 'border-brand bg-brand-tint-weak text-brand-text' : 'border-line bg-surface text-heading hover:bg-sunken')}>
+          {o}
+        </button>
+      ))}
+    </div>
+  );
+}
+function Rate5({ q, value, onChange, disabled }) {
+  return (
+    <div className="flex gap-2" role="radiogroup" aria-label={q.label}>
+      {[1, 2, 3, 4, 5].map((n) => (
+        <button key={n} type="button" role="radio" aria-checked={Number(value) === n} aria-label={`${n} of 5`} disabled={disabled} onClick={() => onChange(Number(value) === n ? '' : n)}
+          className={cx('flex size-10 items-center justify-center rounded-full border-[1.5px] text-14 font-semibold transition-colors', Number(value) === n ? 'border-brand bg-brand text-on-brand' : 'border-line-strong text-ds-secondary hover:bg-sunken')}>
+          {n}
+        </button>
+      ))}
+    </div>
+  );
+}
+
 /* the fields the AI reads from a photo / file, as words ("Invoice total, Party") */
 function aiReads(q) {
+  if (Array.isArray(q.ai?.fields) && q.ai.fields.length) return q.ai.fields.join(', ');
   const tags = Array.isArray(q.ai?.tags) ? q.ai.tags.map((t) => t.label).filter(Boolean) : [];
   if (tags.length) return tags.join(', ');
   return Object.keys(q.ai?.schema?.properties ?? {}).map(readWord).join(', ');
@@ -832,12 +910,12 @@ function AnswerCard({ q, index, value, onChange, onUpload, api, response, answer
   const [busy, setBusy] = useState(false);
   const shownError = busy ? null : error;
   return (
-    <Card variant="hairline" className={cx('flex scroll-mt-20 flex-col gap-3', shownError && 'border-danger-border')} data-question={q.id}>
-      <div className="flex flex-col gap-1">
+    <Card variant="hairline" className={cx('flex scroll-mt-20 flex-col gap-3 rounded-xl p-4', shownError && 'border-danger-border')} data-question={q.id}>
+      <div className="flex flex-col gap-1.5">
         <div className="flex items-center justify-between gap-3">
-          <span className="text-10 font-semibold uppercase tracking-wide text-ds-muted">
-            Q{index + 1} · {TYPE_LABEL[q.type] ?? 'Answer'}
-            {q.required ? '' : ' · Optional'}
+          <span className="text-11 font-medium uppercase tracking-[0.06em] text-ds-muted">
+            Q{index + 1} · {(q.studio_type && STUDIO_LABEL[q.studio_type]) || TYPE_LABEL[q.type] || 'Answer'}
+            {q.required || q.studio_type ? '' : ' · Optional'}
           </span>
           {answered ? (
             <span className="flex items-center gap-1 text-10 font-semibold text-success">
@@ -845,14 +923,14 @@ function AnswerCard({ q, index, value, onChange, onUpload, api, response, answer
               Answered
             </span>
           ) : q.required && !readOnly ? (
-            <span className="text-10 font-semibold text-ds-muted">Required</span>
+            <span className="text-13 text-ds-muted">Required</span>
           ) : null}
         </div>
-        <p className="text-13 font-semibold leading-snug text-heading">
+        <p className="text-16 font-semibold leading-[22px] text-heading">
           {q.label}
           {q.required && !readOnly ? <span className="text-danger-text"> *</span> : null}
         </p>
-        {q.description && !readOnly ? <p className="text-11 text-ds-muted">{q.description}</p> : null}
+        {q.description && !readOnly ? <p className="text-13 text-ds-muted">{q.description}</p> : null}
       </div>
       {readOnly ? (
         <p className={cx('flex items-center gap-2 whitespace-pre-line rounded-lg bg-sunken px-3 py-2 text-12', answered ? 'font-semibold text-heading' : 'text-ds-muted')}>
@@ -866,7 +944,7 @@ function AnswerCard({ q, index, value, onChange, onUpload, api, response, answer
         <p className="flex items-start gap-1.5 text-11 text-ds-muted">
           <Icon name="eye" size="sm" className="mt-px shrink-0" />
           <span>
-            We read this automatically: {aiReads(q)}.{q.ai.check_phone ? ' You can check what was read before you submit.' : ''}
+            We read this automatically: {aiReads(q)}. You can correct the values before you submit.{q.ai.check_phone ? ' It is checked on your phone first.' : ''}
           </span>
         </p>
       ) : null}

@@ -15,7 +15,12 @@ import { ROW_LABEL, ROW_TONE } from '../data/shape';
 
 const CHIP = 'inline-flex h-5.5 shrink-0 items-center whitespace-nowrap rounded-chip bg-sunken px-2 text-10 font-medium leading-none tabular-nums text-ds-secondary';
 
-export function SubjectCard({ subject, me, state, note, onOpen, className }) {
+export function SubjectCard({ subject, me, state, note, onOpen, className, fields = null, added = false }) {
+  /* 27 Nov 2026 · Survey Studio: the card shows the fields head office picked — the code as a chip, the city with a pin, the rest as lines */
+  const studioCard = Array.isArray(fields) && fields.length ? fields : null;
+  const idF = studioCard?.find((f) => /code|^name$|_id$|^id$/i.test(f.k));
+  const cityF = studioCard?.find((f) => /city|territory|town/i.test(f.k) && f !== idF);
+  const restF = studioCard?.filter((f) => f !== idF && f !== cityF) ?? [];
   const name = subject?.label ?? me ?? 'You';
   const hq = hqLabel(subject?.hq);
   const canOpen = typeof onOpen === 'function';
@@ -39,6 +44,32 @@ export function SubjectCard({ subject, me, state, note, onOpen, className }) {
             </StatusPill>
           ) : null}
         </span>
+        {studioCard ? (
+          <>
+            {idF || cityF ? (
+              <span className="flex w-full min-w-0 items-center justify-between gap-3">
+                {idF ? <span className={CHIP}>{idF.v || '—'}</span> : <span />}
+                {cityF ? (
+                  <span className="flex shrink-0 items-center gap-1 text-13 font-medium text-ds-muted">
+                    <Icon name="map-marker" size="var(--fs-14)" />
+                    {String(cityF.v || '—').replace(/^HQ[-\s]*/i, '')}
+                  </span>
+                ) : null}
+              </span>
+            ) : null}
+            {restF.length ? (
+              <dl className="grid w-full grid-cols-[minmax(0,1fr)_minmax(0,1.4fr)] gap-x-3 gap-y-1 text-13">
+                {restF.map((f) => (
+                  <div key={f.k} className="contents">
+                    <dt className="text-ds-muted">{f.l}</dt>
+                    <dd className="min-w-0 break-words font-medium text-heading">{f.v || <span className="font-normal text-ds-muted">Not on record</span>}</dd>
+                  </div>
+                ))}
+              </dl>
+            ) : null}
+            {added ? <span className="text-12 text-ds-muted">Added by you</span> : null}
+          </>
+        ) : (
         <span className="flex w-full min-w-0 items-center justify-between gap-3">
           <span className="flex min-w-0 items-center gap-1 overflow-hidden">
             {subject?.code ? (
@@ -56,6 +87,7 @@ export function SubjectCard({ subject, me, state, note, onOpen, className }) {
             </span>
           ) : null}
         </span>
+        )}
         {note ? <span className="truncate text-11 text-ds-muted">{note}</span> : null}
       </span>
     </Card>

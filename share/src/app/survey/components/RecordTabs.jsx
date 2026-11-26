@@ -124,12 +124,12 @@ export function RecordTabs({ rows, value, onChange, ariaLabel = 'Records', noun 
               disabled={r.view === 'missed'}
               onClick={() => onChange?.(r.response)}
               className={cx(
-                'flex h-8 shrink-0 items-center gap-1.5 rounded-full px-3 text-11 font-medium transition-colors disabled:opacity-50',
+                'flex h-10 shrink-0 items-center gap-1.5 rounded-full border px-3.5 text-13 font-medium transition-colors disabled:opacity-50',
                 active
-                  ? 'bg-heading text-on-brand'
+                  ? 'border-heading bg-heading text-on-brand'
                   : r.view === 'done'
-                    ? 'border border-success bg-success-wash text-success' /* 26 Nov 2026: submitted = green */
-                    : 'border border-line bg-surface text-ds-secondary hover:border-line-strong',
+                    ? 'border-transparent bg-success-wash text-success' /* 26 Nov 2026: submitted = green */
+                    : 'border-line-strong bg-surface text-ds-secondary hover:bg-sunken',
               )}
             >
               <span aria-hidden="true" className="size-1.5 shrink-0 rounded-full" style={{ backgroundColor: toneFill(ROW_TONE[r.view] ?? 'neutral') }} />
