@@ -1,7 +1,14 @@
 'use client';
 
 import { useMemo, useState } from 'react';
-import { Button, Card, ChipRow, Icon, cx } from '@/design-system';
+import { Button, Card, Icon, cx, toneFill } from '@/design-system';
+
+/* the To do / Submitted tabs' colours: [not picked, picked] */
+const TAB_TONE = {
+  all: ['border-line bg-surface text-ds-secondary hover:border-line-strong', 'border-heading bg-heading text-on-brand'],
+  todo: ['border-danger-border bg-surface text-danger-text', 'border-danger-text bg-danger-wash text-danger-text'],
+  done: ['border-success bg-surface text-success', 'border-success bg-success-wash text-success'],
+};
 import { daysLeft, dueText, rowState, shortDate, targetOf } from '../data/shape';
 import { SubjectCard } from './SubjectCard';
 import { AddSubjectsSheet } from './AddSubjectsSheet';
@@ -40,7 +47,7 @@ export function SurveyScreen({ survey, today, me, drafts, api, onOpenRow, onChan
   const ordered = useMemo(() => stripOrder(rows), [rows]);
   const todoRows = ordered.filter((r) => r.view !== 'done');
   const doneRows = ordered.filter((r) => r.view === 'done');
-  const shown = tab === 'done' ? doneRows : todoRows;
+  const shown = tab === 'done' ? doneRows : tab === 'all' ? ordered : todoRows;
   const multi = rows.length >= 2;
   const days = daysLeft(today, survey.due_date);
   const late = survey.state === 'todo' && days != null && days <= 0;
@@ -68,9 +75,11 @@ export function SurveyScreen({ survey, today, me, drafts, api, onOpenRow, onChan
     setTimeout(() => setNotice(null), 3000);
   };
 
+  /* 26 Nov 2026: All · To do (red) · Submitted (green) */
   const tabs = [
-    { key: 'todo', label: 'To do', count: todoRows.length },
-    { key: 'done', label: 'Submitted', count: doneRows.length },
+    { key: 'all', label: 'All', count: rows.length, tone: 'neutral' },
+    { key: 'todo', label: 'To do', count: todoRows.length, tone: 'danger' },
+    { key: 'done', label: 'Submitted', count: doneRows.length, tone: 'success' },
   ];
   const shownNotice = outerNotice || notice;
 
@@ -100,21 +109,6 @@ export function SurveyScreen({ survey, today, me, drafts, api, onOpenRow, onChan
                   <span className="text-16 font-semibold text-heading">{counts.done}</span>
                   <span className="text-ds-muted"> of {rows.length} submitted</span>
                 </span>
-                {multi ? (
-                  <button
-                    type="button"
-                    onClick={() => onTab?.('done')}
-                    aria-label={`History — the ${counts.done} submitted`}
-                    title="Submitted"
-                    className={cx(
-                      'inline-flex h-7 items-center gap-1 rounded-full border px-2.5 text-11 font-medium transition-colors',
-                      !form && tab === 'done' ? 'border-success bg-success-wash text-success' : 'border-line bg-surface text-ds-secondary hover:border-line-strong',
-                    )}
-                  >
-                    <Icon name="history" size="var(--fs-10)" />
-                    History
-                  </button>
-                ) : null}
               </span>
             </div>
             {/* one sorted bar: submitted, in progress, missed, to do — not one dot per row in list order */}
@@ -125,7 +119,29 @@ export function SurveyScreen({ survey, today, me, drafts, api, onOpenRow, onChan
 
       {multi || canAdd ? (
         <div className="flex items-center justify-between gap-3">
-          {multi ? <ChipRow items={tabs} value={form ? null : tab} onChange={(k) => onTab?.(k)} ariaLabel={`${t.Many}: to do or submitted`} /> : <span />}
+          {multi ? (
+            <div role="tablist" aria-label={`${t.Many}: all, to do or submitted`} className="ds-scroll-x -mx-1 flex gap-1.5 px-1 py-0.5">
+              {tabs.map((x) => {
+                const on = !form && tab === x.key;
+                return (
+                  <button
+                    key={x.key}
+                    type="button"
+                    role="tab"
+                    aria-selected={on}
+                    onClick={() => onTab?.(x.key)}
+                    className={cx('inline-flex h-8 shrink-0 items-center gap-1.5 rounded-full border px-3 text-12 font-semibold transition-colors', TAB_TONE[x.key][on ? 1 : 0])}
+                  >
+                    <span aria-hidden="true" className="size-1.5 shrink-0 rounded-full" style={{ backgroundColor: toneFill(x.tone) }} />
+                    {x.label}
+                    <span className="font-medium opacity-80"> · {x.count}</span>
+                  </button>
+                );
+              })}
+            </div>
+          ) : (
+            <span />
+          )}
           {canAdd ? (
             <Button type="primary" size="sm" icon={<Icon name="plus" size="sm" />} onClick={() => setAdding(true)}>
               Add {t.one}
@@ -161,6 +177,9 @@ export function SurveyScreen({ survey, today, me, drafts, api, onOpenRow, onChan
           This survey has closed. What was sent is shown; the rest can’t be answered now.
         </p>
       ) : null}
+
+      {/* the tab's doctors / records as tabs too (a chip opens that one's form) */}
+      {!form ? <RecordTabs rows={shown} value={null} ariaLabel={t.Many} showBar={false} onChange={(r) => onOpenRow?.(r)} /> : null}
 
       {form ? null : rows.length ? (
         shown.length ? (

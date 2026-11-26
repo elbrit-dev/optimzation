@@ -321,16 +321,16 @@ describe('SurveyPage — 26 Nov 2026: opens on the first one to do; To do / Subm
     expect(screen.getAllByText('Rx audit — vascular range').length).toBeGreaterThan(0); // the survey, under the doctor's name
     expect(screen.queryByText('Pre-tag')).toBeNull();
     const tabs = within(screen.getByRole('tablist', { name: /to do or submitted/ })).getAllByRole('tab');
-    expect(tabs.map((t) => t.textContent)).toEqual(['To do · 3', 'Submitted · 1']);
+    expect(tabs.map((t) => t.textContent)).toEqual(['All · 4', 'To do · 3', 'Submitted · 1']);
     expect(tabs.every((t) => t.getAttribute('aria-selected') === 'false')).toBe(true); // a form is open: no tab picked
-    expect(screen.getByRole('button', { name: /^History/ })).toBeTruthy();
+    expect(screen.queryByRole('button', { name: /^History/ })).toBeNull(); // no History button
     /* the strip: still to do first, the submitted one last */
     expect(within(doctorStrip()).getAllByRole('tab').map((t) => t.getAttribute('title'))).toEqual([
       'Dr. Joseph Prabhu', 'Dr. Meenakshi Sundar', 'Dr. Arul Selvan', 'Dr. Anitha Rajan',
     ]);
   });
 
-  it('the To do tab lists the ones left, Submitted (and History) the ones sent', async () => {
+  it('the To do tab lists the ones left, Submitted the ones sent, All every one — with the doctors as tabs too', async () => {
     const user = userEvent.setup();
     openSurvey();
     await screen.findByRole('heading', { name: 'Dr. Joseph Prabhu' });
@@ -341,8 +341,11 @@ describe('SurveyPage — 26 Nov 2026: opens on the first one to do; To do / Subm
     await user.click(screen.getByRole('tab', { name: /^To do/ }));
     expect(screen.getByRole('button', { name: /^Dr\. Joseph Prabhu/ })).toBeTruthy();
     expect(screen.queryByRole('button', { name: /^Dr\. Anitha Rajan/ })).toBeNull();
-    await user.click(screen.getByRole('button', { name: /^History/ }));
+    /* the tab's doctors show as tabs too */
+    expect(within(doctorStrip()).getAllByRole('tab').map((t) => t.getAttribute('title'))).toEqual(['Dr. Joseph Prabhu', 'Dr. Meenakshi Sundar', 'Dr. Arul Selvan']);
+    await user.click(screen.getByRole('tab', { name: /^All/ }));
     expect(screen.getByRole('button', { name: /^Dr\. Anitha Rajan/ })).toBeTruthy();
+    expect(screen.getByRole('button', { name: /^Dr\. Joseph Prabhu/ })).toBeTruthy();
   });
 
   it('Submit sends and opens the next one still to do — no "Submitted" page in between', async () => {
@@ -358,6 +361,6 @@ describe('SurveyPage — 26 Nov 2026: opens on the first one to do; To do / Subm
     expect(await screen.findByRole('heading', { name: 'Dr. Meenakshi Sundar' })).toBeTruthy();
     expect(screen.getByText('Sent for Dr. Joseph Prabhu. Next: Dr. Meenakshi Sundar.')).toBeTruthy();
     expect(screen.queryByRole('heading', { name: 'Submitted' })).toBeNull();
-    await waitFor(() => expect(within(screen.getByRole('tablist', { name: /to do or submitted/ })).getAllByRole('tab').map((t) => t.textContent)).toEqual(['To do · 2', 'Submitted · 2']));
+    await waitFor(() => expect(within(screen.getByRole('tablist', { name: /to do or submitted/ })).getAllByRole('tab').map((t) => t.textContent)).toEqual(['All · 4', 'To do · 2', 'Submitted · 2']));
   });
 });
