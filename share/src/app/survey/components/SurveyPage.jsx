@@ -3,11 +3,10 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import Router from 'next/router';
 import { Button, Icon, cx } from '@/design-system';
-import { holdBase } from '@/components/BackGuard';
 import { createSurveyApi } from '../api';
 import { rowState, surveysFromMyList } from '../data/shape';
 import { SurveyScreen } from './SurveyScreen';
-import { nextToDo } from './RecordTabs';
+import { nextToDo, rowsOfTab } from './RecordTabs';
 import { SubjectForm } from './SubjectForm';
 import { DiscardChangesSheet, PageHeader, readDrafts, scroller, writeDrafts } from './parts';
 import { MapReview } from './MapReview';
@@ -16,41 +15,28 @@ import { MapReview } from './MapReview';
    which pushed the list of doctors out below the site. Where the frame has no set height it is as before. */
 const INSIDE_FRAME = 'h-full min-h-0 overflow-y-auto overscroll-contain';
 
-/* ONE SURVEY ON ITS OWN PAGE — /survey/<campaign>, where a survey circle
- * goes when SurveyHome has openInPlace off. No strip: the header (Back +
- * title), the survey (SurveyScreen: tags, progress, its doctors /
- * distributors, Add for Self-tag), and a row's form (SubjectForm).
+/* ONE SURVEY ON ITS OWN PAGE — /survey/<campaign> (26 Nov 2026: one page for every survey):
  *
- *   Back   form → the survey (asking first if answers are unsaved);
- *          survey → onBack (Studio navigates home; unbound, the browser's
- *          back).
- *   History  a form is its own history entry, /survey/<campaign>?r=<response>,
- *          so the phone's / browser's back does exactly what the in-page ←
- *          does: form → survey → (the page before). The ← on a form IS a
- *          history back. With unsaved answers either back asks "Discard
- *          changes?" first — the browser's back has already left the form's
- *          entry by then, so it is put back while the question is up. A link
- *          straight to ?r=<response> opens that form (with the survey under
- *          it in history); a response that is not in this survey shows the
- *          survey. Entries go through Next's router, shallow — no page data
- *          is fetched again — or the bare History API where there is no
- *          router (tests, Studio).
- *   Data   the same api.js as SurveyHome — survey_my_list as the signed-in
- *          person (`gqlToken`), on the /tokens row named EXACTLY
- *          `gqlEnvironment` (no fallback to another ERP). Asked on open,
- *          after anything is added or sent, and back in the foreground (at
- *          most once a minute).
+ *   ← <survey title>  ·  progress  ·  [To do] [Submitted] [All]  ·  that tab's doctors as tags  ·  the picked
+ *   one's card and questions (SubjectForm). The survey opens on To do with its first doctor. A tag shows that
+ *   doctor's questions right here; a tab shows its doctors and opens the first. Submit goes straight on to the
+ *   next one still to do.
+ *
+ *   Back   (the ← and the phone's back) leaves the survey — onBack (Studio navigates home; unbound, the
+ *          browser's back). With unsaved answers the ← asks first (Save for later / Discard / Keep editing);
+ *          the phone's back keeps them on this device as a draft. Moving to another doctor or tab keeps the
+ *          unsent answers as a draft too ("Saved for later").
+ *   URL    ?r=<response> follows the doctor on screen (replaced, never a new history entry), so a link or a
+ *          reload opens that doctor; one that is not in this survey opens the first to do.
+ *   Data   the same api.js as SurveyHome — survey_my_list as the signed-in person (`gqlToken`), on the /tokens row
+ *          named EXACTLY `gqlEnvironment` (no fallback to another ERP). Asked on open, after anything is added
+ *          or sent, and back in the foreground (at most once a minute).
  *   Drafts on this device, per user — the same store as SurveyHome's. */
 
 const WAKE_MS = 60 * 1000;
-
-/* The form's history entry. */
 const ROW_PARAM = 'r';
-const ROW_STATE = '__surveyRow';
-/* BackGuard's overlay entries (the "Discard changes?" sheet holds one). */
+/* BackGuard's overlay entries (the "Leave this form?" sheet holds one). */
 const LAYER_FLAG = '__elbritBackLayer';
-/* Next's keys of the entries this page pushed for a form, for this tab. */
-const FORM_KEYS = 'elbrit.survey.formEntries';
 
 const nextRouter = () => {
   try {
@@ -68,45 +54,12 @@ function urlWithRow(response) {
   else url.searchParams.delete(ROW_PARAM);
   return `${url.pathname}${url.search}${url.hash}`;
 }
-
-function formKeys() {
-  try {
-    return JSON.parse(window.sessionStorage.getItem(FORM_KEYS) || '[]');
-  } catch {
-    return [];
-  }
-}
-function rememberFormEntry() {
-  const key = window.history.state?.key;
-  if (!key) return;
-  try {
-    window.sessionStorage.setItem(FORM_KEYS, JSON.stringify([...formKeys().slice(-49), key]));
-  } catch {
-    /* storage off: reopening the entry later adds one survey entry under it */
-  }
-}
-/* Is the entry on screen one this page pushed for a form (so the survey's
-   entry is right behind it)? */
-function onFormEntry() {
-  const state = window.history.state;
-  return Boolean(state?.[ROW_STATE]) || Boolean(state?.key && formKeys().includes(state.key));
-}
-
-/* The survey's own entry, then the form's on top of it. Next's router when
-   the app has one — shallow, and the survey's entry marked shallow too, so
-   going back to it re-renders nothing and fetches nothing. */
-async function replaceWithSurvey() {
-  const router = nextRouter();
-  const as = urlWithRow(null);
-  if (router) await router.replace(as, undefined, { shallow: true, scroll: false });
-  else window.history.replaceState(window.history.state, '', as);
-}
-async function pushForm(response) {
-  const router = nextRouter();
+/* the doctor on screen, in the URL — replaced, so Back still leaves the survey */
+function replaceRowInUrl(response) {
   const as = urlWithRow(response);
-  if (router) await router.push(as, undefined, { shallow: true, scroll: false });
-  else window.history.pushState({ [ROW_STATE]: response }, '', as);
-  rememberFormEntry();
+  const router = nextRouter();
+  if (router) router.replace(as, undefined, { shallow: true, scroll: false }).catch(() => {});
+  else window.history.replaceState(window.history.state, '', as);
 }
 
 /* After the sheet closes, BackGuard takes its own history entry off; wait
@@ -179,21 +132,9 @@ function OneSurveyPage({
   today: todayProp,
   bottomGap = 'var(--space-12)',
   onBack,
-  /* 26 Nov 2026: the survey opens straight on the first doctor / record still to do (its form);
-     the lists are under the To do / Submitted tabs. false: it opens on the To do list. */
-  autoOpen = true,
   className,
 }) {
   const campaign = decodeCampaign(campaignProp);
-  const [tab, setTab] = useState('todo');
-  const [notice, setNotice] = useState(null);
-  const noticeTimer = useRef(null);
-  const say = useCallback((text) => {
-    setNotice(text);
-    window.clearTimeout(noticeTimer.current);
-    noticeTimer.current = window.setTimeout(() => setNotice(null), 4000);
-  }, []);
-  useEffect(() => () => window.clearTimeout(noticeTimer.current), []);
   const signedIn = Boolean(apiProp) || source !== 'erp' || Boolean(String(gqlToken ?? '').trim());
   const api = useMemo(
     () => apiProp ?? createSurveyApi({ source, gqlEnvironment, gqlToken, strictEnvironment: true }),
@@ -203,11 +144,20 @@ function OneSurveyPage({
   const [list, setList] = useState(null);
   const [loadError, setLoadError] = useState(null);
   const [retrying, setRetrying] = useState(false);
-  const [response, setResponse] = useState(null);
+  const [tab, setTab] = useState('todo');
+  /* the doctor / record picked (null: the tab's first) */
+  const [picked, setPicked] = useState(null);
   const [drafts, setDrafts] = useState({});
   const [dirty, setDirty] = useState(false);
-  /* "Discard changes?" — null, or what is waiting behind it. */
-  const [confirm, setConfirm] = useState(null);
+  const [confirm, setConfirm] = useState(false);
+  const [notice, setNotice] = useState(null);
+  const noticeTimer = useRef(null);
+  const say = useCallback((text) => {
+    setNotice(text);
+    window.clearTimeout(noticeTimer.current);
+    noticeTimer.current = window.setTimeout(() => setNotice(null), 4000);
+  }, []);
+  useEffect(() => () => window.clearTimeout(noticeTimer.current), []);
 
   const lastLoad = useRef(0);
   const load = useCallback(async () => {
@@ -228,7 +178,8 @@ function OneSurveyPage({
   useEffect(() => {
     setList(null);
     setLoadError(null);
-    setResponse(null);
+    setPicked(null);
+    setTab('todo');
     setDirty(false);
     resolvedLink.current = false;
     if (!signedIn) return undefined;
@@ -247,8 +198,10 @@ function OneSurveyPage({
   const today = todayProp || list?.today || new Date().toISOString().slice(0, 10);
   const surveys = useMemo(() => (list ? surveysFromMyList(list) : []), [list]);
   const survey = surveys.find((s) => s.campaign === campaign) ?? null;
-  const row = survey?.rows.find((r) => r.response === response) ?? null;
   const rowsView = useMemo(() => (survey ? survey.rows.map((r) => ({ ...r, view: rowState(r, drafts) })) : []), [survey, drafts]);
+  const tabRows = useMemo(() => rowsOfTab(rowsView, tab), [rowsView, tab]);
+  const pickedRow = tabRows.find((r) => r.response === picked) ?? tabRows[0] ?? null;
+  const row = pickedRow ? survey.rows.find((r) => r.response === pickedRow.response) ?? null : null;
 
   const setDraft = (key, answers) =>
     setDrafts((prev) => {
@@ -259,151 +212,85 @@ function OneSurveyPage({
       return next;
     });
 
-  /* Latest values, for the history listeners. */
-  const responseRef = useRef(response);
-  responseRef.current = response;
-  const unsaved = dirty && response != null;
-  const unsavedRef = useRef(unsaved);
-  unsavedRef.current = unsaved;
-  const surveyRef = useRef(survey);
-  surveyRef.current = survey;
-  const pathRef = useRef(null);
-
-  /* Our own pushes and replaces are not the person navigating. */
-  const navigating = useRef(0);
-  const navigate = useCallback((steps) => {
-    navigating.current += 1;
-    return Promise.resolve()
-      .then(steps)
-      .catch(() => {})
-      .finally(() => {
-        navigating.current -= 1;
-      });
-  }, []);
-
-  /* A form or the survey starts at its top, as a page does. */
-  const show = useCallback((next) => {
-    setResponse(next);
-    setDirty(false);
-    const sc = scroller(rootRef.current);
-    if (sc && rootRef.current) sc.scrollTop = Math.min(sc.scrollTop, rootRef.current.offsetTop);
-  }, []);
-
-  /* A row opens its form: on screen at once, then its history entry. */
-  const open = useCallback(
-    (next) => {
-      show(next);
-      pathRef.current = window.location.pathname;
-      navigate(async () => {
-        if (nextRouter()) await replaceWithSurvey();
-        await pushForm(next);
-      });
-    },
-    [show, navigate],
-  );
-
-  /* A back press may leave a form with unsaved answers only once the person
-     has said Discard. */
-  const allowLeave = useRef(false);
-
-  /* THE HISTORY MOVED (the phone's / browser's back or forward, or our own
-     history.back()): the screen follows the URL's ?r=. */
-  const sync = useCallback(() => {
-    if (navigating.current) return;
-    if (pathRef.current && window.location.pathname !== pathRef.current) return; // left the page
-    const r = rowInUrl();
-    const current = responseRef.current;
-    if (r === current) return;
-    if (current && unsavedRef.current && !allowLeave.current) {
-      /* The browser has already left the form's entry: put it back, then ask. */
-      navigate(async () => {
-        await pushForm(current);
-        setConfirm({ kind: 'back' });
-      });
-      return;
-    }
-    allowLeave.current = false;
-    const known = Boolean(r && surveyRef.current?.rows.some((x) => x.response === r));
-    show(known ? r : null);
-    if (r && !known) navigate(replaceWithSurvey);
-  }, [navigate, show]);
-
-  useEffect(() => {
-    if (typeof window === 'undefined') return undefined;
-    /* With Next: after its route change — it rewrites the entry it lands on,
-       so acting before it finishes would have that clobber ours. */
-    const events = nextRouter()?.events;
-    if (events) {
-      events.on('routeChangeComplete', sync);
-      return () => events.off('routeChangeComplete', sync);
-    }
-    window.addEventListener('popstate', sync);
-    return () => window.removeEventListener('popstate', sync);
-  }, [sync]);
-
-  /* A LINK STRAIGHT TO A FORM (?r=<response>), once the survey has loaded:
-     that form, with the survey's entry under it; a response that is not in
-     this survey (or not this person's), the survey. */
+  /* A LINK STRAIGHT TO A DOCTOR (?r=<response>), once the survey has loaded: that one, on its tab. */
   useEffect(() => {
     if (!list || resolvedLink.current || typeof window === 'undefined') return;
     resolvedLink.current = true;
     const r = rowInUrl();
-    if (!r) {
-      /* 26 Nov 2026: no ?r= — open the first one still to do, with the survey's entry under it (Back → the To do list) */
-      const first = autoOpen && survey && survey.kind !== 'announcement' && survey.open !== false ? nextToDo(rowsView) : null;
-      if (first) {
-        pathRef.current = window.location.pathname;
-        show(first.response);
-        navigate(async () => {
-          await replaceWithSurvey();
-          await pushForm(first.response);
-        });
-      }
-      return;
+    const hit = r ? rowsView.find((x) => x.response === r) : null;
+    if (hit) {
+      setTab(hit.view === 'done' ? 'done' : 'todo');
+      setPicked(r);
     }
-    pathRef.current = window.location.pathname;
-    if (survey?.rows.some((x) => x.response === r)) {
-      show(r);
-      if (!onFormEntry())
-        navigate(async () => {
-          await replaceWithSurvey();
-          await pushForm(r);
-        });
-    } else {
-      navigate(replaceWithSurvey);
-    }
-  }, [list, survey, rowsView, autoOpen, show, navigate]);
+  }, [list, rowsView]);
 
-  /* Back from a form is a history back — exactly what the phone's back does. */
-  const goBackFromForm = useCallback(() => {
-    if (onFormEntry() && rowInUrl() === responseRef.current) {
-      allowLeave.current = true;
-      window.history.back();
-    } else {
-      allowLeave.current = false;
-      show(null);
-      navigate(replaceWithSurvey);
-    }
-  }, [show, navigate]);
-  const backFromForm = useCallback(() => {
-    if (unsavedRef.current) setConfirm({ kind: 'back' });
-    else goBackFromForm();
-  }, [goBackFromForm]);
+  /* the URL follows the doctor on screen */
+  useEffect(() => {
+    if (!list || typeof window === 'undefined') return;
+    const want = row?.response ?? null;
+    if (rowInUrl() !== want) replaceRowInUrl(want);
+  }, [list, row?.response]);
 
-  const leave = useCallback(() => {
+  /* The open form's answers as they are now — kept as a draft when moving on with them unsent. */
+  const answersRef = useRef(null);
+  const keepUnsent = () => {
+    if (row && dirty && answersRef.current) {
+      setDraft(row.response, answersRef.current);
+      say('Your unsent answers were saved for later on this device.');
+    }
+    setDirty(false);
+  };
+  const toTop = () => {
+    const sc = scroller(rootRef.current);
+    if (sc && rootRef.current) sc.scrollTop = Math.min(sc.scrollTop, rootRef.current.offsetTop);
+  };
+  /* a tag: that doctor's questions, right here */
+  const pick = (next) => {
+    if (row && next === row.response) return;
+    keepUnsent();
+    setPicked(next);
+  };
+  /* a tab: its doctors, the first one open */
+  const changeTab = (k) => {
+    if (k === tab) return;
+    keepUnsent();
+    setTab(k);
+    setPicked(null);
+    toTop();
+  };
+
+  /* the phone's back (or any way out) with unsent answers: keep them on this device */
+  const leftRef = useRef({});
+  leftRef.current = { row, dirty, user: list?.me?.user };
+  useEffect(
+    () => () => {
+      const L = leftRef.current;
+      if (L.row && L.dirty && answersRef.current) writeDrafts(L.user, { ...readDrafts(L.user), [L.row.response]: answersRef.current });
+    },
+    [],
+  );
+
+  const goBack = useCallback(() => {
     if (onBack) onBack();
     else if (typeof window !== 'undefined') window.history.back();
   }, [onBack]);
+  /* Back leaves the survey — asking first when answers are unsaved */
+  const leave = () => {
+    if (dirty && row) setConfirm(true);
+    else goBack();
+  };
+  const leaveNow = () => {
+    setConfirm(false);
+    setDirty(false);
+    leftRef.current = { ...leftRef.current, dirty: false };
+    afterOverlayEntries(goBack);
+  };
 
-  /* While a form is open its entry takes the back press — the app's
-     "back goes home" watcher stands down. */
-  useEffect(() => (response ? holdBase() : undefined), [response]);
-
-  /* Unsaved answers: a link elsewhere asks first; reload / close gets the
-     browser's own prompt. */
+  /* Unsaved answers: a link elsewhere asks first; reload / close gets the browser's own prompt. */
   const bypassLinks = useRef(false);
+  const pendingLink = useRef(null);
   useEffect(() => {
-    if (!unsaved || typeof window === 'undefined') return undefined;
+    if (!dirty || typeof window === 'undefined') return undefined;
     const onClick = (e) => {
       if (bypassLinks.current || e.defaultPrevented || e.button !== 0) return;
       if (e.metaKey || e.ctrlKey || e.shiftKey || e.altKey) return;
@@ -411,10 +298,11 @@ function OneSurveyPage({
       if (!a || a.target === '_blank' || a.hasAttribute('download')) return;
       const url = new URL(a.href, window.location.href);
       if (url.origin !== window.location.origin) return;
-      if (url.pathname === window.location.pathname && url.search === window.location.search) return;
+      if (url.pathname === window.location.pathname) return;
       e.preventDefault();
       e.stopPropagation();
-      setConfirm({ kind: 'link', anchor: a });
+      pendingLink.current = a;
+      setConfirm(true);
     };
     const onBeforeUnload = (e) => {
       e.preventDefault();
@@ -426,29 +314,21 @@ function OneSurveyPage({
       document.removeEventListener('click', onClick, true);
       window.removeEventListener('beforeunload', onBeforeUnload);
     };
-  }, [unsaved]);
-
-  /* The open form's answers as they are now, for Save for later. */
-  const answersRef = useRef(null);
-  const keepEditing = useCallback(() => setConfirm(null), []);
-  const discard = useCallback(() => {
-    const pending = confirm;
-    setConfirm(null);
-    if (pending?.kind === 'link') {
-      bypassLinks.current = true;
-      pending.anchor.click();
-      window.setTimeout(() => {
-        bypassLinks.current = false;
-      }, 0);
-      return;
-    }
-    allowLeave.current = true;
-    afterOverlayEntries(goBackFromForm);
-  }, [confirm, goBackFromForm]);
-  /* Save for later: keep the answers on this device, then leave as Discard does. */
-  const saveForLater = () => {
-    if (response && answersRef.current) setDraft(response, answersRef.current);
-    discard();
+  }, [dirty]);
+  /* the sheet's answer, for a link as for Back */
+  const followOrLeave = (save) => {
+    if (save && row && answersRef.current) setDraft(row.response, answersRef.current);
+    const a = pendingLink.current;
+    pendingLink.current = null;
+    if (!a) return leaveNow();
+    setConfirm(false);
+    setDirty(false);
+    bypassLinks.current = true;
+    a.click();
+    window.setTimeout(() => {
+      bypassLinks.current = false;
+    }, 0);
+    return undefined;
   };
 
   const offline = typeof navigator !== 'undefined' && navigator.onLine === false;
@@ -489,90 +369,61 @@ function OneSurveyPage({
   } else if (!survey) {
     body = (
       <Notice icon="info-circle" title="This survey isn’t available" text="It may be closed, or not sent to you.">
-        <Button type="default" size="sm" onClick={leave}>
+        <Button type="default" size="sm" onClick={goBack}>
           Back
         </Button>
       </Notice>
-    );
-  } else if (row) {
-    /* Another doctor / record in the same place (the strip, or the next one after Submit): its unsent answers kept on this device. */
-    const switchRow = (next, unsent) => {
-      if (unsent) setDraft(row.response, unsent);
-      show(next);
-      navigate(async () => {
-        const router = nextRouter();
-        const as = urlWithRow(next);
-        if (router) await router.replace(as, undefined, { shallow: true, scroll: false });
-        else window.history.replaceState({ [ROW_STATE]: next }, '', as);
-        rememberFormEntry();
-      });
-    };
-    /* A tab (or History) leaves the form for that list — asking first when answers are unsaved. */
-    const toList = (k) => {
-      setTab(k);
-      backFromForm();
-    };
-    body = (
-      <SurveyScreen
-        survey={survey}
-        today={today}
-        me={list.me}
-        drafts={drafts}
-        api={api}
-        tab={tab}
-        onTab={toList}
-        notice={notice}
-        openResponse={row.response}
-        onOpenRow={(next) => switchRow(next, dirty && answersRef.current ? answersRef.current : null)}
-        onChanged={load}
-        form={
-          <SubjectForm
-            key={row.response}
-            survey={survey}
-            row={row}
-            me={list.me?.full_name}
-            draft={drafts[row.response] ?? null}
-            api={api}
-            bottomGap={bottomGap}
-            onBack={backFromForm}
-            onDraft={(answers) => setDraft(row.response, answers)}
-            onDirtyChange={setDirty}
-            onAnswersChange={(answers) => {
-              answersRef.current = answers;
-            }}
-            onSubmitted={(sent) => {
-              /* 26 Nov 2026: straight on to the next one still to do; none left → the Submitted list */
-              const next = nextToDo(rowsView, { except: sent.response, after: sent.response });
-              const who = sent.subject?.label;
-              load();
-              if (next) {
-                say(`${who ? `Sent for ${who}` : 'Sent'}. Next: ${next.subject?.label ?? 'the next one'}.`);
-                switchRow(next.response, null);
-              } else {
-                say(`${who ? `Sent for ${who}. ` : ''}All submitted — thank you.`);
-                setTab('done');
-                allowLeave.current = true;
-                goBackFromForm();
-              }
-              return true;
-            }}
-          />
-        }
-      />
     );
   } else {
     body = (
       <SurveyScreen
         survey={survey}
         today={today}
-        me={list.me}
         drafts={drafts}
         api={api}
         tab={tab}
-        onTab={setTab}
+        onTab={changeTab}
         notice={notice}
-        onOpenRow={(next) => open(next)}
+        openResponse={row?.response ?? null}
+        onOpenRow={pick}
         onChanged={load}
+        form={
+          row ? (
+            <SubjectForm
+              key={row.response}
+              survey={survey}
+              row={row}
+              me={list.me?.full_name}
+              draft={drafts[row.response] ?? null}
+              api={api}
+              bottomGap={bottomGap}
+              onBack={leave}
+              onDraft={(answers) => setDraft(row.response, answers)}
+              onDirtyChange={setDirty}
+              onAnswersChange={(answers) => {
+                answersRef.current = answers;
+              }}
+              onSubmitted={(sent) => {
+                /* straight on to the next one still to do; none left → the Submitted tab */
+                const next = nextToDo(rowsView, { except: sent.response, after: sent.response });
+                const who = sent.subject?.label;
+                setDirty(false);
+                load();
+                if (next) {
+                  say(`${who ? `Sent for ${who}` : 'Sent'}. Next: ${next.subject?.label ?? 'the next one'}.`);
+                  setTab('todo');
+                  setPicked(next.response);
+                } else {
+                  say(`${who ? `Sent for ${who}. ` : ''}All submitted — thank you.`);
+                  setTab('done');
+                  setPicked(sent.response);
+                }
+                toTop();
+                return true;
+              }}
+            />
+          ) : null
+        }
       />
     );
   }
@@ -580,14 +431,10 @@ function OneSurveyPage({
   return (
     <section ref={rootRef} className={cx('@container/survey flex w-full scroll-mt-3 flex-col', INSIDE_FRAME, className)}>
       <div className="flex w-full flex-col gap-3 px-4 pb-4 pt-3 @2xl/survey:gap-4">
-        {row ? (
-          <PageHeader onBack={backFromForm} backLabel={`Back to ${survey.title}`} title={row.subject?.label ?? 'Your answers'} sub={survey.title} />
-        ) : (
-          <PageHeader onBack={leave} backLabel="Back" title={title} />
-        )}
+        <PageHeader onBack={leave} backLabel="Back" title={title} />
         {body}
       </div>
-      <DiscardChangesSheet open={Boolean(confirm)} onCancel={keepEditing} onConfirm={discard} onSave={saveForLater} />
+      <DiscardChangesSheet open={confirm} onCancel={() => { pendingLink.current = null; setConfirm(false); }} onConfirm={() => followOrLeave(false)} onSave={() => followOrLeave(true)} />
     </section>
   );
 }

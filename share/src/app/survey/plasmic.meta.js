@@ -59,7 +59,7 @@ export const surveyPageMeta = {
   importPath: './src/app/survey/components/SurveyPage',
   importName: 'SurveyPage',
   description:
-    "One survey on its own page — where a survey circle goes when Surveys has openInPlace off. No strip: Back + the survey's title, its tags and progress, its doctors or distributors (Add for Self-tag), and each one's form (every question type, file uploads, drafts on the device, Submit). Back from a form returns to the survey (asking first if answers are unsaved); Back from the survey fires onBack. Read and sent as the signed-in person.",
+    "One survey on its own page — where a survey circle goes when Surveys has openInPlace off. One page: Back + the survey's title, its progress, To do / Submitted / All tabs, that tab's doctors or distributors as tags (Add for Self-tag), and the picked one's questions right below (every question type, file uploads, drafts on the device, Submit, then the next one to do). Back leaves the survey (asking first if answers are unsaved) and fires onBack. Read and sent as the signed-in person.",
   props: {
     campaign: {
       type: 'string',

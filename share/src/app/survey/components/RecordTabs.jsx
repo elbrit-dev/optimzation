@@ -67,6 +67,13 @@ const ORDER = { new: 0, draft: 0, missed: 1, done: 2 };
 export function stripOrder(rows) {
   return (rows ?? []).map((r, i) => [r, i]).sort((a, b) => (ORDER[a[0].view] ?? 0) - (ORDER[b[0].view] ?? 0) || a[1] - b[1]).map((x) => x[0]);
 }
+/* The doctors / records a tab shows: To do (not sent yet), Submitted, All — in the strip's order. */
+export function rowsOfTab(rows, tab) {
+  const o = stripOrder(rows);
+  if (tab === 'done') return o.filter((r) => r.view === 'done');
+  if (tab === 'all') return o;
+  return o.filter((r) => r.view !== 'done');
+}
 /* The first one still to answer (in the strip's order), other than `except`; after `after` when it can. */
 export function nextToDo(rows, { except, after } = {}) {
   const todo = stripOrder(rows).filter((r) => (r.view === 'new' || r.view === 'draft') && r.response !== except);

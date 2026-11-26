@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { render, screen, waitFor } from '@testing-library/react';
+import { render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { SurveyHome } from '../components/SurveyHome';
 import { createSurveyApi } from '../api';
@@ -9,7 +9,7 @@ const home = <p>Home page content</p>;
 
 function setup(options = {}, props = {}) {
   const api = createSurveyApi({ source: 'mock', role: 'BE', delay: 0, ...options });
-  return render(<SurveyHome api={api} tiles={DEFAULT_RING_NAV_ITEMS} homeContent={home} today="2026-11-11" autoOpen={false} {...props} />);
+  return render(<SurveyHome api={api} tiles={DEFAULT_RING_NAV_ITEMS} homeContent={home} today="2026-11-11" {...props} />);
 }
 
 describe('SurveyHome — a circle per survey, home first', () => {
@@ -38,13 +38,11 @@ describe('SurveyHome — a circle per survey, home first', () => {
     expect(screen.queryByRole('navigation', { name: 'Shortcuts' })).toBeNull();
     expect(screen.queryByText('Home page content')).toBeNull();
 
-    /* A row opens its form, also without the strip; Back returns to the survey. */
-    await user.click(screen.getByRole('button', { name: /^Dr\. Joseph Prabhu/ }));
-    expect(await screen.findByRole('heading', { name: 'Dr. Joseph Prabhu' })).toBeTruthy();
+    /* One page: the first doctor to do is open under the tags; a tag shows another one right here. */
+    expect(await screen.findByRole('radio', { name: 'Ticagrelor' })).toBeTruthy();
+    await user.click(within(screen.getByRole('tablist', { name: 'Doctors' })).getByRole('tab', { name: /Meenakshi/ }));
+    expect(screen.getByRole('heading', { name: 'Rx audit — vascular range' })).toBeTruthy();
     expect(screen.queryByRole('navigation', { name: 'Shortcuts' })).toBeNull();
-    expect(screen.queryByText('Home page content')).toBeNull();
-    await user.click(screen.getByRole('button', { name: 'Back to Rx audit — vascular range' }));
-    expect(await screen.findByRole('heading', { name: 'Rx audit — vascular range' })).toBeTruthy();
 
     await user.click(screen.getByRole('button', { name: 'Back to home' }));
     expect(screen.getByRole('navigation', { name: 'Shortcuts' })).toBeTruthy();
@@ -56,23 +54,21 @@ describe('SurveyHome — a circle per survey, home first', () => {
     const user = userEvent.setup();
     setup();
     await user.click(await screen.findByRole('link', { name: /^Rx audit/ }));
-    await user.click(await screen.findByRole('button', { name: /^Dr\. Joseph Prabhu/ }));
     await user.click(await screen.findByRole('radio', { name: 'Ticagrelor' }));
-    await user.click(screen.getByRole('button', { name: 'Back to Rx audit — vascular range' }));
+    await user.click(screen.getByRole('button', { name: 'Back to home' }));
     expect(await screen.findByText('Leave this form?')).toBeTruthy();
   });
 
-  it('"Leave this form?" → Save for later keeps the answers on the device and returns to the survey', async () => {
+  it('"Leave this form?" → Save for later keeps the answers on the device and goes home', async () => {
     window.localStorage.clear();
     const user = userEvent.setup();
     setup();
     await user.click(await screen.findByRole('link', { name: /^Rx audit/ }));
-    await user.click(await screen.findByRole('button', { name: /^Dr\. Joseph Prabhu/ }));
     await user.click(await screen.findByRole('radio', { name: 'Ticagrelor' }));
-    await user.click(screen.getByRole('button', { name: 'Back to Rx audit — vascular range' }));
+    await user.click(screen.getByRole('button', { name: 'Back to home' }));
     await user.click(await screen.findByRole('button', { name: 'Save for later' }));
-    expect(await screen.findByRole('button', { name: /^Dr\. Joseph Prabhu.*Saved$/ })).toBeTruthy();
-    await user.click(screen.getByRole('button', { name: /^Dr\. Joseph Prabhu/ }));
+    expect(await screen.findByText('Home page content')).toBeTruthy();
+    await user.click(screen.getByRole('link', { name: /^Rx audit/ }));
     expect(await screen.findByRole('radio', { name: 'Ticagrelor', checked: true })).toBeTruthy();
     window.localStorage.clear();
   });

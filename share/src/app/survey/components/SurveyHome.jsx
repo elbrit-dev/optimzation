@@ -6,7 +6,7 @@ import RingNav from '@/app/ring-nav/components/RingNav';
 import { useUnsavedGuard } from '@/app/secondary-entry/components/useUnsavedGuard';
 import { createSurveyApi } from '../api';
 import { surveysFromMyList, rowState } from '../data/shape';
-import { nextToDo } from './RecordTabs';
+import { nextToDo, rowsOfTab } from './RecordTabs';
 import { SURVEY_TILE_PREFIX, surveyTiles, withSurveyTiles } from '../data/tiles';
 import { DEFAULT_REFRESH_MS, useErpTiles } from '@/app/ring-nav/data/useErpTiles';
 import { SurveyScreen } from './SurveyScreen';
@@ -68,8 +68,6 @@ export function SurveyHome({
      false: the circle is an ordinary link, like every other tile — it goes
      to <hrefBase>/<campaign>, the page with SurveyPage on it. */
   openInPlace = true,
-  /* 26 Nov 2026: a survey opens on its first doctor / record still to do (as SurveyPage). */
-  autoOpen = true,
   className,
 }) {
   const [tab, setTab] = useState('todo');
@@ -130,9 +128,11 @@ export function SurveyHome({
   const today = todayProp || list?.today || new Date().toISOString().slice(0, 10);
   const surveys = useMemo(() => (list ? surveysFromMyList(list) : []), [list]);
   const survey = surveys.find((s) => s.campaign === view.campaign) ?? null;
-  const row = survey?.rows.find((r) => r.response === view.response) ?? null;
-  const viewRows = (s) => (s ? s.rows.map((r) => ({ ...r, view: rowState(r, drafts) })) : []);
-  const rowsView = useMemo(() => viewRows(survey), [survey, drafts]); // eslint-disable-line react-hooks/exhaustive-deps
+  /* 26 Nov 2026 · one page per survey (as SurveyPage): the tab's doctors as tags, the picked one's questions below */
+  const rowsView = useMemo(() => (survey ? survey.rows.map((r) => ({ ...r, view: rowState(r, drafts) })) : []), [survey, drafts]);
+  const tabRows = useMemo(() => rowsOfTab(rowsView, tab), [rowsView, tab]);
+  const pickedRow = tabRows.find((r) => r.response === view.response) ?? tabRows[0] ?? null;
+  const row = pickedRow ? survey.rows.find((r) => r.response === pickedRow.response) ?? null : null;
   /* No `tiles` given (the app's page): the usual ERP tiles, loaded as Ring
      Nav loads them — the same hook, as the signed-in person. */
   const erpTiles = useErpTiles({ enabled: tiles == null && source === 'erp' && !apiProp, gqlEnvironment, gqlToken, today: todayProp, refreshEvery });
@@ -168,7 +168,6 @@ export function SurveyHome({
     const sc = scroller(rootRef.current);
     if (next.campaign && sc && rootRef.current) sc.scrollTop = Math.min(sc.scrollTop, rootRef.current.offsetTop);
   }, []);
-  const toSurvey = useCallback(() => go({ campaign: view.campaign, response: null }), [go, view.campaign]);
   const toHome = useCallback(() => setView({ campaign: null, response: null }), []);
   const onHome = !view.campaign;
   useLayoutEffect(() => {
@@ -180,13 +179,21 @@ export function SurveyHome({
     const strip = rootRef.current?.querySelector('nav');
     if (strip) strip.scrollLeft = at.left;
   }, [onHome]);
-  const guard = useUnsavedGuard({ dirty: dirty && view.response != null, onBack: toSurvey });
+  const guard = useUnsavedGuard({ dirty: dirty && row != null, onBack: toHome });
   /* The open form's answers as they are now: "Leave this form?" → Save for
      later keeps them on this device, then leaves as Discard does. */
   const answersRef = useRef(null);
   const saveForLater = () => {
-    if (view.response && answersRef.current) setDraft(view.response, answersRef.current);
+    if (row && answersRef.current) setDraft(row.response, answersRef.current);
     guard.confirm();
+  };
+  /* moving to another doctor / tab with unsent answers: they are kept on this device */
+  const keepUnsent = () => {
+    if (row && dirty && answersRef.current) {
+      setDraft(row.response, answersRef.current);
+      say('Your unsent answers were saved for later on this device.');
+    }
+    setDirty(false);
   };
 
   /* A survey's circle opens that survey, wherever the person is — or, with
@@ -197,10 +204,8 @@ export function SurveyHome({
     const campaign = decodeURIComponent(href.split('/').pop());
     guard.request(() => {
       if (!view.campaign) leaveHome();
-      const s = surveys.find((x) => x.campaign === campaign);
-      const first = autoOpen && s && s.kind !== 'announcement' && s.open !== false ? nextToDo(viewRows(s)) : null;
       setTab('todo');
-      go({ campaign, response: first ? first.response : null });
+      go({ campaign, response: null });
       load();
     });
   };
@@ -219,15 +224,10 @@ export function SurveyHome({
         </div>
       ) : survey ? (
         <div className="flex w-full flex-col gap-3 px-4 pb-4 pt-3 @2xl/survey:gap-4">
-          {row ? (
-            <PageHeader onBack={() => guard.request(toSurvey)} backLabel={`Back to ${survey.title}`} title={row.subject?.label ?? 'Your answers'} sub={survey.title} />
-          ) : (
-            <PageHeader onBack={toHome} backLabel="Back to home" title={survey.title} />
-          )}
+          <PageHeader onBack={() => guard.request(toHome)} backLabel="Back to home" title={survey.title} />
           <SurveyScreen
             survey={survey}
             today={today}
-            me={list.me}
             drafts={drafts}
             api={api}
             tab={tab}
@@ -235,15 +235,14 @@ export function SurveyHome({
             onChanged={load}
             openResponse={row ? row.response : null}
             onTab={(k) => {
-              if (!row) setTab(k);
-              else guard.request(() => {
-                setTab(k);
-                toSurvey();
-              });
+              if (k === tab) return;
+              keepUnsent();
+              setTab(k);
+              go({ campaign: survey.campaign, response: null });
             }}
             onOpenRow={(response) => {
-              if (row && dirty && answersRef.current) setDraft(row.response, answersRef.current);
-              setDirty(false);
+              if (row && response === row.response) return;
+              keepUnsent();
               go({ campaign: survey.campaign, response });
             }}
             form={
@@ -256,7 +255,7 @@ export function SurveyHome({
                   draft={drafts[row.response] ?? null}
                   api={api}
                   bottomGap={bottomGap}
-                  onBack={() => guard.request(toSurvey)}
+                  onBack={() => guard.request(toHome)}
                   onDraft={(answers) => setDraft(row.response, answers)}
                   onDirtyChange={setDirty}
                   onAnswersChange={(answers) => {
@@ -270,11 +269,12 @@ export function SurveyHome({
                     setDirty(false);
                     if (next) {
                       say(`${who ? `Sent for ${who}` : 'Sent'}. Next: ${next.subject?.label ?? 'the next one'}.`);
+                      setTab('todo');
                       go({ campaign: survey.campaign, response: next.response });
                     } else {
                       say(`${who ? `Sent for ${who}. ` : ''}All submitted — thank you.`);
                       setTab('done');
-                      go({ campaign: survey.campaign, response: null });
+                      go({ campaign: survey.campaign, response: sent.response });
                     }
                     return true;
                   }}
