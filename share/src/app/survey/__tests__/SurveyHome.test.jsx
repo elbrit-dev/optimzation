@@ -9,7 +9,7 @@ const home = <p>Home page content</p>;
 
 function setup(options = {}, props = {}) {
   const api = createSurveyApi({ source: 'mock', role: 'BE', delay: 0, ...options });
-  return render(<SurveyHome api={api} tiles={DEFAULT_RING_NAV_ITEMS} homeContent={home} today="2026-11-11" {...props} />);
+  return render(<SurveyHome api={api} tiles={DEFAULT_RING_NAV_ITEMS} homeContent={home} today="2026-11-11" autoOpen={false} {...props} />);
 }
 
 describe('SurveyHome — a circle per survey, home first', () => {
@@ -40,7 +40,7 @@ describe('SurveyHome — a circle per survey, home first', () => {
 
     /* A row opens its form, also without the strip; Back returns to the survey. */
     await user.click(screen.getByRole('button', { name: /^Dr\. Joseph Prabhu/ }));
-    expect(await screen.findByRole('heading', { name: /Rx audit.*Dr\. Joseph Prabhu/ })).toBeTruthy();
+    expect(await screen.findByRole('heading', { name: 'Dr. Joseph Prabhu' })).toBeTruthy();
     expect(screen.queryByRole('navigation', { name: 'Shortcuts' })).toBeNull();
     expect(screen.queryByText('Home page content')).toBeNull();
     await user.click(screen.getByRole('button', { name: 'Back to Rx audit — vascular range' }));

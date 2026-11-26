@@ -61,6 +61,21 @@ export function StateBar({ rows, size = 'md', position, className }) {
   );
 }
 
+/* 26 Nov 2026 · the strip's order: what is left to do first (as head office listed it), then the missed
+   ones, the submitted (green) ones last. Each row keeps its place in its group. */
+const ORDER = { new: 0, draft: 0, missed: 1, done: 2 };
+export function stripOrder(rows) {
+  return (rows ?? []).map((r, i) => [r, i]).sort((a, b) => (ORDER[a[0].view] ?? 0) - (ORDER[b[0].view] ?? 0) || a[1] - b[1]).map((x) => x[0]);
+}
+/* The first one still to answer (in the strip's order), other than `except`; after `after` when it can. */
+export function nextToDo(rows, { except, after } = {}) {
+  const todo = stripOrder(rows).filter((r) => (r.view === 'new' || r.view === 'draft') && r.response !== except);
+  if (!todo.length) return null;
+  const all = stripOrder(rows);
+  const at = after ? all.findIndex((r) => r.response === after) : -1;
+  return (at >= 0 ? todo.find((r) => all.indexOf(r) > at) : null) ?? todo[0];
+}
+
 /* A chip's name: "Dr A Upadhyay" → "A Upadhyay" (initials alone say nothing); "Dr Arvind Kumar" → "Arvind",
    or "Arvind K" when another row starts with the same first name. */
 function chipNames(rows) {

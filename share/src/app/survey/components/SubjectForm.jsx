@@ -3,11 +3,10 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { Button, Card, Icon, ProgressBar } from '@/design-system';
 import { PinnedBar, PinnedBarSpacer } from '@/app/secondary-entry/components/PinnedBar';
-import { formProblems, isEmpty, shortDate, shortName, targetOf, toPayload } from '../data/shape';
+import { formProblems, isEmpty, shortDate, shortName, toPayload } from '../data/shape';
 import { filledQuestions } from '../data/view';
 import { SubjectCard } from './SubjectCard';
 import { QuestionCard } from './QuestionCard';
-import { RecordTabs } from './RecordTabs';
 import { SurveyView } from './SurveyView';
 
 /* the longest a rep waits for the AI read of a file (the server finishes it anyway) */
@@ -99,9 +98,13 @@ export function SubjectForm({ survey, row, rows, me, draft, api, onBack, onDraft
     try {
       await api.submitResponse(row.response, toPayload(questions, answers));
       onDraft(null);
-      setSent(true);
-      onSubmitted?.(row);
-      rootRef.current?.scrollIntoView?.({ block: 'start' });
+      setBaseline(JSON.stringify(answers));
+      /* 26 Nov 2026: the page opens the next one still to do (returns true) — no "Submitted" page in between */
+      const moved = onSubmitted?.(row);
+      if (!moved) {
+        setSent(true);
+        rootRef.current?.scrollIntoView?.({ block: 'start' });
+      }
     } catch (e) {
       setError(e?.message || 'Could not send. Try again.');
     } finally {
@@ -132,16 +135,7 @@ export function SubjectForm({ survey, row, rows, me, draft, api, onBack, onDraft
 
   return (
     <div ref={rootRef} className="flex flex-col gap-3">
-      {/* The survey's doctors / records as tabs (Support Approval's strip): a chip opens that one's form. */}
-      <RecordTabs
-        rows={rows}
-        value={row.response}
-        ariaLabel={targetOf(survey.target, survey.about).Many}
-        noun={((o) => o.charAt(0).toUpperCase() + o.slice(1))(targetOf(survey.target, survey.about).one)}
-        onChange={(next) => {
-          if (next !== row.response) onSwitchRow?.(next, dirty ? answers : null);
-        }}
-      />
+      {/* 26 Nov 2026: the doctors / records strip and the progress are the survey's (SurveyScreen), above this form. */}
       <SubjectCard subject={row.subject} me={me} state={row.state === 'todo' ? (draft ? 'draft' : 'new') : row.state} />
       <SurveyView survey={survey} row={row} />
 

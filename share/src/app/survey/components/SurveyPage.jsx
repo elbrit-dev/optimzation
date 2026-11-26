@@ -5,8 +5,9 @@ import Router from 'next/router';
 import { Button, Icon, cx } from '@/design-system';
 import { holdBase } from '@/components/BackGuard';
 import { createSurveyApi } from '../api';
-import { rowState, shortName, surveysFromMyList } from '../data/shape';
+import { rowState, surveysFromMyList } from '../data/shape';
 import { SurveyScreen } from './SurveyScreen';
+import { nextToDo } from './RecordTabs';
 import { SubjectForm } from './SubjectForm';
 import { DiscardChangesSheet, PageHeader, readDrafts, scroller, writeDrafts } from './parts';
 import { MapReview } from './MapReview';
@@ -178,9 +179,21 @@ function OneSurveyPage({
   today: todayProp,
   bottomGap = 'var(--space-12)',
   onBack,
+  /* 26 Nov 2026: the survey opens straight on the first doctor / record still to do (its form);
+     the lists are under the To do / Submitted tabs. false: it opens on the To do list. */
+  autoOpen = true,
   className,
 }) {
   const campaign = decodeCampaign(campaignProp);
+  const [tab, setTab] = useState('todo');
+  const [notice, setNotice] = useState(null);
+  const noticeTimer = useRef(null);
+  const say = useCallback((text) => {
+    setNotice(text);
+    window.clearTimeout(noticeTimer.current);
+    noticeTimer.current = window.setTimeout(() => setNotice(null), 4000);
+  }, []);
+  useEffect(() => () => window.clearTimeout(noticeTimer.current), []);
   const signedIn = Boolean(apiProp) || source !== 'erp' || Boolean(String(gqlToken ?? '').trim());
   const api = useMemo(
     () => apiProp ?? createSurveyApi({ source, gqlEnvironment, gqlToken, strictEnvironment: true }),
@@ -235,6 +248,7 @@ function OneSurveyPage({
   const surveys = useMemo(() => (list ? surveysFromMyList(list) : []), [list]);
   const survey = surveys.find((s) => s.campaign === campaign) ?? null;
   const row = survey?.rows.find((r) => r.response === response) ?? null;
+  const rowsView = useMemo(() => (survey ? survey.rows.map((r) => ({ ...r, view: rowState(r, drafts) })) : []), [survey, drafts]);
 
   const setDraft = (key, answers) =>
     setDrafts((prev) => {
@@ -334,7 +348,19 @@ function OneSurveyPage({
     if (!list || resolvedLink.current || typeof window === 'undefined') return;
     resolvedLink.current = true;
     const r = rowInUrl();
-    if (!r) return;
+    if (!r) {
+      /* 26 Nov 2026: no ?r= — open the first one still to do, with the survey's entry under it (Back → the To do list) */
+      const first = autoOpen && survey && survey.kind !== 'announcement' && survey.open !== false ? nextToDo(rowsView) : null;
+      if (first) {
+        pathRef.current = window.location.pathname;
+        show(first.response);
+        navigate(async () => {
+          await replaceWithSurvey();
+          await pushForm(first.response);
+        });
+      }
+      return;
+    }
     pathRef.current = window.location.pathname;
     if (survey?.rows.some((x) => x.response === r)) {
       show(r);
@@ -346,7 +372,7 @@ function OneSurveyPage({
     } else {
       navigate(replaceWithSurvey);
     }
-  }, [list, survey, show, navigate]);
+  }, [list, survey, rowsView, autoOpen, show, navigate]);
 
   /* Back from a form is a history back — exactly what the phone's back does. */
   const goBackFromForm = useCallback(() => {
@@ -469,34 +495,69 @@ function OneSurveyPage({
       </Notice>
     );
   } else if (row) {
+    /* Another doctor / record in the same place (the strip, or the next one after Submit): its unsent answers kept on this device. */
+    const switchRow = (next, unsent) => {
+      if (unsent) setDraft(row.response, unsent);
+      show(next);
+      navigate(async () => {
+        const router = nextRouter();
+        const as = urlWithRow(next);
+        if (router) await router.replace(as, undefined, { shallow: true, scroll: false });
+        else window.history.replaceState({ [ROW_STATE]: next }, '', as);
+        rememberFormEntry();
+      });
+    };
+    /* A tab (or History) leaves the form for that list — asking first when answers are unsaved. */
+    const toList = (k) => {
+      setTab(k);
+      backFromForm();
+    };
     body = (
-      <SubjectForm
-        key={row.response}
+      <SurveyScreen
         survey={survey}
-        row={row}
-        me={list.me?.full_name}
-        draft={drafts[row.response] ?? null}
+        today={today}
+        me={list.me}
+        drafts={drafts}
         api={api}
-        bottomGap={bottomGap}
-        onBack={backFromForm}
-        onDraft={(answers) => setDraft(row.response, answers)}
-        onDirtyChange={setDirty}
-        onAnswersChange={(answers) => {
-          answersRef.current = answers;
-        }}
-        onSubmitted={load}
-        rows={survey.rows.map((r) => ({ ...r, view: rowState(r, drafts) }))}
-        onSwitchRow={(next, unsent) => {
-          if (unsent) setDraft(row.response, unsent);
-          show(next);
-          navigate(async () => {
-            const router = nextRouter();
-            const as = urlWithRow(next);
-            if (router) await router.replace(as, undefined, { shallow: true, scroll: false });
-            else window.history.replaceState({ [ROW_STATE]: next }, '', as);
-            rememberFormEntry();
-          });
-        }}
+        tab={tab}
+        onTab={toList}
+        notice={notice}
+        openResponse={row.response}
+        onOpenRow={(next) => switchRow(next, dirty && answersRef.current ? answersRef.current : null)}
+        onChanged={load}
+        form={
+          <SubjectForm
+            key={row.response}
+            survey={survey}
+            row={row}
+            me={list.me?.full_name}
+            draft={drafts[row.response] ?? null}
+            api={api}
+            bottomGap={bottomGap}
+            onBack={backFromForm}
+            onDraft={(answers) => setDraft(row.response, answers)}
+            onDirtyChange={setDirty}
+            onAnswersChange={(answers) => {
+              answersRef.current = answers;
+            }}
+            onSubmitted={(sent) => {
+              /* 26 Nov 2026: straight on to the next one still to do; none left → the Submitted list */
+              const next = nextToDo(rowsView, { except: sent.response, after: sent.response });
+              const who = sent.subject?.label;
+              load();
+              if (next) {
+                say(`${who ? `Sent for ${who}` : 'Sent'}. Next: ${next.subject?.label ?? 'the next one'}.`);
+                switchRow(next.response, null);
+              } else {
+                say(`${who ? `Sent for ${who}. ` : ''}All submitted — thank you.`);
+                setTab('done');
+                allowLeave.current = true;
+                goBackFromForm();
+              }
+              return true;
+            }}
+          />
+        }
       />
     );
   } else {
@@ -507,6 +568,9 @@ function OneSurveyPage({
         me={list.me}
         drafts={drafts}
         api={api}
+        tab={tab}
+        onTab={setTab}
+        notice={notice}
         onOpenRow={(next) => open(next)}
         onChanged={load}
       />
@@ -517,7 +581,7 @@ function OneSurveyPage({
     <section ref={rootRef} className={cx('@container/survey flex w-full scroll-mt-3 flex-col', INSIDE_FRAME, className)}>
       <div className="flex w-full flex-col gap-3 px-4 pb-4 pt-3 @2xl/survey:gap-4">
         {row ? (
-          <PageHeader onBack={backFromForm} backLabel={`Back to ${survey.title}`} title={row.subject?.label ?? 'Your answers'} parent={shortName(survey.title)} />
+          <PageHeader onBack={backFromForm} backLabel={`Back to ${survey.title}`} title={row.subject?.label ?? 'Your answers'} sub={survey.title} />
         ) : (
           <PageHeader onBack={leave} backLabel="Back" title={title} />
         )}

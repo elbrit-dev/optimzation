@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { act, render, screen, waitFor, within } from '@testing-library/react';
+import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { SurveyPage } from '../components/SurveyPage';
 import { createSurveyApi } from '../api';
@@ -14,7 +14,7 @@ const NOT_SENT_TO_BE = 'SC-2026-0035'; // Field app feedback: ABM / RBM only
 function setup(props = {}, options = {}) {
   const api = createSurveyApi({ source: 'mock', role: 'BE', delay: 0, ...options });
   const onBack = vi.fn();
-  const utils = render(<SurveyPage api={api} campaign={RX} today="2026-11-11" onBack={onBack} {...props} />);
+  const utils = render(<SurveyPage api={api} campaign={RX} today="2026-11-11" onBack={onBack} autoOpen={false} {...props} />);
   return { ...utils, onBack };
 }
 
@@ -39,7 +39,7 @@ describe('SurveyPage — one survey, its own page', () => {
     const user = userEvent.setup();
     const { onBack } = setup();
     await user.click(await screen.findByRole('button', { name: /^Dr\. Joseph Prabhu/ }));
-    expect(await screen.findByRole('heading', { name: /Rx audit.*Dr\. Joseph Prabhu/ })).toBeTruthy();
+    expect(await screen.findByRole('heading', { name: 'Dr. Joseph Prabhu' })).toBeTruthy();
     await user.click(screen.getByRole('button', { name: 'Back to Rx audit — vascular range' }));
     expect(await screen.findByRole('heading', { name: 'Rx audit — vascular range' })).toBeTruthy();
     expect(screen.getByRole('button', { name: /^Dr\. Joseph Prabhu/ })).toBeTruthy();
@@ -123,7 +123,7 @@ describe('SurveyPage — the ERP it calls', () => {
 
 describe('SurveyPage — the phone’s / browser’s back works like the in-page ←', () => {
   const PRABHU = /^Dr\. Joseph Prabhu/;
-  const FORM = { name: /Rx audit.*Dr\. Joseph Prabhu/ };
+  const FORM = { name: 'Dr. Joseph Prabhu' };
   const SURVEY = { name: 'Rx audit — vascular range' };
 
   async function responseOf(label) {
@@ -243,7 +243,7 @@ describe('SurveyPage — the phone’s / browser’s back works like the in-page
 
 describe('SurveyPage — "Leave this form?": Save for later, Discard, Keep editing', () => {
   const PRABHU = /^Dr\. Joseph Prabhu/;
-  const FORM = { name: /Rx audit.*Dr\. Joseph Prabhu/ };
+  const FORM = { name: 'Dr. Joseph Prabhu' };
   const SURVEY = { name: 'Rx audit — vascular range' };
   const BACK = { name: 'Back to Rx audit — vascular range' };
   const row = () => new URLSearchParams(window.location.search).get('r');
@@ -267,7 +267,7 @@ describe('SurveyPage — "Leave this form?": Save for later, Discard, Keep editi
       expect(await screen.findByRole('heading', SURVEY)).toBeTruthy();
       await waitFor(() => expect(row()).toBeNull());
       expect(screen.getByRole('button', { name: /^Dr\. Joseph Prabhu.*Saved$/ })).toBeTruthy();
-      expect(within(screen.getByLabelText(/^Filter /)).getByText(/^Saved/)).toBeTruthy(); // the filter chip
+      expect(within(screen.getByRole('tablist', { name: /to do or submitted/ })).getByRole('tab', { name: /^To do/ })).toBeTruthy(); // the To do tab
       await user.click(screen.getByRole('button', { name: PRABHU }));
       expect(await screen.findByRole('radio', { name: 'Ticagrelor', checked: true })).toBeTruthy();
     });
@@ -305,5 +305,59 @@ describe('SurveyPage — "Leave this form?": Save for later, Discard, Keep editi
     expect(await screen.findByRole('heading', SURVEY)).toBeTruthy();
     expect(screen.queryByText('Leave this form?')).toBeNull();
     expect(screen.getByRole('button', { name: /^Dr\. Joseph Prabhu.*Saved$/ })).toBeTruthy();
+  });
+});
+
+describe('SurveyPage — 26 Nov 2026: opens on the first one to do; To do / Submitted tabs; the next one after Submit', () => {
+  const openSurvey = () => {
+    const api = createSurveyApi({ source: 'mock', role: 'BE', delay: 0 });
+    return render(<SurveyPage api={api} campaign={RX} today="2026-11-11" onBack={vi.fn()} />);
+  };
+  const doctorStrip = () => screen.getAllByRole('tablist').find((t) => !/to do or submitted/.test(t.getAttribute('aria-label') || ''));
+
+  it('opens straight on the first doctor still to do — no Doctors / Pre-tag tags; progress with History; To do then Submitted', async () => {
+    openSurvey();
+    expect(await screen.findByRole('heading', { name: 'Dr. Joseph Prabhu' })).toBeTruthy();
+    expect(screen.getAllByText('Rx audit — vascular range').length).toBeGreaterThan(0); // the survey, under the doctor's name
+    expect(screen.queryByText('Pre-tag')).toBeNull();
+    const tabs = within(screen.getByRole('tablist', { name: /to do or submitted/ })).getAllByRole('tab');
+    expect(tabs.map((t) => t.textContent)).toEqual(['To do · 3', 'Submitted · 1']);
+    expect(tabs.every((t) => t.getAttribute('aria-selected') === 'false')).toBe(true); // a form is open: no tab picked
+    expect(screen.getByRole('button', { name: /^History/ })).toBeTruthy();
+    /* the strip: still to do first, the submitted one last */
+    expect(within(doctorStrip()).getAllByRole('tab').map((t) => t.getAttribute('title'))).toEqual([
+      'Dr. Joseph Prabhu', 'Dr. Meenakshi Sundar', 'Dr. Arul Selvan', 'Dr. Anitha Rajan',
+    ]);
+  });
+
+  it('the To do tab lists the ones left, Submitted (and History) the ones sent', async () => {
+    const user = userEvent.setup();
+    openSurvey();
+    await screen.findByRole('heading', { name: 'Dr. Joseph Prabhu' });
+    await user.click(screen.getByRole('tab', { name: /^Submitted/ }));
+    expect(await screen.findByRole('heading', { name: 'Rx audit — vascular range' })).toBeTruthy();
+    expect(screen.getByRole('button', { name: /^Dr\. Anitha Rajan/ })).toBeTruthy();
+    expect(screen.queryByRole('button', { name: /^Dr\. Joseph Prabhu/ })).toBeNull();
+    await user.click(screen.getByRole('tab', { name: /^To do/ }));
+    expect(screen.getByRole('button', { name: /^Dr\. Joseph Prabhu/ })).toBeTruthy();
+    expect(screen.queryByRole('button', { name: /^Dr\. Anitha Rajan/ })).toBeNull();
+    await user.click(screen.getByRole('button', { name: /^History/ }));
+    expect(screen.getByRole('button', { name: /^Dr\. Anitha Rajan/ })).toBeTruthy();
+  });
+
+  it('Submit sends and opens the next one still to do — no "Submitted" page in between', async () => {
+    const user = userEvent.setup();
+    openSurvey();
+    await screen.findByRole('heading', { name: 'Dr. Joseph Prabhu' });
+    await user.click(screen.getByRole('radio', { name: 'Ticagrelor' }));
+    await user.click(screen.getByRole('radio', { name: '3' }));
+    await user.type(screen.getByRole('textbox', { name: 'New patients started on a statin, per week' }), '4');
+    await user.click(screen.getByRole('radio', { name: '4 stars' }));
+    fireEvent.change(screen.getByLabelText('Date of the visit'), { target: { value: '2026-11-11' } });
+    await user.click(screen.getByRole('button', { name: 'Submit' }));
+    expect(await screen.findByRole('heading', { name: 'Dr. Meenakshi Sundar' })).toBeTruthy();
+    expect(screen.getByText('Sent for Dr. Joseph Prabhu. Next: Dr. Meenakshi Sundar.')).toBeTruthy();
+    expect(screen.queryByRole('heading', { name: 'Submitted' })).toBeNull();
+    await waitFor(() => expect(within(screen.getByRole('tablist', { name: /to do or submitted/ })).getAllByRole('tab').map((t) => t.textContent)).toEqual(['To do · 2', 'Submitted · 2']));
   });
 });

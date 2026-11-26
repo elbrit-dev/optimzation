@@ -8,7 +8,26 @@ import { Button, Icon, Sheet } from '@/design-system';
 /* The task page's top bar — Secondary Entry's header: a bare chevron flush
    with the content edge (no box; lighter on hover, brand on press), the
    title beside it. A form's title leads with its survey, "S2 › D1". */
-export function PageHeader({ onBack, backLabel, title, parent }) {
+export function PageHeader({ onBack, backLabel, title, parent, sub }) {
+  /* 26 Nov 2026 · a form: the doctor's / record's name, the survey's under it (`sub`) — not "Doctor › Dr A" */
+  if (sub) {
+    return (
+      <header className="flex items-center gap-2">
+        <button
+          type="button"
+          onClick={onBack}
+          aria-label={backLabel}
+          className="flex shrink-0 items-center text-heading transition-colors hover:text-brand-hover active:text-brand"
+        >
+          <Icon name="chevron-left" />
+        </button>
+        <div className="flex min-w-0 flex-1 flex-col">
+          <h1 className="min-w-0 truncate text-16 font-semibold text-heading @2xl/survey:text-20">{title}</h1>
+          <p className="min-w-0 truncate text-11 text-ds-muted">{sub}</p>
+        </div>
+      </header>
+    );
+  }
   return (
     <header className="flex items-center gap-2">
       <button
