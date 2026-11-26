@@ -234,7 +234,13 @@ export function SurveyHome({
         </div>
       ) : survey ? (
         <div className="flex w-full flex-col gap-3 px-4 pb-4 pt-3 @2xl/survey:gap-4">
-          <PageHeader onBack={() => guard.request(toHome)} backLabel="Back to home" title={survey.title} />
+          {/* 26 Nov 2026 · Survey Studio: "Survey › Dr name" when a doctor / record of several is open */}
+          <PageHeader
+            onBack={() => guard.request(toHome)}
+            backLabel="Back to home"
+            parent={row?.subject && survey.rows.length >= 2 ? survey.title : undefined}
+            title={row?.subject && survey.rows.length >= 2 ? row.subject.label : survey.title}
+          />
           <SurveyScreen
             survey={survey}
             today={today}

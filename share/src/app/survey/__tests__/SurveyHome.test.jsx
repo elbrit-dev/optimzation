@@ -34,14 +34,14 @@ describe('SurveyHome — a circle per survey, home first', () => {
     const user = userEvent.setup();
     setup();
     await user.click(await screen.findByRole('link', { name: /^Rx audit/ }));
-    expect(await screen.findByRole('heading', { name: 'Rx audit — vascular range' })).toBeTruthy();
+    expect(await screen.findByRole('heading', { name: /^Rx audit — vascular range/ })).toBeTruthy();
     expect(screen.queryByRole('navigation', { name: 'Shortcuts' })).toBeNull();
     expect(screen.queryByText('Home page content')).toBeNull();
 
     /* One page: the first doctor to do is open under the tags; a tag shows another one right here. */
     expect(await screen.findByRole('radio', { name: 'Ticagrelor' })).toBeTruthy();
-    await user.click(within(screen.getByRole('tablist', { name: 'Doctors' })).getByRole('tab', { name: /Meenakshi/ }));
-    expect(screen.getByRole('heading', { name: 'Rx audit — vascular range' })).toBeTruthy();
+    await user.click(within(screen.getByRole('tablist', { name: /^Doctors: / })).getByRole('tab', { name: /Meenakshi/ }));
+    expect(screen.getByRole('heading', { name: /^Rx audit — vascular range/ })).toBeTruthy();
     expect(screen.queryByRole('navigation', { name: 'Shortcuts' })).toBeNull();
 
     await user.click(screen.getByRole('button', { name: 'Back to home' }));
@@ -95,7 +95,7 @@ describe('SurveyHome — the Home content slot and the strip props', () => {
     await screen.findByRole('link', { name: /^Rx audit/ });
     expect(screen.getByText('Home page content')).toBeTruthy();
     await user.click(screen.getByRole('link', { name: /^Rx audit/ }));
-    expect(await screen.findByRole('heading', { name: 'Rx audit — vascular range' })).toBeTruthy();
+    expect(await screen.findByRole('heading', { name: /^Rx audit — vascular range/ })).toBeTruthy();
     expect(screen.queryByText('Home page content')).toBeNull();
     expect(screen.queryByRole('navigation')).toBeNull();
     await user.click(screen.getByRole('button', { name: 'Back to home' }));
@@ -138,7 +138,7 @@ describe('SurveyHome — openInPlace', () => {
     await user.click(await screen.findByRole('link', { name: /^Rx audit/ }));
     clicks.stop();
     expect(clicks.seen).toEqual([true]);
-    expect(await screen.findByRole('heading', { name: 'Rx audit — vascular range' })).toBeTruthy();
+    expect(await screen.findByRole('heading', { name: /^Rx audit — vascular range/ })).toBeTruthy();
   });
 
   it('off: a circle is an ordinary link to /survey/<campaign> — nothing opens in place', async () => {
@@ -151,7 +151,7 @@ describe('SurveyHome — openInPlace', () => {
     clicks.stop();
     expect(clicks.seen).toEqual([false]);
     await new Promise((r) => setTimeout(r, 20));
-    expect(screen.queryByRole('heading', { name: 'Rx audit — vascular range' })).toBeNull();
+    expect(screen.queryByRole('heading', { name: /^Rx audit — vascular range/ })).toBeNull();
     expect(screen.getByRole('navigation', { name: 'Shortcuts' })).toBeTruthy();
     expect(screen.getByText('Home page content')).toBeTruthy();
   });

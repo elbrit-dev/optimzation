@@ -6,13 +6,13 @@ import { createSurveyApi } from '../api';
 import { surveysFromMyList } from '../data/shape';
 import { getEndpointConfigFromUrlKeyAsync } from '@/app/graphql-playground/constants';
 
-/* SurveyPage — one survey on ONE page (/survey/<campaign>), 26 Nov 2026:
-   ← title · progress · [To do] [Submitted] [All] · that tab's doctors as tags · the picked doctor's questions.
-   A tag shows that doctor right here; Back leaves the survey. */
+/* SurveyPage — one survey on ONE page (/survey/<campaign>), 26 Nov 2026 — Survey Studio layout:
+   ← Survey › Dr name · "N of M doctors done" + History · N · the doctors still to do as tags (+ Done · N) ·
+   the picked doctor's questions. History shows the submitted ones. A tag shows that doctor right here; Back leaves. */
 
 const RX = 'SC-2026-0031'; // Rx audit — vascular range, sent to BE: Anitha (submitted), Prabhu, Meenakshi, Arul (to do)
 const NOT_SENT_TO_BE = 'SC-2026-0035'; // Field app feedback: ABM / RBM only
-const SURVEY = { name: 'Rx audit — vascular range' };
+const SURVEY = { name: /^Rx audit — vascular range/ };
 
 function setup(props = {}, options = {}) {
   const api = createSurveyApi({ source: 'mock', role: 'BE', delay: 0, ...options });
@@ -25,8 +25,9 @@ async function responseOf(label) {
   return surveysFromMyList(list).find((s) => s.campaign === RX).rows.find((r) => r.subject?.label === label).response;
 }
 const row = () => new URLSearchParams(window.location.search).get('r');
-const tabsRow = () => screen.getByRole('tablist', { name: /to do, submitted or all/ });
-const doctorTags = () => screen.getByRole('tablist', { name: 'Doctors' });
+const history = () => screen.getByRole('button', { name: /^History, \d+ done$/ });
+const header = () => screen.getByRole('heading', SURVEY).textContent;
+const doctorTags = () => screen.getByRole('tablist', { name: /^Doctors: / });
 const tagTitles = () => within(doctorTags()).getAllByRole('tab').map((t) => t.getAttribute('title'));
 const pickedTag = () => within(doctorTags()).getAllByRole('tab').find((t) => t.getAttribute('aria-selected') === 'true')?.getAttribute('title');
 
@@ -40,18 +41,20 @@ afterEach(() => {
 });
 
 describe('SurveyPage — one page per survey', () => {
-  it('opens on To do with its first doctor: the survey’s title, the tabs, the doctors as tags, that doctor’s questions', async () => {
+  it('opens on its first doctor to do: "Survey › Dr name", N of M done with History, the doctors to do as tags, that doctor’s questions', async () => {
     const prabhu = await responseOf('Dr. Joseph Prabhu');
     setup();
     expect(await screen.findByRole('heading', SURVEY)).toBeTruthy();
     await waitFor(() => expect(pickedTag()).toBe('Dr. Joseph Prabhu'));
-    const tabs = within(tabsRow()).getAllByRole('tab');
-    expect(tabs.map((t) => t.textContent)).toEqual(['To do · 3', 'Submitted · 1', 'All · 4']);
-    expect(tabs[0].getAttribute('aria-selected')).toBe('true');
+    expect(header()).toBe('Rx audit — vascular rangeDr. Joseph Prabhu'); // "Survey › Dr name" (the › is an icon)
+    expect(history().textContent).toBe('History · 1');
+    expect(history().getAttribute('aria-pressed')).toBe('false');
+    expect(screen.getByText(/of 4 doctors done/)).toBeTruthy();
+    expect(screen.getByText('3 to do · next: Dr. Meenakshi Sundar')).toBeTruthy();
     expect(tagTitles()).toEqual(['Dr. Joseph Prabhu', 'Dr. Meenakshi Sundar', 'Dr. Arul Selvan']);
+    expect(screen.getByRole('button', { name: /^Done · 1$/ })).toBeTruthy();
     expect(screen.getByRole('radio', { name: 'Ticagrelor' })).toBeTruthy(); // the doctor's questions, on this page
     expect(screen.queryByText('Pre-tag')).toBeNull();
-    expect(screen.queryByRole('heading', { name: 'Dr. Joseph Prabhu' })).toBeNull(); // no page of its own
     expect(screen.queryByRole('navigation')).toBeNull();
     await waitFor(() => expect(row()).toBe(prabhu));
   });
@@ -64,19 +67,21 @@ describe('SurveyPage — one page per survey', () => {
     const before = window.history.length;
     await user.click(within(doctorTags()).getByRole('tab', { name: /Meenakshi/ }));
     expect(pickedTag()).toBe('Dr. Meenakshi Sundar');
-    expect(screen.getByRole('heading', SURVEY)).toBeTruthy();
+    expect(header()).toBe('Rx audit — vascular rangeDr. Meenakshi Sundar');
     await waitFor(() => expect(row()).toBe(meenakshi));
     expect(window.history.length).toBe(before);
   });
 
-  it('Submitted shows the sent ones (their answers, read-only); All shows every one', async () => {
+  it('History shows the sent ones (their answers, read-only); "To do" goes back', async () => {
     const user = userEvent.setup();
     setup();
     await waitFor(() => expect(pickedTag()).toBe('Dr. Joseph Prabhu'));
-    await user.click(within(tabsRow()).getByRole('tab', { name: /^Submitted/ }));
+    await user.click(history());
     expect(await screen.findByText(/these are the answers you sent/)).toBeTruthy();
-    await user.click(within(tabsRow()).getByRole('tab', { name: /^All/ }));
-    expect(tagTitles()).toEqual(['Dr. Joseph Prabhu', 'Dr. Meenakshi Sundar', 'Dr. Arul Selvan', 'Dr. Anitha Rajan']);
+    expect(history().getAttribute('aria-pressed')).toBe('true');
+    expect(tagTitles()).toEqual(['Dr. Anitha Rajan']);
+    await user.click(screen.getByRole('button', { name: /^To do · 3$/ }));
+    expect(tagTitles()).toEqual(['Dr. Joseph Prabhu', 'Dr. Meenakshi Sundar', 'Dr. Arul Selvan']);
   });
 
   it('Back leaves the survey (onBack)', async () => {
@@ -128,16 +133,17 @@ describe('SurveyPage — one page per survey', () => {
     await user.click(screen.getByRole('button', { name: 'Submit' }));
     expect(await screen.findByText('Sent for Dr. Joseph Prabhu. Next: Dr. Meenakshi Sundar.')).toBeTruthy();
     await waitFor(() => expect(pickedTag()).toBe('Dr. Meenakshi Sundar'));
-    expect(screen.getByRole('heading', SURVEY)).toBeTruthy();
-    await waitFor(() => expect(within(tabsRow()).getAllByRole('tab').map((t) => t.textContent)).toEqual(['To do · 2', 'Submitted · 2', 'All · 4']));
+    expect(header()).toBe('Rx audit — vascular rangeDr. Meenakshi Sundar');
+    await waitFor(() => expect(history().textContent).toBe('History · 2'));
+    expect(tagTitles()).toEqual(['Dr. Meenakshi Sundar', 'Dr. Arul Selvan']);
   });
 
-  it('a link with ?r= opens that doctor — a submitted one on the Submitted tab', async () => {
+  it('a link with ?r= opens that doctor — a submitted one in History', async () => {
     const anitha = await responseOf('Dr. Anitha Rajan');
     window.history.replaceState(null, '', `/survey/${RX}?r=${encodeURIComponent(anitha)}`);
     setup();
     expect(await screen.findByText(/these are the answers you sent/)).toBeTruthy();
-    expect(within(tabsRow()).getByRole('tab', { name: /^Submitted/ }).getAttribute('aria-selected')).toBe('true');
+    expect(history().getAttribute('aria-pressed')).toBe('true');
     expect(row()).toBe(anitha);
   });
 

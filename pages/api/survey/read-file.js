@@ -17,6 +17,7 @@
 //   4. keeps the read on the response (survey_ai_read step=save). Only this
 //      server can write a read -- the rep never sees or sends one.
 // -> { readable: true } | { readable: false, reason } (the rep is asked for a
+//    (26 Nov 2026: also state clear|clerk, why, redo, and fields when the question says "check on the phone")
 //    clearer file) | { skipped } (no AI on this question, or the reader is off)
 // The rep is told nothing else. If the AI itself fails, the failure is kept
 // for Survey Center ("couldn't read it") and the rep is not bothered.
@@ -228,10 +229,15 @@ export default async function handler(req, res) {
   if (!read) return res.status(200).json({ skipped: "not a photo or PDF" });
 
   // 4. keep it on the response
+  let kept;
   try {
-    await save(read);
+    kept = await save(read);
   } catch (e) {
     return res.status(502).json({ error: e.message });
   }
-  return res.status(200).json(read.readable ? { readable: true } : { readable: false, reason: read.reason });
+  // 26 Nov 2026 · Survey Studio: this file's verdict — Clear, or not (then Redo when the survey asks for it) — and,
+  // with "check on the phone", what was read, so the rep can check it before Submit
+  const v = kept && typeof kept === "object" ? kept : {};
+  const extra = { state: v.state || "", why: v.why || "", redo: v.unclear === "redo" && v.state === "clerk" ? 1 : 0, ...(v.fields ? { fields: v.fields } : {}) };
+  return res.status(200).json(read.readable ? { readable: true, ...extra } : { readable: false, reason: read.reason, ...extra });
 }

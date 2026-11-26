@@ -95,20 +95,22 @@ function chipNames(rows) {
   });
 }
 
-export function RecordTabs({ rows, value, onChange, ariaLabel = 'Records', noun = 'Record', showBar = true, className }) {
+export function RecordTabs({ rows, value, onChange, ariaLabel = 'Records', noun = 'Record', showBar = true, className, minRows = 2, leading = null, trailing = null }) {
   const listRef = useRef(null);
   /* the open one is always in view in the strip */
   useEffect(() => {
     const el = listRef.current?.querySelector('[aria-selected="true"]');
     if (el && typeof el.scrollIntoView === 'function') el.scrollIntoView({ block: 'nearest', inline: 'center' });
   }, [value]);
-  if (!rows || rows.length < 2) return null;
+  if (!rows || (rows.length < minRows && !leading && !trailing)) return null;
   const names = chipNames(rows);
   const at = rows.findIndex((r) => r.response === value);
   return (
     <div className={cx('flex flex-col gap-3', className)}>
       {showBar ? <StateBar rows={rows} size="sm" position={at >= 0 ? `${noun} ${at + 1} of ${rows.length}` : null} /> : null}
-      <div ref={listRef} role="tablist" aria-label={ariaLabel} className="ds-scroll-x -mx-1 flex gap-1.5 px-1 py-0.5">
+      <div ref={listRef} className="ds-scroll-x -mx-1 flex gap-1.5 px-1 py-0.5">
+        {leading}
+        <div role="tablist" aria-label={ariaLabel} className="flex gap-1.5">
         {rows.map((r, i) => {
           const active = r.response === value;
           const label = r.subject?.label ?? 'Your answers';
@@ -137,6 +139,8 @@ export function RecordTabs({ rows, value, onChange, ariaLabel = 'Records', noun 
             </button>
           );
         })}
+        </div>
+        {trailing}
       </div>
     </div>
   );

@@ -548,6 +548,27 @@ function sizeText(bytes) {
 /* Pick → check type and size against the question → upload (private) with
    a progress bar → a chip with remove. `value` holds only finished uploads,
    as {url, name, size} — exactly what survey_submit_response takes. */
+/* 26 Nov 2026 · Survey Studio "check on the phone": what the AI read from the file, for the rep to check before
+   Submit (if it is wrong, they replace the file). */
+const readWord = (k) => String(k).replace(/_/g, ' ').replace(/^./, (c) => c.toUpperCase());
+const readText = (v) => (v == null || v === '' ? '—' : Array.isArray(v) ? `${v.length} row${v.length === 1 ? '' : 's'}` : typeof v === 'object' ? Object.values(v).filter((x) => x != null && x !== '').join(' · ') : v === true ? 'Yes' : v === false ? 'No' : String(v));
+function ReadValues({ fields }) {
+  return (
+    <div className="flex flex-col gap-1 rounded-md bg-sunken px-2.5 py-2">
+      <span className="text-10 font-semibold uppercase tracking-wide text-ds-muted">We read</span>
+      <dl className="grid grid-cols-[auto_1fr] gap-x-3 gap-y-0.5 text-11">
+        {Object.entries(fields).slice(0, 12).map(([k, v]) => (
+          <div key={k} className="contents">
+            <dt className="text-ds-muted">{readWord(k)}</dt>
+            <dd className="min-w-0 break-words font-semibold text-heading">{readText(v)}</dd>
+          </div>
+        ))}
+      </dl>
+      <span className="text-10 text-ds-muted">Something wrong? Replace the file with a clearer one.</span>
+    </div>
+  );
+}
+
 function FileUpload({ q, value, onChange, disabled, onUpload }) {
   const rules = fileRules(q);
   const files = value ?? [];
@@ -589,6 +610,11 @@ function FileUpload({ q, value, onChange, disabled, onUpload }) {
                 return n;
               });
               if (read && read.readable === false) setUnread((m) => ({ ...m, [res.file_url]: read.reason || 'The file could not be read.' }));
+              /* 26 Nov 2026 · Survey Studio: this file's verdict (Redo blocks Submit) and, with "check on the phone", what was read */
+              if (read && (read.state || read.fields)) {
+                const ai = { state: read.state || '', why: read.why || '', redo: read.redo ? 1 : 0, ...(read.fields ? { fields: read.fields } : {}) };
+                onChange(valueRef.current.map((x) => (x.url === res.file_url ? { ...x, ai } : x)));
+              }
             });
           }
         })
@@ -606,10 +632,10 @@ function FileUpload({ q, value, onChange, disabled, onUpload }) {
           className="flex w-full items-center gap-3 rounded-lg border border-dashed border-line-strong bg-surface px-3 py-3 text-left transition-colors hover:border-brand disabled:cursor-not-allowed"
         >
           <span className="flex size-9 shrink-0 items-center justify-center rounded-lg bg-brand-tint-weak text-brand-text" aria-hidden="true">
-            <Icon name="upload" size="sm" />
+            <Icon name={q.camera ? 'camera' : 'upload'} size="sm" />
           </span>
           <span className="flex min-w-0 flex-col">
-            <span className="text-12 font-semibold text-heading">{files.length ? 'Add another file' : 'Choose a file'}</span>
+            <span className="text-12 font-semibold text-heading">{q.camera ? (files.length ? 'Take another photo' : 'Take a photo') : files.length ? 'Add another file' : 'Choose a file'}</span>
             <span className="text-11 text-ds-muted">
               {rules.label} · up to {rules.maxMb} MB{rules.maxFiles > 1 ? ` · up to ${rules.maxFiles} files` : ''}
             </span>
@@ -632,7 +658,8 @@ function FileUpload({ q, value, onChange, disabled, onUpload }) {
         ref={inputRef}
         type="file"
         className="hidden"
-        accept={rules.exts.length ? rules.exts.map((e) => `.${e}`).join(',') : undefined}
+        accept={q.camera ? 'image/*' : rules.exts.length ? rules.exts.map((e) => `.${e}`).join(',') : undefined}
+        capture={q.camera ? 'environment' : undefined}
         multiple={room > 1}
         aria-label={q.label}
         onChange={(e) => {
@@ -683,6 +710,18 @@ function FileUpload({ q, value, onChange, disabled, onUpload }) {
               <span>Uploaded · checking the file… (you can carry on)</span>
             </p>
           ) : null}
+          {f.ai?.redo ? (
+            <p role="alert" className="flex items-start gap-1.5 text-11 font-medium text-danger-text">
+              <Icon name="exclamation-circle" size="sm" className="mt-px shrink-0" />
+              <span>Not clear{f.ai.why ? ` — ${f.ai.why}` : ''}. Remove it and upload it again.</span>
+            </p>
+          ) : f.ai?.state === 'clear' ? (
+            <p role="status" className="flex items-center gap-1.5 text-11 font-medium text-success">
+              <Icon name="check-circle" size="sm" className="shrink-0" />
+              Checked — it looks right.
+            </p>
+          ) : null}
+          {f.ai?.fields && Object.keys(f.ai.fields).length ? <ReadValues fields={f.ai.fields} /> : null}
           {unread[f.url] ? (
             <p role="status" className="flex items-start gap-1.5 text-11 font-medium text-warning-text">
               <Icon name="exclamation-triangle" size="sm" className="mt-px shrink-0" />
@@ -751,7 +790,44 @@ function Input({ q, value, onChange, disabled, onUpload, api, response, answers,
   }
 }
 
-export function QuestionCard({ q, index, value, onChange, onUpload, api, response, answers, error, readOnly = false, disabled = false }) {
+/* 26 Nov 2026 · Survey Studio "Show from ERP": saved data of the record to read and check against — nothing to answer */
+function ErpInfoCard({ q }) {
+  const fields = (q.fields ?? []).filter((f) => f && f.label);
+  return (
+    <Card variant="hairline" className="flex flex-col gap-2 bg-sunken" data-question={q.id}>
+      <div className="flex items-center justify-between gap-3 text-10 font-semibold uppercase tracking-wide text-ds-muted">
+        <span>From ERP</span>
+        <span>Read only</span>
+      </div>
+      <p className="text-13 font-semibold leading-snug text-heading">{q.label}</p>
+      {fields.length ? (
+        <dl className="grid grid-cols-[auto_1fr] gap-x-3 gap-y-1 text-12">
+          {fields.map((f) => (
+            <div key={f.tag} className="contents">
+              <dt className="text-ds-muted">{f.label}</dt>
+              <dd className="min-w-0 break-words font-semibold text-heading">{f.value && f.value !== '—' ? f.value : <span className="font-normal text-ds-muted">Not on record</span>}</dd>
+            </div>
+          ))}
+        </dl>
+      ) : null}
+      {q.description ? <p className="text-11 text-ds-muted">{q.description}</p> : null}
+    </Card>
+  );
+}
+
+/* the fields the AI reads from a photo / file, as words ("Invoice total, Party") */
+function aiReads(q) {
+  const tags = Array.isArray(q.ai?.tags) ? q.ai.tags.map((t) => t.label).filter(Boolean) : [];
+  if (tags.length) return tags.join(', ');
+  return Object.keys(q.ai?.schema?.properties ?? {}).map(readWord).join(', ');
+}
+
+export function QuestionCard(props) {
+  if (props.q.type === 'erp_info') return <ErpInfoCard q={props.q} />;
+  return <AnswerCard {...props} />;
+}
+
+function AnswerCard({ q, index, value, onChange, onUpload, api, response, answers, error, readOnly = false, disabled = false }) {
   const answered = !isEmpty(value);
   const [busy, setBusy] = useState(false);
   const shownError = busy ? null : error;
@@ -786,6 +862,14 @@ export function QuestionCard({ q, index, value, onChange, onUpload, api, respons
       ) : (
         <Input q={q} value={value} onChange={onChange} disabled={disabled} onUpload={onUpload} api={api} response={response} answers={answers} onBusy={setBusy} />
       )}
+      {!readOnly && q.type === 'file_upload' && q.ai?.schema && aiReads(q) ? (
+        <p className="flex items-start gap-1.5 text-11 text-ds-muted">
+          <Icon name="eye" size="sm" className="mt-px shrink-0" />
+          <span>
+            We read this automatically: {aiReads(q)}.{q.ai.check_phone ? ' You can check what was read before you submit.' : ''}
+          </span>
+        </p>
+      ) : null}
       {shownError ? (
         <p role="alert" className="flex items-center gap-1.5 text-11 font-medium text-danger-text">
           <Icon name="exclamation-circle" size="var(--fs-12)" />

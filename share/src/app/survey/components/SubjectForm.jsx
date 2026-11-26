@@ -26,6 +26,23 @@ const READ_WAIT = 120000;
  * file still uploading. The server's refusal, if any, is shown as it says it
  * (SURVEYS_CONTEXT.md §4). `onAnswersChange` hears the answers as they are
  * now, so the page's "Leave this form?" can save them for later. */
+/* 26 Nov 2026 · Survey Studio: a section's title over its questions, with how many are answered */
+function SectionHead({ title, done, total }) {
+  return (
+    <div className="flex flex-col gap-1.5 pt-1">
+      <div className="flex items-baseline justify-between gap-3">
+        <h3 className="min-w-0 truncate text-14 font-semibold text-heading">{title}</h3>
+        {total ? (
+          <span className="shrink-0 text-11 tabular-nums text-ds-muted">
+            <span className="font-semibold text-heading">{done}</span>/{total} answered
+          </span>
+        ) : null}
+      </div>
+      {total ? <ProgressBar value={done} max={total} size="sm" tone={done === total ? 'success' : 'brand'} label={`${title}: ${done} of ${total} answered`} /> : null}
+    </div>
+  );
+}
+
 export function SubjectForm({ survey, row, rows, me, draft, api, onBack, onDraft, onSubmitted, onDirtyChange, onAnswersChange, onSwitchRow, bottomGap = 'var(--space-12)' }) {
   /* The questions with this record's values in their {#fields} (data/view.js). */
   const questions = useMemo(() => filledQuestions(survey, row), [survey, row]);
@@ -56,8 +73,31 @@ export function SubjectForm({ survey, row, rows, me, draft, api, onBack, onDraft
   }, [editable, answers]);
 
   const problems = useMemo(() => formProblems(questions, answers), [questions, answers]);
-  const answered = questions.filter((q) => !isEmpty(answers[q.id])).length;
-  const required = questions.filter((q) => q.required);
+  /* 26 Nov 2026 · Survey Studio: "Show from ERP" cards are read, not answered — not counted or numbered */
+  const answerable = useMemo(() => questions.filter((q) => q.type !== 'erp_info'), [questions]);
+  const answered = answerable.filter((q) => !isEmpty(answers[q.id])).length;
+  const required = answerable.filter((q) => q.required);
+  /* sections: a question with a section title starts one; each shows how many of its questions are answered */
+  const sections = useMemo(() => {
+    const out = {};
+    let cur = null;
+    questions.forEach((q) => {
+      const t = String(q.section ?? '').trim();
+      if (t) {
+        cur = { title: t, ids: [] };
+        out[q.id] = cur;
+      }
+      if (cur && q.type !== 'erp_info') cur.ids.push(q.id);
+    });
+    return out;
+  }, [questions]);
+  const numberOf = useMemo(() => {
+    const m = {};
+    answerable.forEach((q, i) => {
+      m[q.id] = i;
+    });
+    return m;
+  }, [answerable]);
   const requiredLeft = required.filter((q) => isEmpty(answers[q.id])).length;
 
   /* Count uploads in flight, so Submit waits for them. */
@@ -148,10 +188,10 @@ export function SubjectForm({ survey, row, rows, me, draft, api, onBack, onDraft
           <span className="min-w-0 truncate text-12 font-semibold text-heading">{survey.title}</span>
           <span className="shrink-0 text-12 tabular-nums">
             <span className="font-semibold text-heading">{answered}</span>
-            <span className="text-ds-muted">/{questions.length} answered</span>
+            <span className="text-ds-muted">/{answerable.length} answered</span>
           </span>
         </div>
-        <ProgressBar value={answered} max={questions.length || 1} size="sm" tone={requiredLeft ? 'brand' : 'success'} label={`${answered} of ${questions.length} answered`} />
+        <ProgressBar value={answered} max={answerable.length || 1} size="sm" tone={requiredLeft ? 'brand' : 'success'} label={`${answered} of ${answerable.length} answered`} />
       </Card>
 
       {editable && row.returned ? (
@@ -182,11 +222,12 @@ export function SubjectForm({ survey, row, rows, me, draft, api, onBack, onDraft
         </p>
       ) : null}
 
-      {questions.map((q, i) => (
+      {questions.map((q) => (
+        <div key={q.id} className="contents">
+          {sections[q.id] ? <SectionHead title={sections[q.id].title} done={sections[q.id].ids.filter((id) => !isEmpty(answers[id])).length} total={sections[q.id].ids.length} /> : null}
         <QuestionCard
-          key={q.id}
           q={q}
-          index={i}
+          index={numberOf[q.id] ?? 0}
           value={answers[q.id]}
           readOnly={!editable}
           disabled={Boolean(busy)}
@@ -197,6 +238,7 @@ export function SubjectForm({ survey, row, rows, me, draft, api, onBack, onDraft
           answers={answers}
           onChange={(v) => setAnswers((prev) => ({ ...prev, [q.id]: v }))}
         />
+        </div>
       ))}
 
       {editable ? (

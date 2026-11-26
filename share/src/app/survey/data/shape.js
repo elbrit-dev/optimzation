@@ -192,6 +192,7 @@ export function loginExceptions(v) {
 }
 
 export function answerProblem(q, v, answers) {
+  if (q.type === 'erp_info') return null; /* 26 Nov 2026 · "Show from ERP": read-only, nothing to answer */
   if (q.type === 'timings') return timingsProblem(q, v, answers);
   if (isEmpty(v)) {
     if (!q.required) return null;
@@ -215,6 +216,8 @@ export function answerProblem(q, v, answers) {
     if (!Number.isInteger(n) || n < min || n > max) return `Please choose a value from ${min} to ${max}.`;
   }
   if (q.type === 'file_upload' && v.length > fileRules(q).maxFiles) return `You can add up to ${fileRules(q).maxFiles} file(s) here.`;
+  /* 26 Nov 2026 · Survey Studio "Redo": a file the AI found not Clear must be uploaded again */
+  if (q.type === 'file_upload' && v.some((f) => f?.ai?.redo)) return 'A file is not clear — remove it and upload it again.';
   return null;
 }
 

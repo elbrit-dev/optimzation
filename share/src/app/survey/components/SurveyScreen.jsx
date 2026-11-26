@@ -7,7 +7,12 @@ import { AddSubjectsSheet } from './AddSubjectsSheet';
 import { AnnouncementScreen } from './AnnouncementScreen';
 import { RecordTabs, StateBar, rowsOfTab } from './RecordTabs';
 
-/* One survey — ONE PAGE for every survey in the app (26 Nov 2026):
+/* 26 Nov 2026 (later) · SURVEY STUDIO layout (the artifact the user designed): the progress says "N of M doctors
+ * done" with a "History · N" button and "X to do · next: Dr …"; the strip shows the ones still TO DO (unfilled
+ * first), then a "Done · N" chip; History shows the submitted ones (green) with a "To do" chip to go back; a
+ * Self-tag survey's "+ Add doctor" is the last chip. The page's top bar says "Survey › Dr name".
+ *
+ * Before (same day): One survey — ONE PAGE for every survey in the app (26 Nov 2026):
  *
  *   ← <the survey's title>            (the page's top bar — SurveyPage / SurveyHome)
  *   from … · due …  /  Progress  2 of 146 submitted  ▓▓░░░░
@@ -66,13 +71,34 @@ export function SurveyScreen({ survey, today, drafts, api, onOpenRow, onChanged,
     setTimeout(() => setNotice(null), 3000);
   };
 
-  /* To do (red) · Submitted (green) · All */
-  const tabs = [
-    { key: 'todo', label: 'To do', count: rows.length - done, tone: 'danger' },
-    { key: 'done', label: 'Submitted', count: done, tone: 'success' },
-    { key: 'all', label: 'All', count: rows.length, tone: 'neutral' },
-  ];
   const shownNotice = outerNotice || notice;
+  const history = tab === 'done';
+  const left = rows.length - done;
+  const pct = rows.length ? Math.round((done / rows.length) * 100) : 0;
+  const nextRow = rowsOfTab(rows, 'todo').find((r) => r.response !== openResponse) ?? null;
+  const chip = 'inline-flex h-8 shrink-0 items-center gap-1.5 rounded-full border px-3 text-11 font-semibold transition-colors';
+  const leading = multi && history ? (
+    <button type="button" onClick={() => onTab?.('todo')} className={cx(chip, TAB_TONE.todo[0])}>
+      <Icon name="arrow-left" size="var(--fs-10)" />
+      To do · {left}
+    </button>
+  ) : null;
+  const trailing = (
+    <>
+      {multi && !history && done ? (
+        <button type="button" onClick={() => onTab?.('done')} className={cx(chip, TAB_TONE.done[0])}>
+          <span aria-hidden="true" className="size-1.5 shrink-0 rounded-full" style={{ backgroundColor: toneFill('success') }} />
+          Done · {done}
+        </button>
+      ) : null}
+      {canAdd ? (
+        <button type="button" onClick={() => setAdding(true)} className={cx(chip, 'border-dashed border-brand bg-surface text-brand-text hover:bg-brand-tint-weak')}>
+          <Icon name="plus" size="var(--fs-10)" />
+          Add {t.one}
+        </button>
+      ) : null}
+    </>
+  );
 
   /* An announcement: the message to read, not rows to answer. */
   if (survey.kind === 'announcement') return <AnnouncementScreen survey={survey} api={api} onChanged={onChanged} />;
@@ -87,7 +113,36 @@ export function SurveyScreen({ survey, today, drafts, api, onOpenRow, onChanged,
             {survey.state === 'missed' ? `Closed ${shortDate(survey.due_date)}` : dueText(today, survey.due_date)}
           </span>
         </p>
-        {rows.length ? (
+        {survey.description ? <p className="text-12 text-ds-secondary">{survey.description}</p> : null}
+        {multi ? (
+          <div className="flex flex-col gap-1.5 border-t border-line-subtle pt-3">
+            <div className="flex items-center justify-between gap-3">
+              <span className="tabular-nums text-12 text-ds-secondary">
+                <span className="text-16 font-semibold text-heading">{done}</span> of {rows.length} {t.many} done
+              </span>
+              {done ? (
+                <button
+                  type="button"
+                  aria-pressed={history}
+                  aria-label={`History, ${done} done`}
+                  onClick={() => onTab?.(history ? 'todo' : 'done')}
+                  className={cx(chip, history ? TAB_TONE.done[1] : TAB_TONE.done[0])}
+                >
+                  <Icon name="history" size="var(--fs-12)" />
+                  History · {done}
+                </button>
+              ) : null}
+            </div>
+            {/* one sorted bar: submitted, in progress, missed, to do */}
+            <StateBar rows={rows} />
+            <div className="flex items-center justify-between gap-3 text-11 text-ds-muted">
+              <span className="min-w-0 truncate">
+                {left} to do{left && nextRow?.subject?.label ? ` · next: ${nextRow.subject.label}` : ''}
+              </span>
+              <span className="shrink-0 tabular-nums">{pct}%</span>
+            </div>
+          </div>
+        ) : rows.length ? (
           <div className="flex flex-col gap-1.5 border-t border-line-subtle pt-3">
             <div className="flex items-center justify-between gap-3">
               <span className="text-12 text-ds-secondary">Progress</span>
@@ -96,44 +151,10 @@ export function SurveyScreen({ survey, today, drafts, api, onOpenRow, onChanged,
                 <span className="text-ds-muted"> of {rows.length} submitted</span>
               </span>
             </div>
-            {/* one sorted bar: submitted, in progress, missed, to do */}
             <StateBar rows={rows} />
           </div>
         ) : null}
       </Card>
-
-      {multi || canAdd ? (
-        <div className="flex items-center justify-between gap-3">
-          {multi ? (
-            <div role="tablist" aria-label={`${t.Many}: to do, submitted or all`} className="ds-scroll-x -mx-1 flex gap-1.5 px-1 py-0.5">
-              {tabs.map((x) => {
-                const on = tab === x.key;
-                return (
-                  <button
-                    key={x.key}
-                    type="button"
-                    role="tab"
-                    aria-selected={on}
-                    onClick={() => onTab?.(x.key)}
-                    className={cx('inline-flex h-8 shrink-0 items-center gap-1.5 rounded-full border px-3 text-12 font-semibold transition-colors', TAB_TONE[x.key][on ? 1 : 0])}
-                  >
-                    <span aria-hidden="true" className="size-1.5 shrink-0 rounded-full" style={{ backgroundColor: toneFill(x.tone) }} />
-                    {x.label}
-                    <span className="font-medium opacity-80"> · {x.count}</span>
-                  </button>
-                );
-              })}
-            </div>
-          ) : (
-            <span />
-          )}
-          {canAdd ? (
-            <Button type="primary" size="sm" icon={<Icon name="plus" size="sm" />} onClick={() => setAdding(true)}>
-              Add {t.one}
-            </Button>
-          ) : null}
-        </div>
-      ) : null}
 
       {shownNotice ? (
         <p role="status" className="flex items-center gap-2 rounded-lg bg-success-wash px-3 py-2 text-12 font-medium text-success">
@@ -148,8 +169,19 @@ export function SurveyScreen({ survey, today, drafts, api, onOpenRow, onChanged,
         </p>
       ) : null}
 
-      {/* the tab's doctors / records as tags — a tag shows that one's questions below */}
-      <RecordTabs rows={tabRows} value={openResponse} ariaLabel={t.Many} showBar={false} onChange={(r) => r !== openResponse && onOpenRow?.(r)} />
+      {/* the doctors / records still to do as tabs (History: the submitted ones) — a tab shows that one's questions below */}
+      {multi || canAdd ? (
+        <RecordTabs
+          rows={tabRows}
+          value={openResponse}
+          ariaLabel={history ? `${t.Many}: submitted` : `${t.Many}: to do`}
+          showBar={false}
+          minRows={1}
+          leading={leading}
+          trailing={trailing}
+          onChange={(r) => r !== openResponse && onOpenRow?.(r)}
+        />
+      ) : null}
 
       {form ||
         (rows.length ? (

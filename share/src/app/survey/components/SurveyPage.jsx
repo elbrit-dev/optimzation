@@ -448,7 +448,8 @@ function OneSurveyPage({
   return (
     <section ref={rootRef} className={cx('@container/survey flex w-full scroll-mt-3 flex-col', INSIDE_FRAME, className)}>
       <div className="flex w-full flex-col gap-3 px-4 pb-4 pt-3 @2xl/survey:gap-4">
-        <PageHeader onBack={leave} backLabel="Back" title={title} />
+        {/* 26 Nov 2026 · Survey Studio: "Survey › Dr name" when a doctor / record of several is open */}
+        <PageHeader onBack={leave} backLabel="Back" parent={row?.subject && survey?.rows?.length >= 2 ? title : undefined} title={row?.subject && survey?.rows?.length >= 2 ? row.subject.label : title} />
         {body}
       </div>
       <DiscardChangesSheet open={confirm} onCancel={() => { pendingLink.current = null; setConfirm(false); }} onConfirm={() => followOrLeave(false)} onSave={() => followOrLeave(true)} />

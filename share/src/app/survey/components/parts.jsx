@@ -41,7 +41,7 @@ export function PageHeader({ onBack, backLabel, title, parent, sub }) {
       <h1 className="flex min-w-0 flex-1 items-baseline gap-1.5 text-16 font-semibold text-heading @2xl/survey:text-20">
         {parent ? (
           <>
-            <span className="shrink-0 font-medium text-ds-muted">{parent}</span>
+            <span className="min-w-0 max-w-[45%] shrink-0 truncate font-medium text-ds-muted">{parent}</span>
             <Icon name="chevron-right" size="var(--fs-10)" className="shrink-0 self-center text-ds-muted" aria-hidden="true" />
           </>
         ) : null}
