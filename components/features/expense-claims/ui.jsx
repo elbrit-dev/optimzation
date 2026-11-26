@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { Children, useEffect, useMemo, useRef, useState } from "react";
 import { Dialog, Drawer } from "@/design-system";
 import { limiter } from "../../../lib/limit";
 import {
@@ -68,7 +68,7 @@ export const IC = {
 /* The prototype's colour families: field blue, food orange, settle = the Advance purple,
    ok green, reward amber. [ink, soft] */
 export const TONE = { ok: ["#067647", "#ecfdf3"], reward: ["#b54708", "#fffaeb"], field: ["#1d4ed8", "#eef3fe"], settle: ["#7c3aed", "#f4f0ff"] };
-const HL_ICON = { ai: "shield", bill: "clip", cleared: "check", streak: "flame", paid: "check", added: "wallet", bills: "file", help: "help" };
+const HL_ICON = { ai: "shield", bill: "clip", cleared: "check", streak: "flame", paid: "check", added: "wallet", bills: "file", help: "help", ask: "help" };
 
 /* One line that scrolls sideways, smoothly, on every device: swipe (with snap)
    on touch; on desktop the mouse wheel and a click-drag scroll it, and arrows
@@ -98,6 +98,23 @@ export function Rail({ children, label, gap = 8, bleed = "0px", role = "list" })
     ro?.observe(el);
     return () => { el.removeEventListener("scroll", sync); el.removeEventListener("wheel", wheel); ro?.disconnect(); };
   }, []);
+  // 26 Nov 2026 (the user): arrows ONLY when it really overflows -- checked
+  // again whenever the cards change (a card added later did not re-check),
+  // and only for a mouse (a phone swipes; arrows there just get in the way)
+  const count = Children.count(children);
+  useEffect(() => {
+    const el = ref.current;
+    if (el) setMore({ l: el.scrollLeft > 2, r: el.scrollLeft + el.clientWidth < el.scrollWidth - 2 });
+  }, [count]);
+  const [mouse, setMouse] = useState(false);
+  useEffect(() => {
+    if (typeof window === "undefined" || !window.matchMedia) return undefined;
+    const mq = window.matchMedia("(hover: hover) and (pointer: fine)");
+    const on = () => setMouse(mq.matches);
+    on();
+    mq.addEventListener?.("change", on);
+    return () => mq.removeEventListener?.("change", on);
+  }, []);
   const by = (dir) => ref.current?.scrollBy({ left: dir * ref.current.clientWidth * 0.8, behavior: "smooth" });
   // Click-drag with a mouse (touch already swipes); a drag is not a click.
   const down = (e) => { if (e.pointerType === "mouse" && e.button === 0) drag.current = { x: e.clientX, left: ref.current.scrollLeft, moved: false }; };
@@ -123,8 +140,8 @@ export function Rail({ children, label, gap = 8, bleed = "0px", role = "list" })
         style={{ display: "flex", alignItems: "stretch", gap, overflowX: "auto", overscrollBehaviorX: "contain", scrollSnapType: "x proximity", WebkitOverflowScrolling: "touch", padding: `1px calc(${bleed} + 1px) 2px`, WebkitMaskImage: fade, maskImage: fade }}>
         {children}
       </div>
-      {more.l && arrowBtn(-1)}
-      {more.r && arrowBtn(1)}
+      {mouse && more.l && arrowBtn(-1)}
+      {mouse && more.r && arrowBtn(1)}
     </div>
   );
 }
@@ -132,12 +149,14 @@ export function Rail({ children, label, gap = 8, bleed = "0px", role = "list" })
 /* The month's highlight cards (model.highlights), one scrolling line. */
 export function Highlights({ items, bleed = "0px", onTip }) {
   if (!items?.length) return null;
+  // one or two cards share the width -- they never overflow, so never scroll (26 Nov 2026)
+  const few = items.length <= 2;
   return (
     <Rail label="Highlights" bleed={bleed}>
       {items.map((a) => {
         const [c, s] = TONE[a.tone] || TONE.field;
         return (
-          <button key={a.key} type="button" role="listitem" title={a.tip} onClick={() => (a.onClick ? a.onClick() : onTip?.(a.tip))} style={{ flex: "none", scrollSnapAlign: "start", minWidth: 148, display: "grid", gridTemplateColumns: "auto minmax(0,1fr)", columnGap: 9, alignItems: "center", padding: "10px 12px", borderRadius: 16, border: 0, background: a.tone === "reward" && a.pct === 1 ? s : "#fff", boxShadow: "0 0 0 1px #e4e7ec", cursor: "pointer", textAlign: "left" }}>
+          <button key={a.key} type="button" role="listitem" title={a.tip} onClick={() => (a.onClick ? a.onClick() : onTip?.(a.tip))} style={{ flex: few ? "1 1 0" : "none", scrollSnapAlign: "start", minWidth: few ? 0 : 148, display: "grid", gridTemplateColumns: "auto minmax(0,1fr)", columnGap: 9, alignItems: "center", padding: "10px 12px", borderRadius: 16, border: 0, background: a.tone === "reward" && a.pct === 1 ? s : "#fff", boxShadow: "0 0 0 1px #e4e7ec", cursor: "pointer", textAlign: "left" }}>
             <span style={{ gridRow: "1 / 4", width: 30, height: 30, borderRadius: 10, background: s, color: c, display: "grid", placeItems: "center" }}><Icon d={IC[HL_ICON[a.key] || "check"]} size={16} /></span>
             <span style={{ fontSize: 13.5, fontWeight: 700, letterSpacing: "-0.01em", whiteSpace: "nowrap", ...tabNum }}>{a.value}</span>
             <span style={{ fontSize: 11, color: "#5b6576", ...ell }}>{a.label}</span>

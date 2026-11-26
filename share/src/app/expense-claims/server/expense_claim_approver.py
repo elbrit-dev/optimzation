@@ -99,3 +99,9 @@ if doc.employee and (sending or moved or not doc.expense_approver):
             if frappe.db.get_value("User", row.user_id, "enabled"):
                 approver = row.user_id
     doc.expense_approver = approver or FALLBACK
+    # 26 Nov 2026 (the user): the previous approver's share STAYS. HRMS removes
+    # it when the approver changes -- as the user saving, who has no "Share"
+    # right ("You need to have Share permission"). Telling it the approver did
+    # not change skips that removal; nothing else reads it.
+    if old and old.expense_approver and old.expense_approver != doc.expense_approver:
+        old.expense_approver = doc.expense_approver

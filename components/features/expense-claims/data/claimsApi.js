@@ -724,7 +724,10 @@ export async function extractBill(conn, file) {
     // payment proof (or "paid in cash") before it can be sent
     handwritten: !!r.handwritten,
     // already claimed -- on a settlement bill or a planner trip, by anyone
+    // (an ERP script older than 26 Nov 2026 still refuses it)
     duplicate: json.duplicate || null,
+    // 26 Nov 2026: a repeat is flagged, not refused -- who claimed it, when
+    dupOf: json.dup || null,
     readable: true,
     signed: { read: r, sig: json.sig },
   };
@@ -1109,6 +1112,13 @@ export function shapeSettlement(r) {
       score: b.score == null || b.score === "" ? null : num0(b.score),
       risk: b.risk || "",
       reason: b.reason || "",
+      // a repeat of an earlier bill (26 Nov 2026: flagged, not refused) --
+      // the approvers compare the two photos side by side
+      dup: b.dup ? {
+        sure: !!b.dup.sure, why: b.dup.why || "", employeeName: b.dup.employee_name || "", samePerson: !!b.dup.same_person,
+        where: b.dup.where || "", billDate: String(b.dup.bill_date || "").slice(0, 10), amount: num0(b.dup.amount),
+        vendor: b.dup.vendor || "", billNo: b.dup.bill_no || "", claimedOn: String(b.dup.claimed_on || "").slice(0, 10), photo: b.dup.photo || "",
+      } : null,
     })),
   };
 }
@@ -1268,6 +1278,12 @@ export function fetchSettlementSettings(conn) {
       windowText: m.window_text || null,
       canRequestCash: !!m.can_request_cash,
       level: m.level || "",
+      /* by role (26 Nov 2026): field = the Own / For a doctor tabs (BE to SM, GM);
+         taDaBlock = TA/DA kinds refused (up to RBM); allKinds = every kind, for
+         whoever is not blocked. An older server sends none of them: as before. */
+      field: m.field !== false,
+      taDaBlock: m.ta_da_block !== false,
+      allKinds: (m.all_kinds || []).map(String).filter(Boolean),
       doctorReady: { activity: !!m.doctor_ready?.activity, service: !!m.doctor_ready?.service },
     };
   }).catch((e) => {

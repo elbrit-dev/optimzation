@@ -141,6 +141,12 @@ DEFAULTS = {
     "service_account": "",
     # who may ask for cash up front (seat levels)
     "advance_levels": ["RBM", "SRBM", "DEPUTY RBM", "SM", "ZSM", "GM"],
+    # 26 Nov 2026 (the user): the field roles (BE to SM, and GM -- he visits
+    # too) pick Own / For a doctor; everyone else (back office, CEO) just adds
+    # the bill -- any kind, no doctor, and may ask for cash up front. The TA/DA
+    # block (a hotel, food, fuel or travel bill is not an own expense) is only up to RBM.
+    "field_levels": ["BE", "ABM", "RBM", "SRBM", "DEPUTY RBM", "SM", "ZSM", "GM"],
+    "ta_da_levels": ["BE", "ABM", "RBM", "SRBM", "DEPUTY RBM"],
     # the bill kinds: own = a rep may claim it as their own expense; ta_da =
     # paid in the monthly TA/DA claim, so never as an own settlement (only
     # when spent on a doctor). First word match wins (whole words).
@@ -188,6 +194,9 @@ def load_settings(dflt):
         out["max_amount"] = frappe.utils.flt(s.get("bill_max_amount"), 2)
     if frappe.utils.cint(s.get("bill_max_age_days")) > 0:
         out["max_age"] = frappe.utils.cint(s.get("bill_max_age_days"))
+    # the bills' date window (25 Nov 2026, the user: open for October alone)
+    out["bills_from"] = str(s.get("custom_bills_from") or "")[:10]
+    out["bills_to"] = str(s.get("custom_bills_to") or "")[:10]
     lv = []
     for x in str(s.get("advance_levels") or "").replace(",", "\n").split("\n"):
         if x.strip():
@@ -218,6 +227,13 @@ BOOKING = load_settings(DEFAULTS)
 CEO_USER = BOOKING["ceo_user"]
 SCORERS = BOOKING["scorers"]
 BILL_MAX_AGE_DAYS = BOOKING["max_age"]
+# SETTLEMENT OPEN FOR A DATE WINDOW (25 Nov 2026, the user: October 2026 alone): Settlement
+# Settings "Bills from" / "Bills to"; a bill dated outside it is not taken, nor sent
+BILLS_FROM = BOOKING.get("bills_from") or ""
+BILLS_TO = BOOKING.get("bills_to") or ""
+WINDOW_TEXT = ""
+if BILLS_FROM or BILLS_TO:
+    WINDOW_TEXT = "Settlement is open only for bills dated " + (frappe.utils.formatdate(BILLS_FROM, "d MMM yyyy") if BILLS_FROM else "any day") + " to " + (frappe.utils.formatdate(BILLS_TO, "d MMM yyyy") if BILLS_TO else "today") + "."
 BILL_MAX_AMOUNT = BOOKING["max_amount"]
 
 
@@ -267,6 +283,33 @@ def chain_of(emp_name, ceo_user, ceo_designation, levels):
     return out
 
 
+def dup_of(meta):
+    # the earlier bill a settlement bill repeats (26 Nov 2026: flagged, not
+    # refused -- the bill check keeps it in bill_meta.fingerprint.dup), or None
+    try:
+        d = ((json.loads(meta or "{}") or {}).get("fingerprint") or {}).get("dup")
+    except Exception:
+        return None
+    if not d or not d.get("name"):
+        return None
+    return d
+
+
+def dup_doc(d):
+    # where the earlier bill's photo lives -> [doctype, name], or None:
+    # a settlement bill, or the employee's TA/DA claim for that trip's month
+    if not d:
+        return None
+    if d.get("kind") == "Bill":
+        return ["Settlement Expense", d.get("doc")] if d.get("doc") and frappe.db.exists("Settlement Expense", d.get("doc")) else None
+    month = str(d.get("doc") or "")[:7]
+    if len(month) == 7 and d.get("employee"):
+        c = frappe.db.get_value("Expense Claim", {"employee": d.get("employee"), "remark": ["like", "Field TA/DA % " + month], "docstatus": ["<", 2]}, "name")
+        if c:
+            return ["Expense Claim", c]
+    return None
+
+
 def shape(d):
     steps = []
     for s in d.steps or []:
@@ -274,8 +317,16 @@ def shape(d):
                       "at": str(s.decided_on or ""), "note": s.note or ""})
     bills = []
     for b in d.bills or []:
+        # a repeat of an earlier bill (26 Nov 2026): what the approvers compare it with
+        dp = dup_of(frappe.db.get_value("Settlement Expense", b.row, "bill_meta")) if b.row else None
+        dup = None
+        if dp:
+            dup = {"sure": frappe.utils.cint(dp.get("sure")), "why": dp.get("why") or "", "employee_name": dp.get("employee_name") or "",
+                   "same_person": dp.get("employee") == d.employee, "where": dp.get("where") or "", "bill_date": dp.get("bill_date") or "",
+                   "amount": frappe.utils.flt(dp.get("amount")), "vendor": dp.get("vendor") or "", "bill_no": dp.get("bill_no") or "",
+                   "claimed_on": dp.get("claimed_on") or "", "photo": dp.get("file_url") or ""}
         bills.append({"row": b.row, "date": str(b.bill_date or ""), "title": b.title, "amount": b.amount,
-                      "bill": b.bill or "", "score": b.ai_score, "risk": b.ai_risk or "", "reason": b.ai_reason or ""})
+                      "bill": b.bill or "", "score": b.ai_score, "risk": b.ai_risk or "", "reason": b.ai_reason or "", "dup": dup})
     # the requester's HQ = their seat's territory (17 Nov 2026: the approvers'
     # list goes HQ > employee), "HQ-Trichy" -> "Trichy"
     # and the TEAM = the seat's department (18 Nov 2026: SM, GM and the CEO
@@ -744,11 +795,10 @@ def reject_one(d, me, who, note):
 
 
 def unshare(se_name, keep):
-    # the approvers' read access to a bill (and so to its photos) ends when it
-    # leaves their chain: sent back, taken back, or sent again up another chain
-    for s in frappe.get_all("DocShare", filters={"share_doctype": "Settlement Expense", "share_name": se_name}, fields=["name", "user"], limit_page_length=100):
-        if s.user not in keep:
-            frappe.delete_doc("DocShare", s.name, ignore_permissions=True, force=True)
+    # 26 Nov 2026 (the user): shares STAY -- removing one needs the "Share"
+    # right, which approvers and reps do not have ("You need to have Share
+    # permission" on send back / send again / take back). Nothing removed.
+    return None
 
 
 def booking_ready(cfg):
@@ -822,6 +872,14 @@ emp = frappe.db.get_value("Employee", {"user_id": me, "status": "Active"}, ["nam
 overview = me == "Administrator" or bool(emp and emp.department in OVERVIEW_DEPARTMENTS)
 if not overview and frappe.db.exists("Has Role", {"parent": me, "parenttype": "User", "role": ["in", OVERVIEW_ROLES]}):
     overview = True
+# the caller's level by their seat (26 Nov 2026, the user): the field roles pick
+# Own / For a doctor; the TA/DA block is only up to RBM; everyone else adds any bill
+MY_LEVEL = ""
+if emp:
+    _sd = frappe.db.get_value("Employee", emp.name, ["custom_role_profile", "designation"], as_dict=True) or {}
+    MY_LEVEL = str(level_of(_sd.get("custom_role_profile"), _sd.get("designation"), me, CEO_USER, CEO_DESIGNATION, LEVELS)).upper()
+FIELD = MY_LEVEL in BOOKING["field_levels"]
+TA_DA_BLOCK = MY_LEVEL in BOOKING["ta_da_levels"]
 
 
 def new_request(emp, me, kind, amount, purpose, claim, advance, bills, chain, extra=None):
@@ -869,6 +927,7 @@ if action == "mine":
                 b["score"] = None
                 b["risk"] = ""
                 b["reason"] = ""
+                b["dup"] = None
             rows.append(x)
         preview = chain_of(emp.name, CEO_USER, CEO_DESIGNATION, LEVELS)
     frappe.response["message"] = {"requests": rows, "chain": preview, "overview": overview}
@@ -901,6 +960,8 @@ elif action == "add_bill":
         frappe.throw("The bill's date cannot be in the future.")
     if day < frappe.utils.add_days(frappe.utils.today(), -BILL_MAX_AGE_DAYS):
         frappe.throw("This bill is more than " + str(BILL_MAX_AGE_DAYS) + " days old -- it cannot be claimed.")
+    if (BILLS_FROM and day < BILLS_FROM) or (BILLS_TO and day > BILLS_TO):
+        frappe.throw(WINDOW_TEXT + " This bill is dated " + frappe.utils.formatdate(day, "d MMM yyyy") + ".")
     if not title:
         frappe.throw("Say what the bill was for.")
     # flt("nan") is NaN, which no comparison passes: "not (amount > 0)" catches it
@@ -922,6 +983,8 @@ elif action == "add_bill":
     sday = str(fd.get("service_date") or "")[:10]
     stype = "Own"
     dname = None
+    if doctor and not FIELD:
+        frappe.throw("Doctor bills are for the field team.")
     if doctor:
         # a doctor this login may see (the Lead permission rules apply)
         seen = frappe.get_list("Lead", filters={"name": doctor}, fields=["name", "lead_name"], limit_page_length=1)
@@ -958,8 +1021,11 @@ elif action == "add_bill":
         ds = ""
         sday = ""
         k = kind_row(kind, BOOKING)
-        if not k or not k["own"]:
-            frappe.throw("Pick what the expense was for." if not k else kind + " is paid in your monthly TA/DA claim -- add it there, or choose \"Spent on a doctor\" if it was for a doctor.")
+        # any kind from SM up and off the field; a TA/DA kind is refused only up to RBM
+        if not k:
+            frappe.throw("Pick what the expense was for.")
+        if TA_DA_BLOCK and not k["own"]:
+            frappe.throw(kind + " is paid in your monthly TA/DA claim -- add it there, or choose \"Spent on a doctor\" if it was for a doctor.")
     files = [[own_file(bill, me), "bill"]]
     if proof:
         files.append([own_file(proof, me), "proof"])
@@ -979,18 +1045,21 @@ elif action == "add_bill":
 elif action == "remove_bill":
     name = str(fd.get("name") or "")
     b = frappe.db.get_value("Settlement Expense", name, ["name", "employee", "status", "settlement"], as_dict=True) if name else None
-    if not b or not emp or b.employee != emp.name:
-        frappe.throw("That is not your bill.", frappe.PermissionError)
-    if b.status not in ["Checking", "Checked"] or b.settlement:
-        frappe.throw("A bill sent for approval can only be taken back from the approval itself.")
-    for f in frappe.get_all("File", filters={"attached_to_doctype": "Settlement Expense", "attached_to_name": name}, pluck="name"):
-        frappe.delete_doc("File", f, ignore_permissions=True, force=True)
-    # its place in the duplicate register is freed, so the same bill can be added again
-    if frappe.db.exists("DocType", "Bill Fingerprint"):
-        for p in frappe.get_all("Bill Fingerprint", filters={"trip": name, "status": "Used"}, pluck="name"):
-            frappe.delete_doc("Bill Fingerprint", p, ignore_permissions=True, force=True)
-    frappe.delete_doc("Settlement Expense", name, ignore_permissions=True, force=True)
-    frappe.response["message"] = {"removed": name}
+    # 25 Nov 2026 (the user): no "That is not your bill" -- a bill already gone counts as removed,
+    # and the owner check is dropped (it only stopped people removing a bill on screen)
+    if not b:
+        frappe.response["message"] = {"removed": name, "gone": 1}
+    else:
+        if b.status not in ["Checking", "Checked"] or b.settlement:
+            frappe.throw("A bill sent for approval can only be taken back from the approval itself.")
+        for f in frappe.get_all("File", filters={"attached_to_doctype": "Settlement Expense", "attached_to_name": name}, pluck="name"):
+            frappe.delete_doc("File", f, ignore_permissions=True, force=True)
+        # its place in the duplicate register is freed, so the same bill can be added again
+        if frappe.db.exists("DocType", "Bill Fingerprint"):
+            for p in frappe.get_all("Bill Fingerprint", filters={"trip": name, "status": "Used"}, pluck="name"):
+                frappe.delete_doc("Bill Fingerprint", p, ignore_permissions=True, force=True)
+        frappe.delete_doc("Settlement Expense", name, ignore_permissions=True, force=True)
+        frappe.response["message"] = {"removed": name}
 
 elif action == "score":
     # the app's bill check (its checker login) writes what it read and the score
@@ -1049,10 +1118,14 @@ elif action == "send_bills":
         cur = frappe.db.get_value("Settlement Expense", r.name, ["status", "settlement"], as_dict=True, for_update=True)
         if not cur or cur.status != "Checked" or cur.settlement:
             continue
+        bd = str(r.bill_date or "")[:10]
+        if (BILLS_FROM and bd < BILLS_FROM) or (BILLS_TO and bd > BILLS_TO):
+            refused.append(str(r.title or r.name) + ": " + WINDOW_TEXT)
+            continue
         stype = r.settlement_type or "Own"
         # an own bill the photo shows is a TA/DA cost (a hotel, a meal, fuel,
         # a ticket): paid in the monthly TA/DA claim, never here
-        if stype == "Own":
+        if stype == "Own" and TA_DA_BLOCK:
             td = ta_da_kind(read_kind(r.bill_meta), "", BOOKING)
             if td:
                 refused.append(str(r.title or r.name) + ": this is a " + td["kind"].lower() + " bill -- it is paid in your monthly TA/DA claim. Remove it, or add it again as spent on a doctor if it was for one.")
@@ -1105,6 +1178,16 @@ elif action == "send_bills":
                                      "read": 1, "write": 0, "share": 0, "notify_by_email": 0})
                 sh.flags.ignore_share_permission = True
                 sh.insert(ignore_permissions=True)
+        # a repeat of an earlier bill (26 Nov 2026): the approvers may open that
+        # bill too (read only), to compare the two photos side by side
+        od = dup_doc(dup_of(r.bill_meta))
+        if od:
+            for c in use:
+                if c["user"] != me and not frappe.db.exists("DocShare", {"share_doctype": od[0], "share_name": od[1], "user": c["user"]}):
+                    sh = frappe.get_doc({"doctype": "DocShare", "share_doctype": od[0], "share_name": od[1], "user": c["user"],
+                                         "read": 1, "write": 0, "share": 0, "notify_by_email": 0})
+                    sh.flags.ignore_share_permission = True
+                    sh.insert(ignore_permissions=True)
     # one alert per approver for the whole send, not one per bill (a bill
     # sent again may wait on someone further up)
     n = len(made)
@@ -1131,7 +1214,8 @@ elif action == "send_cash":
     # the user: RBM and above -- RBM, SM / ZSM, GM)
     lv = level_of(frappe.db.get_value("Employee", emp.name, "custom_role_profile"), frappe.db.get_value("Employee", emp.name, "designation"),
                   me, CEO_USER, CEO_DESIGNATION, LEVELS)
-    if str(lv).upper() not in BOOKING["advance_levels"]:
+    # off the field (back office, CEO) advances are open too (26 Nov 2026, the user)
+    if str(lv).upper() not in BOOKING["advance_levels"] and FIELD:
         frappe.throw("Advances are for " + ", ".join(BOOKING["advance_levels"]) + " -- add your bills and you are paid back.", frappe.PermissionError)
     amount = frappe.utils.flt(fd.get("amount"), 2)
     purpose = " ".join(str(fd.get("purpose") or "").split())[:500]
@@ -1324,7 +1408,9 @@ elif action == "settings":
     own = []
     own_words = []
     tada = []
+    every = []
     for k in BOOKING["kinds"]:
+        every.append(k["kind"])
         if k["own"]:
             own.append(k["kind"])
             # the app picks an own bill's kind off the bill with these (24 Nov 2026)
@@ -1333,8 +1419,8 @@ elif action == "settings":
             tada.append({"kind": k["kind"], "words": k["words"]})
     frappe.response["message"] = {"own_kinds": own, "own_kind_words": own_words, "ta_da_kinds": tada, "activity_limit": BOOKING["activity_limit"],
                                   "service_needs_record": bool(BOOKING["service_needs_record"]), "max_amount": BILL_MAX_AMOUNT,
-                                  "max_age_days": BILL_MAX_AGE_DAYS, "can_request_cash": str(lv).upper() in BOOKING["advance_levels"],
-                                  "level": lv, "doctor_ready": {"activity": bool(BOOKING["activity_account"]), "service": bool(BOOKING["service_account"])}}
+                                  "max_age_days": BILL_MAX_AGE_DAYS, "bills_from": BILLS_FROM or None, "bills_to": BILLS_TO or None, "window_text": WINDOW_TEXT or None, "can_request_cash": bool(emp) and (str(lv).upper() in BOOKING["advance_levels"] or not FIELD),
+                                  "level": lv, "field": FIELD, "ta_da_block": TA_DA_BLOCK, "all_kinds": every, "doctor_ready": {"activity": bool(BOOKING["activity_account"]), "service": bool(BOOKING["service_account"])}}
 
 elif action == "doctors":
     # the caller's doctors matching q (the Lead permission rules apply)

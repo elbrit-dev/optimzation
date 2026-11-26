@@ -30,6 +30,12 @@
 #      date and total
 #   4. YOUR OWN bill with the same date, total and vendor, when one of the two
 #      has no bill number read
+#   5. (24 Nov 2026) the same content hash (printed bill date + vendor or bill
+#      no + total): yours -> refused; another's -> flagged (refused when both
+#      keyed on a bill number)
+#   6. (24 Nov 2026) YOUR OWN bill with the same short bill number (under 4
+#      digits), vendor and total, on any date (a stay's date here is its
+#      check-in, which a hand-entered bill takes from the rep)
 # Each against every bill used in the last 2 years, the rep's own (any trip)
 # and every other employee's. FLAGGED only (allowed; the claim goes to
 # Accounts): 4 for another employee's bill (two people can eat at one place
@@ -37,6 +43,14 @@
 # Two bills with DIFFERENT numbers are never the same bill.
 # Every refusal is a "Refused" row and a comment on the rep's month claim, so
 # the reporting officer sees repeat attempts.
+#
+# SETTLEMENT BILLS ARE NOT REFUSED (26 Nov 2026, the user): a settlement bill
+# (kind "Bill") that matches a used bill is FLAGGED instead -- registered as
+# "Used" with matched = the earlier bill and a "Duplicate: ..." note, and the
+# answer carries dup: who claimed the earlier bill and where, its date,
+# total, vendor, why it matched, and its photo (file_url). The form warns the
+# rep (who may still send it) and the approvers compare the two photos side by
+# side. Planner trip bills are still refused as before.
 #
 # Reps cannot read Bill Fingerprint themselves (System Manager / HR Manager
 # only): this script reads with get_all and writes with ignore_permissions.
@@ -149,7 +163,7 @@ elif action == "claim" or action == "check":
     key = bill_key(bill_no)
     vkey = vendor_key(vendor)
     since = frappe.utils.add_days(frappe.utils.today(), -730)
-    cols = ["name", "employee", "trip", "kind", "bill_date", "amount", "vendor", "bill_no", "image_hash", "file_url"]
+    cols = ["name", "employee", "trip", "kind", "bill_date", "amount", "vendor", "bill_no", "image_hash", "file_url", "content_hash", "strong", "creation"]
 
     found = []
     seen = {}
@@ -180,6 +194,21 @@ elif action == "claim" or action == "check":
                     m = {"r": r, "hard": 1, "why": "the same vendor, date and total"}
                 else:
                     m = {"r": r, "hard": 0, "why": "the same vendor, date and total"}
+            # 5. (24 Nov 2026) a stay bill is registered under its CHECK-IN date,
+            # which a hand-entered bill takes from the rep: a second photo of one
+            # hotel bill typed in with another check-in slipped past 4 (HR-EXP-
+            # 2026-00070: bill no 18, Rs 4,400, 5->7 Oct, again as 6->7 Oct). The
+            # content hash is the PRINTED bill date, vendor (or bill no) and total.
+            if not m and ch and str(r.content_hash or "").lower() == ch:
+                if r.employee == emp or (strong and r.strong):
+                    m = {"r": r, "hard": 1, "why": "the same bill: vendor, bill date and total"}
+                else:
+                    m = {"r": r, "hard": 0, "why": "the same vendor, bill date and total"}
+            # 6. YOUR OWN bill with the same short bill number (under 4 digits,
+            # so not in 2), vendor and total -- on any date
+            if not m and r.employee == emp and not key and not rkey and bill_no.strip() and vendor_key(bill_no) == vendor_key(r.bill_no) \
+                    and same_vendor(vkey, vendor_key(r.vendor)):
+                m = {"r": r, "hard": 1, "why": "the same bill: bill no " + str(r.bill_no or "") + ", total Rs " + str(int(round(frappe.utils.flt(r.amount))))}
             if m:
                 seen[r.name] = 1
                 found.append(m)
@@ -232,6 +261,7 @@ elif action == "claim" or action == "check":
 
     block = None
     flag = None
+    dup = None
     for m in found:
         r = m["r"]
         if r.employee == emp:
@@ -244,11 +274,23 @@ elif action == "claim" or action == "check":
             text = "Already claimed on " + where + " (" + m["why"] + ")."
         else:
             text = "Already claimed by another employee (" + m["why"] + ")."
+        # a settlement bill (26 Nov 2026): the earlier bill as the form and the approvers see it
+        if kind == "Bill" and (m["hard"] or not dup) and (not dup or not dup["sure"]):
+            ename = frappe.db.get_value("Employee", r.employee, "employee_name") or r.employee
+            dup = {"name": r.name, "sure": 1 if m["hard"] else 0, "why": m["why"], "mine": 1 if r.employee == emp else 0,
+                   "employee": r.employee, "employee_name": ename, "kind": r.kind,
+                   "where": ("a settlement bill " + str(r.trip or "")) if r.kind == "Bill" else ("a TA/DA trip of " + str(r.trip or "")[:10]),
+                   "doc": str(r.trip or ""), "bill_date": str(r.bill_date or ""), "amount": frappe.utils.flt(r.amount),
+                   "vendor": r.vendor or "", "bill_no": r.bill_no or "", "file_url": r.file_url or "", "claimed_on": str(r.creation or "")[:10]}
         if m["hard"]:
             if not block:
                 block = {"name": r.name, "text": text}
         elif not flag:
             flag = {"name": r.name, "text": "Possible repeat: " + text}
+    # 26 Nov 2026: a settlement bill is never refused -- the match is a flag
+    if kind == "Bill" and block:
+        flag = {"name": block["name"], "text": "Duplicate: " + block["text"]}
+        block = None
 
     base = {
         "doctype": "Bill Fingerprint",
@@ -273,7 +315,7 @@ elif action == "claim" or action == "check":
         if block:
             frappe.response["message"] = {"ok": 0, "reason": block["text"], "matched": block["name"]}
         else:
-            frappe.response["message"] = {"ok": 1, "flag": flag["text"] if flag else None}
+            frappe.response["message"] = {"ok": 1, "flag": flag["text"] if flag else None, "dup": dup}
     elif block:
         base["status"] = "Refused"
         base["matched"] = block["name"]
@@ -305,7 +347,7 @@ elif action == "claim" or action == "check":
             base["matched"] = flag["name"]
             base["note"] = flag["text"]
         doc = frappe.get_doc(base).insert(ignore_permissions=True)
-        frappe.response["message"] = {"ok": 1, "name": doc.name, "flag": flag["text"] if flag else None}
+        frappe.response["message"] = {"ok": 1, "name": doc.name, "flag": flag["text"] if flag else None, "dup": dup}
 
 # BILLS ON EVERY DEVICE (25 Nov 2026, the owner): a trip's bills used to live only on the phone that
 # scanned them until the trip was sent. Now the app keeps its copy of each bill here too:

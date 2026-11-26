@@ -8,7 +8,7 @@
    the team's replies, and a reply bar at the bottom while it is open.
    ERP: Server Script "Field Trip Help API" (action=settle / reply). */
 import { useEffect, useRef, useState } from "react";
-import { replyBillHelp } from "./data/claimsApi";
+import { raiseBillHelp, replyBillHelp } from "./data/claimsApi";
 import { IC, Icon, Note, Sheet, Spinner, ell } from "./ui";
 import { shortDate } from "./model";
 
@@ -93,8 +93,61 @@ export function helpHighlight(list, onOpen) {
   };
 }
 
-export function HelpRequestsSheet({ conn, list, onClose, onChanged, desk }) {
-  const [openName, setOpenName] = useState(null);
+/* GENERAL SETTLEMENT HELP (26 Nov 2026, the user): a "Help" card always in the
+   Highlights -- just a date and a reason, no bill. Raised like a bill's help
+   (the same Task, "Settlement help · General"); then the requests open on it. */
+export const askHighlight = (onOpen) => ({ key: "ask", tone: "field", onClick: onOpen, value: "Help", label: "ask the team", tip: "Ask for help" });
+
+export function AskHelpSheet({ conn, me, onClose, onRaised, desk }) {
+  const today = new Date();
+  const todayIso = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, "0")}-${String(today.getDate()).padStart(2, "0")}`;
+  const [date, setDate] = useState(todayIso);
+  const [reason, setReason] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState("");
+  const ready = reason.trim().length >= 5 && !!date && !busy;
+  const send = async () => {
+    if (!ready) return setError(reason.trim().length < 5 ? "Add a reason." : "");
+    setBusy(true);
+    setError("");
+    try {
+      const task = await raiseBillHelp(conn, {
+        file: null, date, title: "General", message: reason,
+        details: [`Employee: ${me?.name || me?.id || "-"}${me?.id && me?.name ? ` (${me.id})` : ""}`, "General settlement help (no bill)", `Date: ${date}`].join("\n"),
+      });
+      await onRaised?.(task);
+    } catch (e) {
+      setError(e.message);
+      setBusy(false);
+    }
+  };
+  return (
+    <Sheet title="Ask for help" onClose={busy ? () => {} : onClose} desktop="dialog" maxWidth={480}
+      footer={<button type="button" className="ec-cta" disabled={!ready} onClick={send}
+        style={{ flex: 1, height: 50, borderRadius: 14, border: 0, background: "#2563eb", color: "#fff", fontSize: 15.5, fontWeight: 700, display: "flex", alignItems: "center", justifyContent: "center", gap: 8, opacity: ready ? 1 : 0.45, cursor: ready ? "pointer" : "not-allowed" }}>
+        {busy ? <><Spinner size={14} />Sending…</> : <><Icon d={IC.arrow} size={18} />Submit for help</>}
+      </button>}>
+      <style>{CSS}</style>
+      <div style={{ display: "flex", flexDirection: "column", gap: 14, padding: desk ? "16px 24px 20px" : "12px 16px 18px" }}>
+        <label style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+          <span style={{ fontSize: 13, fontWeight: 600, color: "#344054" }}>Date</span>
+          <input type="date" max={todayIso} value={date} onChange={(e) => e.target.value && setDate(e.target.value)}
+            style={{ height: 52, borderRadius: 14, border: "1.5px solid #e1e5ec", padding: "0 14px", fontSize: 15, font: "inherit", boxSizing: "border-box" }} />
+        </label>
+        <label style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+          <span style={{ fontSize: 13, fontWeight: 600, color: "#344054" }}>Reason</span>
+          <textarea rows={4} value={reason} maxLength={1000} disabled={busy} onChange={(e) => { setReason(e.target.value); setError(""); }} placeholder="What do you need help with?"
+            style={{ minHeight: 110, borderRadius: 14, border: "1.5px solid #e1e5ec", padding: "10px 14px", fontSize: 15, font: "inherit", resize: "vertical", boxSizing: "border-box" }} />
+        </label>
+        {error && <Note>{error}</Note>}
+      </div>
+    </Sheet>
+  );
+}
+
+export function HelpRequestsSheet({ conn, list, onClose, onChanged, desk, focus }) {
+  // focus: a request just raised -- the sheet opens on it
+  const [openName, setOpenName] = useState(focus || null);
   const [text, setText] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
@@ -123,7 +176,7 @@ export function HelpRequestsSheet({ conn, list, onClose, onChanged, desk }) {
 
   const footer = !t ? null : t.closed ? (
     <span style={{ flex: 1, display: "flex", alignItems: "center", justifyContent: "center", gap: 6, minHeight: 44, fontSize: 13, color: "#5b6576" }}>
-      <Icon d={IC.check} size={14} />Resolved — raise a new request from the bill form if something is still wrong
+      <Icon d={IC.check} size={14} />Resolved
     </span>
   ) : (
     <div style={{ flex: 1, display: "flex", flexDirection: "column", gap: 8, minWidth: 0 }}>
@@ -142,7 +195,7 @@ export function HelpRequestsSheet({ conn, list, onClose, onChanged, desk }) {
 
   return (
     <Sheet title={t ? t.title : "Help requests"}
-      sub={t ? `${day(t.day) ? `Bill of ${day(t.day)} · ` : ""}raised ${day(t.created)}` : `${list.length} ${list.length === 1 ? "request" : "requests"} you raised on your bills`}
+      sub={t ? `${day(t.day) ? `Bill of ${day(t.day)} · ` : ""}raised ${day(t.created)}` : `${list.length} ${list.length === 1 ? "request" : "requests"}`}
       chips={t ? <Tag state={t.state} /> : null}
       onClose={onClose} desktop="dialog" maxWidth={520} footer={footer}>
       <style>{CSS}</style>
@@ -169,7 +222,7 @@ export function HelpRequestsSheet({ conn, list, onClose, onChanged, desk }) {
                 </span>
               </button>
             );
-          }) : <Note tone="info" style={{ margin: 8 }}>No help requests yet. If something is wrong with a bill, tap “Help” on the bill form after adding its photo.</Note>}
+          }) : <Note tone="info" style={{ margin: 8 }}>No help requests yet.</Note>}
         </div>
       ) : (
         <div style={{ display: "flex", flexDirection: "column", gap: 18, padding: desk ? "12px 24px 20px" : "10px 16px 18px" }}>
@@ -182,7 +235,7 @@ export function HelpRequestsSheet({ conn, list, onClose, onChanged, desk }) {
             <Bubble mine at={t.created} text={t.asked} />
             {t.replies.map((c, i) => <Bubble key={i} mine={c.mine} by={c.by} at={c.at} text={c.text} />)}
             {!t.closed && !t.teamReplies && (
-              <span style={{ alignSelf: "center", fontSize: 12, color: "#8a93a3", padding: "4px 12px", borderRadius: 99, background: "#f2f4f7" }}>The expense team will reply here</span>
+              <span style={{ alignSelf: "center", fontSize: 12, color: "#8a93a3", padding: "4px 12px", borderRadius: 99, background: "#f2f4f7" }}>Awaiting reply</span>
             )}
             <span ref={endRef} />
           </div>

@@ -58,7 +58,7 @@ export function typeLine(x) {
    service is approved (settlement_api decide): until then it waits, and is
    never picked. One with just a service day (switch off) never waits. */
 export const serviceHeld = (r) => r?.type === "Doctor service" && r.status === "waiting" && !r.serviceDate && !r.service?.approved;
-export const HELD_NOTE = "Approve once the doctor service is approved";
+export const HELD_NOTE = "Waits for doctor service";
 /* "<service> · ₹amount · ₹billed billed · ₹left left · <state>" */
 export const serviceLine = (s) => (s ? [s.service || s.name, inr(s.amount), `${inr(s.billed)} billed`, `${inr(s.left)} left`, s.state || (s.approved ? "Approved" : "Waiting for approval")].join(" · ") : "");
 /* The type, the doctor and the service, for the approvers. */
@@ -72,6 +72,57 @@ export function TypeInfo({ r, small }) {
       {r.type === "Doctor service" && r.service && <span style={{ fontSize: fs - 0.5, color: "#5b6576", lineHeight: 1.4 }}>{serviceLine(r.service)}</span>}
       {serviceHeld(r) && <span style={{ fontSize: fs - 0.5, fontWeight: 600, color: "#b54708", lineHeight: 1.4 }}>{HELD_NOTE}</span>}
     </span>
+  );
+}
+
+/* A bill claimed before (26 Nov 2026, the user: "flag it, don't refuse it"):
+   the approver sees this bill and the earlier one side by side -- both photos,
+   and date / amount / vendor next to each other. */
+export const DupTag = ({ b, small }) => (b?.dup ? (
+  <span title={b.dup.why} style={{ flex: "none", alignSelf: "flex-start", display: "inline-flex", alignItems: "center", gap: 5, fontSize: small ? 10.5 : 11, fontWeight: 700, padding: small ? "1px 7px" : "2px 8px", borderRadius: 99, background: "#fef0c7", color: "#93370d", whiteSpace: "nowrap" }}>
+    <span style={{ width: 6, height: 6, borderRadius: "50%", background: "#dc6803" }} />{b.dup.sure ? "Duplicate" : "Possible duplicate"}
+  </span>
+) : null);
+function DupCompare({ conn, b, employee, onBill }) {
+  const d = b.dup;
+  const mine = billFile(b.bill), old = billFile(d.photo);
+  const both = [mine, old].filter(Boolean);
+  const who = d.samePerson ? `${employee} (the same person)` : d.employeeName || "another employee";
+  const rows = [["Bill date", shortDate(b.date), d.billDate ? shortDate(d.billDate) : "—"], ["Amount", inr(b.amount), d.amount ? inr(d.amount) : "—"], ["Vendor", "", d.vendor || "—"]];
+  const col = (title, f, sub) => (
+    <div style={{ flex: 1, minWidth: 0, display: "flex", flexDirection: "column", gap: 6, alignItems: "center" }}>
+      <span style={{ fontSize: 11.5, fontWeight: 700, color: "#475467", textTransform: "uppercase", letterSpacing: ".04em" }}>{title}</span>
+      {f ? <BillThumb conn={conn} file={f} w={132} h={168} onOpen={() => onBill(f, both)} />
+        : <span style={{ width: 132, height: 168, borderRadius: 12, background: "#f2f4f7", display: "grid", placeItems: "center", color: "#98a2b3", fontSize: 12, textAlign: "center", padding: 10 }}>No photo kept</span>}
+      <span style={{ fontSize: 11.5, color: "#5b6576", textAlign: "center" }}>{sub}</span>
+    </div>
+  );
+  return (
+    <div style={{ ...card, padding: 14, display: "flex", flexDirection: "column", gap: 12, boxShadow: "0 0 0 1.5px #fdb022" }}>
+      <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+        <DupTag b={b} />
+        <b style={{ flex: 1, minWidth: 0, fontSize: 14 }}>{d.sure ? "This bill was claimed before" : "This bill looks like one claimed before"}</b>
+      </div>
+      <span style={{ fontSize: 13, color: "#344054", lineHeight: 1.5 }}>
+        Claimed by <b>{who}</b> {/^a settlement bill/.test(d.where) ? "as a settlement bill" : "on a TA/DA trip"}{d.claimedOn ? ` on ${shortDate(d.claimedOn)}` : ""}. Matched on {d.why || "the bill"}.
+      </span>
+      <div style={{ display: "flex", gap: 12 }}>
+        {col("This bill", mine, `${shortDate(b.date)} · ${inr(b.amount)}`)}
+        {col("Claimed before", old, [d.billDate && shortDate(d.billDate), d.amount ? inr(d.amount) : ""].filter(Boolean).join(" · ") || "—")}
+      </div>
+      <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 13 }}>
+        <thead><tr style={{ color: "#8a93a3", fontSize: 11.5, textAlign: "left" }}><th style={{ padding: "4px 0", fontWeight: 600 }} /><th style={{ padding: "4px 6px", fontWeight: 600 }}>This bill</th><th style={{ padding: "4px 6px", fontWeight: 600 }}>Claimed before</th></tr></thead>
+        <tbody>
+          {rows.filter((x) => x[0] !== "Vendor" || d.vendor).map(([k, a, z]) => (
+            <tr key={k} style={{ borderTop: "1px solid #eef1f5" }}>
+              <td style={{ padding: "7px 0", color: "#5b6576" }}>{k}</td>
+              <td style={{ padding: "7px 6px", ...tabNum }}>{a || b.title}</td>
+              <td style={{ padding: "7px 6px", fontWeight: a && a === z ? 700 : 400, color: a && a === z ? "#b54708" : "#0b1220", ...tabNum }}>{z}</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
   );
 }
 
@@ -146,12 +197,11 @@ export function SendBar({ bills, busy, onSend }) {
     <section style={{ ...card, padding: 16, display: "flex", flexDirection: "column", gap: 10, boxShadow: `0 0 0 1.5px ${allBack ? "#d92d20" : "#0e7490"}` }}>
       <div style={{ display: "flex", alignItems: "baseline", justifyContent: "space-between", gap: 10 }}>
         <span style={{ fontSize: 15, fontWeight: 700 }}>
-          {allBack ? `${back} ${back === 1 ? "bill" : "bills"} sent back` : `${bills.length} ${bills.length === 1 ? "bill" : "bills"} not sent yet`}
+          {allBack ? `${back} not valid ${back === 1 ? "bill" : "bills"}` : `${bills.length} ${bills.length === 1 ? "bill" : "bills"} not sent yet`}
         </span>
         <b style={{ fontSize: 18, ...tabNum }}>{inr(total)}</b>
       </div>
-      {back > 0 && <span style={{ fontSize: 12.5, color: "#b42318" }}>Open {back === 1 ? "it" : "them"} below to see why. Fix or remove {back === 1 ? "it" : "them"}, then send again.</span>}
-      <button type="button" className="ec-cta" disabled={busy} onClick={onSend} style={{ ...btn.primary, height: 48, borderRadius: 14, fontSize: 15.5, display: "flex", alignItems: "center", justifyContent: "center", gap: 8 }}>
+            <button type="button" className="ec-cta" disabled={busy} onClick={onSend} style={{ ...btn.primary, height: 48, borderRadius: 14, fontSize: 15.5, display: "flex", alignItems: "center", justifyContent: "center", gap: 8 }}>
         {busy ? <><Spinner size={14} />Sending…</> : <><Icon d={IC.arrow} size={18} />{allBack ? "Send again" : "Send for approval"}</>}
       </button>
     </section>
@@ -169,7 +219,7 @@ export function MyRequests({ conn, requests, onChanged }) {
   const shown = all ? list : list.slice(0, 5);
   return (
     <section style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-      <span style={{ fontSize: 15, fontWeight: 700, color: "#5b6576" }}>Your requests</span>
+      <span style={{ fontSize: 15, fontWeight: 700, color: "#5b6576" }}>Advance requests</span>
       <div style={{ ...card, padding: "2px 14px" }}>
         {shown.map((r, i) => (
           <button key={r.id} type="button" onClick={() => setOpen(r)}
@@ -178,7 +228,7 @@ export function MyRequests({ conn, requests, onChanged }) {
               <b style={{ fontSize: 14, ...ell }}>{kindWord(r)}{r.kind === "cash" && r.purpose ? ` · ${r.purpose}` : ""}</b>
               {typeLine(r) && <span style={{ fontSize: 12, fontWeight: 600, color: "#475467", ...ell }}>{typeLine(r)}</span>}
               <span style={{ fontSize: 12, color: r.status === "rejected" ? "#b42318" : serviceHeld(r) ? "#b54708" : "#8a93a3", ...ell }}>
-                {r.bills.length === 1 && r.bills[0].date ? `${shortDate(r.bills[0].date)} · ` : ""}{r.status === "rejected" ? "Sent back — tap to see why" : r.status === "approved" ? "Verified" : serviceHeld(r) ? "Waiting for the doctor service to be approved" : (waitingOn(r) && waitingOn(r) + since(r)) || `sent ${when(r.created)}`}
+                {r.bills.length === 1 && r.bills[0].date ? `${shortDate(r.bills[0].date)} · ` : ""}{r.status === "rejected" ? "Sent back" : r.status === "approved" ? "Verified" : serviceHeld(r) ? "Waiting on doctor service" : (waitingOn(r) && waitingOn(r) + since(r)) || `sent ${when(r.created)}`}
               </span>
             </span>
             <b style={{ fontSize: 15, ...tabNum }}>{inr(r.amount)}</b>
@@ -197,10 +247,43 @@ export function MyRequests({ conn, requests, onChanged }) {
   );
 }
 
+/* A request in four steps (26 Nov 2026, the user): Submitted -> Approval (the
+   managers; who has it now) -> Verified (the CEO; a doctor bill's one approval
+   verifies it) -> Settlement (paid). */
+function fourSteps(r) {
+  const steps = r.steps || [];
+  const ceoAt = steps.length && steps[steps.length - 1].level === "CEO" ? steps.length - 1 : -1;
+  const mgrs = ceoAt >= 0 ? steps.slice(0, ceoAt) : steps;
+  const no = steps.find((s) => s.decision === "Rejected");
+  const waiting = r.status === "waiting";
+  const atCeo = waiting && r.step === ceoAt;
+  const mgrsDone = r.status === "approved" || atCeo || (mgrs.length > 0 && mgrs.every((s) => s.decision === "Approved" || s.decision === "Skipped"));
+  const lastMgr = [...mgrs].reverse().find((s) => s.decision === "Approved");
+  const ceo = ceoAt >= 0 ? steps[ceoAt] : null;
+  const out = [{ k: "Submitted", v: when(r.created), at: "done" }];
+  if (no) {
+    out.push({ k: "Approval", v: `Sent back by ${no.name || "an approver"}${no.at ? ` · ${when(no.at)}` : ""}`, at: "fail" });
+    return out;
+  }
+  out.push(mgrsDone
+    ? { k: "Approval", v: lastMgr?.at ? `Approved · ${when(lastMgr.at)}` : "Approved", at: "done" }
+    : waiting && serviceHeld(r) ? { k: "Approval", v: "Waiting on doctor service", at: "now" }
+    : waiting ? { k: "Approval", v: `${(waitingOn(r) || "With your manager").replace(/^with/, "With")}${since(r)}`, at: "now" }
+    : { k: "Approval", v: "Next", at: "next" });
+  out.push(r.status === "approved"
+    ? { k: "Verified", v: ceo?.at ? `Verified · ${when(ceo.at)}` : "Verified", at: "done" }
+    : atCeo ? { k: "Verified", v: `With the CEO${since(r)}`, at: "now" }
+    : { k: "Verified", v: "After approval", at: "next" });
+  out.push(r.booked?.paid ? { k: "Settlement", v: "Paid", at: "done" }
+    : r.status === "approved" ? { k: "Settlement", v: "Paid next run", at: "now" }
+    : { k: "Settlement", v: "After verification", at: "next" });
+  return out;
+}
+
 /* One of my requests, opened: the chain as a timeline, the bills (no score --
    that is for the approvers), the reason it came back, and Take back while
    nobody has approved it yet. */
-function MyRequestSheet({ conn, r, onClose, onChanged }) {
+export function MyRequestSheet({ conn, r, onClose, onChanged }) {
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState("");
   const [preview, setPreview] = useState(null);
@@ -226,27 +309,24 @@ function MyRequestSheet({ conn, r, onClose, onChanged }) {
         </> : <button type="button" className="ec-cta" onClick={onClose} style={{ ...btn.primary, flex: 1 }}>Close</button>}>
         <div style={{ padding: 14, display: "flex", flexDirection: "column", gap: 10 }}>
           {err && <Note>{err}</Note>}
-          {serviceHeld(r) && <Note tone="info" style={{ color: "#b54708", background: "#fffaeb" }}>Waiting for the doctor service to be approved — you are paid back once it is.</Note>}
+          {serviceHeld(r) && <Note tone="info" style={{ color: "#b54708", background: "#fffaeb" }}>Waiting on doctor service</Note>}
           {r.status === "rejected" && r.note && (
             <span style={{ fontSize: 13, color: "#b42318", padding: "10px 12px", borderRadius: 12, background: "#fef3f2", lineHeight: 1.45 }}>
               <b>Sent back by {r.steps.find((s) => s.decision === "Rejected")?.name || "an approver"}:</b> {r.note}
-              {r.kind === "bills" ? " — the bills are back with you to fix and send again." : ""}
+              
             </span>
           )}
           {r.status === "approved" && <span style={{ fontSize: 13, fontWeight: 600, color: "#067647", padding: "10px 12px", borderRadius: 12, background: "#ecfdf3" }}>
-            Approved — {!r.booked ? (r.kind === "bills" ? "the bill is verified." : "verified.")
-              : r.booked.paid ? (r.kind === "bills" ? "paid to you." : "the cash is paid to you.")
-              : r.kind === "bills" ? "booked in the accounts; Accounts pays it in the next payment run." : "Accounts pays the cash in the next payment run."}
+            Approved{!r.booked ? "" : r.booked.paid ? " · paid" : " · paid next run"}
           </span>}
+          {/* 26 Nov 2026 (the user): four steps only -- Submitted, Approval,
+              Verified, Settlement; not every approver in the chain */}
           <div style={{ ...card, padding: 14, display: "flex", flexDirection: "column" }}>
-            <span style={{ ...label, marginBottom: 10 }}>Approval</span>
-            {r.steps.map((s, i) => {
-              const now = r.status === "waiting" && i === r.step;
-              const ok = s.decision === "Approved", no = s.decision === "Rejected", skip = s.decision === "Skipped";
-              const tone = ok ? "#067647" : no ? "#b42318" : now ? "#b54708" : "#98a2b3";
-              const last = i === r.steps.length - 1;
+            {fourSteps(r).map((s, i, all) => {
+              const ok = s.at === "done", no = s.at === "fail", now = s.at === "now";
+              const last = i === all.length - 1;
               return (
-                <div key={i} style={{ display: "flex", gap: 10 }}>
+                <div key={s.k} style={{ display: "flex", gap: 10 }}>
                   <span style={{ display: "flex", flexDirection: "column", alignItems: "center", flex: "none", width: 22 }}>
                     <span style={{ width: 22, height: 22, borderRadius: 99, display: "grid", placeItems: "center", color: "#fff", background: ok ? "#12b76a" : no ? "#d92d20" : now ? "#f79009" : "#d0d5dd" }}>
                       {ok ? <Icon d={IC.check} size={12} sw={3} /> : no ? <Icon d={IC.x} size={12} sw={3} /> : <span style={{ width: 6, height: 6, borderRadius: 99, background: "#fff" }} />}
@@ -254,11 +334,8 @@ function MyRequestSheet({ conn, r, onClose, onChanged }) {
                     {!last && <span style={{ flex: 1, width: 2, minHeight: 14, background: ok ? "#a6f4c5" : "#eaecf0" }} />}
                   </span>
                   <span style={{ flex: 1, minWidth: 0, display: "flex", flexDirection: "column", gap: 1, paddingBottom: last ? 0 : 12 }}>
-                    <span style={{ fontSize: 13.5 }}><b>{s.name}</b> <span style={{ color: "#8a93a3" }}>{s.level}</span></span>
-                    <span style={{ fontSize: 12, color: tone }}>
-                      {ok ? `Approved · ${when(s.at)}` : no ? `Sent back · ${when(s.at)}` : skip ? `Skipped · ${when(s.at)}` : now ? `Waiting for them${since(r)}` : r.status === "waiting" ? "Next" : "—"}
-                    </span>
-                    {s.note && <span style={{ fontSize: 12, color: "#475467" }}>{s.note}</span>}
+                    <b style={{ fontSize: 13.5 }}>{s.k}</b>
+                    <span style={{ fontSize: 12, color: ok ? "#067647" : no ? "#b42318" : now ? "#b54708" : "#98a2b3" }}>{s.v}</span>
                   </span>
                 </div>
               );
@@ -360,8 +437,9 @@ function QueueCard({ r, act, picked, onPick, onOpen, mine }) {
         </span>
         <span style={{ fontSize: 12, color: "#8a93a3", ...ell }}>Sent {when(r.created)}{r.resent ? <b style={{ color: "#b54708", fontWeight: 600 }}> · sent again</b> : null}</span>
         <TypeInfo r={r} small />
+        {r.bills?.some((b) => b.dup) && <DupTag b={r.bills.find((b) => b.dup)} small />}
         {act && (look ? (
-          <span style={{ fontSize: 11.5, fontWeight: 700, color: "#b54708" }}>Needs a look — open the bill</span>
+          <span style={{ fontSize: 11.5, fontWeight: 700, color: "#b54708" }}>{r.bills?.some((b) => b.dup) ? "Claimed before — open to compare" : "Needs a look — open the bill"}</span>
         ) : scored ? (
           <span style={{ fontSize: 11.5, fontWeight: 700, color: "#067647" }}>Bill matches</span>
         ) : null)}
@@ -603,7 +681,7 @@ export function SettleQueue({ conn, data, desk, onOpen, onDone, onError }) {
                             <TypeInfo r={r} small />
                           </td>
                           <td style={TD2} />
-                          <td style={TD2}>{b ? <CheckBadge b={b} small /> : <span style={{ color: "#8a93a3" }}>No bill</span>}</td>
+                          <td style={TD2}>{b ? <span style={{ display: "inline-flex", gap: 6, flexWrap: "wrap" }}><CheckBadge b={b} small /><DupTag b={b} small /></span> : <span style={{ color: "#8a93a3" }}>No bill</span>}</td>
                           <td style={TD2}>{m ? <span style={{ color: m.decision === "Rejected" ? "#b42318" : "#067647", fontWeight: 600 }}>{m.decision === "Rejected" ? `Sent back${m.note ? ` — ${m.note}` : ""}` : "Approved"}</span> : <ChainTrack r={r} compact />}</td>
                           <td style={{ ...TD2, textAlign: "right", ...tabNum }}>{inr(r.amount)}</td>
                           <td style={{ ...TD2, textAlign: "right" }}>
@@ -845,7 +923,7 @@ export function SettleSheet({ conn, req: r, canAct, desk, onClose, onDone, onBil
                       <b style={{ fontSize: 15, ...tabNum }}>{inr(b.amount)}</b>
                     </span>
                     <span style={{ fontSize: 12.5, color: "#5b6576" }}>{shortDate(b.date)}</span>
-                    <CheckBadge b={b} small />
+                    <span style={{ display: "flex", gap: 6, flexWrap: "wrap" }}><CheckBadge b={b} small /><DupTag b={b} small /></span>
                     {/* what the bill check compared, in one plain line (23 Nov 2026) */}
                     {b.score != null && (b.reason || b.score >= 90) && (
                       <span style={{ fontSize: 12, color: b.score < 90 ? "#b54708" : "#475467", lineHeight: 1.4 }}>{b.reason ? proofOf(b.reason).text : "Total and date match the bill"}</span>
@@ -862,6 +940,7 @@ export function SettleSheet({ conn, req: r, canAct, desk, onClose, onDone, onBil
             })}
           </div>
         )}
+        {r.kind !== "cash" && r.bills.filter((b) => b.dup).map((b, i) => <DupCompare key={`dup${i}`} conn={conn} b={b} employee={r.employeeName} onBill={onBill} />)}
         {canAct && (
           <label style={{ ...card, padding: 14, display: "flex", flexDirection: "column", gap: 6 }}>
             <span style={label}>{rejecting ? "Why it is sent back" : "Remarks · optional"}</span>
