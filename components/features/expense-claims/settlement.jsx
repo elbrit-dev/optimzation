@@ -247,6 +247,39 @@ export function MyRequests({ conn, requests, onChanged }) {
   );
 }
 
+/* A request in four steps (26 Nov 2026, the user): Submitted -> Approval (the
+   managers; who has it now) -> Verified (the CEO; a doctor bill's one approval
+   verifies it) -> Settlement (paid). */
+function fourSteps(r) {
+  const steps = r.steps || [];
+  const ceoAt = steps.length && steps[steps.length - 1].level === "CEO" ? steps.length - 1 : -1;
+  const mgrs = ceoAt >= 0 ? steps.slice(0, ceoAt) : steps;
+  const no = steps.find((s) => s.decision === "Rejected");
+  const waiting = r.status === "waiting";
+  const atCeo = waiting && r.step === ceoAt;
+  const mgrsDone = r.status === "approved" || atCeo || (mgrs.length > 0 && mgrs.every((s) => s.decision === "Approved" || s.decision === "Skipped"));
+  const lastMgr = [...mgrs].reverse().find((s) => s.decision === "Approved");
+  const ceo = ceoAt >= 0 ? steps[ceoAt] : null;
+  const out = [{ k: "Submitted", v: when(r.created), at: "done" }];
+  if (no) {
+    out.push({ k: "Approval", v: `Sent back by ${no.name || "an approver"}${no.at ? ` · ${when(no.at)}` : ""}`, at: "fail" });
+    return out;
+  }
+  out.push(mgrsDone
+    ? { k: "Approval", v: lastMgr?.at ? `Approved · ${when(lastMgr.at)}` : "Approved", at: "done" }
+    : waiting && serviceHeld(r) ? { k: "Approval", v: "Waiting on doctor service", at: "now" }
+    : waiting ? { k: "Approval", v: `${(waitingOn(r) || "With your manager").replace(/^with/, "With")}${since(r)}`, at: "now" }
+    : { k: "Approval", v: "Next", at: "next" });
+  out.push(r.status === "approved"
+    ? { k: "Verified", v: ceo?.at ? `Verified · ${when(ceo.at)}` : "Verified", at: "done" }
+    : atCeo ? { k: "Verified", v: `With the CEO${since(r)}`, at: "now" }
+    : { k: "Verified", v: "After approval", at: "next" });
+  out.push(r.booked?.paid ? { k: "Settlement", v: "Paid", at: "done" }
+    : r.status === "approved" ? { k: "Settlement", v: "Paid next run", at: "now" }
+    : { k: "Settlement", v: "After verification", at: "next" });
+  return out;
+}
+
 /* One of my requests, opened: the chain as a timeline, the bills (no score --
    that is for the approvers), the reason it came back, and Take back while
    nobody has approved it yet. */
@@ -286,15 +319,14 @@ export function MyRequestSheet({ conn, r, onClose, onChanged }) {
           {r.status === "approved" && <span style={{ fontSize: 13, fontWeight: 600, color: "#067647", padding: "10px 12px", borderRadius: 12, background: "#ecfdf3" }}>
             Approved{!r.booked ? "" : r.booked.paid ? " · paid" : " · paid next run"}
           </span>}
+          {/* 26 Nov 2026 (the user): four steps only -- Submitted, Approval,
+              Verified, Settlement; not every approver in the chain */}
           <div style={{ ...card, padding: 14, display: "flex", flexDirection: "column" }}>
-            <span style={{ ...label, marginBottom: 10 }}>Approval</span>
-            {r.steps.map((s, i) => {
-              const now = r.status === "waiting" && i === r.step;
-              const ok = s.decision === "Approved", no = s.decision === "Rejected", skip = s.decision === "Skipped";
-              const tone = ok ? "#067647" : no ? "#b42318" : now ? "#b54708" : "#98a2b3";
-              const last = i === r.steps.length - 1;
+            {fourSteps(r).map((s, i, all) => {
+              const ok = s.at === "done", no = s.at === "fail", now = s.at === "now";
+              const last = i === all.length - 1;
               return (
-                <div key={i} style={{ display: "flex", gap: 10 }}>
+                <div key={s.k} style={{ display: "flex", gap: 10 }}>
                   <span style={{ display: "flex", flexDirection: "column", alignItems: "center", flex: "none", width: 22 }}>
                     <span style={{ width: 22, height: 22, borderRadius: 99, display: "grid", placeItems: "center", color: "#fff", background: ok ? "#12b76a" : no ? "#d92d20" : now ? "#f79009" : "#d0d5dd" }}>
                       {ok ? <Icon d={IC.check} size={12} sw={3} /> : no ? <Icon d={IC.x} size={12} sw={3} /> : <span style={{ width: 6, height: 6, borderRadius: 99, background: "#fff" }} />}
@@ -302,11 +334,8 @@ export function MyRequestSheet({ conn, r, onClose, onChanged }) {
                     {!last && <span style={{ flex: 1, width: 2, minHeight: 14, background: ok ? "#a6f4c5" : "#eaecf0" }} />}
                   </span>
                   <span style={{ flex: 1, minWidth: 0, display: "flex", flexDirection: "column", gap: 1, paddingBottom: last ? 0 : 12 }}>
-                    <span style={{ fontSize: 13.5 }}><b>{s.name}</b> <span style={{ color: "#8a93a3" }}>{s.level}</span></span>
-                    <span style={{ fontSize: 12, color: tone }}>
-                      {ok ? `Approved · ${when(s.at)}` : no ? `Sent back · ${when(s.at)}` : skip ? `Skipped · ${when(s.at)}` : now ? `Waiting for them${since(r)}` : r.status === "waiting" ? "Next" : "—"}
-                    </span>
-                    {s.note && <span style={{ fontSize: 12, color: "#475467" }}>{s.note}</span>}
+                    <b style={{ fontSize: 13.5 }}>{s.k}</b>
+                    <span style={{ fontSize: 12, color: ok ? "#067647" : no ? "#b42318" : now ? "#b54708" : "#98a2b3" }}>{s.v}</span>
                   </span>
                 </div>
               );
