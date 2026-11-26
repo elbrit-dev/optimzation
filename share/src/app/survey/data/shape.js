@@ -343,6 +343,42 @@ export function dueText(today, due) {
 
 /* The circle's label: the title's first one or two words, trimmed to fit
    under a 56px ring. The full title goes in the tile's aria-label. */
+/* 26 Nov 2026 · short names that tell surveys apart. When titles give the same short name, the words they share
+   at the start / end are dropped ("ZZ Test – Prescription" / "ZZ Test – Distributor login" → "Prescripti…" /
+   "Distributor"), again inside any group still the same; what is still the same is numbered. */
+export function distinctNames(titles, max = 11) {
+  const eq = (a, b) => String(a).toLowerCase() === String(b).toLowerCase();
+  const words = titles.map((t) => String(t ?? '').replace(/[—–:|()-]+/g, ' ').split(/\s+/).filter(Boolean));
+  const names = titles.map((t) => shortName(t, max));
+  for (let pass = 0; pass < 3; pass += 1) {
+    const groups = {};
+    names.forEach((n, i) => { (groups[n] = groups[n] || []).push(i); });
+    let moved = false;
+    Object.values(groups).forEach((idx) => {
+      if (idx.length < 2) return;
+      const W = idx.map((i) => words[i]);
+      let p = 0;
+      while (W.every((w) => p < w.length && eq(w[p], W[0][p]))) p += 1;
+      let q = 0;
+      while (W.every((w) => q < w.length - p && eq(w[w.length - 1 - q], W[0][W[0].length - 1 - q]))) q += 1;
+      if (!p && !q) return;
+      idx.forEach((i) => {
+        const mid = words[i].slice(p, words[i].length - q);
+        if (mid.length) { words[i] = mid; names[i] = shortName(mid.join(' '), max); moved = true; }
+      });
+    });
+    if (!moved) break;
+  }
+  const count = {};
+  names.forEach((n) => { count[n] = (count[n] || 0) + 1; });
+  const at = {};
+  return names.map((n) => {
+    if (count[n] < 2) return n;
+    at[n] = (at[n] || 0) + 1;
+    return `${n.length > max - 2 ? `${n.slice(0, max - 3)}…` : n} ${at[n]}`;
+  });
+}
+
 export function shortName(title, max = 11) {
   const words = String(title ?? '').replace(/[—–:|(].*$/, '').trim().split(/\s+/).filter(Boolean);
   if (!words.length) return 'Survey';

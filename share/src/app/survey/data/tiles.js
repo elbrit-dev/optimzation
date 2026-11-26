@@ -28,7 +28,7 @@
  * caller, by these rules over their Survey Responses, in this order, each
  * linking /survey/<campaign>. Until then the app builds them here. */
 
-import { daysLeft, shortDate, shortName, surveysFromMyList } from './shape';
+import { daysLeft, distinctNames, shortDate, shortName, surveysFromMyList } from './shape';
 
 export const SURVEY_TILE_PREFIX = 'survey-';
 
@@ -117,10 +117,11 @@ export function onStrip(s, today) {
 
 /* survey_my_list → the circles, in order. Empty for someone with no survey. */
 export function surveyTiles(list, today, options) {
-  return surveysFromMyList(list)
+  const shown = surveysFromMyList(list)
     .filter((s) => onStrip(s, today))
-    .sort(byRank(today))
-    .map((s) => surveyTile(s, today, options));
+    .sort(byRank(today));
+  const names = distinctNames(shown.map((s) => s.title)); // 26 Nov 2026: two circles never share a name
+  return shown.map((s, i) => ({ ...surveyTile(s, today, options), label: names[i] }));
 }
 
 /* The strip with the survey circles in their place: right after the entry

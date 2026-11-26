@@ -30,7 +30,7 @@ const aiSlot = limiter(Number(process.env.SURVEY_READ_PARALLEL) || 6);
 export const config = { api: { bodyParser: false } };
 const MAX = 40 * 1024 * 1024; // a PDF's text and up to 30 page pictures (the file itself is fetched from the ERP)
 const MAX_PARTS = 30;
-const SHEET_ROWS = 60; // a spreadsheet is read in blocks of this many rows (its heading rows repeated on each)
+const SHEET_ROWS = 20; // 26 Nov 2026: was 60, which overflowed one AI answer and lost the block. A spreadsheet is read in blocks of this many rows (its heading rows repeated on each)
 /* 26 Nov 2026 · a spreadsheet (xlsx / xls / csv) -> parts: each sheet as text, in blocks of SHEET_ROWS rows, the
    heading rows repeated on every block so each part keeps its column names */
 async function sheetParts(bytes, name) {
@@ -44,10 +44,10 @@ async function sheetParts(bytes, name) {
     let h = rows.findIndex((l) => (l.split(",").filter((c) => /^-?[\d.,]+$/.test(c.trim()) && c.trim() !== "").length >= 2));
     h = h < 0 ? Math.min(1, rows.length) : Math.min(h, 5);
     const head = rows.slice(0, h), body = rows.slice(h);
-    if (!body.length) { parts.push({ text: `Sheet "${sn}" (CSV):\n${head.join("\n")}` }); continue; }
+    if (!body.length) { parts.push({ sheet: true, text: `Sheet "${sn}" (CSV):\n${head.join("\n")}` }); continue; }
     for (let i = 0; i < body.length; i += SHEET_ROWS) {
       const block = body.slice(i, i + SHEET_ROWS);
-      parts.push({ text: `Sheet "${sn}", rows ${h + i + 1}-${h + i + block.length} of ${rows.length} (CSV; the first lines are the sheet's headings):\n${head.concat(block).join("\n")}` });
+      parts.push({ sheet: true, text: `Sheet "${sn}", rows ${h + i + 1}-${h + i + block.length} of ${rows.length} (CSV; the first lines are the sheet's headings):\n${head.concat(block).join("\n")}` });
     }
   }
   return parts.slice(0, MAX_PARTS);

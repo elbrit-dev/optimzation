@@ -60,7 +60,7 @@ function DateInput({ q, value, onChange, disabled }) {
    is recorded in the ERP. Signed in → Verified; anything else → Not verified + a REQUIRED reason (OTP, email …).
    Changing any of the three boxes needs a new test. Answer = { url, login, password, test, reason }. */
 const LOGIN_CHIPS = ['OTP needed', 'Email verification needed', 'Captcha on the website', 'Wrong password from the distributor', 'Website down', 'Login is in an app (not a website)'];
-function LoginInput({ q, value, onChange, disabled, api, response }) {
+function LoginInput({ q, value, onChange, disabled, api, response, onBusy }) {
   const v = value && typeof value === 'object' ? value : {};
   const [busy, setBusy] = useState(false);
   const ready = String(v.url ?? '').trim() && String(v.login ?? '').trim() && String(v.password ?? '').trim();
@@ -73,6 +73,7 @@ function LoginInput({ q, value, onChange, disabled, api, response }) {
   const test = async () => {
     if (!ready || busy) return;
     setBusy(true);
+    onBusy?.(true); // 26 Nov 2026: the old red note goes while the test runs
     let t;
     try {
       const m = typeof api?.testLogin === 'function' ? await api.testLogin({ response, question: q.id, url: v.url, login: v.login, password: v.password }) : null;
@@ -81,6 +82,7 @@ function LoginInput({ q, value, onChange, disabled, api, response }) {
       t = { result: 'not_verified', code: 'error', message: `The test could not run (${e?.message || 'no connection'}). Try again, or say why below.` };
     } finally {
       setBusy(false);
+      onBusy?.(false);
     }
     onChange({ ...v, test: t });
   };
@@ -613,7 +615,7 @@ function FileUpload({ q, value, onChange, disabled, onUpload }) {
   );
 }
 
-function Input({ q, value, onChange, disabled, onUpload, api, response, answers }) {
+function Input({ q, value, onChange, disabled, onUpload, api, response, answers, onBusy }) {
   switch (q.type) {
     case 'map_location':
       return <MapLocation q={q} value={value} onChange={onChange} disabled={disabled} api={api} response={response} />;
@@ -626,7 +628,7 @@ function Input({ q, value, onChange, disabled, onUpload, api, response, answers 
     case 'timings':
       return <TimingsInput q={q} value={value} onChange={onChange} disabled={disabled} api={api} answers={answers} />;
     case 'login':
-      return <LoginInput q={q} value={value} onChange={onChange} disabled={disabled} api={api} response={response} />;
+      return <LoginInput q={q} value={value} onChange={onChange} disabled={disabled} api={api} response={response} onBusy={onBusy} />;
     case 'time':
       return <TimeInput q={q} value={value} onChange={onChange} disabled={disabled} />;
     case 'days':
@@ -671,8 +673,10 @@ function Input({ q, value, onChange, disabled, onUpload, api, response, answers 
 
 export function QuestionCard({ q, index, value, onChange, onUpload, api, response, answers, error, readOnly = false, disabled = false }) {
   const answered = !isEmpty(value);
+  const [busy, setBusy] = useState(false);
+  const shownError = busy ? null : error;
   return (
-    <Card variant="hairline" className={cx('flex scroll-mt-20 flex-col gap-3', error && 'border-danger-border')} data-question={q.id}>
+    <Card variant="hairline" className={cx('flex scroll-mt-20 flex-col gap-3', shownError && 'border-danger-border')} data-question={q.id}>
       <div className="flex flex-col gap-1">
         <div className="flex items-center justify-between gap-3">
           <span className="text-10 font-semibold uppercase tracking-wide text-ds-muted">
@@ -700,12 +704,12 @@ export function QuestionCard({ q, index, value, onChange, onUpload, api, respons
           {answered ? answerText(q, value) : 'Skipped'}
         </p>
       ) : (
-        <Input q={q} value={value} onChange={onChange} disabled={disabled} onUpload={onUpload} api={api} response={response} answers={answers} />
+        <Input q={q} value={value} onChange={onChange} disabled={disabled} onUpload={onUpload} api={api} response={response} answers={answers} onBusy={setBusy} />
       )}
-      {error ? (
+      {shownError ? (
         <p role="alert" className="flex items-center gap-1.5 text-11 font-medium text-danger-text">
           <Icon name="exclamation-circle" size="var(--fs-12)" />
-          {error}
+          {shownError}
         </p>
       ) : null}
     </Card>
