@@ -724,7 +724,10 @@ export async function extractBill(conn, file) {
     // payment proof (or "paid in cash") before it can be sent
     handwritten: !!r.handwritten,
     // already claimed -- on a settlement bill or a planner trip, by anyone
+    // (an ERP script older than 26 Nov 2026 still refuses it)
     duplicate: json.duplicate || null,
+    // 26 Nov 2026: a repeat is flagged, not refused -- who claimed it, when
+    dupOf: json.dup || null,
     readable: true,
     signed: { read: r, sig: json.sig },
   };
@@ -1109,6 +1112,13 @@ export function shapeSettlement(r) {
       score: b.score == null || b.score === "" ? null : num0(b.score),
       risk: b.risk || "",
       reason: b.reason || "",
+      // a repeat of an earlier bill (26 Nov 2026: flagged, not refused) --
+      // the approvers compare the two photos side by side
+      dup: b.dup ? {
+        sure: !!b.dup.sure, why: b.dup.why || "", employeeName: b.dup.employee_name || "", samePerson: !!b.dup.same_person,
+        where: b.dup.where || "", billDate: String(b.dup.bill_date || "").slice(0, 10), amount: num0(b.dup.amount),
+        vendor: b.dup.vendor || "", billNo: b.dup.bill_no || "", claimedOn: String(b.dup.claimed_on || "").slice(0, 10), photo: b.dup.photo || "",
+      } : null,
     })),
   };
 }

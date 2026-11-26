@@ -75,6 +75,57 @@ export function TypeInfo({ r, small }) {
   );
 }
 
+/* A bill claimed before (26 Nov 2026, the user: "flag it, don't refuse it"):
+   the approver sees this bill and the earlier one side by side -- both photos,
+   and date / amount / vendor next to each other. */
+export const DupTag = ({ b, small }) => (b?.dup ? (
+  <span title={b.dup.why} style={{ flex: "none", alignSelf: "flex-start", display: "inline-flex", alignItems: "center", gap: 5, fontSize: small ? 10.5 : 11, fontWeight: 700, padding: small ? "1px 7px" : "2px 8px", borderRadius: 99, background: "#fef0c7", color: "#93370d", whiteSpace: "nowrap" }}>
+    <span style={{ width: 6, height: 6, borderRadius: "50%", background: "#dc6803" }} />{b.dup.sure ? "Duplicate" : "Possible duplicate"}
+  </span>
+) : null);
+function DupCompare({ conn, b, employee, onBill }) {
+  const d = b.dup;
+  const mine = billFile(b.bill), old = billFile(d.photo);
+  const both = [mine, old].filter(Boolean);
+  const who = d.samePerson ? `${employee} (the same person)` : d.employeeName || "another employee";
+  const rows = [["Bill date", shortDate(b.date), d.billDate ? shortDate(d.billDate) : "—"], ["Amount", inr(b.amount), d.amount ? inr(d.amount) : "—"], ["Vendor", "", d.vendor || "—"]];
+  const col = (title, f, sub) => (
+    <div style={{ flex: 1, minWidth: 0, display: "flex", flexDirection: "column", gap: 6, alignItems: "center" }}>
+      <span style={{ fontSize: 11.5, fontWeight: 700, color: "#475467", textTransform: "uppercase", letterSpacing: ".04em" }}>{title}</span>
+      {f ? <BillThumb conn={conn} file={f} w={132} h={168} onOpen={() => onBill(f, both)} />
+        : <span style={{ width: 132, height: 168, borderRadius: 12, background: "#f2f4f7", display: "grid", placeItems: "center", color: "#98a2b3", fontSize: 12, textAlign: "center", padding: 10 }}>No photo kept</span>}
+      <span style={{ fontSize: 11.5, color: "#5b6576", textAlign: "center" }}>{sub}</span>
+    </div>
+  );
+  return (
+    <div style={{ ...card, padding: 14, display: "flex", flexDirection: "column", gap: 12, boxShadow: "0 0 0 1.5px #fdb022" }}>
+      <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+        <DupTag b={b} />
+        <b style={{ flex: 1, minWidth: 0, fontSize: 14 }}>{d.sure ? "This bill was claimed before" : "This bill looks like one claimed before"}</b>
+      </div>
+      <span style={{ fontSize: 13, color: "#344054", lineHeight: 1.5 }}>
+        Claimed by <b>{who}</b> {/^a settlement bill/.test(d.where) ? "as a settlement bill" : "on a TA/DA trip"}{d.claimedOn ? ` on ${shortDate(d.claimedOn)}` : ""}. Matched on {d.why || "the bill"}.
+      </span>
+      <div style={{ display: "flex", gap: 12 }}>
+        {col("This bill", mine, `${shortDate(b.date)} · ${inr(b.amount)}`)}
+        {col("Claimed before", old, [d.billDate && shortDate(d.billDate), d.amount ? inr(d.amount) : ""].filter(Boolean).join(" · ") || "—")}
+      </div>
+      <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 13 }}>
+        <thead><tr style={{ color: "#8a93a3", fontSize: 11.5, textAlign: "left" }}><th style={{ padding: "4px 0", fontWeight: 600 }} /><th style={{ padding: "4px 6px", fontWeight: 600 }}>This bill</th><th style={{ padding: "4px 6px", fontWeight: 600 }}>Claimed before</th></tr></thead>
+        <tbody>
+          {rows.filter((x) => x[0] !== "Vendor" || d.vendor).map(([k, a, z]) => (
+            <tr key={k} style={{ borderTop: "1px solid #eef1f5" }}>
+              <td style={{ padding: "7px 0", color: "#5b6576" }}>{k}</td>
+              <td style={{ padding: "7px 6px", ...tabNum }}>{a || b.title}</td>
+              <td style={{ padding: "7px 6px", fontWeight: a && a === z ? 700 : 400, color: a && a === z ? "#b54708" : "#0b1220", ...tabNum }}>{z}</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
 /* " since 18 Nov": when it reached the one it waits on -- the step before
    decided (or skipped) then, or it was sent then */
 const since = (r) => {
@@ -360,8 +411,9 @@ function QueueCard({ r, act, picked, onPick, onOpen, mine }) {
         </span>
         <span style={{ fontSize: 12, color: "#8a93a3", ...ell }}>Sent {when(r.created)}{r.resent ? <b style={{ color: "#b54708", fontWeight: 600 }}> · sent again</b> : null}</span>
         <TypeInfo r={r} small />
+        {r.bills?.some((b) => b.dup) && <DupTag b={r.bills.find((b) => b.dup)} small />}
         {act && (look ? (
-          <span style={{ fontSize: 11.5, fontWeight: 700, color: "#b54708" }}>Needs a look — open the bill</span>
+          <span style={{ fontSize: 11.5, fontWeight: 700, color: "#b54708" }}>{r.bills?.some((b) => b.dup) ? "Claimed before — open to compare" : "Needs a look — open the bill"}</span>
         ) : scored ? (
           <span style={{ fontSize: 11.5, fontWeight: 700, color: "#067647" }}>Bill matches</span>
         ) : null)}
@@ -603,7 +655,7 @@ export function SettleQueue({ conn, data, desk, onOpen, onDone, onError }) {
                             <TypeInfo r={r} small />
                           </td>
                           <td style={TD2} />
-                          <td style={TD2}>{b ? <CheckBadge b={b} small /> : <span style={{ color: "#8a93a3" }}>No bill</span>}</td>
+                          <td style={TD2}>{b ? <span style={{ display: "inline-flex", gap: 6, flexWrap: "wrap" }}><CheckBadge b={b} small /><DupTag b={b} small /></span> : <span style={{ color: "#8a93a3" }}>No bill</span>}</td>
                           <td style={TD2}>{m ? <span style={{ color: m.decision === "Rejected" ? "#b42318" : "#067647", fontWeight: 600 }}>{m.decision === "Rejected" ? `Sent back${m.note ? ` — ${m.note}` : ""}` : "Approved"}</span> : <ChainTrack r={r} compact />}</td>
                           <td style={{ ...TD2, textAlign: "right", ...tabNum }}>{inr(r.amount)}</td>
                           <td style={{ ...TD2, textAlign: "right" }}>
@@ -845,7 +897,7 @@ export function SettleSheet({ conn, req: r, canAct, desk, onClose, onDone, onBil
                       <b style={{ fontSize: 15, ...tabNum }}>{inr(b.amount)}</b>
                     </span>
                     <span style={{ fontSize: 12.5, color: "#5b6576" }}>{shortDate(b.date)}</span>
-                    <CheckBadge b={b} small />
+                    <span style={{ display: "flex", gap: 6, flexWrap: "wrap" }}><CheckBadge b={b} small /><DupTag b={b} small /></span>
                     {/* what the bill check compared, in one plain line (23 Nov 2026) */}
                     {b.score != null && (b.reason || b.score >= 90) && (
                       <span style={{ fontSize: 12, color: b.score < 90 ? "#b54708" : "#475467", lineHeight: 1.4 }}>{b.reason ? proofOf(b.reason).text : "Total and date match the bill"}</span>
@@ -862,6 +914,7 @@ export function SettleSheet({ conn, req: r, canAct, desk, onClose, onDone, onBil
             })}
           </div>
         )}
+        {r.kind !== "cash" && r.bills.filter((b) => b.dup).map((b, i) => <DupCompare key={`dup${i}`} conn={conn} b={b} employee={r.employeeName} onBill={onBill} />)}
         {canAct && (
           <label style={{ ...card, padding: 14, display: "flex", flexDirection: "column", gap: 6 }}>
             <span style={label}>{rejecting ? "Why it is sent back" : "Remarks · optional"}</span>

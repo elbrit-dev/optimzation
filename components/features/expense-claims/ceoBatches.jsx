@@ -19,7 +19,7 @@ import { useState } from "react";
 import { approveCeoBatch, approveSettlements, decideSettlement } from "./data/claimsApi";
 import { inr, shortDate } from "./model";
 import { BillThumb, FilePreview, IC, Icon, Note, Sheet, Spinner, billFile, btn, card, ell, label, tabNum } from "./ui";
-import { CheckBadge, HELD_NOTE, TypeInfo, kindWord, serviceHeld } from "./settlement";
+import { CheckBadge, DupTag, HELD_NOTE, TypeInfo, kindWord, serviceHeld } from "./settlement";
 
 const when = (s) => {
   const d = new Date(String(s || "").replace(" ", "T"));
@@ -409,6 +409,7 @@ function BatchSheet({ conn, batch, desk, onClose, onDone, onError }) {
                             <span style={{ display: "flex", alignItems: "center", gap: 6 }}>
                               <b style={{ fontSize: 13.5, ...ell }}>{r.kind === "cash" ? `Advance · ${r.purpose}` : b?.title || "Bill"}</b>
                               {b && <CheckBadge b={b} small />}
+                              {b && <DupTag b={b} small />}
                             </span>
                             {/* the reason wraps to two lines instead of cutting off (23 Nov 2026) */}
                             <span style={{ fontSize: 12, color: "#5b6576", lineHeight: 1.4, display: "-webkit-box", WebkitLineClamp: 2, WebkitBoxOrient: "vertical", overflow: "hidden" }}>{b ? shortDate(b.date) : ""}{b?.reason ? ` · ${b.reason}` : ""}</span>

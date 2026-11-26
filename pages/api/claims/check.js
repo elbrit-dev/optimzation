@@ -331,10 +331,15 @@ async function checkSettlementBills(res, origin, userErp, checker, names, reads)
         file_url: b.bill || "", file_hash: prints.file, image_hash: prints.image || "", content_hash: prints.content || "", strong: prints.strong ? "1" : "0",
       });
       if (fp && fp.error === undefined) {
-        x.meta = { ...(x.meta || {}), fingerprint: fp.ok ? { name: fp.name, flag: fp.flag || null } : { refused: fp.matched || null } };
+        x.meta = { ...(x.meta || {}), fingerprint: fp.ok ? { name: fp.name, flag: fp.flag || null, ...(fp.dup ? { dup: fp.dup } : {}) } : { refused: fp.matched || null } };
         if (!fp.ok) {
           x.score = 0;
           x.reason = `${fp.reason || "Already claimed."} ${x.reason}`;
+        } else if (fp.dup?.sure) {
+          // 26 Nov 2026: the same bill claimed before -- not refused, flagged
+          // High risk for the approvers, who see both photos side by side
+          x.score = Math.min(x.score, 40);
+          x.reason = `${fp.flag || "Duplicate of an earlier bill."} ${x.reason}`;
         } else if (fp.flag) {
           x.score = Math.min(x.score, 85);
           x.reason = `${x.reason} ${fp.flag}`;

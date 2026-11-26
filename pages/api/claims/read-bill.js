@@ -320,16 +320,26 @@ export default async function handler(req, res) {
     const content = contentHash(read.values);
     const prints = h ? { file: h.file, image: h.image, content: content?.hash || null, strong: !!content?.strong } : null;
     let duplicate = null;
+    // 26 Nov 2026 (the user): a repeat is no longer refused -- the rep is told
+    // who claimed it and when, and may still send it (the approvers then see
+    // both bills side by side). The earlier bill's photo is not sent to the rep.
+    let dup = null;
     if (prints) {
       const fp = await fingerprintCall(origin, userErp, {
         action: "check", kind: "Bill", trip: "", ...fingerprintFields(read.values),
         file_hash: prints.file, image_hash: prints.image || "", content_hash: prints.content || "", strong: prints.strong ? "1" : "0",
       });
+      // an ERP script older than 26 Nov still refuses: kept as it was
       if (fp && fp.ok === 0) duplicate = fp.reason || "This bill was already claimed.";
       else if (fp?.flag) read.flag = fp.flag;
+      if (fp?.dup) {
+        const d = fp.dup;
+        dup = { sure: !!d.sure, mine: !!d.mine, employee_name: d.mine ? "you" : d.employee_name || "another employee", where: d.where || "", why: d.why || "",
+          bill_date: d.bill_date || "", amount: d.amount || 0, vendor: d.vendor || "", claimed_on: d.claimed_on || "", text: fp.flag || "" };
+      }
     }
     const signedRead = { ...read, prints };
-    return res.status(200).json({ read: signedRead, sig: signRead(signedRead), ...(duplicate ? { duplicate } : {}), ms: Date.now() - t });
+    return res.status(200).json({ read: signedRead, sig: signRead(signedRead), ...(duplicate ? { duplicate } : {}), ...(dup ? { dup } : {}), ms: Date.now() - t });
   } catch (e) {
     dropStored();
     console.error("read-bill:", e.message);
