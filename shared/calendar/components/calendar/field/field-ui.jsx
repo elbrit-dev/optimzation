@@ -1577,7 +1577,7 @@ function TripSheet({ item }) {
   const fuelOn = carTab;
   // 23 Nov 2026: with no own car approved, train / bus tickets go on the same
   // upload -- "dta" with stay / food (RBM and above), "travels" alone (a BE /
-  // ABM's OS trip, an EQ day over 100 km; every role since 24 Nov 2026)
+  // ABM's OS trip with a meeting -- 26 Nov 2026; an EQ day over 100 km for RBM and above)
   const travelOn = !fuelOn && calc.travelAllowed;
   const upSlot = stayFood && fuelOn ? "all" : fuelOn ? "car" : travelOn ? (stayFood ? "dta" : "travels") : "da";
   const upCount = (stayFood ? calc.stayBills + calc.foodBills : 0) + (fuelOn ? (claim.fuels || []).length : 0) + (travelOn ? calc.travelBills : 0);

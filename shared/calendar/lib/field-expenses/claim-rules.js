@@ -31,6 +31,8 @@ export const CAR_REASONS = ["Multi-town tour", "No direct train", "Carrying demo
    approves the trip is paid the normal allowance. ABMs and BEs claim neither. */
 export const SENIOR_ROLES = ["GM", "ZSM", "SM", "Sr RBM", "RBM"];
 export const CAR_ROLES = ["ZSM", "SM", "RBM"];
+// train / bus tickets and an own card only on an OS trip with a meeting (26 Nov 2026)
+export const MEETING_ONLY_ROLES = ["BE", "ABM"];
 export const CAR_PREAPPROVED_ROLES = [];
 export const CAR_APPROVER = "GM";
 
@@ -273,14 +275,20 @@ export function tripClaim(trip, claim, { role, requests, eqKm, carPool = null } 
      outstation trip, and on an EQ day over 100 km -- when no own car is
      approved (the car keeps its fuel bills, unchanged). EVERY ROLE since 24 Nov
      2026 (the user: a BE / ABM goes OS for a meeting or runs an EQ day over
-     100 km too); the stay / food bills stay RBM and above. DAY BY DAY, by the
+     100 km too) -- for a BE / ABM only an OS trip with a meeting since 26 Nov
+     2026 (osMeeting below); the stay / food bills stay RBM and above. DAY BY DAY, by the
      ticket's departure date: the day's tickets against the fare of that day's
      journey (ticketBase) -- the larger is paid. Fare ₹1,000 and tickets ₹1,500
      -> ₹500 on top; tickets ₹800 -> the fare ₹1,000 stays. A ticket on a day
      with nothing paid adds nothing. */
   const eqFar = trip.kind === "day" && (trip.days || []).some((d) => farEq(d, eqKm ?? 100));
   const osTrip = trip.kind === "tour" && (trip.days || []).some((d) => d.payable && AWAY_TYPES.has(d.dayType));
-  const travelAllowed = !car && (osTrip || eqFar);
+  /* BE / ABM: OS MEETINGS ONLY (26 Nov 2026, the user): a BE / ABM's own card and its
+     train / bus tickets only for an outstation trip with a meeting (other work logged on
+     an away day). Their other OS trips and EQ days over 100 km go in the HQ & EQ block,
+     no bills. RBM and above unchanged. */
+  const osMeeting = osTrip && (trip.days || []).some((d) => d.payable && AWAY_TYPES.has(d.dayType) && ((d.otherWork || []).length > 0 || d.meetAway));
+  const travelAllowed = !car && (MEETING_ONLY_ROLES.includes(roleKey(role)) ? osMeeting : osTrip || eqFar);
   const travels = travelAllowed ? c.travels || [] : [];
   const travel = sum(travels);
   const travelDays = {};
