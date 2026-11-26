@@ -1892,6 +1892,7 @@ function TripSheet({ item }) {
             bills={calc.billsByDate?.[d.date] || null}
             stayOff={!!calc.stayOff?.[d.date]}
             billStrip={billView.strip(d.date)}
+            ticket={calc.travelDays?.[d.date] || null}
           />
         ))}
       </ol>
@@ -1930,8 +1931,9 @@ function TripSheet({ item }) {
           {calc.nights.length > 0 && calc.pool?.on && (
             <p className="mt-2 flex items-start gap-1.5 text-[12.5px] leading-snug text-gray-500">
               <Info className="mt-0.5 h-4 w-4 shrink-0" aria-hidden />
-              {`Each day: stay + food, kept between 50 % and 100 % of its DA.${calc.pool.unpaid ? ` ${inr(calc.pool.unpaid)} on days with no outstation DA.` : ""}`}
-              {nextNight && calc.stayBills > 0 ? ` No stay bill covers ${dayLabel(nextNight.date)}.` : ""}
+              {[calc.pool.unpaid ? `${inr(calc.pool.unpaid)} not paid · day off` : null, nextNight && calc.stayBills > 0 ? `No stay bill · ${dayLabel(nextNight.date)}` : null]
+                .filter(Boolean)
+                .join(" · ") || "Paid 50–100 % of DA a day"}
             </p>
           )}
         </div>
@@ -1940,7 +1942,7 @@ function TripSheet({ item }) {
       {/* train / bus tickets (23 Nov 2026): each day, the larger of its journey fare and its tickets */}
       {calc.travelBills > 0 && (
         <div>
-          <span className={sectionLabel}>TA · train / bus tickets</span>
+          <span className={sectionLabel}>Tickets</span>
           <div className="mt-2 flex flex-wrap gap-2">
             {(claim.travels || []).map((b) => (
               <BillChip key={b.id} kind="travels" bill={b} on={editing?.id === b.id} readOnly={!editable} onClick={() => setEditing(editing?.id === b.id ? null : { kind: "travels", id: b.id })} />
@@ -1949,25 +1951,15 @@ function TripSheet({ item }) {
           {editable && editing?.kind === "travels" && (
             <BillEditor key={editing.id} bill={(claim.travels || []).find((b) => b.id === editing.id)} kind="travels" onRemove={() => removeBill("travels", editing.id)} />
           )}
-          {/* by departure date: the day's tickets against its journey fare */}
-          <ul className="mt-2 flex flex-col gap-1 text-[12.5px] leading-snug text-gray-600">
-            {Object.values(calc.travelDays || {})
-              .sort((a, b) => a.date.localeCompare(b.date))
-              .map((t) => (
-                <li key={t.date} className="flex items-start gap-1.5">
-                  <Info className="mt-0.5 h-4 w-4 shrink-0 text-gray-400" aria-hidden />
-                  <span>
-                    {dayLabel(t.date)} · ticket{t.count > 1 ? "s" : ""} {inr(t.tickets)}
-                    {!t.paid
-                      ? " · not a paid day — nothing added"
-                      : t.extra > 0
-                        ? ` · fare ${inr(t.base)} → `
-                        : ` · fare ${inr(t.base)} is more — the fare is paid`}
-                    {t.paid && t.extra > 0 && <b className="text-gray-900">+{inr(t.extra)}</b>}
-                  </span>
-                </li>
-              ))}
-          </ul>
+          {/* shown on each day's TA line (26 Nov 2026); here only a ticket that adds nothing */}
+          {Object.values(calc.travelDays || {})
+            .filter((t) => !t.paid || t.extra <= 0)
+            .sort((a, b) => a.date.localeCompare(b.date))
+            .map((t) => (
+              <small key={t.date} className="mt-1.5 block text-[12px] text-gray-500">
+                {dayLabel(t.date)} · {t.paid ? "fare is more" : "not a paid day"}
+              </small>
+            ))}
         </div>
       )}
 
@@ -2225,7 +2217,10 @@ function MoneyRow({ label, amount, note, children }) {
   );
 }
 
-function TripDay({ row, data, car, last, multi, night, bills, stayOff, billStrip, carShare }) {
+function TripDay({ row, data, car, last, multi, night, bills, stayOff, billStrip, carShare, ticket = null }) {
+  // a train / bus ticket paid over the day's fare (26 Nov 2026): the day's TA
+  // line shows the fare struck out and what is paid now
+  const tick = !car && ticket?.paid && ticket.extra > 0 ? ticket : null;
   const d = new Date(row.date + "T00:00:00");
   const dow = ["SUN", "MON", "TUE", "WED", "THU", "FRI", "SAT"][d.getDay()];
   const stops = (row.route || []).map((s) => s.place).filter(Boolean);
@@ -2293,7 +2288,19 @@ function TripDay({ row, data, car, last, multi, night, bills, stayOff, billStrip
             ↓ back), then DA */}
         {row.payable ? (
           <div className="mt-2 flex flex-col gap-1.5 rounded-xl bg-gray-50 px-3 py-2.5">
-            {car ? (
+            {tick ? (
+              <div className="flex items-baseline gap-3 text-[12.5px] leading-snug">
+                <span className="w-6 shrink-0 text-[11px] font-extrabold text-gray-400">TA</span>
+                <span className="min-w-0 flex-1 text-gray-600">
+                  <TrainFront className="mr-1 inline h-3.5 w-3.5 align-[-2px]" aria-hidden />
+                  Ticket{tick.count > 1 ? `s · ${tick.count}` : ""}
+                </span>
+                <span className="shrink-0 tabular-nums">
+                  <s className="mr-1.5 text-[12px] font-semibold text-gray-400">{inr(row.ta || 0)}</s>
+                  <b className="text-[13px] font-extrabold text-gray-900">{inr((row.ta || 0) + tick.extra)}</b>
+                </span>
+              </div>
+            ) : car ? (
               // the own car: one TA line, this day's share of the fuel
               <MoneyRow label="TA" amount={carShare ? carShare.amount : null} note="fuel">
                 <Car className="mr-1 inline h-3.5 w-3.5 align-[-2px]" aria-hidden />
@@ -2324,7 +2331,7 @@ function TripDay({ row, data, car, last, multi, night, bills, stayOff, billStrip
                 {row.journey.from} → {row.journey.to} · flight
               </MoneyRow>
             )}
-            {car ? null : byKm ? (
+            {car || tick ? null : byKm ? (
               <MoneyRow label={jr || flownOnly ? "" : "TA"} amount={local}>
                 {/* which run: "Local · Erode ↔ Gobi" on a day that also travelled (21 Nov 2026) */}
                 {row.journey ? `Local${row.awayHq && row.farthest ? ` · ${row.awayHq} ↔ ${row.farthest}` : ""} · ` : ""}
