@@ -58,7 +58,7 @@ export function typeLine(x) {
    service is approved (settlement_api decide): until then it waits, and is
    never picked. One with just a service day (switch off) never waits. */
 export const serviceHeld = (r) => r?.type === "Doctor service" && r.status === "waiting" && !r.serviceDate && !r.service?.approved;
-export const HELD_NOTE = "Approve once the doctor service is approved";
+export const HELD_NOTE = "Waits for doctor service";
 /* "<service> · ₹amount · ₹billed billed · ₹left left · <state>" */
 export const serviceLine = (s) => (s ? [s.service || s.name, inr(s.amount), `${inr(s.billed)} billed`, `${inr(s.left)} left`, s.state || (s.approved ? "Approved" : "Waiting for approval")].join(" · ") : "");
 /* The type, the doctor and the service, for the approvers. */
@@ -201,8 +201,7 @@ export function SendBar({ bills, busy, onSend }) {
         </span>
         <b style={{ fontSize: 18, ...tabNum }}>{inr(total)}</b>
       </div>
-      {back > 0 && <span style={{ fontSize: 12.5, color: "#b42318" }}>Open {back === 1 ? "it" : "them"} below to see why. Fix or remove {back === 1 ? "it" : "them"}, then send again.</span>}
-      <button type="button" className="ec-cta" disabled={busy} onClick={onSend} style={{ ...btn.primary, height: 48, borderRadius: 14, fontSize: 15.5, display: "flex", alignItems: "center", justifyContent: "center", gap: 8 }}>
+            <button type="button" className="ec-cta" disabled={busy} onClick={onSend} style={{ ...btn.primary, height: 48, borderRadius: 14, fontSize: 15.5, display: "flex", alignItems: "center", justifyContent: "center", gap: 8 }}>
         {busy ? <><Spinner size={14} />Sending…</> : <><Icon d={IC.arrow} size={18} />{allBack ? "Send again" : "Send for approval"}</>}
       </button>
     </section>
@@ -229,7 +228,7 @@ export function MyRequests({ conn, requests, onChanged }) {
               <b style={{ fontSize: 14, ...ell }}>{kindWord(r)}{r.kind === "cash" && r.purpose ? ` · ${r.purpose}` : ""}</b>
               {typeLine(r) && <span style={{ fontSize: 12, fontWeight: 600, color: "#475467", ...ell }}>{typeLine(r)}</span>}
               <span style={{ fontSize: 12, color: r.status === "rejected" ? "#b42318" : serviceHeld(r) ? "#b54708" : "#8a93a3", ...ell }}>
-                {r.bills.length === 1 && r.bills[0].date ? `${shortDate(r.bills[0].date)} · ` : ""}{r.status === "rejected" ? "Sent back — tap to see why" : r.status === "approved" ? "Verified" : serviceHeld(r) ? "Waiting for the doctor service to be approved" : (waitingOn(r) && waitingOn(r) + since(r)) || `sent ${when(r.created)}`}
+                {r.bills.length === 1 && r.bills[0].date ? `${shortDate(r.bills[0].date)} · ` : ""}{r.status === "rejected" ? "Sent back" : r.status === "approved" ? "Verified" : serviceHeld(r) ? "Waiting on doctor service" : (waitingOn(r) && waitingOn(r) + since(r)) || `sent ${when(r.created)}`}
               </span>
             </span>
             <b style={{ fontSize: 15, ...tabNum }}>{inr(r.amount)}</b>
@@ -277,17 +276,15 @@ function MyRequestSheet({ conn, r, onClose, onChanged }) {
         </> : <button type="button" className="ec-cta" onClick={onClose} style={{ ...btn.primary, flex: 1 }}>Close</button>}>
         <div style={{ padding: 14, display: "flex", flexDirection: "column", gap: 10 }}>
           {err && <Note>{err}</Note>}
-          {serviceHeld(r) && <Note tone="info" style={{ color: "#b54708", background: "#fffaeb" }}>Waiting for the doctor service to be approved — you are paid back once it is.</Note>}
+          {serviceHeld(r) && <Note tone="info" style={{ color: "#b54708", background: "#fffaeb" }}>Waiting on doctor service</Note>}
           {r.status === "rejected" && r.note && (
             <span style={{ fontSize: 13, color: "#b42318", padding: "10px 12px", borderRadius: 12, background: "#fef3f2", lineHeight: 1.45 }}>
               <b>Sent back by {r.steps.find((s) => s.decision === "Rejected")?.name || "an approver"}:</b> {r.note}
-              {r.kind === "bills" ? " — the bills are back with you to fix and send again." : ""}
+              
             </span>
           )}
           {r.status === "approved" && <span style={{ fontSize: 13, fontWeight: 600, color: "#067647", padding: "10px 12px", borderRadius: 12, background: "#ecfdf3" }}>
-            Approved — {!r.booked ? (r.kind === "bills" ? "the bill is verified." : "verified.")
-              : r.booked.paid ? (r.kind === "bills" ? "paid to you." : "the cash is paid to you.")
-              : r.kind === "bills" ? "booked in the accounts; Accounts pays it in the next payment run." : "Accounts pays the cash in the next payment run."}
+            Approved{!r.booked ? "" : r.booked.paid ? " · paid" : " · paid next run"}
           </span>}
           <div style={{ ...card, padding: 14, display: "flex", flexDirection: "column" }}>
             <span style={{ ...label, marginBottom: 10 }}>Approval</span>

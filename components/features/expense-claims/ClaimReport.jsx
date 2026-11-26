@@ -5,7 +5,7 @@ import Router from "next/router";
 import { Dialog } from "@/design-system";
 import { useClaims } from "./data/useClaims";
 import { CASH_REQUESTS, cashAdvancesOf, checkSettlementBills, fetchFileBlob, fetchMySettlements, fetchSettlementSettings, listBillHelp, removeSettlementBill, sendBillsForApproval } from "./data/claimsApi";
-import { HelpRequestsSheet, helpHighlight } from "./helpRequests";
+import { AskHelpSheet, HelpRequestsSheet, askHighlight, helpHighlight } from "./helpRequests";
 import { MyRequests, SendBar, serviceHeld, typeLine } from "./settlement";
 import { CSS, FONT_HREF, Highlights, IC, Icon, Note, Rail, Sheet, Spinner, btn, card, ell, tabNum } from "./ui";
 import { BillSheet, CashSheet } from "./sheets";
@@ -130,29 +130,29 @@ function trackOf(e) {
   // a settlement bill is its own record (Settlement Expense, 23 Nov 2026)
   const steps = [{ k: "Bill added", v: e.claim.settlement ? "Saved" : `Saved on ${e.claim.id}`, at: "done" }];
   // 16 Nov 2026: a checked bill goes up the approval chain to the CEO
-  if (s === "Checking") steps.push({ k: "Approval", v: "Send it for approval (Settlements)", at: "now" });
-  else if (s === "Checked" && l.review) steps.push({ k: "Sent back", v: "Send it again as it is, or remove it and add it again corrected", note: l.review, at: "fail" });
-  else if (s === "Checked") steps.push({ k: "Approval", v: "Send it for approval (Settlements)", at: "now" });
-  else if (s === "In Approval" && e.held) steps.push({ k: "Approval", v: "Waiting for the doctor service to be approved", at: "now" });
-  else if (s === "In Approval") steps.push({ k: "Approval", v: l.settleType && l.settleType !== "Own" ? "With your manager" : "With your managers, up to the CEO", at: "now" });
-  else if (s === "In Review") steps.push({ k: "In review", v: "Accounts are checking it by hand", at: "now" });
-  else if (s === "Rejected") steps.push({ k: "Reviewed by Accounts", v: "Not accepted — it does not count", note: l.review, at: "fail" });
-  else if (s === "Verified") steps.push({ k: "Approved", v: "Approved — paid in the next payment run", at: "done" });
+  if (s === "Checking") steps.push({ k: "Approval", v: "Not sent yet", at: "now" });
+  else if (s === "Checked" && l.review) steps.push({ k: "Sent back", v: "Fix or send again", note: l.review, at: "fail" });
+  else if (s === "Checked") steps.push({ k: "Approval", v: "Not sent yet", at: "now" });
+  else if (s === "In Approval" && e.held) steps.push({ k: "Approval", v: "Waiting on doctor service", at: "now" });
+  else if (s === "In Approval") steps.push({ k: "Approval", v: l.settleType && l.settleType !== "Own" ? "With your manager" : "With your managers", at: "now" });
+  else if (s === "In Review") steps.push({ k: "In review", v: "Accounts checking", at: "now" });
+  else if (s === "Rejected") steps.push({ k: "Reviewed by Accounts", v: "Not accepted", note: l.review, at: "fail" });
+  else if (s === "Verified") steps.push({ k: "Approved", v: "Paid next run", at: "done" });
   if (s !== "Rejected") {
-    steps.push({ k: "Verified", v: s === "Verified" ? "Counts toward your settlement" : "Counts once verified", at: s === "Verified" ? "done" : "next" });
+    steps.push({ k: "Verified", v: s === "Verified" ? "Counts" : "After approval", at: s === "Verified" ? "done" : "next" });
     const settled = e.claim.settlement ? !!l.paid : e.claim.docstatus === 1;
     // a booked settlement bill: what the cash advance covered, and what Accounts pay
     // still to be paid: what the advance did not cover, less what Accounts paid
     // already (no payment date is known -- a part payment says only that)
     const due = Math.max(0, (l.payable || 0) - (l.paidAmount || 0));
-    const from = l.fromAdvance > 0 ? `${inr(l.fromAdvance)} from your cash advance · ` : "";
+    const from = l.fromAdvance > 0 ? `${inr(l.fromAdvance)} from advance · ` : "";
     const how = e.claim.settlement && l.booked
       ? l.paid
-        ? l.fromAdvance > 0 && l.payable > 0 ? `${inr(l.fromAdvance)} from your cash advance, ${inr(l.payable)} paid to your bank` : l.payable > 0 ? `Paid to your bank` : `Taken from your cash advance`
-        : l.paidAmount > 0 ? `${from}Part paid — ${inr(l.paidAmount)} paid, ${inr(due)} still to be paid to you`
-          : l.fromAdvance > 0 ? `${from}${inr(due)} to be paid to you` : "Accounts pay it in the next payment run"
+        ? l.fromAdvance > 0 && l.payable > 0 ? `${inr(l.fromAdvance)} advance · ${inr(l.payable)} to bank` : l.payable > 0 ? `Paid to bank` : `From advance`
+        : l.paidAmount > 0 ? `${from}${inr(due)} still due`
+          : l.fromAdvance > 0 ? `${from}${inr(due)} due` : "Paid next run"
       : null;
-    steps.push({ k: "Settlement", v: how || (settled ? "Settled by Accounts" : s === "Verified" ? "Accounts settle it with you later" : "After it is verified"), at: settled ? "done" : s === "Verified" ? "now" : "next" });
+    steps.push({ k: "Settlement", v: how || (settled ? "Settled" : s === "Verified" ? "Settled later" : "After approval"), at: settled ? "done" : s === "Verified" ? "now" : "next" });
   }
   return steps;
 }
@@ -262,7 +262,7 @@ function BillDetail({ conn, e, onClose, busy, onRemove, onResend }) {
           <span style={{ fontSize: 34, fontWeight: 800, letterSpacing: "-0.04em", ...tabNum }}>{inr(l.amount)}</span>
           <span style={{ display: "flex", alignItems: "center", gap: 5, flex: "none", padding: "4px 10px", borderRadius: 99, fontSize: 12.5, fontWeight: 700, color: st.tone, background: `color-mix(in srgb,${st.tone} 10%,#fff)` }}><Icon d={IC[st.icon]} size={13} />{st.text}</span>
         </div>
-        {e.held && <Note tone="info" style={{ color: "#b54708", background: "#fffaeb" }}>Waiting for the doctor service to be approved — you are paid back once it is.</Note>}
+        {e.held && <Note tone="info" style={{ color: "#b54708", background: "#fffaeb" }}>Waiting on doctor service</Note>}
         <Track steps={steps} />
         <div style={{ ...card, padding: "0 14px" }}>
           {e.claim.settlement && row("For", typeLine(l))}
@@ -323,6 +323,9 @@ export default function ClaimReport({
   // Unreadable (the ERP script older than 24 Nov) -> no card, never an error.
   const [help, setHelp] = useState([]);
   const [helpOpen, setHelpOpen] = useState(false);
+  // the general Help card's form, and the request the sheet opens on after it
+  const [askOpen, setAskOpen] = useState(false);
+  const [helpFocus, setHelpFocus] = useState(null);
   const [helpTick, setHelpTick] = useState(0);
   const loadHelp = () => listBillHelp(conn).then(setHelp).catch((e) => console.warn("[expense-claims] help requests unreadable:", e.message));
   useEffect(() => { if (conn) loadHelp(); }, [conn, helpTick]); // eslint-disable-line react-hooks/exhaustive-deps
@@ -412,8 +415,10 @@ export default function ClaimReport({
     if (added) out.push({ key: "added", value: inr(added), label: "paid to you", tone: "settle" });
     if (bills.length) out.push({ key: "bills", value: `${bills.length} ${bills.length === 1 ? "bill" : "bills"}`, label: `${inr(bills.reduce((s, e) => s + e.amount, 0))} this month`, tone: "field" });
     // the help requests, first (any month: they are not tied to one)
-    const h = helpHighlight(help, () => setHelpOpen(true));
+    const h = helpHighlight(help, () => { setHelpFocus(null); setHelpOpen(true); });
     if (h) out.unshift(h);
+    // 26 Nov 2026: a general "Help" card, always first (date + reason only)
+    out.unshift(askHighlight(() => setAskOpen(true)));
     return out;
   }, [bills, inMonth, help]);
 
@@ -469,12 +474,12 @@ export default function ClaimReport({
 
   const over = L.over, has = L.added > 0 || L.balance > 0;
   const say1 = over
-    ? <>{inr(over)} of verified bills is owed to you — Accounts settle it with you later.</>
+    ? <>Owed to you.</>
     : has
-      ? <>Left of the cash Accounts paid you. Bills you add come out of it once they are verified.</>
+      ? <>Left from Accounts’ cash.</>
       : canCash
-        ? <>No cash from Accounts yet. Add your bills as you spend — you are paid back once they are verified — or request an advance.</>
-        : <>Add your bills as you spend — once they are verified, Accounts settle them with you.</>;
+        ? <>Scan bills as you spend.</>
+        : <>Scan bills as you spend.</>;
 
   return (
     <div ref={rootRef} className={"ec-root" + (className ? " " + className : "")} style={{ background: "#f4f5f7", width: "100%", minHeight: "100%" }}>
@@ -495,7 +500,7 @@ export default function ClaimReport({
         {data.status === "error" && <Note>{data.error}</Note>}
         {data.status === "ready" && claims.settlementError && (
           <Note style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10, flexWrap: "wrap" }}>
-            <span>Couldn’t load your bills — what is shown may be incomplete.</span>
+            <span>Couldn’t load all bills.</span>
             <button type="button" className="ec-ghost" onClick={data.reload} style={{ ...btn.ghost, height: 44, borderRadius: 12 }}>Refresh</button>
           </Note>
         )}
@@ -545,7 +550,6 @@ export default function ClaimReport({
                 <span style={{ fontSize: 15, fontWeight: 700 }}>{sentBack.length} {sentBack.length === 1 ? "bill" : "bills"} sent back</span>
                 <b style={{ fontSize: 18, ...tabNum }}>{inr(sentBack.reduce((s, l) => s + l.amount, 0))}</b>
               </div>
-              <span style={{ fontSize: 12.5, color: "#5b6576", lineHeight: 1.45 }}>Send it again as it is, or remove it and add it again corrected.</span>
               {sentBack.map((l) => (
                 <div key={l.id} style={{ display: "flex", flexDirection: "column", gap: 8, paddingTop: 10, borderTop: "1px solid #eef1f5" }}>
                   <div style={{ display: "flex", alignItems: "baseline", justifyContent: "space-between", gap: 10 }}>
@@ -586,7 +590,7 @@ export default function ClaimReport({
                 </div>
               ))}
               {!inMonth.length && (
-                <div style={{ padding: "22px 8px 12px", textAlign: "center", fontSize: 14, color: "#5b6576" }}>{isCur ? "No bills yet this month — scan one above." : `No bills for ${monthLabel(month)}.`}</div>
+                <div style={{ padding: "22px 8px 12px", textAlign: "center", fontSize: 14, color: "#5b6576" }}>{isCur ? "No bills yet" : `No bills in ${monthLabel(month)}`}</div>
               )}
             </div>
             <button type="button" className="ec-link" onClick={openHistory} style={{ alignSelf: "flex-start", height: 32, padding: "0 8px", borderRadius: 8, border: 0, background: "transparent", color: "#1d4ed8", fontSize: 13, fontWeight: 600, cursor: "pointer" }}>All past claims →</button>
@@ -597,7 +601,9 @@ export default function ClaimReport({
       {bill && <BillDetail conn={conn} e={bill} onClose={() => setBill(null)} busy={!!acting || sending}
         onRemove={removable(bill) ? () => act(bill.line, "remove") : null} onResend={removable(bill) && bill.line.review ? () => act(bill.line, "send") : null} />}
       {sheet === "bill" && conn && me && <BillSheet conn={conn} me={me} claims={claims} advances={advances} cashAdvances={cashAdv} today={today} desk={isDesk} onClose={() => setSheet(null)} onSaved={saved} onChecked={data.reload} onHelp={() => setHelpTick((t) => t + 1)} />}
-      {helpOpen && conn && <HelpRequestsSheet conn={conn} list={help} desk={isDesk} onClose={() => setHelpOpen(false)} onChanged={loadHelp} />}
+      {helpOpen && conn && <HelpRequestsSheet key={helpFocus || "list"} conn={conn} list={help} desk={isDesk} focus={helpFocus} onClose={() => setHelpOpen(false)} onChanged={loadHelp} />}
+      {askOpen && conn && <AskHelpSheet conn={conn} me={me} desk={isDesk} onClose={() => setAskOpen(false)}
+        onRaised={async (task) => { await loadHelp(); setAskOpen(false); setHelpFocus(task.name); setHelpOpen(true); }} />}
       {canCash && sheet === "cash" && conn && me && <CashSheet conn={conn} me={me} claims={claims} advances={advances} cashAdvances={cashAdv} today={today} desk={isDesk} onClose={() => setSheet(null)} onSaved={saved} />}
       {toast && (
         <div role="status" aria-live="polite" style={{ position: "fixed", left: "50%", bottom: isDesk ? 32 : 96, transform: "translateX(-50%)", zIndex: 95, maxWidth: "calc(100vw - 32px)", padding: "11px 18px", borderRadius: 10, background: toast.tone === "error" ? "#b42318" : "#101828", color: "#fff", fontSize: 13, fontWeight: 500, boxShadow: "0 12px 30px -10px rgba(16,24,40,.5)" }}>{toast.m}</div>
