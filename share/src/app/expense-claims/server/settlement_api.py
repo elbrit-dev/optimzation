@@ -141,6 +141,12 @@ DEFAULTS = {
     "service_account": "",
     # who may ask for cash up front (seat levels)
     "advance_levels": ["RBM", "SRBM", "DEPUTY RBM", "SM", "ZSM", "GM"],
+    # 26 Nov 2026 (the user): the field roles (BE to SM, and GM -- he visits
+    # too) pick Own / For a doctor; everyone else (back office, CEO) just adds
+    # the bill -- any kind, no doctor, and may ask for cash up front. The TA/DA
+    # block (a hotel, food, fuel or travel bill is not an own expense) is only up to RBM.
+    "field_levels": ["BE", "ABM", "RBM", "SRBM", "DEPUTY RBM", "SM", "ZSM", "GM"],
+    "ta_da_levels": ["BE", "ABM", "RBM", "SRBM", "DEPUTY RBM"],
     # the bill kinds: own = a rep may claim it as their own expense; ta_da =
     # paid in the monthly TA/DA claim, so never as an own settlement (only
     # when spent on a doctor). First word match wins (whole words).
@@ -521,18 +527,20 @@ def ta_da_kind(reader_kind, title, cfg):
 
 
 def book_account(se, cfg):
-    # the account a bill is booked to: by its settlement type (the doctor ones
-    # from the settings), an own bill by its kind
-    t = se.get("settlement_type") or "Own"
-    if t == "Doctor activity" or t == "Doctor service":
-        acct = cfg["activity_account"] if t == "Doctor activity" else cfg["service_account"]
-        if not acct:
-            frappe.throw("No account is set for " + t.lower() + " bills -- Accounts must set it in Settlement Settings first.")
-        return acct
+    # 26 Nov 2026 (the user): EVERY bill -- own or for a doctor -- is booked by
+    # what the bill is (a cake to Food, a pen to Stationery): its kind, else the
+    # bill's words / what the reader saw. A doctor account in the settings is
+    # only the fallback for a doctor bill nothing else matches; never a stop.
     k = kind_row(se.get("expense_kind"), cfg)
     if k and k["account"]:
         return k["account"]
-    return account_for(se.get("title"), cfg, read_kind(se.get("bill_meta")))
+    acct = account_for(se.get("title"), cfg, read_kind(se.get("bill_meta")))
+    t = se.get("settlement_type") or "Own"
+    if acct == cfg["other"] and (t == "Doctor activity" or t == "Doctor service"):
+        dacct = cfg["activity_account"] if t == "Doctor activity" else cfg["service_account"]
+        if dacct:
+            return dacct
+    return acct
 
 
 def service_state(ds, but=None):
@@ -787,11 +795,10 @@ def reject_one(d, me, who, note):
 
 
 def unshare(se_name, keep):
-    # the approvers' read access to a bill (and so to its photos) ends when it
-    # leaves their chain: sent back, taken back, or sent again up another chain
-    for s in frappe.get_all("DocShare", filters={"share_doctype": "Settlement Expense", "share_name": se_name}, fields=["name", "user"], limit_page_length=100):
-        if s.user not in keep:
-            frappe.delete_doc("DocShare", s.name, ignore_permissions=True, force=True)
+    # 26 Nov 2026 (the user): shares STAY -- removing one needs the "Share"
+    # right, which approvers and reps do not have ("You need to have Share
+    # permission" on send back / send again / take back). Nothing removed.
+    return None
 
 
 def booking_ready(cfg):
@@ -865,6 +872,14 @@ emp = frappe.db.get_value("Employee", {"user_id": me, "status": "Active"}, ["nam
 overview = me == "Administrator" or bool(emp and emp.department in OVERVIEW_DEPARTMENTS)
 if not overview and frappe.db.exists("Has Role", {"parent": me, "parenttype": "User", "role": ["in", OVERVIEW_ROLES]}):
     overview = True
+# the caller's level by their seat (26 Nov 2026, the user): the field roles pick
+# Own / For a doctor; the TA/DA block is only up to RBM; everyone else adds any bill
+MY_LEVEL = ""
+if emp:
+    _sd = frappe.db.get_value("Employee", emp.name, ["custom_role_profile", "designation"], as_dict=True) or {}
+    MY_LEVEL = str(level_of(_sd.get("custom_role_profile"), _sd.get("designation"), me, CEO_USER, CEO_DESIGNATION, LEVELS)).upper()
+FIELD = MY_LEVEL in BOOKING["field_levels"]
+TA_DA_BLOCK = MY_LEVEL in BOOKING["ta_da_levels"]
 
 
 def new_request(emp, me, kind, amount, purpose, claim, advance, bills, chain, extra=None):
@@ -968,6 +983,8 @@ elif action == "add_bill":
     sday = str(fd.get("service_date") or "")[:10]
     stype = "Own"
     dname = None
+    if doctor and not FIELD:
+        frappe.throw("Doctor bills are for the field team.")
     if doctor:
         # a doctor this login may see (the Lead permission rules apply)
         seen = frappe.get_list("Lead", filters={"name": doctor}, fields=["name", "lead_name"], limit_page_length=1)
@@ -1004,8 +1021,11 @@ elif action == "add_bill":
         ds = ""
         sday = ""
         k = kind_row(kind, BOOKING)
-        if not k or not k["own"]:
-            frappe.throw("Pick what the expense was for." if not k else kind + " is paid in your monthly TA/DA claim -- add it there, or choose \"Spent on a doctor\" if it was for a doctor.")
+        # any kind from SM up and off the field; a TA/DA kind is refused only up to RBM
+        if not k:
+            frappe.throw("Pick what the expense was for.")
+        if TA_DA_BLOCK and not k["own"]:
+            frappe.throw(kind + " is paid in your monthly TA/DA claim -- add it there, or choose \"Spent on a doctor\" if it was for a doctor.")
     files = [[own_file(bill, me), "bill"]]
     if proof:
         files.append([own_file(proof, me), "proof"])
@@ -1105,7 +1125,7 @@ elif action == "send_bills":
         stype = r.settlement_type or "Own"
         # an own bill the photo shows is a TA/DA cost (a hotel, a meal, fuel,
         # a ticket): paid in the monthly TA/DA claim, never here
-        if stype == "Own":
+        if stype == "Own" and TA_DA_BLOCK:
             td = ta_da_kind(read_kind(r.bill_meta), "", BOOKING)
             if td:
                 refused.append(str(r.title or r.name) + ": this is a " + td["kind"].lower() + " bill -- it is paid in your monthly TA/DA claim. Remove it, or add it again as spent on a doctor if it was for one.")
@@ -1194,7 +1214,8 @@ elif action == "send_cash":
     # the user: RBM and above -- RBM, SM / ZSM, GM)
     lv = level_of(frappe.db.get_value("Employee", emp.name, "custom_role_profile"), frappe.db.get_value("Employee", emp.name, "designation"),
                   me, CEO_USER, CEO_DESIGNATION, LEVELS)
-    if str(lv).upper() not in BOOKING["advance_levels"]:
+    # off the field (back office, CEO) advances are open too (26 Nov 2026, the user)
+    if str(lv).upper() not in BOOKING["advance_levels"] and FIELD:
         frappe.throw("Advances are for " + ", ".join(BOOKING["advance_levels"]) + " -- add your bills and you are paid back.", frappe.PermissionError)
     amount = frappe.utils.flt(fd.get("amount"), 2)
     purpose = " ".join(str(fd.get("purpose") or "").split())[:500]
@@ -1387,7 +1408,9 @@ elif action == "settings":
     own = []
     own_words = []
     tada = []
+    every = []
     for k in BOOKING["kinds"]:
+        every.append(k["kind"])
         if k["own"]:
             own.append(k["kind"])
             # the app picks an own bill's kind off the bill with these (24 Nov 2026)
@@ -1396,8 +1419,8 @@ elif action == "settings":
             tada.append({"kind": k["kind"], "words": k["words"]})
     frappe.response["message"] = {"own_kinds": own, "own_kind_words": own_words, "ta_da_kinds": tada, "activity_limit": BOOKING["activity_limit"],
                                   "service_needs_record": bool(BOOKING["service_needs_record"]), "max_amount": BILL_MAX_AMOUNT,
-                                  "max_age_days": BILL_MAX_AGE_DAYS, "bills_from": BILLS_FROM or None, "bills_to": BILLS_TO or None, "window_text": WINDOW_TEXT or None, "can_request_cash": str(lv).upper() in BOOKING["advance_levels"],
-                                  "level": lv, "doctor_ready": {"activity": bool(BOOKING["activity_account"]), "service": bool(BOOKING["service_account"])}}
+                                  "max_age_days": BILL_MAX_AGE_DAYS, "bills_from": BILLS_FROM or None, "bills_to": BILLS_TO or None, "window_text": WINDOW_TEXT or None, "can_request_cash": bool(emp) and (str(lv).upper() in BOOKING["advance_levels"] or not FIELD),
+                                  "level": lv, "field": FIELD, "ta_da_block": TA_DA_BLOCK, "all_kinds": every, "doctor_ready": {"activity": bool(BOOKING["activity_account"]), "service": bool(BOOKING["service_account"])}}
 
 elif action == "doctors":
     # the caller's doctors matching q (the Lead permission rules apply)

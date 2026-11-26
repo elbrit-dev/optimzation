@@ -157,9 +157,21 @@ export function BillSheet({ conn, me, claims = [], advances = [], cashAdvances =
   useEffect(() => {
     if (settings?.billsTo && date === todayIso && todayIso > hiIso) setDate(hiIso);
   }, [settings]); // eslint-disable-line react-hooks/exhaustive-deps
-  const ownKinds = settings?.ownKinds || [];
+  /* BY ROLE (26 Nov 2026, the user): only the field roles (BE to SM / ZSM, and
+     GM) pick Own / For a doctor; the TA/DA block is only up to RBM. Everyone
+     else (back office, CEO) just adds the bill -- no tabs, any kind (still
+     picked off the bill), no TA/DA block. An older server sends neither: as before. */
+  // the tabs wait for the settings, so a back-office login never sees them flash
+  const field = !!settings && settings.field !== false;
+  const taDaBlock = settings?.taDaBlock !== false;
+  const allKinds = settings?.allKinds?.length ? settings.allKinds : [...(settings?.taDaKinds || []).map((k) => k.kind), ...(settings?.ownKinds || [])];
+  const ownKinds = taDaBlock ? settings?.ownKinds || [] : allKinds;
   // 24 Nov 2026 (the user): "Own expense" is picked to start with
   const [forWho, setForWho] = useState("me");
+  useEffect(() => { if (settings && !field) setForWho("me"); }, [settings, field]);
+  /* a doctor bill has a kind too (26 Nov 2026, the user): it is booked by what
+     the bill is -- a cake to Food, a pen to Stationery -- so any kind */
+  const kindList = forWho === "doctor" ? allKinds : ownKinds;
   const [kind, setKind] = useState("");
   // the kind is picked off the bill until the rep picks one themselves
   const kindPicked = useRef(false);
@@ -211,17 +223,21 @@ export function BillSheet({ conn, me, claims = [], advances = [], cashAdvances =
   const svcList = doctor && svcs.doctor === svcKey ? svcs.list : null;
   const picked = svcList?.find((x) => x.name === svc) || null;
   // an own bill that is really TA/DA: by the reader's kind, its title, or the title typed
-  const taDa = forWho === "me" ? taDaKindOf([read?.readerKind, read?.readTitle, title], settings?.taDaKinds) : "";
+  const taDa = forWho === "me" && taDaBlock ? taDaKindOf([read?.readerKind, read?.readTitle, title], settings?.taDaKinds) : "";
   const taDaMsg = taDa ? taDaText(taDa) : "";
   // a good own bill: its kind from the bill -- else Other -- once it is read
   useEffect(() => {
-    if (!read || read.busy || read.wrong || !settings || kindPicked.current) return;
-    // a TA/DA bill has no own kind: left empty (it cannot be sent anyway)
-    if (taDaKindOf([read.readerKind, read.readTitle], settings.taDaKinds)) { setKind(""); setKindAuto(false); return; }
-    const k =ownKindOf([read.readTitle, read.clefTitle, read.what, read.vendor], settings.ownKindWords, ownKinds) || (ownKinds.includes("Other") ? "Other" : "");
+    if (!read || read.busy || read.wrong || !settings) return;
+    // picked by hand: kept, unless the other tab does not offer it
+    if (kindPicked.current) { if (kind && !kindList.includes(kind)) { setKind(""); kindPicked.current = false; } else return; }
+    // a TA/DA bill: no own kind up to RBM (it cannot be sent anyway); for a doctor, from SM up and off the field, its TA/DA kind
+    const td = taDaKindOf([read.readerKind, read.readTitle], settings.taDaKinds);
+    if (td && !kindList.includes(td)) { setKind(""); setKindAuto(false); return; }
+    if (td) { setKind(td); setKindAuto(true); return; }
+    const k = ownKindOf([read.readTitle, read.clefTitle, read.what, read.vendor], settings.ownKindWords, kindList) || (kindList.includes("Other") ? "Other" : "");
     setKind(k);
     setKindAuto(!!k);
-  }, [read, settings]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [read, settings, forWho]); // eslint-disable-line react-hooks/exhaustive-deps
   const pickDoctor = (d) => { setDoctor(d); setSvc(""); setDq(""); };
 
   /* HELP (24 Nov 2026, the user: "like the help in the planner"): once the
@@ -258,7 +274,8 @@ export function BillSheet({ conn, me, claims = [], advances = [], cashAdvances =
     `What was it for: ${title.trim() || "-"}`,
     `Amount: ${amt ? inr(amt) : "-"}`,
     `Bill date: ${date || "-"}`,
-    forWho === "doctor" ? `Doctor: ${doctor ? `${doctor.name} (${doctor.id})` : "-"}` : `Kind: ${kind || "-"}`,
+    ...(forWho === "doctor" ? [`Doctor: ${doctor ? `${doctor.name} (${doctor.id})` : "-"}`] : []),
+    `Kind: ${kind || "-"}`,
     over && needSvc ? `Doctor service: ${picked ? `${picked.service} (${picked.name})` : "-"}` : "",
     over && !needSvc ? `Service done on: ${svcDay || "-"}` : "",
     `Read off the bill: ${[read?.readTitle, read?.vendor].filter(Boolean).join(" · ") || "-"}${read?.handwritten ? " · handwritten" : ""}`,
@@ -343,8 +360,8 @@ export function BillSheet({ conn, me, claims = [], advances = [], cashAdvances =
     : read?.handwritten && why.trim().length < 5 ? "Add why handwritten"
     : read?.handwritten && !cash && !proof ? "Add proof or tick cash"
     : forWho === "me" && taDa ? taDaMsg
-    : forWho === "me" && !kind ? "Pick the kind"
     : forWho === "doctor" && !doctor ? "Pick the doctor"
+    : !kind ? "Pick the kind"
     : over && !needSvc && !svcDay ? "Pick the service day"
     : over && !needSvc && (svcDay > todayIso || svcDay < minIso) ? "Service day out of range"
     : !over || !needSvc ? ""
@@ -374,7 +391,7 @@ export function BillSheet({ conn, me, claims = [], advances = [], cashAdvances =
       const handNote = read?.handwritten ? `${why.trim()}${cash ? " · paid in cash" : ""}` : "";
       name = (await addSettlementBill(conn, {
         date, title: title.trim(), amount: amt, bill: up.file_url, proof: proofUrl, handNote,
-        kind: forWho === "me" ? kind : "", doctor: forWho === "doctor" ? doctor?.id : "", doctorService: over && needSvc ? picked?.name : "", serviceDate: over && !needSvc ? svcDay : "",
+        kind, doctor: forWho === "doctor" ? doctor?.id : "", doctorService: over && needSvc ? picked?.name : "", serviceDate: over && !needSvc ? svcDay : "",
       })).name;
     } catch (e) {
       setBusy("");
@@ -461,12 +478,14 @@ export function BillSheet({ conn, me, claims = [], advances = [], cashAdvances =
         <div style={{ display: "flex", flexDirection: "column", gap: 16, padding: desk ? "18px 24px 20px" : "14px 16px 18px" }}>
           {/* 24 Nov 2026 (the user): the type comes FIRST, as two tabs -- the
               photo can be added only once it is picked */}
+          {field && (
           <div role="radiogroup" aria-label="Who was this for?" style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 4, padding: 4, borderRadius: 14, background: "#e9ecf1", boxShadow: tried && !forWho ? "0 0 0 1.5px #f04438" : "none" }}>
             {[["me", "Own expense"], ["doctor", "For a doctor"]].map(([k, t]) => (
               <button key={k} type="button" className="ecs-ch" role="radio" aria-checked={forWho === k} onClick={() => setForWho(k)}
                 style={{ minHeight: 44, border: 0, borderRadius: 10, background: forWho === k ? "#fff" : "transparent", boxShadow: forWho === k ? "0 1px 2px rgba(16,24,40,.14)" : "none", color: forWho === k ? "#0b1220" : "#475467", fontSize: 15, fontWeight: 700, cursor: "pointer" }}>{t}</button>
             ))}
           </div>
+          )}
           {forWho && (
           <button type="button" className="ecs-drop" onClick={() => pick.current?.click()}
             style={{ display: "flex", flexDirection: file ? "row" : "column", alignItems: "center", justifyContent: "center", gap: file ? 12 : 6, width: "100%", minHeight: file ? 76 : 150, padding: file ? "10px 12px" : "18px 14px", borderRadius: 16, border: `1.5px ${file ? "solid" : "dashed"} ${read?.wrong || (file && taDaMsg) ? "#f04438" : file && read?.dup ? "#f79009" : file ? "#12b76a" : tried && !file ? "#f04438" : "#b2c8f7"}`, background: read?.wrong || (file && taDaMsg) ? "#fef3f2" : file && read?.dup ? "#fffcf5" : file ? "#f6fef9" : "#f5f8ff", color: "#0b1220", textAlign: file ? "left" : "center", cursor: "pointer" }}>
@@ -581,14 +600,14 @@ export function BillSheet({ conn, me, claims = [], advances = [], cashAdvances =
             })()}</span>
 
 
-            {forWho === "me" && (
+            {forWho && (
               <>
                 <label style={{ display: "flex", flexDirection: "column", gap: 6 }}>
                   <span style={lbl}>What kind</span>
                   <select className="ecs-in" value={kind} onChange={(e) => { kindPicked.current = true; setKindAuto(false); setKind(e.target.value); }} disabled={!settings}
                     style={{ appearance: "auto", borderColor: tried && !kind ? "#f04438" : undefined, color: kind ? "#0b1220" : "#8a93a3" }}>
                     <option value="">{settings ? "Choose the kind of expense" : "Loading…"}</option>
-                    {ownKinds.map((k) => <option key={k} value={k}>{k}</option>)}
+                    {kindList.map((k) => <option key={k} value={k}>{k}</option>)}
                   </select>
                 </label>
                 {kindAuto && kind && !taDaMsg && <span style={{ ...hint, marginTop: -8 }}>From the bill</span>}

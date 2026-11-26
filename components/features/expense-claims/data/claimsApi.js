@@ -1278,6 +1278,12 @@ export function fetchSettlementSettings(conn) {
       windowText: m.window_text || null,
       canRequestCash: !!m.can_request_cash,
       level: m.level || "",
+      /* by role (26 Nov 2026): field = the Own / For a doctor tabs (BE to SM, GM);
+         taDaBlock = TA/DA kinds refused (up to RBM); allKinds = every kind, for
+         whoever is not blocked. An older server sends none of them: as before. */
+      field: m.field !== false,
+      taDaBlock: m.ta_da_block !== false,
+      allKinds: (m.all_kinds || []).map(String).filter(Boolean),
       doctorReady: { activity: !!m.doctor_ready?.activity, service: !!m.doctor_ready?.service },
     };
   }).catch((e) => {
