@@ -10,6 +10,7 @@ import { nextToDo, rowsOfTab } from './RecordTabs';
 import { SubjectForm } from './SubjectForm';
 import { DiscardChangesSheet, PageHeader, readDrafts, scroller, writeDrafts } from './parts';
 import { MapReview } from './MapReview';
+import { ApprovalQueue } from './ApprovalQueue';
 
 /* A survey page scrolls INSIDE the Elbrit frame (under its header, beside its menu) — not the whole browser page,
    which pushed the list of doctors out below the site. Where the frame has no set height it is as before. */
@@ -118,8 +119,24 @@ function ReviewPage({ api: apiProp, source = 'erp', gqlEnvironment = 'ERP', gqlT
   );
 }
 
+/* 26 Nov 2026 · /survey/approve — the approver's "To approve" (Survey Studio approvals) */
+function ApprovePage({ api: apiProp, source = 'erp', gqlEnvironment = 'ERP', gqlToken, onBack, className }) {
+  const api = useMemo(() => apiProp ?? createSurveyApi({ source, gqlEnvironment, gqlToken, strictEnvironment: true }), [apiProp, source, gqlEnvironment, gqlToken]);
+  const signedIn = Boolean(apiProp) || source !== 'erp' || Boolean(String(gqlToken ?? '').trim());
+  const leave = () => (onBack ? onBack() : window.history.back());
+  return (
+    <section className={cx('@container/survey flex w-full scroll-mt-3 flex-col', INSIDE_FRAME, className)}>
+      <div className="flex w-full flex-col gap-3 px-4 pb-4 pt-3 @2xl/survey:gap-4">
+        <PageHeader onBack={leave} backLabel="Back" title="To approve" />
+        {signedIn ? <ApprovalQueue api={api} /> : <Notice icon="lock" title="Sign in to approve" text="Approvals are read and sent as you — sign in to the app, then open this page again." />}
+      </div>
+    </section>
+  );
+}
+
 export function SurveyPage(props) {
-  return decodeCampaign(props.campaign) === 'review' ? <ReviewPage {...props} /> : <OneSurveyPage {...props} />;
+  const c = decodeCampaign(props.campaign);
+  return c === 'review' ? <ReviewPage {...props} /> : c === 'approve' ? <ApprovePage {...props} /> : <OneSurveyPage {...props} />;
 }
 
 function OneSurveyPage({

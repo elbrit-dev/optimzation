@@ -32,7 +32,8 @@ export function SubjectForm({ survey, row, rows, me, draft, api, onBack, onDraft
   const rootRef = useRef(null);
   const [barHeight, setBarHeight] = useState(0);
   const editable = row.state === 'todo';
-  const start = useMemo(() => (editable ? (draft ?? {}) : (row.answers ?? {})), [editable, draft, row.answers]);
+  /* 26 Nov 2026: a returned answer opens with what was sent, to fix and send again */
+  const start = useMemo(() => (editable ? (draft ?? (row.returned ? row.answers ?? {} : {})) : (row.answers ?? {})), [editable, draft, row.answers, row.returned]);
   const [answers, setAnswers] = useState(start);
   /* What is kept: the opening answers, then the last ones saved for later. */
   const [baseline, setBaseline] = useState(() => JSON.stringify(start));
@@ -153,6 +154,21 @@ export function SubjectForm({ survey, row, rows, me, draft, api, onBack, onDraft
         <ProgressBar value={answered} max={questions.length || 1} size="sm" tone={requiredLeft ? 'brand' : 'success'} label={`${answered} of ${questions.length} answered`} />
       </Card>
 
+      {editable && row.returned ? (
+        <p role="alert" className="flex items-start gap-2 rounded-lg bg-warning-wash px-3 py-2.5 text-12 text-warning-text">
+          <Icon name="replay" size="sm" className="mt-px shrink-0" />
+          <span>
+            <b className="font-semibold">Returned{row.returned.by_name ? ` by ${row.returned.by_name}` : ''}</b>
+            {row.returned.note ? ` — “${row.returned.note}”` : ''}. Fix it and send it again.
+          </span>
+        </p>
+      ) : null}
+      {row.state === 'done' && row.approval ? (
+        <p role="note" className={`flex items-center gap-2 rounded-lg px-3 py-2 text-12 ${row.approval.status === 'Approved' ? 'bg-success-wash text-success' : 'bg-sunken text-ds-secondary'}`}>
+          <Icon name={row.approval.status === 'Approved' ? 'verified' : 'clock'} size="sm" className="shrink-0" />
+          {row.approval.status === 'Approved' ? `Approved${row.approval.auto ? ' by the AI (Clear)' : row.approval.by_name ? ` by ${row.approval.by_name}` : ''}.` : 'Waiting for approval.'}
+        </p>
+      ) : null}
       {row.state === 'done' ? (
         <p role="note" className="flex items-center gap-2 rounded-lg bg-success-wash px-3 py-2 text-12 text-success">
           <Icon name="check-circle" size="sm" className="shrink-0" />

@@ -25,6 +25,25 @@ export function createMockApi({ role = 'BE', scenario = 'normal', today = MOCK_T
       review: { status: 'Pending' },
     },
   ];
+  /* 26 Nov 2026 · answers waiting for this approver (survey_approval) */
+  const approvals = [
+    {
+      response: 'SR-MOCK-A1', campaign: 'SC-2026-0040', title: 'Distributor stock check', rep: 'Ravi Kumar', rep_id: 'E-R1', submitted_on: '2026-11-25 10:12', waited: 1, days: 3, overdue: 0,
+      subject: { doctype: 'Customer', name: 'Ganga Pharma Agencies', label: 'Ganga Pharma Agencies', code: 'D-2041', hq: 'Lucknow' },
+      status: 'Pending', ai: { state: 'clerk', why: 'Invoice: Not met: total min' }, approver: 'You',
+      answers: [{ id: 'q1', label: 'Units in stock', type: 'number', answer: 38 }, { id: 'q2', label: 'Any expiry within 90 days?', type: 'multiple_choice', answer: 'No' }],
+    },
+    {
+      response: 'SR-MOCK-A2', campaign: 'SC-2026-0040', title: 'Distributor stock check', rep: 'Ravi Kumar', rep_id: 'E-R1', submitted_on: '2026-11-25 09:40', waited: 1, days: 3, overdue: 0,
+      subject: { doctype: 'Customer', name: 'Shree Medicos', label: 'Shree Medicos', code: 'D-2050', hq: 'Lucknow' },
+      status: 'Pending', ai: { state: 'none' }, approver: 'You', answers: [{ id: 'q1', label: 'Units in stock', type: 'number', answer: 12 }],
+    },
+    {
+      response: 'SR-MOCK-A3', campaign: 'SC-2026-0040', title: 'Distributor stock check', rep: 'Meena S', rep_id: 'E-M1', submitted_on: '2026-11-24 16:05', waited: 2, days: 3, overdue: 0,
+      subject: { doctype: 'Customer', name: 'Kashi Drug House', label: 'Kashi Drug House', code: 'D-2077', hq: 'Varanasi' },
+      status: 'Approved', auto: 1, by_name: 'AI (Clear)', ai: { state: 'clear' }, approver: 'You', answers: [],
+    },
+  ];
   const me = ROLES[role] ?? ROLES.BE;
   let responses = seedResponses(role, scenario);
   let seq = responses.length + 1;
@@ -190,6 +209,26 @@ export function createMockApi({ role = 'BE', scenario = 'normal', today = MOCK_T
         return { applied: { done: decision === 'accept' } };
       }
       return { items: reviews.filter((r) => (which === 'done' ? r.review.status !== 'Pending' : r.review.status === 'Pending')), all: 0, writes: 'erp-uat' };
+    },
+
+    /* 26 Nov 2026 · Survey Studio approvals, played in memory */
+    async approval({ action, which, response, decision, note, responses }) {
+      await wait(150);
+      if (action === 'decide' || action === 'approve_all') {
+        const names = action === 'decide' ? [response] : JSON.parse(responses || '[]');
+        if (action === 'decide' && decision === 'return' && !String(note || '').trim()) throw new Error('Please say why it is returned (the rep sees this note).');
+        let n = 0;
+        approvals.forEach((x) => {
+          if (names.includes(x.response) && x.status === 'Pending') {
+            x.status = action === 'decide' && decision === 'return' ? 'Returned' : 'Approved';
+            x.by_name = 'You';
+            x.note = note || '';
+            n += 1;
+          }
+        });
+        return { ok: 1, approved: n };
+      }
+      return { items: approvals.filter((x) => (which === 'done' ? x.status !== 'Pending' : x.status === 'Pending')), all: 0 };
     },
 
     async testLogin({ password }) {

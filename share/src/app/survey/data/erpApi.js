@@ -187,6 +187,17 @@ export function createErpApi({ endpointUrl, gqlEnvironment = 'ERP', gqlToken, al
       return call('GET', 'survey_map_review', { query: args });
     },
 
+    /* 26 Nov 2026 · Survey Studio approvals (survey_approval):
+       { action: 'list', which: 'pending' | 'done' } → { items, all }
+       { action: 'decide', response, decision: 'approve' | 'return', note } · { action: 'approve_all', responses: JSON list } */
+    approval(args) {
+      if (args?.action === 'decide' || args?.action === 'approve_all') {
+        needWrites();
+        return call('POST', 'survey_approval', { body: args });
+      }
+      return call('GET', 'survey_approval', { query: args });
+    },
+
     async readFile({ response, question, file_url, file }) {
       try {
         needAuth();
