@@ -536,8 +536,11 @@ export async function fetchClaimByRemark(conn, employee, remark) {
 
 /* Every claim with this remark, newest first (13 Nov 2026): a month can hold
    more than one -- once a month's claim is approved, trips added later go into
-   a new one. -> [claim] */
-export async function fetchClaimsByRemark(conn, employee, remark, max = 10) {
+   a new one. -> [claim]
+   ALL of them (26 Nov 2026): it read only the newest 10, so a rep with more
+   claims saw the trips in the older ones as "to claim" again and sent them
+   again -- the same days approved several times over. */
+export async function fetchClaimsByRemark(conn, employee, remark, max = 500) {
   const q = new URLSearchParams({
     filters: JSON.stringify([["employee", "=", employee], ["remark", "=", remark], ["docstatus", "<", 2]]),
     fields: JSON.stringify(["name"]),
