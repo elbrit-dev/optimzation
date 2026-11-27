@@ -99,6 +99,7 @@ export function MapLocation({ q, value, onChange, disabled, api, response }) {
   const pickRef = useRef(null);
   const zoneRef = useRef(null);
   const lockRef = useRef(null); /* the fixed centre while the map is locked on the saved point */
+  const quietRef = useRef(0); /* map taps are ignored until this time (just after the matches list closes) */
   const genRef = useRef(0);
   const fitRef = useRef(false);
   const hintTimer = useRef(0);
@@ -339,6 +340,9 @@ export function MapLocation({ q, value, onChange, disabled, api, response }) {
       const map = mapRef.current;
       const gm = window.google?.maps;
       if (live.current.disabled || !map || !gm || !e?.latLng) return;
+      /* 27 Nov 2026 · the tap that cleared the search (or chose a match) falls through to the map as the list
+         closes and the box shrinks: it must not choose a place */
+      if (Date.now() < quietRef.current) return;
       const proj = map.getProjection();
       const b = map.getBounds();
       if (!proj || !b) return;
@@ -660,8 +664,11 @@ export function MapLocation({ q, value, onChange, disabled, api, response }) {
   const showMatches = !disabled && typed.length >= 2;
   /* 27 Nov 2026 · when the matches open, the search goes to the top of the screen so the list fits above the
      Save / Submit bar */
+  const shownRef = useRef(false);
   useEffect(() => {
     if (showMatches) boxRef.current?.scrollIntoView?.({ block: 'start', behavior: 'smooth' });
+    else if (shownRef.current) quietRef.current = Date.now() + 600;
+    shownRef.current = showMatches;
   }, [showMatches]);
   const chips = !disabled && !showMatches ? near.places.slice(0, 15) : [];
 
