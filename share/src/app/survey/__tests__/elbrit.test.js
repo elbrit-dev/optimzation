@@ -41,6 +41,23 @@ describe('Elbrit products in AI reads', () => {
     expect(f._elbrit).toMatchObject({ lines: 3, elbrit: 2, others: 1, found: true, items: ['TELBRIT 40', 'ROZULA 10'], qty: 14, value: 1255 });
   });
 
+  it('a secondary statement (Read as: Secondary statement) totals each column over Elbrit lines only', () => {
+    const f = { rows: [
+      { product: 'TELBRIT 40 TAB 10S', sales_qty: '19', sales_value: '6,080.00', closing_qty: '67', closing_value: '21440', elbrit_product: null },
+      { product: 'TELMA 40', sales_qty: '50', sales_value: '9000', closing_qty: '10', closing_value: '1800', elbrit_product: null },
+      { product: 'ROZULA 20', sales_qty: '5', sales_value: '900', closing_qty: '', closing_value: null, elbrit_product: 'ROZULA 20' },
+    ] };
+    tagElbrit(f, P);
+    expect(f.rows.map((r) => r.elbrit_product)).toEqual(['TELBRIT 40', null, 'ROZULA 20']);
+    expect(f._elbrit).toMatchObject({ elbrit: 2, others: 1, qty: 24, value: 6980, totals: { sales_qty: 24, sales_value: 6980, closing_qty: 67, closing_value: 21440 } });
+  });
+
+  it('a prescription (Read as: Prescription) counts the tablets of Elbrit medicines', () => {
+    const f = { rows: [{ medicine: 'Tab Glimibrit M1', tablets: '30' }, { medicine: 'Tab Dolo 650', tablets: '10' }] };
+    tagElbrit(f, P);
+    expect(f._elbrit).toMatchObject({ elbrit: 1, found: true, items: ['GLIMIBRIT M1'], qty: 30, totals: { tablets: 30 } });
+  });
+
   it('a prescription with no Elbrit medicine says so', () => {
     const f = { medicines: [{ medicine: 'Dolo 650', dose: '1-0-1' }] };
     tagElbrit(f, P);
