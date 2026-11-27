@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { render, screen } from '@testing-library/react';
+import { fireEvent, render, screen } from '@testing-library/react';
 import { QuestionCard } from '../components/QuestionCard';
 import { whenText } from '../components/ApprovalQueue';
 import { TIMING_DAYS, answerProblem, answerText, formProblems, isAnswered, toPayload } from '../data/shape';
@@ -161,6 +161,8 @@ describe('Repeated group', () => {
     expect(screen.getByText('Cardio 10 mg · 40')).toBeTruthy();
     expect(screen.getByRole('group', { name: 'Product 2' })).toBeTruthy();
     expect(screen.queryByRole('group', { name: 'Product 1' })).toBeNull();
+    fireEvent.click(screen.getByRole('button', { name: 'Edit product 1' }));
+    expect(screen.getByRole('group', { name: 'Product 1' })).toBeTruthy();
   });
 
   it('opens with ONE empty entry; Add another shows once it is filled; empty entries are not kept', () => {

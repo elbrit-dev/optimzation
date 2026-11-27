@@ -882,7 +882,7 @@ function RepeatInput({ q, value: raw, onChange, disabled, onUpload, api, respons
       {rows.map((r, i) =>
         i !== openI && !disabled ? (
           <div key={i} className={cx('flex items-center gap-2 rounded-[10px] border bg-sunken px-3 py-2', showErrors && problemOf(r) ? 'border-danger-border' : 'border-line')}>
-            <button type="button" onClick={() => setOpen(i)} className="flex min-h-10 min-w-0 flex-1 flex-col items-start justify-center text-left" aria-label={`Edit ${noun} ${i + 1}`}>
+            <button type="button" onClick={() => setOpen(i)} className="flex min-h-10 min-w-0 flex-1 flex-col items-start justify-center text-left">
               <span className="text-13 font-semibold text-heading">
                 {Noun} {i + 1}
               </span>
@@ -890,7 +890,9 @@ function RepeatInput({ q, value: raw, onChange, disabled, onUpload, api, respons
                 {showErrors && problemOf(r) ? problemOf(r) : summary(r) || 'Not filled yet'}
               </span>
             </button>
-            <Icon name="pencil" size="sm" className="shrink-0 text-ds-muted" />
+            <button type="button" aria-label={`Edit ${noun} ${i + 1}`} onClick={() => setOpen(i)} className="flex size-10 shrink-0 items-center justify-center rounded-md text-ds-muted hover:bg-surface">
+              <Icon name="pencil" size="sm" />
+            </button>
             <button type="button" aria-label={`Remove ${noun} ${i + 1}`} onClick={() => drop(i)} className="-mr-1.5 flex size-10 shrink-0 items-center justify-center rounded-md text-ds-muted hover:bg-surface">
               <Icon name="times" size="sm" />
             </button>
