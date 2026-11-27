@@ -72,9 +72,108 @@ export function viewOfUrl() {
 
 /* ------------------------------ shared pieces ------------------------------ */
 
+/* a PC screen (27 Nov 2026): people down the left, the list in the middle, the opened one on the right */
+function useWide() {
+  const q = "(min-width: 1024px)";
+  const [wide, setWide] = useState(() => typeof window !== "undefined" && window.matchMedia(q).matches);
+  useEffect(() => {
+    const m = window.matchMedia(q);
+    const on = () => setWide(m.matches);
+    m.addEventListener("change", on);
+    return () => m.removeEventListener("change", on);
+  }, []);
+  return wide;
+}
+
+/* people + the page body: a sidebar on a PC, a strip of avatars on a phone */
+function Body({ wide, people, sel, onSel, children }) {
+  if (!wide)
+    return (
+      <>
+        <People list={people} sel={sel} onSel={onSel} />
+        {children}
+      </>
+    );
+  return (
+    <div className="flex min-h-0 flex-1">
+      <aside className="w-60 flex-none overflow-y-auto border-r border-gray-200 bg-white py-2">
+        {people.map((p) => (
+          <button
+            key={p.id}
+            type="button"
+            onClick={() => onSel(p.id)}
+            className={cn("flex w-full items-center gap-2.5 px-3 py-2 text-left hover:bg-gray-50", sel === p.id && "bg-blue-50 hover:bg-blue-50")}
+          >
+            <span className="grid h-8 w-8 flex-none place-items-center rounded-full text-[11px] font-extrabold text-white" style={{ background: colorOf(p.name) }}>
+              {initials(p.name)}
+            </span>
+            <span className="min-w-0 flex-1">
+              <b className={cn("block truncate text-[13px] font-bold", sel === p.id ? "text-blue-700" : "text-gray-800")}>{p.name}</b>
+              {p.sub && <small className={cn("text-[11px] font-semibold", p.subOk ? "text-green-600" : "text-gray-400")}>{p.sub}</small>}
+            </span>
+            {p.badge > 0 && <span className="grid h-5 min-w-5 place-items-center rounded-full bg-blue-600 px-1.5 text-[10.5px] font-extrabold text-white">{p.badge}</span>}
+          </button>
+        ))}
+      </aside>
+      <main className="min-w-0 flex-1 pb-6">{children}</main>
+    </div>
+  );
+}
+
+/* the list: cards that open in place on a phone; on a PC a list on the left and the
+   opened one in a panel on the right (the first one when none is picked) */
+function Split({ wide, items, open, setOpen }) {
+  if (!items.length) return <Empty>Nothing here.</Empty>;
+  if (!wide)
+    return (
+      <div className="flex flex-col gap-2.5 px-3 pt-2">
+        {items.map((it) => (
+          <div key={it.id} className="flex gap-2">
+            <Rail from={it.from} to={it.to} />
+            <Card {...it.card} open={open === it.id} onToggle={() => setOpen(open === it.id ? null : it.id)}>
+              {it.body}
+            </Card>
+          </div>
+        ))}
+      </div>
+    );
+  const cur = items.find((i) => i.id === open) || items[0];
+  return (
+    <div className="grid grid-cols-[minmax(300px,380px)_minmax(0,1fr)] gap-4 px-4 pt-3">
+      <div className="flex flex-col gap-2.5">
+        {items.map((it) => (
+          <div key={it.id} className="flex gap-2">
+            <Rail from={it.from} to={it.to} />
+            <Card {...it.card} selected={cur.id === it.id} onToggle={() => setOpen(it.id)} />
+          </div>
+        ))}
+      </div>
+      <div className="sticky top-3 max-h-[calc(100vh-24px)] self-start overflow-y-auto rounded-xl border border-gray-200 bg-white p-4">
+        <div className="mb-3 flex items-start gap-3 border-b border-gray-100 pb-3">
+          <span className="min-w-0 flex-1">
+            <b className="block text-[17px] font-extrabold">
+              {cur.card.tag && <span className={cn("mr-1.5 rounded px-1.5 py-px align-[2px] text-[10px] font-extrabold", cur.card.tag === "HQ" ? "bg-slate-100 text-slate-600" : "bg-indigo-50 text-indigo-700")}>{cur.card.tag}</span>}
+              {cur.card.title}
+            </b>
+            <span className="text-[12.5px] text-gray-500">
+              {cur.to && cur.to !== cur.from ? `${dd(cur.from)} – ${dd(cur.to)}` : dd(cur.from)}
+              {cur.card.sub ? ` · ${cur.card.sub}` : ""}
+            </span>
+          </span>
+          <span className="flex flex-col items-end gap-1">
+            {cur.card.amount != null && <b className="text-[17px] font-extrabold">{inr(cur.card.amount)}</b>}
+            {cur.card.label && <i className={cn("rounded-full px-2 py-px text-[11px] font-bold not-italic", CHIP[cur.card.state])}>{cur.card.label}</i>}
+          </span>
+        </div>
+        {cur.body}
+      </div>
+    </div>
+  );
+}
+
 function Page({ title, month, onMonth, children }) {
   return (
-    <div className="mx-auto flex min-h-full w-full max-w-[560px] flex-col bg-[#f6f7f9] pb-6 font-[Inter,system-ui,sans-serif] text-gray-900">
+    <div className="mx-auto flex min-h-full w-full max-w-[560px] flex-col lg:max-w-[1360px] bg-[#f6f7f9] pb-6 font-[Inter,system-ui,sans-serif] text-gray-900">
       <div className="flex items-center gap-2 bg-white px-4 pb-2 pt-4">
         <h1 className="text-[22px] font-extrabold tracking-tight">{title}</h1>
         {month && (
@@ -167,9 +266,9 @@ const CHIP = {
 };
 const EDGE = { accepted: "border-l-green-500", sent: "border-l-green-500", back: "border-l-red-500", notsent: "border-l-gray-300", waiting: "border-l-amber-400", approved: "border-l-green-500", rejected: "border-l-red-500" };
 
-function Card({ state, label, title, tag, sub, amount, open, onToggle, children }) {
+function Card({ state, label, title, tag, sub, amount, open, selected, onToggle, children }) {
   return (
-    <div className={cn("min-w-0 flex-1 rounded-xl border border-l-4 bg-white", EDGE[state], state === "notsent" && "border-dashed", open && "border-blue-300")}>
+    <div className={cn("min-w-0 flex-1 rounded-xl border border-l-4 bg-white", EDGE[state], state === "notsent" && "border-dashed", (open || selected) && "border-blue-300", selected && "ring-2 ring-blue-500")}>
       <button type="button" onClick={onToggle} className="flex w-full items-center gap-2 px-3 py-2.5 text-left">
         <span className="min-w-0 flex-1">
           <b className="block text-[14px] font-bold leading-tight">
@@ -182,9 +281,9 @@ function Card({ state, label, title, tag, sub, amount, open, onToggle, children 
           {amount != null && <b className="text-[14px] font-extrabold">{inr(amount)}</b>}
           {label && <i className={cn("rounded-full px-2 py-px text-[10.5px] font-bold not-italic", CHIP[state])}>{label}</i>}
         </span>
-        <ChevronDown className={cn("h-4 w-4 flex-none text-gray-400 transition-transform", open && "rotate-180")} />
+        {selected === undefined && <ChevronDown className={cn("h-4 w-4 flex-none text-gray-400 transition-transform", open && "rotate-180")} />}
       </button>
-      {open && <div className="border-t border-gray-100 px-3 pb-3 pt-2">{children}</div>}
+      {open && children && <div className="border-t border-gray-100 px-3 pb-3 pt-2">{children}</div>}
     </div>
   );
 }
@@ -348,7 +447,7 @@ function BillTile({ conn, bill, onOpen }) {
       </span>
       <span className="flex items-center justify-between gap-1 px-2 py-1">
         <b className="text-[12.5px] font-extrabold">{inr(bill.amount)}</b>
-        {warn && <span className="text-[9px] font-bold text-amber-700">by hand</span>}
+        {warn && <span className="whitespace-nowrap text-[9px] font-bold text-amber-700">by hand</span>}
       </span>
     </button>
   );
@@ -412,6 +511,7 @@ function TripBody({ conn, trip, busy, onAccept, onBack }) {
 }
 
 function TaDaView({ conn }) {
+  const wide = useWide();
   const [month, setMonth] = useState(prevMonth);
   const [data, setData] = useState({ status: "loading" });
   const [sel, setSel] = useState(null);
@@ -499,15 +599,16 @@ function TaDaView({ conn }) {
       {data.status === "ready" && !reps.length && <Empty>No field TA/DA from your team for {monthLabel(month)}.</Empty>}
       {data.status === "ready" && rep && (
         <>
-          <People
-            list={reps.map((r) => ({ id: r.employee, name: r.name, badge: r.toAccept, sub: r.done ? "approved" : r.sent === r.trips.length ? "all sent" : `${r.sent}/${r.trips.length} sent`, subOk: r.done || r.sent === r.trips.length }))}
+          <Body
+            wide={wide}
+            people={reps.map((r) => ({ id: r.employee, name: r.name, badge: r.toAccept, sub: r.done ? "approved" : r.sent === r.trips.length ? "all sent" : `${r.sent}/${r.trips.length} sent`, subOk: r.done || r.sent === r.trips.length }))}
             sel={rep.employee}
             onSel={(id) => {
               setSel(id);
               setOpen(null);
               setMsg(null);
             }}
-          />
+          >
           <div className="mx-4 mt-3 rounded-xl border border-blue-200 bg-blue-50 px-3 py-2">
             <div className="flex items-baseline justify-between gap-2 text-[13px]">
               <b className="text-blue-900">
@@ -531,26 +632,18 @@ function TaDaView({ conn }) {
             onSel={setFlt}
           />
           {msg && <p className={cn("mx-4 mt-2 rounded-lg px-3 py-2 text-[12.5px]", msg.ok ? "bg-green-50 text-green-800" : "bg-red-50 text-red-800")}>{msg.text}</p>}
-          <div className="flex flex-col gap-2.5 px-3 pt-2">
-            {!shown.length && <Empty>Nothing here.</Empty>}
-            {shown.map((t) => (
-              <div key={t.id} className="flex gap-2">
-                <Rail from={t.from} to={t.to} />
-                <Card
-                  state={t.state}
-                  label={STATE_LABEL[t.state]}
-                  tag={t.os ? "OS" : "HQ"}
-                  title={t.title}
-                  sub={t.sub}
-                  amount={t.amount}
-                  open={open === t.id}
-                  onToggle={() => setOpen(open === t.id ? null : t.id)}
-                >
-                  <TripBody conn={conn} trip={t} busy={busy?.trip === t.id ? busy.what : null} onAccept={() => accept(t)} onBack={(why) => sendBack(t, why)} />
-                </Card>
-              </div>
-            ))}
-          </div>
+          <Split
+            wide={wide}
+            open={open}
+            setOpen={setOpen}
+            items={shown.map((t) => ({
+              id: t.id,
+              from: t.from,
+              to: t.to,
+              card: { state: t.state, label: STATE_LABEL[t.state], tag: t.os ? "OS" : "HQ", title: t.title, sub: t.sub, amount: t.amount },
+              body: <TripBody conn={conn} trip={t} busy={busy?.trip === t.id ? busy.what : null} onAccept={() => accept(t)} onBack={(why) => sendBack(t, why)} />,
+            }))}
+          />
           {!rep.done && (
             <div className="sticky bottom-0 mt-3 flex items-center gap-2 border-t border-gray-200 bg-white px-4 py-3">
               <span className="flex-1 text-[13px]">
@@ -570,6 +663,7 @@ function TaDaView({ conn }) {
               </button>
             </div>
           )}
+          </Body>
         </>
       )}
     </Page>
@@ -641,6 +735,7 @@ function NrBody({ r, busy, onApprove, onReject }) {
   );
 }
 function NonRepView({ conn }) {
+  const wide = useWide();
   const [data, setData] = useState({ status: "loading" });
   const [sel, setSel] = useState(null);
   const [flt, setFlt] = useState("waiting");
@@ -686,7 +781,7 @@ function NonRepView({ conn }) {
       {data.status === "ready" && !people.length && <Empty>No non-reported days for you to decide.</Empty>}
       {data.status === "ready" && who && (
         <>
-          <People list={people} sel={who.id} onSel={(id) => (setSel(id), setOpen(null))} />
+          <Body wide={wide} people={people} sel={who.id} onSel={(id) => (setSel(id), setOpen(null))}>
           <Filters
             items={[
               { id: "waiting", label: "Waiting", n: counts.waiting },
@@ -697,24 +792,18 @@ function NonRepView({ conn }) {
             onSel={setFlt}
           />
           {msg && <p className={cn("mx-4 mt-2 rounded-lg px-3 py-2 text-[12.5px]", msg.ok ? "bg-green-50 text-green-800" : "bg-red-50 text-red-800")}>{msg.text}</p>}
-          <div className="flex flex-col gap-2.5 px-3 pt-2">
-            {!shown.length && <Empty>Nothing here.</Empty>}
-            {shown.map((r) => (
-              <div key={r.id} className="flex gap-2">
-                <Rail from={r.date} />
-                <Card
-                  state={r.status}
-                  label={r.status === "waiting" ? null : r.status === "approved" ? "Approved" : "Rejected"}
-                  title={nrSummary(r)}
-                  sub={nrTowns(r).join(" · ")}
-                  open={open === r.id}
-                  onToggle={() => setOpen(open === r.id ? null : r.id)}
-                >
-                  <NrBody r={r} busy={busy?.id === r.id ? busy.what : null} onApprove={() => go(r, "Approve")} onReject={(why) => go(r, "Reject", why)} />
-                </Card>
-              </div>
-            ))}
-          </div>
+          <Split
+            wide={wide}
+            open={open}
+            setOpen={setOpen}
+            items={shown.map((r) => ({
+              id: r.id,
+              from: r.date,
+              card: { state: r.status, label: r.status === "waiting" ? null : r.status === "approved" ? "Approved" : "Rejected", title: nrSummary(r), sub: nrTowns(r).join(" · ") },
+              body: <NrBody r={r} busy={busy?.id === r.id ? busy.what : null} onApprove={() => go(r, "Approve")} onReject={(why) => go(r, "Reject", why)} />,
+            }))}
+          />
+          </Body>
         </>
       )}
     </Page>
@@ -763,6 +852,7 @@ function CarBody({ r, busy, onApprove, onDecline }) {
   );
 }
 function CarsView({ conn }) {
+  const wide = useWide();
   const [data, setData] = useState({ status: "loading" });
   const [sel, setSel] = useState(null);
   const [flt, setFlt] = useState("pending");
@@ -808,7 +898,7 @@ function CarsView({ conn }) {
       {data.status === "ready" && !people.length && <Empty>No car requests.</Empty>}
       {data.status === "ready" && who && (
         <>
-          <People list={people} sel={who.id} onSel={(id) => (setSel(id), setOpen(null))} />
+          <Body wide={wide} people={people} sel={who.id} onSel={(id) => (setSel(id), setOpen(null))}>
           <Filters
             items={[
               { id: "pending", label: "Waiting", n: counts.pending },
@@ -819,25 +909,19 @@ function CarsView({ conn }) {
             onSel={setFlt}
           />
           {msg && <p className={cn("mx-4 mt-2 rounded-lg px-3 py-2 text-[12.5px]", msg.ok ? "bg-green-50 text-green-800" : "bg-red-50 text-red-800")}>{msg.text}</p>}
-          <div className="flex flex-col gap-2.5 px-3 pt-2">
-            {!shown.length && <Empty>Nothing here.</Empty>}
-            {shown.map((r) => (
-              <div key={r.id} className="flex gap-2">
-                <Rail from={r.from} to={r.to} />
-                <Card
-                  state={r.status === "pending" ? "waiting" : r.status}
-                  label={r.status === "pending" ? null : r.status === "approved" ? "Approved" : "Declined"}
-                  title={r.places || "Own car"}
-                  sub={`${daysBetween(r.from, r.to) + 1} days`}
-                  amount={r.status === "approved" ? r.approvedAmount : r.asked}
-                  open={open === r.id}
-                  onToggle={() => setOpen(open === r.id ? null : r.id)}
-                >
-                  <CarBody r={r} busy={busy?.id === r.id ? busy.what : null} onApprove={(a) => go(r, "Approve", a)} onDecline={(why) => go(r, "Reject", "", why)} />
-                </Card>
-              </div>
-            ))}
-          </div>
+          <Split
+            wide={wide}
+            open={open}
+            setOpen={setOpen}
+            items={shown.map((r) => ({
+              id: r.id,
+              from: r.from,
+              to: r.to,
+              card: { state: r.status === "pending" ? "waiting" : r.status, label: r.status === "pending" ? null : r.status === "approved" ? "Approved" : "Declined", title: r.places || "Own car", sub: `${daysBetween(r.from, r.to) + 1} days`, amount: r.status === "approved" ? r.approvedAmount : r.asked },
+              body: <CarBody r={r} busy={busy?.id === r.id ? busy.what : null} onApprove={(a) => go(r, "Approve", a)} onDecline={(why) => go(r, "Reject", "", why)} />,
+            }))}
+          />
+          </Body>
         </>
       )}
     </Page>
