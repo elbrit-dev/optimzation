@@ -85,38 +85,14 @@ function useWide() {
   return wide;
 }
 
-/* people + the page body: a sidebar on a PC, a strip of avatars on a phone */
+/* people + the page body: the strip of avatars on top (the app shell already has its own left menu) */
+// eslint-disable-next-line no-unused-vars
 function Body({ wide, people, sel, onSel, children }) {
-  if (!wide)
-    return (
-      <>
-        <People list={people} sel={sel} onSel={onSel} />
-        {children}
-      </>
-    );
   return (
-    <div className="flex min-h-0 flex-1">
-      <aside className="w-60 flex-none overflow-y-auto border-r border-gray-200 bg-white py-2">
-        {people.map((p) => (
-          <button
-            key={p.id}
-            type="button"
-            onClick={() => onSel(p.id)}
-            className={cn("flex w-full items-center gap-2.5 px-3 py-2 text-left hover:bg-gray-50", sel === p.id && "bg-blue-50 hover:bg-blue-50")}
-          >
-            <span className="grid h-8 w-8 flex-none place-items-center rounded-full text-[11px] font-extrabold text-white" style={{ background: colorOf(p.name) }}>
-              {initials(p.name)}
-            </span>
-            <span className="min-w-0 flex-1">
-              <b className={cn("block truncate text-[13px] font-bold", sel === p.id ? "text-blue-700" : "text-gray-800")}>{p.name}</b>
-              {p.sub && <small className={cn("text-[11px] font-semibold", p.subOk ? "text-green-600" : "text-gray-400")}>{p.sub}</small>}
-            </span>
-            {p.badge > 0 && <span className="grid h-5 min-w-5 place-items-center rounded-full bg-blue-600 px-1.5 text-[10.5px] font-extrabold text-white">{p.badge}</span>}
-          </button>
-        ))}
-      </aside>
-      <main className="min-w-0 flex-1 pb-6">{children}</main>
-    </div>
+    <>
+      <People list={people} sel={sel} onSel={onSel} />
+      {children}
+    </>
   );
 }
 
@@ -173,7 +149,7 @@ function Split({ wide, items, open, setOpen }) {
 
 function Page({ title, month, onMonth, children }) {
   return (
-    <div className="mx-auto flex min-h-full w-full max-w-[560px] flex-col lg:max-w-[1360px] bg-[#f6f7f9] pb-6 font-[Inter,system-ui,sans-serif] text-gray-900">
+    <div className="mx-auto flex min-h-full w-full max-w-[560px] flex-col lg:max-w-none bg-[#f6f7f9] pb-6 font-[Inter,system-ui,sans-serif] text-gray-900">
       <div className="flex items-center gap-2 bg-white px-4 pb-2 pt-4">
         <h1 className="text-[22px] font-extrabold tracking-tight">{title}</h1>
         {month && (
