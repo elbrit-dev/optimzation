@@ -396,14 +396,23 @@ function tripsOfRep(rep) {
       // bills: on the sent lines, and every upload of the rep falling in the trip (sent or not)
       const bills = [];
       const seen = new Set();
+      // one bill counts once (27 Nov 2026): the same bill can sit on the claim and in the register
+      // under another file (uploaded twice) -- matched by its type, date and amount too
+      const key = (kind, date, amt) => `${kind}|${String(date || "").slice(0, 10)}|${Math.round(Number(amt) || 0)}`;
       for (const l of t.lines)
         if (l.custom_bill && !seen.has(l.custom_bill)) {
+          const k = key(l.expense_type, l.custom_bill_date || l.expense_date, l.custom_bill_amount || l.amount);
+          if (seen.has(k)) continue;
           seen.add(l.custom_bill);
+          seen.add(k);
           bills.push({ url: l.custom_bill, kind: l.expense_type, amount: Number(l.custom_bill_amount) || Number(l.amount) || 0, vendor: l.custom_bill_vendor || "" });
         }
       for (const b of rep.bills || []) {
         const ds = (b.nights || []).length ? b.nights : [b.date];
         if (!b.url || seen.has(b.url) || !ds.some((x) => x >= addDays(t.from, -1) && x <= t.to)) continue;
+        const k = key(b.kind, b.date, b.amount);
+        if (seen.has(k)) continue;
+        seen.add(k);
         seen.add(b.url);
         bills.push({ url: b.url, kind: b.kind, amount: Number(b.amount) || 0, vendor: b.vendor || "", manual: b.manual, flag: b.flag });
       }
