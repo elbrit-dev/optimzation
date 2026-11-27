@@ -24,8 +24,9 @@ import { mapDist, mapIsPoint, mapMeters, mapStart, mapUrl } from '../data/shape'
  * was?: the saved point, was_place?: the Google place at the saved point }.
  * It is approved like every other answer, by the campaign's approval (survey_approval).
  *
- * 26 Nov 2026 · SEPARATED (q.multi): more than one hospital / pharmacy can be chosen — the answer is a list of
- * those points; a tap on a chosen one (or its ✕) takes it off. No ABM review for these.
+ * 27 Nov 2026 · MORE THAN ONE PLACE (q.multi): one map, as a one-place question. The first tap chooses a place; then a
+ * small "+ Add another …" button under the map lets the rep add one more, as many times as needed. Every chosen place
+ * shows above the map with its ✕. The answer is the list of those points, the first one first.
  * The map with a saved point starts zoomed out enough to show the whole 400 m circle. */
 
 let mapsPromise = null;
@@ -71,8 +72,9 @@ const fitZoom = (pt, far, el) => {
 export function MapLocation({ q, value, onChange, disabled, api, response }) {
   const start = mapStart(q);
   const startKey = start ? `${start.lat},${start.lng}` : '';
-  /* 26 Nov 2026 · Separated: a list of chosen places */
+  /* 27 Nov 2026 · more than one place: a list of chosen places, added one at a time ("+ Add another") */
   const multi = Boolean(q.multi);
+  const [adding, setAdding] = useState(false);
   const picks = multi ? (Array.isArray(value) ? value : mapIsPoint(value) ? [value] : []).filter((p) => mapIsPoint(p) && p.place_id) : [];
   const cur = !multi && mapIsPoint(value) && value.place_id ? value : null;
   const chosen = multi ? picks : cur ? [cur] : [];
@@ -108,7 +110,9 @@ export function MapLocation({ q, value, onChange, disabled, api, response }) {
   const ph = q.places === 'pharmacy';
   const n1 = ph ? 'pharmacies' : 'hospitals and clinics';
   const n0 = ph ? 'pharmacy' : 'hospital or clinic';
-  live.current = { start, cur, chosen, multi, near, res, term, disabled, onChange, ph, n0, n1 };
+  /* a tap chooses a place: always on a one-place question; with more than one place, while none is chosen or after "+ Add another" */
+  const picking = !multi || !picks.length || adding;
+  live.current = { start, cur, chosen, multi, picking, near, res, term, disabled, onChange, ph, n0, n1 };
 
   const all = useCallback(() => {
     const seen = {};
@@ -139,9 +143,17 @@ export function MapLocation({ q, value, onChange, disabled, api, response }) {
       }
       setWhich(null);
       if (L.multi) {
-        /* Separated: a chosen one is taken off; another is added */
-        const has = L.chosen.some((x) => x.place_id === v.place_id);
-        L.onChange(has ? (L.chosen.length > 1 ? L.chosen.filter((x) => x.place_id !== v.place_id) : null) : [...L.chosen, v]);
+        /* more than one place: a tap adds one while choosing; a chosen one is taken off with its ✕ */
+        if (L.chosen.some((x) => x.place_id === v.place_id)) {
+          flash('Already chosen.');
+          return;
+        }
+        if (!L.picking) {
+          flash(`Tap “Add another ${L.n0}” under the map to add one more.`);
+          return;
+        }
+        L.onChange([...L.chosen, v]);
+        setAdding(false);
         return;
       }
       L.onChange(v);
@@ -587,7 +599,7 @@ export function MapLocation({ q, value, onChange, disabled, api, response }) {
               {[p.kind, d != null ? `${mapDist(d)}${start ? ' from the saved location' : ' away'}` : '', p.address].filter(Boolean).join(' · ')}
             </span>
           </span>
-          <Icon name={on ? 'check-circle' : multi ? 'plus-circle' : 'angle-right'} size="sm" className={cx('shrink-0', on ? 'text-success' : 'text-ds-muted')} />
+          <Icon name={on ? 'check-circle' : multi && picks.length && adding ? 'plus-circle' : 'angle-right'} size="sm" className={cx('shrink-0', on ? 'text-success' : 'text-ds-muted')} />
         </button>
       </li>
     );
@@ -616,16 +628,9 @@ export function MapLocation({ q, value, onChange, disabled, api, response }) {
 
   return (
     <div className="flex flex-col gap-2.5">
-      {multi ? (
-        <div className="flex flex-col gap-1.5 rounded-lg border border-line bg-surface px-3 py-2.5">
-          <span className="text-13 font-semibold text-heading">
-            {picks.length ? `${picks.length} ${picks.length === 1 ? n0 : n1} chosen` : `Choose the ${n1}`}
-          </span>
-          <span className="text-12 text-ds-muted">
-            {start ? `The map starts at the doctor’s saved location. Tap every ${n0} to add it; tap a chosen one again to take it off.` : `Search or tap Near me, then tap every ${n0} to add it.`}
-          </span>
-          {picks.length ? (
-            <ul className="flex flex-col gap-1.5 pt-1" aria-label={`Chosen ${n1}`}>
+      {multi && picks.length ? (
+        <div className="flex flex-col gap-1.5">
+          <ul className="flex flex-col gap-1.5" aria-label={`Chosen ${n1}`}>
               {picks.map((p) => (
                 <li key={p.place_id} className="flex items-start gap-2 rounded-md border border-success bg-success-wash px-2.5 py-2">
                   <Icon name="check-circle" size="sm" className="mt-0.5 shrink-0 text-success" />
@@ -642,7 +647,15 @@ export function MapLocation({ q, value, onChange, disabled, api, response }) {
                   )}
                 </li>
               ))}
-            </ul>
+          </ul>
+          {adding && !disabled ? (
+            <div className="flex items-center gap-2 rounded-lg border border-brand bg-brand-tint-weak px-3 py-2">
+              <Icon name="plus-circle" size="sm" className="shrink-0 text-brand-text" />
+              <span className="min-w-0 flex-1 text-12 font-semibold text-heading">Tap one more {n0} on the map or in the list.</span>
+              <button type="button" onClick={() => setAdding(false)} className="flex h-9 shrink-0 items-center rounded-md px-2 text-12 font-semibold text-brand-text hover:bg-surface">
+                Cancel
+              </button>
+            </div>
           ) : null}
         </div>
       ) : cur ? (
@@ -672,7 +685,7 @@ export function MapLocation({ q, value, onChange, disabled, api, response }) {
         <div className={cx('flex items-start gap-2.5 rounded-lg border px-3 py-2.5', start ? 'border-line bg-surface' : 'border-line bg-sunken')}>
           <Icon name={start ? 'map-marker' : 'info-circle'} size="sm" className={cx('mt-0.5 shrink-0', start ? 'text-brand-text' : 'text-ds-muted')} />
           <div className="flex min-w-0 flex-col gap-0.5">
-            <span className="text-13 font-semibold text-heading">{start ? `Choose the doctor’s ${n0}` : 'No location saved for this doctor'}</span>
+            <span className="text-13 font-semibold text-heading">{start ? `Choose the doctor’s ${n0}${multi ? ' (the main one first)' : ''}` : 'No location saved for this doctor'}</span>
             <span className="text-12 text-ds-muted">
               {start
                 ? `The map starts at the doctor’s saved location. Move or zoom it, then tap the ${n0} to choose it.`
@@ -781,6 +794,16 @@ export function MapLocation({ q, value, onChange, disabled, api, response }) {
         ) : null}
       </div>
       </div>
+      {multi && picks.length && !adding && !disabled ? (
+        <button
+          type="button"
+          onClick={() => setAdding(true)}
+          className="flex h-10 items-center gap-1.5 self-start rounded-lg border border-dashed border-brand px-3 text-13 font-semibold text-brand-text hover:bg-brand-tint-weak"
+        >
+          <Icon name="plus" size="sm" />
+          Add another {n0}
+        </button>
+      ) : null}
       {err ? (
         <p role="alert" className="flex items-center gap-1.5 text-12 font-medium text-danger-text">
           <Icon name="exclamation-circle" size="sm" />
