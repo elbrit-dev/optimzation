@@ -27,7 +27,13 @@ export const QUESTION_TYPES = [
   'days',
   'login',
   'timings',
+  'repeat',
 ];
+
+/* 27 Nov 2026 · Repeated group (type 'repeat'): a few questions (q.fields) answered again for every entry. The answer
+   is a list of entries, each { <field id>: value }; an entry with nothing filled is left out. */
+export const repeatNoun = (q) => String(q?.button || '').replace(/^\s*(add|\+)\s+(another|one more|a|an|more)?\s*/i, '').trim() || 'entry';
+export const repeatRows = (v) => (Array.isArray(v) ? v.filter((r) => r && typeof r === 'object' && Object.values(r).some((x) => !isEmpty(x))) : []);
 /* 25 Nov 2026 · Visiting timings — { place_id, place_name, days: { Monday: { state: open | closed | na,
    slots: [[HH:MM, HH:MM]] } }, source }, linked to the Map location question q.of */
 export const TIMING_DAYS = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'];
@@ -191,6 +197,7 @@ export function isAnswered(q, v) {
     const one = (x) => Boolean(x && x.days) && TIMING_DAYS.every((d) => !timingDayError(x, d));
     return Array.isArray(v) ? v.length > 0 && v.every(one) : one(v);
   }
+  if (q?.type === 'repeat') return repeatRows(v).length > 0 && !answerProblem(q, v);
   return true;
 }
 
@@ -205,6 +212,7 @@ export function loginExceptions(v) {
 export function answerProblem(q, v, answers) {
   if (q.type === 'erp_info') return null; /* 26 Nov 2026 · "Show from ERP": read-only, nothing to answer */
   if (q.type === 'timings') return timingsProblem(q, v, answers);
+  if (q.type === 'repeat') return repeatProblem(q, v);
   if (isEmpty(v)) {
     if (!q.required) return null;
     if (q.type === 'file_upload') return 'Please upload a file to continue.';
@@ -232,6 +240,27 @@ export function answerProblem(q, v, answers) {
   return null;
 }
 
+/* 27 Nov 2026 · a Repeated group: enough entries, and every required question in every entry answered */
+function repeatProblem(q, v) {
+  const rows = Array.isArray(v) ? v : [];
+  const filled = repeatRows(rows);
+  const noun = repeatNoun(q);
+  const min = Math.max(q.required ? 1 : 0, Number(q.min) || 0);
+  if (!filled.length) return min ? (min > 1 ? `Add at least ${min} ${noun}s to continue.` : `Add at least one ${noun} to continue.`) : null;
+  if (filled.length < min) return `Add at least ${min} ${noun}s to continue.`;
+  if (q.max && filled.length > q.max) return `You can add up to ${q.max} ${noun}s here.`;
+  let n = 0;
+  for (const r of rows) {
+    if (!filled.includes(r)) continue;
+    n += 1;
+    for (const k of q.fields ?? []) {
+      const p = answerProblem(k, r[k.id]);
+      if (p) return `${noun.charAt(0).toUpperCase()}${noun.slice(1)} ${n} · ${k.label}: ${p}`;
+    }
+  }
+  return null;
+}
+
 /* Every question's problem, keyed by id — empty when the form may be sent. */
 export function formProblems(questions, answers) {
   const out = {};
@@ -251,6 +280,18 @@ export function toPayload(questions, answers) {
     if (isEmpty(v)) continue;
     if (q.type === 'file_upload') out[q.id] = v.map((f) => ({ url: f.url, name: f.name, size: f.size || 0 }));
     else if (q.type === 'number') out[q.id] = Number(v);
+    else if (q.type === 'repeat') {
+      const rows = repeatRows(v).map((r) => {
+        const one = {};
+        for (const k of q.fields ?? []) {
+          const x = r[k.id];
+          if (isEmpty(x)) continue;
+          one[k.id] = k.type === 'file_upload' ? x.map((f) => ({ url: f.url, name: f.name, size: f.size || 0 })) : k.type === 'number' ? Number(x) : x;
+        }
+        return one;
+      });
+      if (rows.length) out[q.id] = rows;
+    }
     else out[q.id] = v;
   }
   return out;
@@ -265,6 +306,13 @@ export function answerText(q, v) {
     return [v.url, v.login, v.password].filter(Boolean).join(' · ') + (v.verified || v.test?.result === 'verified' ? ' · Verified' : v.test ? ' · Not verified' : '') + (ex.length ? ` · ${ex.join(', ')}` : '') + (note ? ` — ${note}` : '');
   }
   if (q.type === 'timings') return timingsText(v);
+  if (q.type === 'repeat') {
+    const rows = repeatRows(v);
+    if (!rows.length) return '—';
+    return rows
+      .map((r, i) => `${i + 1}. ${(q.fields ?? []).map((k) => (isEmpty(r[k.id]) ? '' : answerText(k, r[k.id]))).filter(Boolean).join(' · ')}`)
+      .join('\n');
+  }
   if (q.type === 'file_upload') return v.map((f) => f.name).join(', ');
   if (q.type === 'map_location') return Array.isArray(v) ? v.map(mapText).filter(Boolean).join('\n') : mapText(v); /* 26 Nov 2026: Separated — a list */
   if (q.type === 'rating') return `${v} of ${scaleRange(q).max} stars`;

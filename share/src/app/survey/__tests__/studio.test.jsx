@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { render, screen } from '@testing-library/react';
 import { QuestionCard } from '../components/QuestionCard';
 import { whenText } from '../components/ApprovalQueue';
-import { TIMING_DAYS, answerProblem, formProblems, isAnswered, toPayload } from '../data/shape';
+import { TIMING_DAYS, answerProblem, answerText, formProblems, isAnswered, toPayload } from '../data/shape';
 import { filledQuestions } from '../data/view';
 
 /* 26 Nov 2026 · Survey Studio questions on the phone: "Show from ERP" (read-only fields of the record),
@@ -112,5 +112,39 @@ describe('To approve: when it was sent', () => {
     expect(whenText('2026-11-27 01:57', now)).toBe('Today 01:57');
     expect(whenText('2026-11-26 18:10', now)).toBe('Yesterday');
     expect(whenText('2026-11-24 09:00', now)).toBe('3 days ago');
+  });
+});
+
+/* 27 Nov 2026 · Repeated group: a few questions answered again for every entry */
+describe('Repeated group', () => {
+  const grp = {
+    id: 'g1', type: 'repeat', label: 'Products out of stock', required: 1, button: 'Add another product', min: 1, max: 3,
+    fields: [
+      { id: 'c1', type: 'short_text', label: 'Product name', required: 1 },
+      { id: 'c2', type: 'number', label: 'Quantity short', required: 1 },
+      { id: 'c3', type: 'file_upload', label: 'Photo of the shelf', required: 0, accept: 'image', max_files: 1 },
+    ],
+  };
+
+  it('asks for at least one entry, then every required question in every entry', () => {
+    expect(answerProblem(grp, undefined)).toBe('Add at least one product to continue.');
+    expect(answerProblem(grp, [{ c1: 'Cardio 10 mg', c2: '40' }, { c1: 'Derma Soft' }])).toBe('Product 2 · Quantity short: Please answer this question to continue.');
+    expect(answerProblem(grp, [{ c1: 'Cardio 10 mg', c2: 'forty' }])).toBe('Product 1 · Quantity short: Please enter a number, for example 12 or 4.5.');
+    expect(answerProblem(grp, [{ c1: 'A', c2: '1' }, { c1: 'B', c2: '2' }, { c1: 'C', c2: '3' }, { c1: 'D', c2: '4' }])).toBe('You can add up to 3 products here.');
+    expect(answerProblem(grp, [{ c1: 'Cardio 10 mg', c2: '40' }, {}])).toBeNull();
+    expect(isAnswered(grp, [{ c1: 'Cardio 10 mg', c2: '40' }])).toBe(true);
+    expect(isAnswered(grp, [{ c1: 'Cardio 10 mg' }])).toBe(false);
+  });
+
+  it('sends only the filled entries, numbers as numbers and files as {url, name, size}', () => {
+    const v = [{ c1: 'Cardio 10 mg', c2: '40', c3: [{ url: '/private/files/shelf.jpg', name: 'shelf.jpg', size: 10, ai: { state: 'clear' } }] }, {}];
+    expect(toPayload([grp], { g1: v })).toEqual({ g1: [{ c1: 'Cardio 10 mg', c2: 40, c3: [{ url: '/private/files/shelf.jpg', name: 'shelf.jpg', size: 10 }] }] });
+    expect(answerText(grp, [{ c1: 'Cardio 10 mg', c2: 40 }, { c1: 'Derma Soft', c2: 12 }])).toBe('1. Cardio 10 mg · 40\n2. Derma Soft · 12');
+  });
+
+  it('opens with one empty entry and the Add another button', () => {
+    render(<QuestionCard q={grp} index={1} value={undefined} onChange={() => {}} />);
+    expect(screen.getByText('Product 1')).toBeTruthy();
+    expect(screen.getByText('Add another product')).toBeTruthy();
   });
 });

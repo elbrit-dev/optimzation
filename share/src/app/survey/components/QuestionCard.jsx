@@ -2,7 +2,7 @@
 
 import { useEffect, useRef, useState } from 'react';
 import { Card, Icon, ProgressBar, cx } from '@/design-system';
-import { LOGIN_EXCEPTIONS, TIMING_DAYS, answerText, fileProblem, fileRules, isAnswered, isEmpty, loginExceptions, scaleRange, timingDayError } from '../data/shape';
+import { LOGIN_EXCEPTIONS, TIMING_DAYS, answerProblem, answerText, fileProblem, fileRules, isAnswered, isEmpty, loginExceptions, repeatNoun, scaleRange, timingDayError } from '../data/shape';
 import { MapLocation } from './MapLocation';
 
 /* One question, by its type (SURVEYS_CONTEXT.md §3) — answered, or shown
@@ -25,7 +25,7 @@ const FIELD =
   'rounded-lg bg-surface px-3 py-2 text-13 text-body shadow-field placeholder:text-placeholder focus:outline-none disabled:bg-sunken';
 
 /* 27 Nov 2026 · Survey Studio's own names for the answer types (the artifact's "Q1 · Location") */
-const STUDIO_LABEL = { location: 'Location', text: 'Short', number: 'Number', single: 'Single', multi: 'Multiple', yesno: 'Yes', rating: 'Rating', photo: 'Photo', date: 'Date', file: 'File' };
+const STUDIO_LABEL = { location: 'Location', text: 'Short', number: 'Number', single: 'Single', multi: 'Multiple', yesno: 'Yes', rating: 'Rating', photo: 'Photo', date: 'Date', file: 'File', group: 'Repeated' };
 const TYPE_LABEL = {
   short_text: 'Short answer',
   paragraph: 'Paragraph',
@@ -42,6 +42,7 @@ const TYPE_LABEL = {
   days: 'Days',
   login: 'Login',
   timings: 'Visiting timings',
+  repeat: 'Repeated',
 };
 
 /* 25 Nov 2026 · Days: Monday … Sunday, pick any */
@@ -817,6 +818,8 @@ function Input({ q, value, onChange, disabled, onUpload, api, response, answers,
       return <Stars q={q} value={value} onChange={onChange} disabled={disabled} />;
     case 'file_upload':
       return <FileUpload q={q} value={value} onChange={onChange} disabled={disabled} onUpload={onUpload} />;
+    case 'repeat':
+      return <RepeatInput q={q} value={value} onChange={onChange} disabled={disabled} onUpload={onUpload} api={api} response={response} showErrors={showErrors} />;
     default:
       /* 25 Nov 2026 · a password is typed hidden (the ERP saves it encrypted to the record, never in the answers);
          a website gets the web keyboard (the ERP checks it opens when the survey is sent) */
@@ -841,6 +844,66 @@ function Input({ q, value, onChange, disabled, onUpload, api, response, answers,
       }
       return <input aria-label={q.label} type="text" value={value ?? ''} disabled={disabled} placeholder="Your answer…" onChange={(e) => onChange(e.target.value)} className={cx(FIELD, 'h-10 w-full')} />;
   }
+}
+
+/* 27 Nov 2026 · Repeated group: one small card per entry, each asking the group's questions (q.fields) with the
+   usual controls; "+ <button text>" under the last one adds an empty entry, ✕ takes one off. It opens with one
+   empty entry so the rep just starts filling. */
+function RepeatInput({ q, value, onChange, disabled, onUpload, api, response, showErrors = false }) {
+  const rows = Array.isArray(value) && value.length ? value : [{}];
+  const noun = repeatNoun(q);
+  const Noun = noun.charAt(0).toUpperCase() + noun.slice(1);
+  const max = Number(q.max) || 50;
+  const kids = q.fields ?? [];
+  const setOne = (i, id, v) => onChange(rows.map((r, j) => (j === i ? { ...r, [id]: v } : r)));
+  const drop = (i) => {
+    const next = rows.filter((_, j) => j !== i);
+    onChange(next.length ? next : null);
+  };
+  return (
+    <div className="flex flex-col gap-2.5">
+      {rows.map((r, i) => (
+        <div key={i} className="flex flex-col gap-2.5 rounded-[10px] border border-line bg-sunken p-3" role="group" aria-label={`${Noun} ${i + 1}`}>
+          <div className="flex items-center justify-between gap-2">
+            <span className="text-13 font-semibold text-heading">
+              {Noun} {i + 1}
+            </span>
+            {disabled || (rows.length < 2 && !Object.values(r).some((x) => !isEmpty(x))) ? null : (
+              <button type="button" aria-label={`Remove ${noun} ${i + 1}`} onClick={() => drop(i)} className="-m-1.5 flex size-10 items-center justify-center rounded-md text-ds-muted hover:bg-surface">
+                <Icon name="times" size="sm" />
+              </button>
+            )}
+          </div>
+          {kids.map((k) => {
+            const p = showErrors ? answerProblem(k, r[k.id]) : null;
+            return (
+              <div key={k.id} className="flex flex-col gap-1.5">
+                <span className="text-13 font-medium text-heading">
+                  {k.label}
+                  {k.required ? <span className="text-danger-text"> *</span> : null}
+                </span>
+                <Input q={k} value={r[k.id]} onChange={(v) => setOne(i, k.id, v)} disabled={disabled} onUpload={onUpload} api={api} response={response} />
+                {p ? <span className="text-11 font-medium text-danger-text">{p}</span> : null}
+              </div>
+            );
+          })}
+        </div>
+      ))}
+      {disabled || rows.length >= max ? null : (
+        <button
+          type="button"
+          onClick={() => onChange([...rows, {}])}
+          className="flex h-10 items-center gap-1.5 self-start rounded-lg border border-dashed border-brand px-3 text-13 font-semibold text-brand-text hover:bg-brand-tint-weak"
+        >
+          <Icon name="plus" size="sm" />
+          {q.button || 'Add another'}
+        </button>
+      )}
+      <span className="text-11 text-ds-muted">
+        {rows.length} {rows.length === 1 ? noun : `${noun}s`} · {Number(q.min) ? `at least ${q.min}, ` : ''}at most {max}
+      </span>
+    </div>
+  );
 }
 
 /* 26 Nov 2026 · Survey Studio "Show from ERP": saved data of the record to read and check against — nothing to answer */

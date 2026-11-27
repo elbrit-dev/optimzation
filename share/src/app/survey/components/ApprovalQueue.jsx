@@ -76,7 +76,7 @@ const fillLabel = (t, sub) => String(t || '').replace(/\{#\s*(\w+)\s*\}/g, (m, k
 function Item({ it, busy, onDecide }) {
   const [open, setOpen] = useState(false);
   const [ret, setRet] = useState(null); // the reason being typed, or null
-  const ans = (it.answers || []).map((a) => [fillLabel(a.label, it.subject), answerText({ type: a.type, label: a.label }, a.answer)]);
+  const ans = (it.answers || []).map((a) => [fillLabel(a.label, it.subject), answerText({ type: a.type, label: a.label, fields: a.fields }, a.answer)]);
   const shown = open ? ans : ans.slice(0, 1);
   const clerk = it.ai?.state === 'clerk';
   return (
