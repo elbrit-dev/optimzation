@@ -147,9 +147,33 @@ function Split({ wide, items, open, setOpen }) {
   );
 }
 
+/* the three approval pages, one tap apart (27 Nov 2026): the home tile opens TA/DA */
+const VIEWS = [
+  ["tada", "TA/DA"],
+  ["nonrep", "Non-reported days"],
+  ["cars", "Car requests"],
+];
+function Switch() {
+  const cur = viewOfUrl();
+  return (
+    <nav className="flex gap-1 overflow-x-auto bg-white px-4 pt-3">
+      {VIEWS.map(([v, label]) => (
+        <a
+          key={v}
+          href={`?view=${v}`}
+          className={cn("flex-none rounded-lg px-3 py-1.5 text-[12.5px] font-bold", cur === v ? "bg-blue-50 text-blue-700" : "text-gray-500 hover:bg-gray-50")}
+        >
+          {label}
+        </a>
+      ))}
+    </nav>
+  );
+}
+
 function Page({ title, month, onMonth, children }) {
   return (
     <div className="mx-auto flex min-h-full w-full max-w-[560px] flex-col lg:max-w-none bg-[#f6f7f9] pb-6 font-[Inter,system-ui,sans-serif] text-gray-900">
+      <Switch />
       <div className="flex items-center gap-2 bg-white px-4 pb-2 pt-4">
         <h1 className="text-[22px] font-extrabold tracking-tight">{title}</h1>
         {month && (
