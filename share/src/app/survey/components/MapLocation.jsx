@@ -682,7 +682,7 @@ export function MapLocation({ q, value, onChange, disabled, api, response }) {
         </p>
       )}
 
-      <div className="relative h-[300px] overflow-hidden rounded-lg border border-line bg-sunken max-sm:h-[280px]">
+      <div className="relative h-[300px] overflow-hidden rounded-lg border border-line bg-sunken max-sm:h-[230px]">
         <div ref={boxRef} className="size-full" role="region" aria-label={`Map of ${n1} — tap one to choose it`} />
         {disabled ? null : (
           <div className="absolute inset-x-2 top-2 flex gap-2">
@@ -751,7 +751,7 @@ export function MapLocation({ q, value, onChange, disabled, api, response }) {
 
       {chips.length ? (
         <div className="flex flex-col gap-1">
-          <span className="text-11 font-medium text-ds-muted">{recHead}</span>
+          <span className="text-11 font-medium text-ds-muted">Nearby · {near.places.length}</span>
           <ul role="listbox" aria-label={`Nearby ${n1}`} className="-mx-1 flex gap-1.5 overflow-x-auto px-1 pb-1 [scrollbar-width:none]">
             {chips.map((x) => {
               const on = isOn(x.id);

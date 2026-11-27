@@ -911,10 +911,13 @@ function RepeatInput({ q, value: raw, onChange, disabled, onUpload, api, respons
             const p = showErrors ? answerProblem(k, r[k.id]) : null;
             return (
               <div key={k.id} className="flex flex-col gap-1.5">
-                <span className="text-13 font-medium text-heading">
-                  {k.label}
-                  {k.required ? <span className="text-danger-text"> *</span> : null}
-                </span>
+                {/* one question in the group: the entry title already names it ("Hospital or clinic 1") */}
+                {kids.length > 1 ? (
+                  <span className="text-13 font-medium text-heading">
+                    {k.label}
+                    {k.required ? <span className="text-danger-text"> *</span> : null}
+                  </span>
+                ) : null}
                 <Input q={kidQ(k)} value={r[k.id]} onChange={(v) => setOne(i, k.id, v)} disabled={disabled} onUpload={onUpload} api={api} response={response} />
                 {k.type === 'file_upload' && k.ai?.schema && aiReads(k) && !disabled ? (
                   <span className="flex items-start gap-1.5 text-11 text-ds-muted">
