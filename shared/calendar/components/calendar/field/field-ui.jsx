@@ -43,6 +43,7 @@ import {
   SendHorizontal,
   ShieldCheck,
   TrainFront,
+  UtensilsCrossed,
   Undo2,
   X,
   Zap,
@@ -482,6 +483,7 @@ function LocalDaysSheet() {
                         last={i === trip.days.length - 1}
                         multi={trip.days.length > 1}
                         night={calc.nights.find((n) => n.date === dd.date)}
+                        daShare={daShares(calc)[dd.date] || null}
                         carShare={null}
                         bills={null}
                         stayOff={false}
@@ -1818,6 +1820,7 @@ function TripSheet({ item }) {
         : // not "by road": journeys and local runs per km up to 100 km, the rail fare above (each day's line says which)
           `${trip.km > 0 ? `fare · ${trip.km} km` : "no journey"}${trip.flownFare > 0 ? ` · company travel ${inr(trip.flownFare)} off` : ""}`;
   const nN = calc.nights.length;
+  const shares = daShares(calc);
   const daBasis = calc.pool?.on
     ? `${nN} outstation day${nN > 1 ? "s" : ""} · stay + food bills`
     : nN
@@ -1943,6 +1946,7 @@ function TripSheet({ item }) {
             stayOff={!!calc.stayOff?.[d.date]}
             billStrip={billView.strip(d.date)}
             ticket={calc.travelDays?.[d.date] || null}
+            daShare={shares[d.date] || null}
           />
         ))}
       </ol>
@@ -1971,6 +1975,7 @@ function TripSheet({ item }) {
               : calc.pool.on
                 ? [
                     `Stay + food bills ${inr(calc.pool.bills)}`,
+                    calc.pool.topUp ? `raised to half the trip's DA (${inr(calc.pool.half)})` : null,
                     calc.pool.capped ? `${inr(calc.pool.capped)} over the trip's limit` : null,
                     calc.pool.unpaid ? `${inr(calc.pool.unpaid)} on a day off, not paid` : null,
                   ]
@@ -1981,33 +1986,6 @@ function TripSheet({ item }) {
         </div>
       )}
 
-      {/* bills only for a night spent away: back at HQ the same day, no stay
-          or food bill is asked for (one already added still shows) */}
-      {/* only once there are bills: with none, the upload button at the
-          bottom and each day's DA line already say it (13 Nov 2026) */}
-      {calc.billsAllowed && calc.stayBills + calc.foodBills > 0 && (
-        <div>
-          <span className={sectionLabel}>DA bills · stay &amp; food</span>
-          {/* 27 Nov 2026 (the user): the bills as pictures; a tap opens the bill, Remove is there */}
-          <BillTiles claim={claim} kinds={["stays", "foods"]} editable={editable} onRemove={(kind, id) => run(`rm-${id}`, () => f.actions.removeBill(trip.id, kind, id), "Bill removed")} />
-          {/* the night before the trip's first day, on a hotel bill (23 Nov 2026) */}
-          {calc.eveNight && (
-            <p className="mt-2 flex items-start gap-1.5 text-[12.5px] leading-snug text-gray-700">
-              <Info className="mt-0.5 h-4 w-4 shrink-0" aria-hidden />
-              {`Arrival night ${dayLabel(calc.eveNight.date)} (travelled the day before): stay ${inr(calc.eveNight.paid)}${
-                calc.eveNight.capped ? ` — kept to the trip's full DA ${inr(calc.eveNight.full)}` : ""
-              }.`}
-            </p>
-          )}
-          {/* the day-off amount is in the Outstation DA block; only a night with no stay bill is said here */}
-          {calc.nights.length > 0 && calc.pool?.on && nextNight && calc.stayBills > 0 && (
-            <p className="mt-2 flex items-start gap-1.5 text-[12.5px] leading-snug text-gray-500">
-              <Info className="mt-0.5 h-4 w-4 shrink-0" aria-hidden />
-              {`No stay bill · ${dayLabel(nextNight.date)}`}
-            </p>
-          )}
-        </div>
-      )}
 
       {/* train / bus tickets (23 Nov 2026): each day, the larger of its journey fare and its tickets */}
       {calc.travelBills > 0 && (
@@ -2165,12 +2143,53 @@ function TripSheet({ item }) {
         </div>
       )}
 
+      {/* the DA bills sit with the trip cost, at the bottom (27 Nov 2026, the owner) */}
+      {/* bills only for a night spent away: back at HQ the same day, no stay
+          or food bill is asked for (one already added still shows) */}
+      {/* only once there are bills: with none, the upload button at the
+          bottom and each day's DA line already say it (13 Nov 2026) */}
+      {calc.billsAllowed && calc.stayBills + calc.foodBills > 0 && (
+        <div>
+          <span className={sectionLabel}>DA bills · stay &amp; food</span>
+          {/* 27 Nov 2026 (the user): the bills as pictures; a tap opens the bill, Remove is there */}
+          <BillTiles claim={claim} kinds={["stays", "foods"]} editable={editable} onRemove={(kind, id) => run(`rm-${id}`, () => f.actions.removeBill(trip.id, kind, id), "Bill removed")} />
+          {/* the night before the trip's first day, on a hotel bill (23 Nov 2026) */}
+          {calc.eveNight && (
+            <p className="mt-2 flex items-start gap-1.5 text-[12.5px] leading-snug text-gray-700">
+              <Info className="mt-0.5 h-4 w-4 shrink-0" aria-hidden />
+              {`Arrival night ${dayLabel(calc.eveNight.date)} (travelled the day before): stay ${inr(calc.eveNight.paid)}${
+                calc.eveNight.capped ? ` — kept to the trip's full DA ${inr(calc.eveNight.full)}` : ""
+              }.`}
+            </p>
+          )}
+        </div>
+      )}
+
       {/* total + the one action, pinned to the bottom; Submit asks first */}
       <div className="sticky bottom-0 z-10 -mx-4 mt-auto flex flex-col gap-3 border-t bg-white px-4 pt-3 pb-[max(12px,env(safe-area-inset-bottom))]">
         {/* ONE upload, always in reach (16 Nov 2026): the bill itself says what
             it is. Stay and food bills on a trip with outstation days; fuel
             once the GM approved the car (asked for on the month summary) --
             with both, the one button takes all three. Tolls are not paid. */}
+        {/* the bills on the trip by kind, as pills above the upload (27 Nov 2026) */}
+        {editable && !confirming && (stayFood || fuelOn || travelOn) && (() => {
+          const kinds = [
+            ["stays", "Stay", BedDouble],
+            ["foods", "Food", UtensilsCrossed],
+            ["travels", "Travel", TrainFront],
+            ["fuels", "Fuel", Fuel],
+          ].filter(([k]) => (claim[k] || []).length);
+          return kinds.length ? (
+            <span className="-mb-1 flex flex-wrap gap-1.5">
+              {kinds.map(([k, label, Icon]) => (
+                <span key={k} className="inline-flex items-center gap-1 rounded-full border border-gray-200 bg-white px-2 py-0.5 text-[11.5px] font-bold text-gray-700">
+                  <Icon className="h-3 w-3 text-gray-500" aria-hidden />
+                  {label} {(claim[k] || []).length} · {inr((claim[k] || []).reduce((a2, b) => a2 + (Number(b.billed ?? b.amount) || 0), 0))}
+                </span>
+              ))}
+            </span>
+          ) : null;
+        })()}
         {editable && !confirming && (stayFood || fuelOn || travelOn) && (
           <button
             type="button"
@@ -2288,7 +2307,24 @@ function MoneyRow({ label, amount, note, children }) {
   );
 }
 
-function TripDay({ row, data, car, last, multi, night, bills, stayOff, billStrip, carShare, ticket = null }) {
+/* each outstation night's share of the trip's DA (27 Nov 2026, the owner): the pooled DA split
+   in proportion to each night's own allowance -- shown per day only, the claim keeps the pool.
+   -> { [date]: { share, i, n } } */
+export function daShares(calc) {
+  const ns = (calc.nights || []).filter((n) => !n.eve);
+  const base = ns.reduce((a, n) => a + (n.amount || 0), 0);
+  const total = calc.pool?.on ? calc.pool.paid - ((calc.nights || []).find((n) => n.eve)?.paid || 0) : base;
+  const out = {};
+  let given = 0;
+  ns.forEach((n, i) => {
+    const share = i === ns.length - 1 ? Math.round(total - given) : base ? Math.round((total * (n.amount || 0)) / base) : 0;
+    given += share;
+    out[n.date] = { share, i: i + 1, n: ns.length };
+  });
+  return out;
+}
+
+function TripDay({ row, data, car, last, multi, night, bills, stayOff, billStrip, carShare, ticket = null, daShare = null }) {
   // a train / bus ticket paid over the day's fare (26 Nov 2026): the day's TA
   // line shows the fare struck out and what is paid now
   const tick = !car && ticket?.paid && ticket.extra > 0 ? ticket : null;
@@ -2426,6 +2462,12 @@ function TripDay({ row, data, car, last, multi, night, bills, stayOff, billStrip
               </MoneyRow>
             )}
             {/* 27 Nov 2026 (the user): an outstation night's DA is shown for the whole trip (below), not per day */}
+            {/* an outstation night: its share of the trip's pooled DA (27 Nov 2026) */}
+            {night && daShare && !night.eve && (
+              <MoneyRow label="DA" amount={daShare.share}>
+                OS day {daShare.i}/{daShare.n} · share of the trip&rsquo;s DA
+              </MoneyRow>
+            )}
             {row.da > 0 && !night && (
               <MoneyRow label="DA" amount={night && bills ? night.paid : row.da}>
                 {night

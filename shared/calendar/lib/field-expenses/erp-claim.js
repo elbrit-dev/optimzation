@@ -76,7 +76,10 @@ export function tripClaimRows(trip, claim, calc, data) {
   const rows = [];
   // outstation days whose DA their own stay + food bills pay instead
   const billedNights = calc.pool?.on ? calc.nights.filter((n) => n.billSum > 0) : [];
-  const pooled = new Set(billedNights.map((n) => n.date));
+  // pooled (27 Nov 2026): with a bill on the trip every night's DA is in the pool -- a night with
+  // no bill writes no DA row of its own; the trip's top-up to half is one row below
+  const anyBilled = billedNights.length > 0;
+  const pooled = new Set(anyBilled ? calc.nights.map((n) => n.date) : []);
   for (const d of trip.days) {
     if (!d.payable) continue;
     // the day's tickets over its journey fare: they are the journey's TA
@@ -141,16 +144,18 @@ export function tripClaimRows(trip, claim, calc, data) {
     for (const b of (claim.foods || []).filter((x) => x.date === n.date)) {
       lines.push({ b, type: "Food", note: `Food · ${b.vendor || "bill"} · ${dayLabel(n.date)}` });
     }
-    rows.push(...billRows(lines, n.paid - n.topUp, `capped: the trip's stay + food over its full DA ₹${calc.pool?.full ?? n.full}`));
-    if (n.topUp > 0) {
-      rows.push({
-        date: n.date,
-        type: "Daily Allowance",
-        sub: "",
-        note: `DA top-up · ${dayLabel(n.date)} · stay + food bills ₹${n.billSum} raised to 50 % of the day's DA (₹${n.amount})`,
-        amount: n.topUp,
-      });
-    }
+    rows.push(...billRows(lines, n.paid, `capped: the trip's stay + food over its full DA ₹${calc.pool?.full ?? n.full}`));
+  }
+  // the trip's bills under half its DA: one top-up for the trip (27 Nov 2026)
+  if (anyBilled && calc.pool.topUp > 0) {
+    const at = calc.nights[0].date;
+    rows.push({
+      date: at,
+      type: "Daily Allowance",
+      sub: "",
+      note: `DA top-up · ${dayLabel(at)} · the trip's stay + food bills ₹${Math.round(calc.pool.bills)} raised to half its DA (₹${Math.round(calc.pool.half)})`,
+      amount: calc.pool.topUp,
+    });
   }
 
   // own car, with bills: paid as billed up to the approved amount

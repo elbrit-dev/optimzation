@@ -6,8 +6,8 @@
    the trip). The bill files are private ERP files, read through the app's own
    file route with the rep's token -- the same viewer as the approvals page. */
 
-import { useMemo, useState } from "react";
-import { AlertTriangle, BedDouble, Fuel, Loader2, Maximize2, Route, TrainFront, Trash2, UtensilsCrossed, X } from "lucide-react";
+import { useEffect, useMemo, useState } from "react";
+import { AlertTriangle, BedDouble, ChevronLeft, ChevronRight, Fuel, Loader2, Maximize2, Route, TrainFront, Trash2, UtensilsCrossed, X } from "lucide-react";
 import { cn } from "@calendar/lib/utils";
 import { AUTH_CONFIG } from "@calendar/components/auth/calendar-users";
 import { makeConn } from "../../../../../components/features/expense-claims/data/claimsApi";
@@ -165,12 +165,15 @@ function BillTile({ conn, kind, bill: b, onOpen }) {
 }
 
 /* The bill opened: its picture, what was read, and Remove. */
-function BillOpen({ conn, kind, bill: b, editable, busy, onRemove, onFull, onClose }) {
+function BillOpen({ conn, kind, bill: b, editable, busy, onRemove, onFull, onClose, pos = null, onPrev = null, onNext = null }) {
+  // swipe left / right for the next / previous bill (27 Nov 2026)
+  const [x0, setX0] = useState(null);
   // one file object per bill: a new one each render makes useFileUrl load again and loop (froze the sheet)
   const file = useMemo(() => (b.url ? billFile(b.url) : null), [b.url]);
   const img = file?.kind === "image";
   const { status, url } = useFileUrl(img ? conn : null, img ? file : null);
   const [sure, setSure] = useState(false);
+  useEffect(() => setSure(false), [b]);
   const billed = Number(b.billed ?? b.amount) || 0;
   const counts = kind === "stays" && Number(b.amount) && Number(b.amount) !== billed ? Number(b.amount) : null;
   return (
@@ -182,13 +185,24 @@ function BillOpen({ conn, kind, bill: b, editable, busy, onRemove, onFull, onClo
             <b className="block text-[16px] font-extrabold text-gray-900">
               {TILE_NAME[kind] || "Bill"} · {inr(billed)}
             </b>
-            <span className="block truncate text-[12.5px] text-gray-500">{[b.vendor, billWhen(kind, b)].filter(Boolean).join(" · ")}</span>
+            <span className="block truncate text-[12.5px] text-gray-500">{[pos, b.vendor, billWhen(kind, b)].filter(Boolean).join(" · ")}</span>
           </span>
           <button type="button" aria-label="Close" onClick={onClose} className="rounded-lg p-1 text-gray-500 hover:bg-gray-100">
             <X className="h-5 w-5" />
           </button>
         </span>
-        <button type="button" disabled={!file} onClick={onFull} className="relative grid min-h-[160px] place-items-center overflow-hidden rounded-xl border border-gray-200 bg-gray-50" aria-label="Open the bill full screen">
+        <div
+          className="relative"
+          onTouchStart={(e) => setX0(e.touches[0].clientX)}
+          onTouchEnd={(e) => {
+            if (x0 == null) return;
+            const dx = e.changedTouches[0].clientX - x0;
+            setX0(null);
+            if (dx < -50 && onNext) onNext();
+            else if (dx > 50 && onPrev) onPrev();
+          }}
+        >
+        <button type="button" disabled={!file} onClick={onFull} className="relative grid min-h-[160px] w-full place-items-center overflow-hidden rounded-xl border border-gray-200 bg-gray-50" aria-label="Open the bill full screen">
           {img && status === "ready" ? (
             <img src={url} alt="The bill" className="max-h-[42vh] w-full object-contain" />
           ) : img && status === "loading" ? (
@@ -204,6 +218,17 @@ function BillOpen({ conn, kind, bill: b, editable, busy, onRemove, onFull, onClo
             </span>
           )}
         </button>
+        {onPrev && (
+          <button type="button" aria-label="Previous bill" onClick={onPrev} className="absolute left-1.5 top-1/2 grid h-9 w-9 -translate-y-1/2 place-items-center rounded-full bg-white/90 text-gray-800 shadow">
+            <ChevronLeft className="h-5 w-5" />
+          </button>
+        )}
+        {onNext && (
+          <button type="button" aria-label="Next bill" onClick={onNext} className="absolute right-1.5 top-1/2 grid h-9 w-9 -translate-y-1/2 place-items-center rounded-full bg-white/90 text-gray-800 shadow">
+            <ChevronRight className="h-5 w-5" />
+          </button>
+        )}
+        </div>
         {(counts || b.manual || b.flag) && (
           <div className="flex flex-col gap-1 text-[12.5px] leading-snug">
             {counts ? <span className="text-gray-600">This trip counts {inr(counts)} of it (its nights here); removing it takes it off every trip not yet sent.</span> : null}
@@ -240,7 +265,8 @@ export function BillTiles({ claim, kinds, editable, onRemove }) {
   const [open, setOpen] = useState(null); // bill id
   const [full, setFull] = useState(null);
   const [busy, setBusy] = useState(false);
-  const cur = list.find((x) => x.bill.id === open) || null;
+  const at = list.findIndex((x) => x.bill.id === open);
+  const cur = at >= 0 ? list[at] : null;
   if (!list.length) return null;
   return (
     <>
@@ -257,6 +283,9 @@ export function BillTiles({ claim, kinds, editable, onRemove }) {
           editable={editable}
           busy={busy}
           onClose={() => setOpen(null)}
+          pos={list.length > 1 ? `${at + 1} of ${list.length}` : null}
+          onPrev={at > 0 ? () => setOpen(list[at - 1].bill.id) : null}
+          onNext={at < list.length - 1 ? () => setOpen(list[at + 1].bill.id) : null}
           onFull={() => setFull(files.find((f) => f.url === cur.bill.url) || billFile(cur.bill.url))}
           onRemove={async () => {
             setBusy(true);

@@ -952,6 +952,8 @@ export function shapeCarRequest(r) {
     decidedBy: r.decided_by || null,
     decidedOn: r.decided_on || null,
     note: r.note || "",
+    // what the request's days pay with no car (27 Nov 2026): the saved days' TA
+    normalFare: r.normal_fare == null ? null : num(r.normal_fare),
     requestedAt: r.creation || null,
   };
 }
@@ -995,6 +997,13 @@ export async function fetchCarQueue(conn) {
 export async function decideCarRequest(conn, id, decision, amount, note) {
   const m = (await carCall(conn, "POST", { action: "decide", name: id, decision, amount: String(amount || ""), note: note || "" })).message || {};
   return m.request ? shapeCarRequest(m.request) : null;
+}
+
+/* The approver's live view of their reps' month (27 Nov 2026, "Field Team Month API"):
+   days as priced, bills uploaded so far (sent or not), sent lines with decisions.
+   -> { month, reps: [{ employee, name, role, days, claims, bills }] } */
+export async function fetchTeamMonth(conn, month) {
+  return (await rest(conn, `/api/method/field_team_month?${new URLSearchParams({ month })}`)).message || { month, reps: [] };
 }
 
 /* ------------------------ non-reported days ---------------------------- */

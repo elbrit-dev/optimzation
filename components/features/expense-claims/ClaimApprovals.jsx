@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { addClaimComment, adjustTripTA, applyAction, decideCarRequest, decideNonReport, decideTrip, fetchCarQueue, fetchClaimDepartments, fetchClaimVisits, fetchCeoBatches, fetchMe, fetchNonReportQueue, fetchQueue, fetchSettlementQueue, makeConn, saveSanctioned, withTripMarks } from "./data/claimsApi";
 import { SettleQueue, SettleSheet } from "./settlement";
+import ApprovalView, { viewOfUrl } from "./ApprovalViews";
 import { CeoBatches } from "./ceoBatches";
 import { tripsOf } from "./fieldTrips";
 import { eachByGroup } from "../../../lib/limit";
@@ -94,7 +95,15 @@ const payrollMonth = () => MON[(new Date().getMonth() + 1) % 12];
 // "TA · Thu 22 Oct · Bangalore → Tumkur" -> "Bangalore → Tumkur" (the day is the group's header)
 const dayNote = (note) => String(note || "").replace(/^(TA|DA) · [^·]+ · /, "");
 
-export default function ClaimApprovals({ url, token, mode = "auto", variant = "auto", verifiers = VERIFIERS, overviewRoleProfile = "IT", className, onCountChange }) {
+/* 27 Nov 2026 (the owner): TA/DA, non-reported days and car requests each have their own page
+   (?view=tada / ?view=nonrep / ?view=cars, ApprovalViews.jsx); every other view stays here. */
+export default function ClaimApprovals(props) {
+  const [view] = useState(viewOfUrl);
+  if (view) return <ApprovalView view={view} url={props.url} token={props.token} className={props.className} />;
+  return <ClaimApprovalsAll {...props} />;
+}
+
+function ClaimApprovalsAll({ url, token, mode = "auto", variant = "auto", verifiers = VERIFIERS, overviewRoleProfile = "IT", className, onCountChange }) {
   // TWO VARIANTS (24 Nov 2026, the user): expense approval never shows the
   // settlement bills, and settlement approval (?view=settle, the ring nav's
   // "Settlement approval") shows only them. auto = from the URL.
