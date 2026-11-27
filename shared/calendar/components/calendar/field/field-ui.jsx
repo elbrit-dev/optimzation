@@ -482,6 +482,7 @@ function LocalDaysSheet() {
                         last={i === trip.days.length - 1}
                         multi={trip.days.length > 1}
                         night={calc.nights.find((n) => n.date === dd.date)}
+                        daShare={daShares(calc)[dd.date] || null}
                         carShare={null}
                         bills={null}
                         stayOff={false}
@@ -1818,6 +1819,7 @@ function TripSheet({ item }) {
         : // not "by road": journeys and local runs per km up to 100 km, the rail fare above (each day's line says which)
           `${trip.km > 0 ? `fare · ${trip.km} km` : "no journey"}${trip.flownFare > 0 ? ` · company travel ${inr(trip.flownFare)} off` : ""}`;
   const nN = calc.nights.length;
+  const shares = daShares(calc);
   const daBasis = calc.pool?.on
     ? `${nN} outstation day${nN > 1 ? "s" : ""} · stay + food bills`
     : nN
@@ -1943,6 +1945,7 @@ function TripSheet({ item }) {
             stayOff={!!calc.stayOff?.[d.date]}
             billStrip={billView.strip(d.date)}
             ticket={calc.travelDays?.[d.date] || null}
+            daShare={shares[d.date] || null}
           />
         ))}
       </ol>
@@ -2289,7 +2292,24 @@ function MoneyRow({ label, amount, note, children }) {
   );
 }
 
-function TripDay({ row, data, car, last, multi, night, bills, stayOff, billStrip, carShare, ticket = null }) {
+/* each outstation night's share of the trip's DA (27 Nov 2026, the owner): the pooled DA split
+   in proportion to each night's own allowance -- shown per day only, the claim keeps the pool.
+   -> { [date]: { share, i, n } } */
+export function daShares(calc) {
+  const ns = (calc.nights || []).filter((n) => !n.eve);
+  const base = ns.reduce((a, n) => a + (n.amount || 0), 0);
+  const total = calc.pool?.on ? calc.pool.paid - ((calc.nights || []).find((n) => n.eve)?.paid || 0) : base;
+  const out = {};
+  let given = 0;
+  ns.forEach((n, i) => {
+    const share = i === ns.length - 1 ? Math.round(total - given) : base ? Math.round((total * (n.amount || 0)) / base) : 0;
+    given += share;
+    out[n.date] = { share, i: i + 1, n: ns.length };
+  });
+  return out;
+}
+
+function TripDay({ row, data, car, last, multi, night, bills, stayOff, billStrip, carShare, ticket = null, daShare = null }) {
   // a train / bus ticket paid over the day's fare (26 Nov 2026): the day's TA
   // line shows the fare struck out and what is paid now
   const tick = !car && ticket?.paid && ticket.extra > 0 ? ticket : null;
@@ -2427,6 +2447,12 @@ function TripDay({ row, data, car, last, multi, night, bills, stayOff, billStrip
               </MoneyRow>
             )}
             {/* 27 Nov 2026 (the user): an outstation night's DA is shown for the whole trip (below), not per day */}
+            {/* an outstation night: its share of the trip's pooled DA (27 Nov 2026) */}
+            {night && daShare && !night.eve && (
+              <MoneyRow label="DA" amount={daShare.share}>
+                OS day {daShare.i}/{daShare.n} · share of the trip&rsquo;s DA
+              </MoneyRow>
+            )}
             {row.da > 0 && !night && (
               <MoneyRow label="DA" amount={night && bills ? night.paid : row.da}>
                 {night

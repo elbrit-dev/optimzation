@@ -434,6 +434,19 @@ function TripBody({ conn, trip, busy, onAccept, onBack }) {
   const files = useMemo(() => trip.bills.map((b) => billFile(b.url)).filter(Boolean), [trip.bills]);
   const lineOf = (date, type) => trip.lines.filter((l) => String(l.expense_date).slice(0, 10) === date && l.expense_type === type).reduce((a, l) => a + (Number(l.amount) || 0), 0);
   const billTotal = trip.bills.reduce((a, b) => a + b.amount, 0);
+  /* a sent outstation trip's DA is pooled (27 Nov 2026): each OS day shows its share -- the trip's
+     stay + food + DA lines split in proportion to each day's own allowance -- as "OS day i/n" */
+  const osDays = trip.days.filter((d) => OS_TYPES.has(d.day_type) && Number(d.da) > 0);
+  const osDates = new Set(osDays.map((d) => String(d.date).slice(0, 10)));
+  const pooled = trip.sent ? trip.lines.filter((l) => osDates.has(String(l.expense_date).slice(0, 10)) && ["Stay", "Food", "Daily Allowance"].includes(l.expense_type)).reduce((a, l) => a + (Number(l.amount) || 0), 0) : null;
+  const base = osDays.reduce((a, d) => a + Number(d.da), 0);
+  const shareOf = {};
+  let given = 0;
+  osDays.forEach((d, i) => {
+    const sh = pooled == null ? Number(d.da) : i === osDays.length - 1 ? Math.round(pooled - given) : base ? Math.round((pooled * Number(d.da)) / base) : 0;
+    given += sh;
+    shareOf[String(d.date).slice(0, 10)] = { sh, i: i + 1, n: osDays.length };
+  });
   return (
     <>
       <div className="grid grid-cols-[30px_minmax(0,1fr)_52px_52px] gap-x-2 pb-1 text-[9.5px] font-bold uppercase tracking-wide text-gray-400">
@@ -446,7 +459,8 @@ function TripBody({ conn, trip, busy, onAccept, onBack }) {
         const date = String(d.date).slice(0, 10);
         const { place, km } = placeOf(d.route);
         const ta = trip.sent ? lineOf(date, "Travel") : Number(d.ta) || 0;
-        const da = trip.sent ? lineOf(date, "Daily Allowance") : Number(d.da) || 0;
+        const os = shareOf[date];
+        const da = os ? os.sh : trip.sent ? lineOf(date, "Daily Allowance") : Number(d.da) || 0;
         return (
           <div key={date} className="grid grid-cols-[30px_minmax(0,1fr)_52px_52px] items-start gap-x-2 py-1 text-[12px]">
             <b className="text-gray-700">{Number(date.slice(8))}</b>
@@ -455,6 +469,7 @@ function TripBody({ conn, trip, busy, onAccept, onBack }) {
               <span className={cn("text-[10.5px] font-semibold", OS_TYPES.has(d.day_type) ? "text-indigo-700" : "text-slate-500")}>
                 {typeWord(d.day_type)}
                 {km ? <span className="ml-1 font-semibold text-gray-500">{km} km</span> : null}
+                {os && os.n > 1 ? <span className="ml-1 font-semibold text-gray-400">· OS day {os.i}/{os.n}</span> : null}
               </span>
             </span>
             <b className="text-right">{inr(ta)}</b>
