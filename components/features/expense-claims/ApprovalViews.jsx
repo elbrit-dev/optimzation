@@ -1,0 +1,863 @@
+"use client";
+
+/* Approvals, one page per kind (27 Nov 2026, the owner) -- ?view=tada / ?view=nonrep / ?view=cars.
+ *
+ * TA/DA: the approver sees each rep's whole month live -- trips not sent yet and the bills uploaded
+ * so far included ("Field Team Month API"). A trip is accepted or sent back once the rep sends it;
+ * the month is approved only when every trip is sent and accepted ("Field Month Approve Gate"
+ * holds the ERP to the same rule).
+ * Non-reported days and car requests: the same layout -- people tabs, a date column, cards that
+ * open -- each day / request decided on its own. */
+
+import { useCallback, useEffect, useMemo, useState } from "react";
+import { BedDouble, Car, Check, ChevronDown, ChevronLeft, ChevronRight, Fuel, Loader2, Lock, MessageSquare, Receipt, TrainFront, UtensilsCrossed, CalendarDays } from "lucide-react";
+import {
+  addClaimComment,
+  applyAction,
+  decideCarRequest,
+  decideNonReport,
+  decideTrip,
+  fetchCarQueue,
+  fetchNonReportQueue,
+  fetchTeamMonth,
+  makeConn,
+} from "./data/claimsApi";
+import { parseTripTag } from "./fieldTrips";
+import { FilePreview, billFile, useFileUrl } from "./ui";
+
+const cn = (...a) => a.filter(Boolean).join(" ");
+const inr = (n) => "₹" + Math.round(Number(n) || 0).toLocaleString("en-IN");
+const MON = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+const WD = ["SUN", "MON", "TUE", "WED", "THU", "FRI", "SAT"];
+const dOf = (iso) => new Date(`${String(iso).slice(0, 10)}T00:00:00`);
+const dd = (iso) => `${Number(String(iso).slice(8, 10))} ${MON[Number(String(iso).slice(5, 7)) - 1]}`;
+const addDays = (iso, n) => {
+  const t = dOf(iso);
+  t.setDate(t.getDate() + n);
+  return `${t.getFullYear()}-${String(t.getMonth() + 1).padStart(2, "0")}-${String(t.getDate()).padStart(2, "0")}`;
+};
+const daysBetween = (a, b) => Math.round((dOf(b) - dOf(a)) / 86400000);
+const monthOf = (d) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
+const prevMonth = () => {
+  const t = new Date();
+  t.setDate(1);
+  t.setMonth(t.getMonth() - 1);
+  return monthOf(t);
+};
+const shiftMonth = (m, n) => {
+  const t = dOf(`${m}-01`);
+  t.setMonth(t.getMonth() + n);
+  return monthOf(t);
+};
+const monthLabel = (m) => `${MON[Number(m.slice(5, 7)) - 1]} ${m.slice(0, 4)}`;
+const errText = (e) => String(e?.message || e || "Something went wrong").replace(/^[\w.]+Error:\s*/, "");
+
+const COLORS = ["#2563eb", "#ea580c", "#db2777", "#7c3aed", "#0891b2", "#0f766e", "#b45309", "#16a34a", "#9333ea", "#dc2626"];
+const colorOf = (s) => COLORS[[...String(s)].reduce((a, c) => (a * 31 + c.charCodeAt(0)) >>> 0, 7) % COLORS.length];
+const initials = (n) =>
+  String(n || "?")
+    .split(/\s+/)
+    .filter(Boolean)
+    .slice(0, 2)
+    .map((w) => w[0])
+    .join("")
+    .toUpperCase();
+const firstName = (n) => String(n || "").split(/\s+/)[0];
+
+export function viewOfUrl() {
+  if (typeof window === "undefined") return null;
+  const v = new URLSearchParams(window.location.search).get("view");
+  return v === "tada" || v === "nonrep" || v === "cars" ? v : null;
+}
+
+/* ------------------------------ shared pieces ------------------------------ */
+
+function Page({ title, month, onMonth, children }) {
+  return (
+    <div className="mx-auto flex min-h-full w-full max-w-[560px] flex-col bg-[#f6f7f9] pb-6 font-[Inter,system-ui,sans-serif] text-gray-900">
+      <div className="flex items-center gap-2 bg-white px-4 pb-2 pt-4">
+        <h1 className="text-[22px] font-extrabold tracking-tight">{title}</h1>
+        {month && (
+          <span className="ml-1 inline-flex items-center rounded-lg border border-gray-200 text-[13px] font-semibold text-gray-600">
+            <button type="button" aria-label="Previous month" className="px-1.5 py-1" onClick={() => onMonth(shiftMonth(month, -1))}>
+              <ChevronLeft className="h-3.5 w-3.5" />
+            </button>
+            {monthLabel(month)}
+            <button type="button" aria-label="Next month" className="px-1.5 py-1" onClick={() => onMonth(shiftMonth(month, 1))}>
+              <ChevronRight className="h-3.5 w-3.5" />
+            </button>
+          </span>
+        )}
+      </div>
+      {children}
+    </div>
+  );
+}
+
+function People({ list, sel, onSel }) {
+  if (!list.length) return null;
+  return (
+    <div className="flex gap-4 overflow-x-auto border-b border-gray-200 bg-white px-4 pb-2 pt-1">
+      {list.map((p) => (
+        <button key={p.id} type="button" onClick={() => onSel(p.id)} className="flex w-[64px] flex-none flex-col items-center gap-0.5 pb-1">
+          <span
+            className={cn("relative grid h-11 w-11 place-items-center rounded-full text-[13px] font-extrabold text-white", sel === p.id && "ring-2 ring-blue-600 ring-offset-2")}
+            style={{ background: colorOf(p.name) }}
+          >
+            {initials(p.name)}
+            {p.badge > 0 && (
+              <span className="absolute -right-1 -top-1 grid h-[18px] min-w-[18px] place-items-center rounded-full border-2 border-white bg-blue-600 px-1 text-[9.5px] font-extrabold">
+                {p.badge}
+              </span>
+            )}
+          </span>
+          <b className={cn("w-full truncate text-center text-[12px] font-bold", sel === p.id ? "text-blue-700" : "text-gray-700")}>{firstName(p.name)}</b>
+          {p.sub && <small className={cn("text-[10px] font-semibold", p.subOk ? "text-green-600" : "text-gray-400")}>{p.sub}</small>}
+          {sel === p.id && <i className="mt-0.5 h-[2px] w-10 rounded bg-blue-600" />}
+        </button>
+      ))}
+    </div>
+  );
+}
+
+function Filters({ items, sel, onSel }) {
+  return (
+    <div className="flex gap-2 overflow-x-auto px-4 pb-1 pt-3">
+      {items.map((f) => (
+        <button
+          key={f.id}
+          type="button"
+          onClick={() => onSel(f.id)}
+          className={cn("flex-none rounded-full border px-3 py-1 text-[12.5px] font-bold", sel === f.id ? "border-gray-900 bg-gray-900 text-white" : "border-gray-300 bg-white text-gray-700")}
+        >
+          {f.label} {f.n}
+        </button>
+      ))}
+    </div>
+  );
+}
+
+function Rail({ from, to }) {
+  const a = dOf(from);
+  const multi = to && to !== from;
+  const b = multi ? dOf(to) : null;
+  return (
+    <div className="flex w-10 flex-none flex-col items-center pt-1 text-center">
+      <small className="text-[9.5px] font-bold text-gray-500">{WD[a.getDay()]}</small>
+      <b className="text-[19px] font-extrabold leading-tight">{a.getDate()}</b>
+      {multi && (
+        <>
+          <i className="my-1 w-[2px] flex-1 rounded bg-gray-300" style={{ minHeight: 10 }} />
+          <small className="text-[9.5px] font-bold text-gray-500">{WD[b.getDay()]}</small>
+          <b className="text-[14px] font-extrabold leading-tight">{b.getDate()}</b>
+        </>
+      )}
+    </div>
+  );
+}
+
+const CHIP = {
+  accepted: "bg-green-600 text-white",
+  sent: "bg-green-100 text-green-700",
+  back: "bg-red-100 text-red-700",
+  notsent: "bg-gray-100 text-gray-600",
+  waiting: "bg-gray-100 text-gray-600",
+  approved: "bg-green-600 text-white",
+  rejected: "bg-red-100 text-red-700",
+};
+const EDGE = { accepted: "border-l-green-500", sent: "border-l-green-500", back: "border-l-red-500", notsent: "border-l-gray-300", waiting: "border-l-amber-400", approved: "border-l-green-500", rejected: "border-l-red-500" };
+
+function Card({ state, label, title, tag, sub, amount, open, onToggle, children }) {
+  return (
+    <div className={cn("min-w-0 flex-1 rounded-xl border border-l-4 bg-white", EDGE[state], state === "notsent" && "border-dashed", open && "border-blue-300")}>
+      <button type="button" onClick={onToggle} className="flex w-full items-center gap-2 px-3 py-2.5 text-left">
+        <span className="min-w-0 flex-1">
+          <b className="block text-[14px] font-bold leading-tight">
+            {tag && <span className={cn("mr-1.5 rounded px-1.5 py-px align-[1px] text-[9.5px] font-extrabold", tag === "HQ" ? "bg-slate-100 text-slate-600" : "bg-indigo-50 text-indigo-700")}>{tag}</span>}
+            {title}
+          </b>
+          {sub && <span className="mt-0.5 block text-[12px] text-gray-500">{sub}</span>}
+        </span>
+        <span className="flex flex-none flex-col items-end gap-1">
+          {amount != null && <b className="text-[14px] font-extrabold">{inr(amount)}</b>}
+          {label && <i className={cn("rounded-full px-2 py-px text-[10.5px] font-bold not-italic", CHIP[state])}>{label}</i>}
+        </span>
+        <ChevronDown className={cn("h-4 w-4 flex-none text-gray-400 transition-transform", open && "rotate-180")} />
+      </button>
+      {open && <div className="border-t border-gray-100 px-3 pb-3 pt-2">{children}</div>}
+    </div>
+  );
+}
+
+function Actions({ busy, backLabel = "Send back", okLabel, onBack, onOk, reasonNeeded = true }) {
+  const [back, setBack] = useState(false);
+  const [why, setWhy] = useState("");
+  if (back)
+    return (
+      <div className="mt-2 flex flex-col gap-2">
+        <textarea autoFocus rows={2} value={why} onChange={(e) => setWhy(e.target.value)} placeholder="Why? They see this." className="w-full rounded-lg border border-gray-300 p-2 text-[13px]" />
+        <div className="flex gap-2">
+          <button type="button" onClick={() => setBack(false)} className="flex-1 rounded-lg border border-gray-300 py-2 text-[13px] font-bold text-gray-700">
+            Cancel
+          </button>
+          <button
+            type="button"
+            disabled={!!busy || (reasonNeeded && why.trim().length < 3)}
+            onClick={() => onBack(why.trim())}
+            className="flex-1 rounded-lg bg-red-600 py-2 text-[13px] font-bold text-white disabled:opacity-50"
+          >
+            {busy === "back" ? <Loader2 className="mx-auto h-4 w-4 animate-spin" /> : backLabel}
+          </button>
+        </div>
+      </div>
+    );
+  return (
+    <div className="mt-2 flex gap-2">
+      <button type="button" disabled={!!busy} onClick={() => setBack(true)} className="flex-1 rounded-lg border border-red-200 bg-white py-2 text-[13px] font-bold text-red-700">
+        {backLabel}
+      </button>
+      <button type="button" disabled={!!busy} onClick={onOk} className="flex flex-1 items-center justify-center gap-1 rounded-lg bg-green-600 py-2 text-[13px] font-bold text-white disabled:opacity-60">
+        {busy === "ok" ? <Loader2 className="h-4 w-4 animate-spin" /> : <Check className="h-4 w-4" />}
+        {okLabel}
+      </button>
+    </div>
+  );
+}
+
+const Empty = ({ children }) => <p className="px-6 py-10 text-center text-[13px] text-gray-500">{children}</p>;
+const Loading = () => (
+  <div className="grid place-items-center py-16">
+    <Loader2 className="h-6 w-6 animate-spin text-gray-400" />
+  </div>
+);
+const Err = ({ msg, onRetry }) => (
+  <div className="m-4 rounded-xl border border-red-200 bg-red-50 p-3 text-[13px] text-red-800">
+    {msg}{" "}
+    {onRetry && (
+      <button type="button" className="font-bold underline" onClick={onRetry}>
+        Try again
+      </button>
+    )}
+  </div>
+);
+
+/* --------------------------------- TA / DA --------------------------------- */
+
+const OS_TYPES = new Set(["OS", "OS-HQ", "OS-EQ", "EQ-HQ", "EQ-EQ"]);
+const kindOfDay = (t) => (OS_TYPES.has(t) ? "OS" : "HQ");
+const typeWord = (t) => (OS_TYPES.has(t) ? "Outstation" : t === "HQ" ? "HQ day" : "Ex-HQ");
+/* "HQ Chennai → Perambur → Kundrathur (56 km)" -> { place: "Kundrathur", km: 56 } */
+const placeOf = (route) => {
+  const stops = String(route || "")
+    .split("→")
+    .map((s) => s.trim())
+    .filter(Boolean);
+  const last = stops[stops.length - 1] || "";
+  const m = /\((\d+(?:\.\d+)?)\s*km\)/.exec(last);
+  return { place: last.replace(/\(.*?\)/, "").replace(/^HQ[-\s]*/i, "").trim(), km: m ? Math.round(Number(m[1])) : null };
+};
+const BILL_KIND = { Stay: "stay", Food: "food", Travel: "ticket", Fuel: "fuel", Toll: "toll" };
+
+/* a rep's month -> trips with their days, lines, bills and state */
+function tripsOfRep(rep) {
+  const days = (rep.days || []).filter((d) => Number(d.total) > 0);
+  const lines = (rep.claims || []).flatMap((c) => (c.lines || []).map((l) => ({ ...l, claim: c.name, claimState: c.workflow_state })));
+  const byTag = new Map();
+  for (const l of lines) {
+    const t = parseTripTag(l.custom_trip) || { from: String(l.expense_date).slice(0, 10), to: String(l.expense_date).slice(0, 10), name: "" };
+    const k = `${t.from}..${t.to}`;
+    if (!byTag.has(k)) byTag.set(k, { ...t, lines: [] });
+    byTag.get(k).lines.push(l);
+  }
+  const trips = [...byTag.values()].map((t) => ({ ...t, sent: true }));
+  const covered = (date) => trips.some((t) => date >= t.from && date <= t.to);
+  // unsent paid days: runs of consecutive days, outstation apart from local
+  let run = null;
+  for (const d of days) {
+    const date = String(d.date).slice(0, 10);
+    if (covered(date)) {
+      run = null;
+      continue;
+    }
+    const k = kindOfDay(d.day_type);
+    if (run && run.kind === k && addDays(run.to, 1) === date) run.to = date;
+    else {
+      run = { from: date, to: date, kind: k, lines: [], sent: false, name: "" };
+      trips.push(run);
+    }
+  }
+  const dayMap = new Map((rep.days || []).map((d) => [String(d.date).slice(0, 10), d]));
+  return trips
+    .sort((a, b) => a.from.localeCompare(b.from))
+    .map((t) => {
+      const tdays = [];
+      for (let d = t.from; d <= t.to; d = addDays(d, 1)) if (dayMap.get(d)) tdays.push(dayMap.get(d));
+      const os = tdays.some((d) => OS_TYPES.has(d.day_type));
+      const decisions = t.lines.map((l) => l.custom_trip_decision || "");
+      const approvedClaim = t.lines.length && t.lines.every((l) => ["Approved", "Verified", "Paid"].includes(l.claimState));
+      const state = !t.sent
+        ? "notsent"
+        : decisions.includes("Rejected")
+          ? "back"
+          : approvedClaim || decisions.every((x) => x === "Approved")
+            ? "accepted"
+            : "sent";
+      // bills: on the sent lines, and every upload of the rep falling in the trip (sent or not)
+      const bills = [];
+      const seen = new Set();
+      for (const l of t.lines)
+        if (l.custom_bill && !seen.has(l.custom_bill)) {
+          seen.add(l.custom_bill);
+          bills.push({ url: l.custom_bill, kind: l.expense_type, amount: Number(l.custom_bill_amount) || Number(l.amount) || 0, vendor: l.custom_bill_vendor || "" });
+        }
+      for (const b of rep.bills || []) {
+        const ds = (b.nights || []).length ? b.nights : [b.date];
+        if (!b.url || seen.has(b.url) || !ds.some((x) => x >= addDays(t.from, -1) && x <= t.to)) continue;
+        seen.add(b.url);
+        bills.push({ url: b.url, kind: b.kind, amount: Number(b.amount) || 0, vendor: b.vendor || "", manual: b.manual, flag: b.flag });
+      }
+      const amount = t.sent ? t.lines.reduce((a, l) => a + (Number(l.amount) || 0), 0) : tdays.reduce((a, d) => a + (Number(d.total) || 0), 0);
+      const places = tdays.filter((d) => OS_TYPES.has(d.day_type)).map((d) => placeOf(d.route).place).filter(Boolean);
+      const title = os ? String(t.name || "").split(" · ").filter((x) => x && x !== "HQ").pop() || places[0] || "Outstation" : "Local days";
+      const nHq = tdays.filter((d) => d.day_type === "HQ").length;
+      const nEq = tdays.length - nHq;
+      const sub = os
+        ? [`${Math.max(1, daysBetween(t.from, t.to))} day${daysBetween(t.from, t.to) > 1 ? "s" : ""} away`, bills.length ? `${bills.length} bill${bills.length > 1 ? "s" : ""}` : null].filter(Boolean).join(" · ")
+        : [nHq ? `${nHq} HQ` : null, nEq ? `${nEq} EQ` : null].filter(Boolean).join(" · ");
+      const note = t.lines.find((l) => l.custom_trip_decision === "Rejected")?.custom_trip_note || "";
+      const claim = t.lines[0]?.claim || null;
+      const claimState = t.lines[0]?.claimState || null;
+      return { ...t, id: `${t.from}..${t.to}`, days: tdays, os, state, bills, amount, title, sub, note, claim, claimState };
+    });
+}
+const STATE_LABEL = { accepted: "Accepted", sent: "Sent", back: "Sent back", notsent: "Not sent yet" };
+
+function BillTile({ conn, bill, onOpen }) {
+  const file = useMemo(() => billFile(bill.url), [bill.url]);
+  const img = file?.kind === "image";
+  const { status, url } = useFileUrl(img ? conn : null, img ? file : null);
+  const Icon = { Stay: BedDouble, Food: UtensilsCrossed, Travel: TrainFront, Fuel, Toll: Receipt }[bill.kind] || Receipt;
+  const warn = bill.manual || bill.flag;
+  return (
+    <button type="button" onClick={onOpen} className={cn("flex w-[96px] flex-none flex-col overflow-hidden rounded-xl border bg-white text-left", warn ? "border-amber-300" : "border-gray-200")}>
+      <span className="relative grid h-[56px] w-full place-items-center overflow-hidden bg-gray-100 text-gray-400">
+        {img && status === "ready" ? <img src={url} alt="" className="h-full w-full object-cover object-top" /> : file?.kind === "pdf" ? <b className="text-[11px] text-red-700">PDF</b> : <Icon className="h-5 w-5" />}
+        <span className="absolute left-1 top-1 grid h-5 w-5 place-items-center rounded-md bg-white/95 text-gray-700 shadow-sm">
+          <Icon className="h-3 w-3" />
+        </span>
+      </span>
+      <span className="flex items-center justify-between gap-1 px-2 py-1">
+        <b className="text-[12.5px] font-extrabold">{inr(bill.amount)}</b>
+        {warn && <span className="text-[9px] font-bold text-amber-700">by hand</span>}
+      </span>
+    </button>
+  );
+}
+
+function TripBody({ conn, trip, busy, onAccept, onBack }) {
+  const [full, setFull] = useState(null);
+  const files = useMemo(() => trip.bills.map((b) => billFile(b.url)).filter(Boolean), [trip.bills]);
+  const lineOf = (date, type) => trip.lines.filter((l) => String(l.expense_date).slice(0, 10) === date && l.expense_type === type).reduce((a, l) => a + (Number(l.amount) || 0), 0);
+  const billTotal = trip.bills.reduce((a, b) => a + b.amount, 0);
+  return (
+    <>
+      <div className="grid grid-cols-[30px_minmax(0,1fr)_52px_52px] gap-x-2 pb-1 text-[9.5px] font-bold uppercase tracking-wide text-gray-400">
+        <span>Day</span>
+        <span>Place</span>
+        <span className="text-right">TA</span>
+        <span className="text-right">DA</span>
+      </div>
+      {trip.days.map((d) => {
+        const date = String(d.date).slice(0, 10);
+        const { place, km } = placeOf(d.route);
+        const ta = trip.sent ? lineOf(date, "Travel") : Number(d.ta) || 0;
+        const da = trip.sent ? lineOf(date, "Daily Allowance") : Number(d.da) || 0;
+        return (
+          <div key={date} className="grid grid-cols-[30px_minmax(0,1fr)_52px_52px] items-start gap-x-2 py-1 text-[12px]">
+            <b className="text-gray-700">{Number(date.slice(8))}</b>
+            <span className="min-w-0">
+              <span className="block break-words text-gray-800">{place || "—"}</span>
+              <span className={cn("text-[10.5px] font-semibold", OS_TYPES.has(d.day_type) ? "text-indigo-700" : "text-slate-500")}>
+                {typeWord(d.day_type)}
+                {km ? <span className="ml-1 font-semibold text-gray-500">{km} km</span> : null}
+              </span>
+            </span>
+            <b className="text-right">{inr(ta)}</b>
+            <b className="text-right">{inr(da)}</b>
+          </div>
+        );
+      })}
+      {trip.bills.length > 0 && (
+        <>
+          <p className="mb-1 mt-2 text-[10px] font-bold uppercase tracking-wide text-gray-400">
+            Bills · {trip.bills.length} · {inr(billTotal)}
+          </p>
+          <div className="-mx-1 flex gap-2 overflow-x-auto px-1 pb-1">
+            {trip.bills.map((b) => (
+              <BillTile key={b.url} conn={conn} bill={b} onOpen={() => setFull(billFile(b.url))} />
+            ))}
+          </div>
+        </>
+      )}
+      {trip.note && <p className="mt-2 rounded-lg bg-red-50 px-2.5 py-1.5 text-[12px] text-red-800">Sent back: {trip.note}</p>}
+      <div className="mt-2 flex justify-between border-t border-dashed border-gray-200 pt-2 text-[12.5px]">
+        <span className="text-gray-600">{trip.sent ? "Claimed" : "So far"}</span>
+        <b>{inr(trip.amount)}</b>
+      </div>
+      {trip.state === "sent" && <Actions busy={busy} backLabel="Send back trip" okLabel="Accept trip" onOk={onAccept} onBack={onBack} />}
+      {trip.state === "notsent" && <p className="mt-2 text-[11.5px] text-gray-500">Not sent yet — accept it once it is sent.</p>}
+      {full && conn ? <FilePreview conn={conn} file={full} files={files} onClose={() => setFull(null)} /> : null}
+    </>
+  );
+}
+
+function TaDaView({ conn }) {
+  const [month, setMonth] = useState(prevMonth);
+  const [data, setData] = useState({ status: "loading" });
+  const [sel, setSel] = useState(null);
+  const [flt, setFlt] = useState("all");
+  const [open, setOpen] = useState(null);
+  const [busy, setBusy] = useState(null); // { trip, what }
+  const [msg, setMsg] = useState(null);
+  const load = useCallback(() => {
+    setData((s) => ({ ...s, status: s.reps ? "ready" : "loading" }));
+    fetchTeamMonth(conn, month)
+      .then((m) => setData({ status: "ready", reps: m.reps || [] }))
+      .catch((e) => setData({ status: "error", error: errText(e) }));
+  }, [conn, month]);
+  useEffect(() => {
+    setData({ status: "loading" });
+    load();
+  }, [load]);
+
+  const reps = useMemo(
+    () =>
+      (data.reps || [])
+        .map((r) => {
+          const trips = tripsOfRep(r);
+          const sent = trips.filter((t) => t.sent).length;
+          const acc = trips.filter((t) => t.state === "accepted").length;
+          const toAccept = trips.filter((t) => t.state === "sent").length;
+          const waiting = (r.claims || []).filter((c) => c.workflow_state === "Waiting for Approval");
+          const done = trips.length > 0 && (r.claims || []).every((c) => ["Approved", "Verified", "Paid"].includes(c.workflow_state)) && sent === trips.length;
+          return { ...r, trips, sent, acc, toAccept, waiting, done };
+        })
+        .filter((r) => r.trips.length)
+        .sort((a, b) => b.toAccept - a.toAccept || a.done - b.done || String(a.name).localeCompare(String(b.name))),
+    [data.reps]
+  );
+  const rep = reps.find((r) => r.employee === sel) || reps[0] || null;
+  useEffect(() => {
+    if (rep && rep.employee !== sel) setSel(rep.employee);
+  }, [rep, sel]);
+
+  const run = async (trip, what, fn, ok) => {
+    setBusy({ trip: trip?.id || "month", what });
+    setMsg(null);
+    try {
+      await fn();
+      if (ok) setMsg({ ok: true, text: ok });
+      load();
+    } catch (e) {
+      setMsg({ ok: false, text: errText(e) });
+    } finally {
+      setBusy(null);
+    }
+  };
+  const accept = (t) =>
+    run(t, "ok", () => decideTrip(conn, { claim: t.claim, rows: t.lines.map((l) => l.name), decision: "Approved", note: "", trip: `${dd(t.from)}–${dd(t.to)} · ${t.title}` }), `${t.title} accepted`);
+  const sendBack = (t, why) =>
+    run(
+      t,
+      "back",
+      async () => {
+        await decideTrip(conn, { claim: t.claim, rows: t.lines.map((l) => l.name), decision: "Rejected", note: why, trip: `${dd(t.from)}–${dd(t.to)} · ${t.title}` });
+        await addClaimComment(conn, t.claim, `Sent back -- ${dd(t.from)}–${dd(t.to)} ${t.title}: ${why}`);
+        if (t.claimState === "Waiting for Approval") await applyAction(conn, t.claim, "Reject");
+      },
+      `${t.title} sent back to ${firstName(rep?.name)}`
+    );
+  const approveMonth = () =>
+    run(
+      null,
+      "month",
+      async () => {
+        for (const c of rep.waiting) await applyAction(conn, c.name, "Approve");
+      },
+      `${firstName(rep.name)}'s ${monthLabel(month)} approved`
+    );
+
+  const trips = rep ? rep.trips : [];
+  const counts = { all: trips.length, accept: trips.filter((t) => t.state === "sent").length, notsent: trips.filter((t) => t.state === "notsent" || t.state === "back").length, accepted: trips.filter((t) => t.state === "accepted").length };
+  const shown = trips.filter((t) => flt === "all" || (flt === "accept" ? t.state === "sent" : flt === "notsent" ? t.state === "notsent" || t.state === "back" : t.state === "accepted"));
+  const canApprove = rep && rep.sent === rep.trips.length && rep.acc === rep.trips.length && rep.waiting.length > 0;
+
+  return (
+    <Page title="TA/DA approvals" month={month} onMonth={setMonth}>
+      {data.status === "loading" && <Loading />}
+      {data.status === "error" && <Err msg={data.error} onRetry={load} />}
+      {data.status === "ready" && !reps.length && <Empty>No field TA/DA from your team for {monthLabel(month)}.</Empty>}
+      {data.status === "ready" && rep && (
+        <>
+          <People
+            list={reps.map((r) => ({ id: r.employee, name: r.name, badge: r.toAccept, sub: r.done ? "approved" : r.sent === r.trips.length ? "all sent" : `${r.sent}/${r.trips.length} sent`, subOk: r.done || r.sent === r.trips.length }))}
+            sel={rep.employee}
+            onSel={(id) => {
+              setSel(id);
+              setOpen(null);
+              setMsg(null);
+            }}
+          />
+          <div className="mx-4 mt-3 rounded-xl border border-blue-200 bg-blue-50 px-3 py-2">
+            <div className="flex items-baseline justify-between gap-2 text-[13px]">
+              <b className="text-blue-900">
+                {rep.sent} of {rep.trips.length} sent · {rep.acc} accepted
+              </b>
+              <span className="text-[11.5px] font-semibold text-slate-500">{rep.done ? "Approved" : `Approve after all ${rep.trips.length}`}</span>
+            </div>
+            <div className="mt-1.5 flex h-[5px] overflow-hidden rounded-full bg-blue-100">
+              <i className="block bg-green-600" style={{ width: `${(rep.acc / rep.trips.length) * 100}%` }} />
+              <i className="block bg-blue-300" style={{ width: `${((rep.sent - rep.acc) / rep.trips.length) * 100}%` }} />
+            </div>
+          </div>
+          <Filters
+            items={[
+              { id: "all", label: "All", n: counts.all },
+              { id: "accept", label: "To accept", n: counts.accept },
+              { id: "notsent", label: "Not sent", n: counts.notsent },
+              { id: "accepted", label: "Accepted", n: counts.accepted },
+            ]}
+            sel={flt}
+            onSel={setFlt}
+          />
+          {msg && <p className={cn("mx-4 mt-2 rounded-lg px-3 py-2 text-[12.5px]", msg.ok ? "bg-green-50 text-green-800" : "bg-red-50 text-red-800")}>{msg.text}</p>}
+          <div className="flex flex-col gap-2.5 px-3 pt-2">
+            {!shown.length && <Empty>Nothing here.</Empty>}
+            {shown.map((t) => (
+              <div key={t.id} className="flex gap-2">
+                <Rail from={t.from} to={t.to} />
+                <Card
+                  state={t.state}
+                  label={STATE_LABEL[t.state]}
+                  tag={t.os ? "OS" : "HQ"}
+                  title={t.title}
+                  sub={t.sub}
+                  amount={t.amount}
+                  open={open === t.id}
+                  onToggle={() => setOpen(open === t.id ? null : t.id)}
+                >
+                  <TripBody conn={conn} trip={t} busy={busy?.trip === t.id ? busy.what : null} onAccept={() => accept(t)} onBack={(why) => sendBack(t, why)} />
+                </Card>
+              </div>
+            ))}
+          </div>
+          {!rep.done && (
+            <div className="sticky bottom-0 mt-3 flex items-center gap-2 border-t border-gray-200 bg-white px-4 py-3">
+              <span className="flex-1 text-[13px]">
+                <b>
+                  {rep.acc} of {rep.trips.length} trips accepted
+                </b>
+                <small className="block text-[11px] text-gray-500">{canApprove ? "Everything is in" : rep.sent < rep.trips.length ? `${rep.trips.length - rep.sent} not sent yet` : `${rep.toAccept} waiting for you`}</small>
+              </span>
+              <button
+                type="button"
+                disabled={!canApprove || !!busy}
+                onClick={approveMonth}
+                className={cn("flex items-center gap-1.5 rounded-xl px-5 py-2.5 text-[14px] font-bold", canApprove ? "bg-green-600 text-white" : "bg-gray-200 text-gray-400")}
+              >
+                {busy?.trip === "month" ? <Loader2 className="h-4 w-4 animate-spin" /> : canApprove ? <Check className="h-4 w-4" /> : <Lock className="h-4 w-4" />}
+                Approve
+              </button>
+            </div>
+          )}
+        </>
+      )}
+    </Page>
+  );
+}
+
+/* ---------------------------- non-reported days ---------------------------- */
+
+const nrHq = (hq) => String(hq || "").replace(/^HQ[-\s]*/i, "");
+function nrSummary(r) {
+  let docs = 0;
+  let meet = 0;
+  const other = [];
+  for (const e of r.entries || []) {
+    if (e.type === "doctor_visit") docs += (e.doctors || []).length;
+    else if (e.type === "meeting" || e.type === "meeting_hq" || (e.type === "other" && e.other_type === "Meeting")) meet += 1;
+    else if (e.type === "leave") other.push(e.leave_type || "Leave");
+    else if (e.type === "other") other.push(e.other_type);
+  }
+  return [docs ? `${docs} visit${docs > 1 ? "s" : ""}` : null, meet ? `${meet > 1 ? meet + " meetings" : "meeting"}` : null, ...other].filter(Boolean).join(" + ") || "Day";
+}
+function nrTowns(r) {
+  const t = new Set();
+  for (const e of r.entries || []) for (const d of e.doctors || []) t.add(d.city || nrHq(e.hq));
+  for (const e of r.entries || []) if (e.type !== "doctor_visit" && e.hq) t.add(nrHq(e.hq));
+  return [...t].filter(Boolean);
+}
+function NrBody({ r, busy, onApprove, onReject }) {
+  return (
+    <>
+      {(r.entries || []).map((e, i) => {
+        if (e.type === "doctor_visit") {
+          const byTown = new Map();
+          for (const d of e.doctors || []) {
+            const k = d.city || nrHq(e.hq) || "—";
+            if (!byTown.has(k)) byTown.set(k, []);
+            byTown.get(k).push(d.name);
+          }
+          return [...byTown.entries()].map(([town, names]) => (
+            <p key={`${i}-${town}`} className="border-b border-gray-100 py-1 text-[12px] leading-snug text-gray-600">
+              <b className="mr-1 text-gray-900">{town}</b>
+              {names.join(", ")}
+            </p>
+          ));
+        }
+        return (
+          <p key={i} className="flex items-start gap-1.5 border-b border-gray-100 py-1 text-[12px]">
+            <CalendarDays className="mt-0.5 h-3.5 w-3.5 flex-none text-gray-500" />
+            <span>
+              <b>{e.type === "leave" ? e.leave_type || "Leave" : e.type === "meeting_hq" ? e.title || "Meeting" : e.type === "other" ? e.other_type : "Meeting"}</b>{" "}
+              <span className="text-gray-500">{[e.title && e.type !== "meeting_hq" ? e.title : null, nrHq(e.hq)].filter(Boolean).join(" · ")}</span>
+            </span>
+          </p>
+        );
+      })}
+      {(r.entries || [])
+        .filter((e) => e.note)
+        .map((e, i) => (
+          <p key={`n${i}`} className="flex items-start gap-1.5 py-1 text-[12px] italic text-gray-600">
+            <MessageSquare className="mt-0.5 h-3.5 w-3.5 flex-none not-italic text-gray-500" />“{e.note}”
+          </p>
+        ))}
+      {r.status === "waiting" ? (
+        <Actions busy={busy} backLabel="Reject" okLabel="Approve day" onOk={onApprove} onBack={onReject} />
+      ) : (
+        r.note && <p className="mt-1 text-[11.5px] text-gray-500">{r.note}</p>
+      )}
+    </>
+  );
+}
+function NonRepView({ conn }) {
+  const [data, setData] = useState({ status: "loading" });
+  const [sel, setSel] = useState(null);
+  const [flt, setFlt] = useState("waiting");
+  const [open, setOpen] = useState(null);
+  const [busy, setBusy] = useState(null);
+  const [msg, setMsg] = useState(null);
+  const load = useCallback(() => {
+    fetchNonReportQueue(conn)
+      .then((m) => setData({ status: "ready", list: [...(m.pending || []), ...(m.recent || [])] }))
+      .catch((e) => setData({ status: "error", error: errText(e) }));
+  }, [conn]);
+  useEffect(() => load(), [load]);
+  const list = data.list || [];
+  const people = useMemo(() => {
+    const m = new Map();
+    for (const r of list) {
+      if (!m.has(r.employee)) m.set(r.employee, { id: r.employee, name: r.employeeName, w: 0 });
+      if (r.status === "waiting") m.get(r.employee).w += 1;
+    }
+    return [...m.values()].sort((a, b) => b.w - a.w || a.name.localeCompare(b.name)).map((p) => ({ ...p, badge: p.w, sub: p.w ? `${p.w} day${p.w > 1 ? "s" : ""}` : "done", subOk: !p.w }));
+  }, [list]);
+  const who = people.find((p) => p.id === sel) || people[0] || null;
+  const mine = list.filter((r) => r.employee === who?.id);
+  const counts = { waiting: mine.filter((r) => r.status === "waiting").length, approved: mine.filter((r) => r.status === "approved").length, rejected: mine.filter((r) => r.status === "rejected").length };
+  const shown = mine.filter((r) => r.status === flt).sort((a, b) => String(a.date).localeCompare(String(b.date)));
+  const go = async (r, decision, note = "") => {
+    setBusy({ id: r.id, what: decision === "Approve" ? "ok" : "back" });
+    setMsg(null);
+    try {
+      await decideNonReport(conn, r.id, decision, note);
+      setMsg({ ok: true, text: `${firstName(r.employeeName)} · ${dd(r.date)} ${decision === "Approve" ? "approved — TA/DA updates in a few minutes" : "rejected"}` });
+      load();
+    } catch (e) {
+      setMsg({ ok: false, text: errText(e) });
+    } finally {
+      setBusy(null);
+    }
+  };
+  return (
+    <Page title="Non-reported days">
+      {data.status === "loading" && <Loading />}
+      {data.status === "error" && <Err msg={data.error} onRetry={load} />}
+      {data.status === "ready" && !people.length && <Empty>No non-reported days for you to decide.</Empty>}
+      {data.status === "ready" && who && (
+        <>
+          <People list={people} sel={who.id} onSel={(id) => (setSel(id), setOpen(null))} />
+          <Filters
+            items={[
+              { id: "waiting", label: "Waiting", n: counts.waiting },
+              { id: "approved", label: "Approved", n: counts.approved },
+              { id: "rejected", label: "Rejected", n: counts.rejected },
+            ]}
+            sel={flt}
+            onSel={setFlt}
+          />
+          {msg && <p className={cn("mx-4 mt-2 rounded-lg px-3 py-2 text-[12.5px]", msg.ok ? "bg-green-50 text-green-800" : "bg-red-50 text-red-800")}>{msg.text}</p>}
+          <div className="flex flex-col gap-2.5 px-3 pt-2">
+            {!shown.length && <Empty>Nothing here.</Empty>}
+            {shown.map((r) => (
+              <div key={r.id} className="flex gap-2">
+                <Rail from={r.date} />
+                <Card
+                  state={r.status}
+                  label={r.status === "waiting" ? null : r.status === "approved" ? "Approved" : "Rejected"}
+                  title={nrSummary(r)}
+                  sub={nrTowns(r).join(" · ")}
+                  open={open === r.id}
+                  onToggle={() => setOpen(open === r.id ? null : r.id)}
+                >
+                  <NrBody r={r} busy={busy?.id === r.id ? busy.what : null} onApprove={() => go(r, "Approve")} onReject={(why) => go(r, "Reject", why)} />
+                </Card>
+              </div>
+            ))}
+          </div>
+        </>
+      )}
+    </Page>
+  );
+}
+
+/* ------------------------------- car requests ------------------------------ */
+
+function CarBody({ r, busy, onApprove, onDecline }) {
+  const [amt, setAmt] = useState(String(Math.round(r.asked || 0)));
+  const extra = r.normalFare != null ? (Number(amt) || 0) - r.normalFare : null;
+  return (
+    <>
+      <p className="flex items-center gap-1.5 border-b border-gray-100 pb-1.5 text-[12px]">
+        <Car className="h-3.5 w-3.5 text-gray-500" />
+        {r.km} km · {r.fuel}
+        {r.places ? <span className="text-gray-500">· {r.places}</span> : null}
+      </p>
+      <div className="mt-2 grid grid-cols-3 gap-1.5">
+        {[
+          ["Fuel est.", inr(r.fuelCost), ""],
+          ["No car", r.normalFare != null ? inr(r.normalFare) : "—", ""],
+          ["Extra", extra != null ? `${extra >= 0 ? "+" : "−"}${inr(Math.abs(extra))}` : "—", extra > 0 ? "text-amber-700" : ""],
+        ].map(([k, v, c]) => (
+          <div key={k} className="rounded-lg border border-gray-100 bg-slate-50 px-2 py-1.5">
+            <small className="block text-[9.5px] font-semibold text-gray-500">{k}</small>
+            <b className={cn("text-[13px]", c)}>{v}</b>
+          </div>
+        ))}
+      </div>
+      {r.status === "pending" ? (
+        <>
+          <label className="mt-2 flex items-center justify-between rounded-lg border border-green-200 bg-green-50 px-2.5 py-1.5">
+            <span className="text-[12px] font-bold text-green-800">Approve up to</span>
+            <span className="flex items-center rounded-md border border-green-300 bg-white px-2">
+              ₹
+              <input inputMode="numeric" value={amt} onChange={(e) => setAmt(e.target.value.replace(/[^\d]/g, ""))} aria-label="Amount approved" className="w-20 border-0 bg-transparent py-1 text-right text-[14px] font-bold outline-none" />
+            </span>
+          </label>
+          <Actions busy={busy} backLabel="Decline" okLabel="Approve" onOk={() => onApprove(Number(amt) || 0)} onBack={onDecline} />
+        </>
+      ) : (
+        <p className="mt-2 text-[11.5px] text-gray-500">{r.status === "approved" ? `Approved up to ${inr(r.approvedAmount)}` : "Declined"}{r.note ? ` · ${r.note}` : ""}</p>
+      )}
+    </>
+  );
+}
+function CarsView({ conn }) {
+  const [data, setData] = useState({ status: "loading" });
+  const [sel, setSel] = useState(null);
+  const [flt, setFlt] = useState("pending");
+  const [open, setOpen] = useState(null);
+  const [busy, setBusy] = useState(null);
+  const [msg, setMsg] = useState(null);
+  const load = useCallback(() => {
+    fetchCarQueue(conn)
+      .then((m) => setData({ status: "ready", list: [...(m.pending || []), ...(m.recent || [])] }))
+      .catch((e) => setData({ status: "error", error: e?.status === 403 ? "Car requests are decided by the GM." : errText(e) }));
+  }, [conn]);
+  useEffect(() => load(), [load]);
+  const list = data.list || [];
+  const people = useMemo(() => {
+    const m = new Map();
+    for (const r of list) {
+      if (!m.has(r.employee)) m.set(r.employee, { id: r.employee, name: r.employeeName, w: 0 });
+      if (r.status === "pending") m.get(r.employee).w += 1;
+    }
+    return [...m.values()].sort((a, b) => b.w - a.w || a.name.localeCompare(b.name)).map((p) => ({ ...p, badge: p.w, sub: p.w ? `${p.w} waiting` : "decided", subOk: !p.w }));
+  }, [list]);
+  const who = people.find((p) => p.id === sel) || people[0] || null;
+  const mine = list.filter((r) => r.employee === who?.id);
+  const counts = { pending: mine.filter((r) => r.status === "pending").length, approved: mine.filter((r) => r.status === "approved").length, rejected: mine.filter((r) => r.status === "rejected").length };
+  const shown = mine.filter((r) => r.status === flt).sort((a, b) => String(a.from).localeCompare(String(b.from)));
+  const go = async (r, decision, amount, note = "") => {
+    setBusy({ id: r.id, what: decision === "Approve" ? "ok" : "back" });
+    setMsg(null);
+    try {
+      await decideCarRequest(conn, r.id, decision, amount, note);
+      setMsg({ ok: true, text: `${firstName(r.employeeName)}'s car ${decision === "Approve" ? `approved up to ${inr(amount)}` : "declined"}` });
+      load();
+    } catch (e) {
+      setMsg({ ok: false, text: errText(e) });
+    } finally {
+      setBusy(null);
+    }
+  };
+  return (
+    <Page title="Car requests">
+      {data.status === "loading" && <Loading />}
+      {data.status === "error" && <Err msg={data.error} onRetry={load} />}
+      {data.status === "ready" && !people.length && <Empty>No car requests.</Empty>}
+      {data.status === "ready" && who && (
+        <>
+          <People list={people} sel={who.id} onSel={(id) => (setSel(id), setOpen(null))} />
+          <Filters
+            items={[
+              { id: "pending", label: "Waiting", n: counts.pending },
+              { id: "approved", label: "Approved", n: counts.approved },
+              { id: "rejected", label: "Declined", n: counts.rejected },
+            ]}
+            sel={flt}
+            onSel={setFlt}
+          />
+          {msg && <p className={cn("mx-4 mt-2 rounded-lg px-3 py-2 text-[12.5px]", msg.ok ? "bg-green-50 text-green-800" : "bg-red-50 text-red-800")}>{msg.text}</p>}
+          <div className="flex flex-col gap-2.5 px-3 pt-2">
+            {!shown.length && <Empty>Nothing here.</Empty>}
+            {shown.map((r) => (
+              <div key={r.id} className="flex gap-2">
+                <Rail from={r.from} to={r.to} />
+                <Card
+                  state={r.status === "pending" ? "waiting" : r.status}
+                  label={r.status === "pending" ? null : r.status === "approved" ? "Approved" : "Declined"}
+                  title={r.places || "Own car"}
+                  sub={`${daysBetween(r.from, r.to) + 1} days`}
+                  amount={r.status === "approved" ? r.approvedAmount : r.asked}
+                  open={open === r.id}
+                  onToggle={() => setOpen(open === r.id ? null : r.id)}
+                >
+                  <CarBody r={r} busy={busy?.id === r.id ? busy.what : null} onApprove={(a) => go(r, "Approve", a)} onDecline={(why) => go(r, "Reject", "", why)} />
+                </Card>
+              </div>
+            ))}
+          </div>
+        </>
+      )}
+    </Page>
+  );
+}
+
+/* --------------------------------- the page -------------------------------- */
+
+export default function ApprovalView({ view, url, token, className }) {
+  const conn = useMemo(() => {
+    try {
+      return url && token ? makeConn({ url, token }) : null;
+    } catch {
+      return null;
+    }
+  }, [url, token]);
+  if (!conn) return <Err msg="Sign in to see approvals." />;
+  return (
+    <div className={className}>
+      {view === "tada" ? <TaDaView conn={conn} /> : view === "nonrep" ? <NonRepView conn={conn} /> : <CarsView conn={conn} />}
+    </div>
+  );
+}
