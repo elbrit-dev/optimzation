@@ -87,7 +87,6 @@ export function MapLocation({ q, value, onChange, disabled, api, response }) {
   const [res, setRes] = useState([]);
   const [searching, setSearching] = useState(false);
   const [findErr, setFindErr] = useState('');
-  const [which, setWhich] = useState(null);
   const [hint, setHint] = useState('');
   const [moved, setMoved] = useState(false);
   /* 25 Nov 2026 · no saved location: where the map starts — the record's locality, else its city (survey_places mode=area) */
@@ -141,7 +140,6 @@ export function MapLocation({ q, value, onChange, disabled, api, response }) {
           .sort((a, b) => a.d - b.d)[0];
         if (at) v.was_place = { id: at.x.id, name: at.x.title || '', url: at.x.url || '', dist: Math.round(at.d) };
       }
-      setWhich(null);
       if (L.multi) {
         /* more than one place: a tap adds one while choosing; a chosen one is taken off with its ✕ */
         if (L.chosen.some((x) => x.place_id === v.place_id)) {
@@ -196,7 +194,6 @@ export function MapLocation({ q, value, onChange, disabled, api, response }) {
     genRef.current += 1;
     setTerm('');
     setRes([]);
-    setWhich(null);
     setNear({ center: null, label: '', places: [], busy: '', full: false, err: '' });
     setArea(null);
     if (start) loadNear(start, 'the doctor’s saved location');
@@ -334,8 +331,9 @@ export function MapLocation({ q, value, onChange, disabled, api, response }) {
     [api, all, choose],
   );
 
-  /* a tap on the map: on a name → that name's place; on one dot → that place;
-     several close together → "Which one did you tap?"; nothing → a hint */
+  /* a tap on the map: on a name → that name's place; on one dot → that place; several close together → the nearest
+     one is chosen and, when they crowd together, the map zooms in a little so another can be tapped exactly
+     (27 Nov 2026: no "Which one?" list — it covered the map); nothing → a hint */
   const tap = useCallback(
     (e) => {
       const map = mapRef.current;
@@ -389,7 +387,20 @@ export function MapLocation({ q, value, onChange, disabled, api, response }) {
       close.forEach((o) => !ids.includes(o.id) && ids.push(o.id));
       if (onName.length === 1 && !close.some((o) => o.d <= 7 && o.id !== onName[0])) return choose(onName[0]);
       if (!onName.length && close.length === 1) return choose(close[0].id);
-      if (ids.length > 1) return setWhich(ids.slice(0, 8));
+      if (ids.length > 1) {
+        const pick = onName[0] || close[0].id;
+        /* crowded: 3 or more under the finger, or 2 almost on top of each other (under 12 px apart) */
+        const a = px(dots[ids[0]].getPosition());
+        const c = px(dots[ids[1]].getPosition());
+        const crowded = ids.length >= 3 || Math.hypot(a.x - c.x, a.y - c.y) < 12;
+        choose(pick);
+        if (crowded && (map.getZoom() || 0) < 20) {
+          map.setZoom(Math.min((map.getZoom() || 0) + 2, 20));
+          map.panTo(dots[pick].getPosition());
+          flash('Zoomed in: tap another place if this isn’t the one.');
+        }
+        return undefined;
+      }
       if (e.placeId) return tapPlace(e.placeId);
       flash(`Tap a red dot or its name to choose that ${live.current.n0}.`);
     },
@@ -606,8 +617,6 @@ export function MapLocation({ q, value, onChange, disabled, api, response }) {
   };
 
   const typed = term.trim();
-  const pool = all();
-  const whichList = (which ?? []).map((id) => pool.find((x) => x.id === id)).filter(Boolean);
   const recs = typed.length >= 2 ? res : near.places;
   const recHead =
     typed.length >= 2
@@ -720,38 +729,13 @@ export function MapLocation({ q, value, onChange, disabled, api, response }) {
             </ul>
           </div>
         ) : null}
-        {/* 27 Nov 2026 · several places under the finger: a small list over the map (it took room under the map before) */}
-        {!disabled && whichList.length > 1 && !showMatches ? (
-          <div role="dialog" aria-label="Which one did you tap?" className="absolute inset-x-2 bottom-2 flex max-h-[calc(100%-4rem)] flex-col overflow-hidden rounded-lg border border-brand bg-surface shadow-md">
-            <div className="flex shrink-0 items-center justify-between gap-2 border-b border-line pl-3">
-              <span className="text-12 font-semibold text-heading">Which one?</span>
-              <button type="button" aria-label="Close" onClick={() => setWhich(null)} className="flex size-9 items-center justify-center text-ds-muted hover:bg-sunken">
-                <Icon name="times" size="sm" />
-              </button>
-            </div>
-            <ul role="listbox" className="flex min-h-0 flex-col overflow-y-auto">
-              {whichList.map((x) => {
-                const on = isOn(x.id);
-                const dd = ref ? mapMeters(ref, x) : null;
-                return (
-                  <li key={x.id} role="option" aria-selected={on}>
-                    <button type="button" onClick={() => choose(x.id)} className={cx('flex min-h-11 w-full items-center gap-2 px-3 text-left hover:bg-brand-tint-weak', on && 'bg-success-wash')}>
-                      <span className="min-w-0 flex-1 truncate text-13 font-semibold text-heading">{x.title}</span>
-                      {dd != null ? <span className="shrink-0 text-11 text-ds-muted">{mapDist(dd)}</span> : null}
-                    </button>
-                  </li>
-                );
-              })}
-            </ul>
-          </div>
-        ) : null}
         {mapErr ? (
           <div className="absolute inset-x-0 bottom-0 top-14 flex items-center justify-center gap-2 p-4 text-center text-12 text-ds-muted">
             <Icon name="map" size="lg" className="shrink-0" />
             <span>{mapErr} You can still search and choose from the list.</span>
           </div>
         ) : null}
-        {moved && !disabled && !showMatches && whichList.length < 2 ? (
+        {moved && !disabled && !showMatches ? (
           <button
             type="button"
             onClick={searchHere}
@@ -761,7 +745,7 @@ export function MapLocation({ q, value, onChange, disabled, api, response }) {
             Search this area
           </button>
         ) : null}
-        {(near.busy || searching) && !showMatches && whichList.length < 2 ? (
+        {(near.busy || searching) && !showMatches ? (
           <div role="status" className="absolute bottom-2.5 left-2.5 flex items-center gap-1.5 rounded-full bg-surface px-3 py-1.5 text-12 text-heading shadow-md">
             <Icon name="spinner pi-spin" size="sm" />
             {near.busy === 'more' ? `Loading all ${n1}…` : `Finding ${n1}…`}
