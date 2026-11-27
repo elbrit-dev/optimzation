@@ -165,10 +165,12 @@ describe('Repeated group', () => {
     expect(screen.getByRole('group', { name: 'Product 1' })).toBeTruthy();
   });
 
-  it('opens with ONE empty entry; Add another shows once it is filled; empty entries are not kept', () => {
+  it('opens with ONE empty entry; Add another is always there; empty entries are not kept', () => {
     const { unmount } = render(<QuestionCard q={grp} index={1} value={undefined} onChange={() => {}} />);
     expect(screen.getByText('Product 1')).toBeTruthy();
-    expect(screen.queryByText('Add another product')).toBeNull();
+    fireEvent.click(screen.getByText('Add another product'));
+    expect(screen.getByRole('group', { name: 'Product 2' })).toBeTruthy();
+    expect(screen.getByText('Product 1')).toBeTruthy();
     unmount();
     render(<QuestionCard q={grp} index={1} value={[{ c1: 'Cardio 10 mg', c2: 40 }, {}, {}]} onChange={() => {}} />);
     expect(screen.getByText('Add another product')).toBeTruthy();

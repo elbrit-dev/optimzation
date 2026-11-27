@@ -851,11 +851,13 @@ function Input({ q, value, onChange, disabled, onUpload, api, response, answers,
    empty entry so the rep just starts filling. */
 function RepeatInput({ q, value: raw, onChange, disabled, onUpload, api, response, showErrors = false }) {
   const value = repeatList(q, raw);
-  /* 27 Nov 2026 · it starts with ONE entry; another appears only when the rep taps "+ Add another …". An entry left
-     empty (an old draft, or one added and never filled) is not kept — except the one just added, being filled now. */
-  const [fresh, setFresh] = useState(false);
+  /* 27 Nov 2026 · it starts with ONE entry; "+ Add another …" is always there and adds an empty entry, even before
+     the first is answered. The answered entries come first, then the empty ones added on this screen; empty entries
+     are never saved (an old draft's empty ones are not shown again). */
   const filled = (Array.isArray(value) ? value : []).filter((r) => r && typeof r === 'object' && Object.values(r).some((x) => !isEmpty(x)));
-  const rows = filled.length ? (fresh ? [...filled, {}] : filled) : [{}];
+  const [blanks, setBlanks] = useState(0);
+  const nb = filled.length ? blanks : Math.max(1, blanks);
+  const rows = [...filled, ...Array.from({ length: nb }, () => ({}))];
   const noun = repeatNoun(q);
   const Noun = noun.charAt(0).toUpperCase() + noun.slice(1);
   const max = Number(q.max) || 50;
@@ -863,14 +865,26 @@ function RepeatInput({ q, value: raw, onChange, disabled, onUpload, api, respons
   /* 27 Nov 2026 · one entry open at a time (its questions, its map); the others are one line each — tap to edit */
   const [open, setOpen] = useState(() => rows.length - 1);
   const openI = Math.min(open, rows.length - 1);
+  const hasAny = (r) => Object.values(r).some((x) => !isEmpty(x));
   const setOne = (i, id, v) => {
-    if (fresh && i === rows.length - 1 && !isEmpty(v)) setFresh(false);
-    onChange(rows.map((r, j) => (j === i ? { ...r, [id]: v } : r)));
+    const row = { ...rows[i], [id]: v };
+    const keep = filled.filter((_, j) => j !== i);
+    if (i >= filled.length && hasAny(row)) {
+      /* an empty entry gets its first answer: it joins the answered ones (kept open) */
+      setBlanks(Math.max(0, nb - 1));
+      setOpen(filled.length);
+      onChange([...filled, row]);
+    } else if (i < filled.length && !hasAny(row)) {
+      /* an answered entry is cleared: it stays on screen as an empty one (kept open) */
+      setBlanks(nb + 1);
+      setOpen(keep.length + nb);
+      onChange(keep.length ? keep : null);
+    } else if (i < filled.length) onChange(filled.map((r, j) => (j === i ? row : r)));
   };
   const drop = (i) => {
-    if (fresh && i === rows.length - 1) setFresh(false);
-    const next = rows.filter((_, j) => j !== i);
-    setOpen(Math.max(0, Math.min(open > i ? open - 1 : open, next.length - 1)));
+    const next = i < filled.length ? filled.filter((_, j) => j !== i) : filled;
+    if (i >= filled.length) setBlanks(Math.max(0, nb - 1));
+    setOpen(Math.max(0, Math.min(open > i ? open - 1 : open, rows.length - 2)));
     onChange(next.length ? next : null);
   };
   /* a photo / file (read by the AI) and a map get "<group id>.<question id>", so their reads and map keep apart */
@@ -936,12 +950,12 @@ function RepeatInput({ q, value: raw, onChange, disabled, onUpload, api, respons
         </div>
         ),
       )}
-      {disabled || rows.length >= max || fresh || !filled.length ? null : (
+      {disabled || rows.length >= max ? null : (
         <button
           type="button"
           onClick={() => {
             setOpen(rows.length);
-            setFresh(true);
+            setBlanks(nb + 1);
           }}
           className="flex h-10 items-center gap-1.5 self-start rounded-lg border border-dashed border-brand px-3 text-13 font-semibold text-brand-text hover:bg-brand-tint-weak"
         >
