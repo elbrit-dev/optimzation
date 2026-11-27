@@ -658,6 +658,11 @@ export function MapLocation({ q, value, onChange, disabled, api, response }) {
     );
   };
   const showMatches = !disabled && typed.length >= 2;
+  /* 27 Nov 2026 · when the matches open, the search goes to the top of the screen so the list fits above the
+     Save / Submit bar */
+  useEffect(() => {
+    if (showMatches) boxRef.current?.scrollIntoView?.({ block: 'start', behavior: 'smooth' });
+  }, [showMatches]);
   const chips = !disabled && !showMatches ? near.places.slice(0, 15) : [];
 
   return (
@@ -692,7 +697,7 @@ export function MapLocation({ q, value, onChange, disabled, api, response }) {
 
       {/* 27 Nov 2026 · while matches are listed the box grows to fit them (inside 230 px on a phone only 2 showed) */}
       <div className={cx('relative overflow-hidden rounded-lg border border-line bg-sunken', showMatches ? 'min-h-[300px] max-sm:min-h-[230px]' : 'h-[300px] max-sm:h-[230px]')}>
-        <div ref={boxRef} className="absolute inset-0" role="region" aria-label={`Map of ${n1} — tap one to choose it`} />
+        <div ref={boxRef} className="absolute inset-0 scroll-mt-2" role="region" aria-label={`Map of ${n1} — tap one to choose it`} />
         {disabled ? null : (
           <div className="absolute inset-x-2 top-2 flex gap-2">
             <label className="relative min-w-0 flex-1">
@@ -718,7 +723,7 @@ export function MapLocation({ q, value, onChange, disabled, api, response }) {
         {showMatches ? (
           <div role="region" aria-label={`Matching ${n1}`} className="relative mx-2 mb-2 mt-14 flex flex-col overflow-hidden rounded-lg bg-surface shadow-md">
             <p className="shrink-0 border-b border-line px-3 py-1.5 text-12 font-semibold text-body">{recHead}</p>
-            <ul role="listbox" className="flex max-h-[min(60vh,440px)] min-h-0 flex-col overflow-y-auto p-1">
+            <ul role="listbox" className="flex max-h-[max(11rem,calc(100dvh-22rem))] min-h-0 flex-col overflow-y-auto p-1">
               {res.map((x) => row(x, false))}
               {searching ? (
                 <li className="flex items-center gap-1.5 px-2.5 py-2 text-12 text-ds-muted">
