@@ -99,8 +99,14 @@ const tripYearDate = (iso, from, to) => {
   }
   return null;
 };
-const YEAR_OFF = (iso, fixed) =>
-  `The year on this bill reads as ${iso.slice(0, 4)}, not ${fixed.slice(0, 4)}. Check the date below (${shortDate(fixed)} ${fixed.slice(0, 4)}) before adding it.`;
+/* 27 Nov 2026 (the user): no date guessing in our code. When the AI is not sure of the
+   date (or its date needs a fix), keep what it read and ask the rep for the date only --
+   pre-filled with the AI's date when that falls inside the trip. */
+const ASK_DATE = "Check the date on this bill and set it below.";
+function askDate(read, kind) {
+  const r = unreadable(read, kind, ASK_DATE);
+  return { ...r, askDate: true, prefill: { ...r.prefill, kind, askDate: true } };
+}
 
 /* The first night a hotel bill may count on the trip: the ARRIVAL NIGHT
    (trip.eve, the night before its first day -- the rep travelled out the day
@@ -230,19 +236,16 @@ export function tripBillVerdict(read, slot, trip) {
   // typed is checked against the trip. A date off by its YEAR only goes to
   // hand entry too, with the trip's year filled in (tripYearDate).
   if (!read.handwritten && slot !== "stays" && ISO.test(String(v.date || "")) && sure(conf.date) && (v.date < trip.from || v.date > trip.to)) {
-    const fixed = tripYearDate(v.date, trip.from, trip.to);
-    if (fixed) return unreadable({ ...read, values: { ...v, date: fixed } }, s.kind, YEAR_OFF(v.date, fixed));
+    // was: a year-fix guess (tripYearDate) into hand entry (27 Nov 2026: ask the rep instead)
+    if (tripYearDate(v.date, trip.from, trip.to) && typeof v.total === "number" && v.total > 0 && sure(conf.total)) return askDate(read, s.kind);
     return { ok: false, reason: `This bill is dated ${billDay(v.date, trip)} — outside ${outsideWhat(slot)} (${span(trip.from, trip.to)}).` };
   }
   if (!read.handwritten && slot === "stays") {
     const ci = ISO.test(String(v.check_in || "")) && sure(conf.check_in) ? v.check_in : null;
     const co = ISO.test(String(v.check_out || "")) && sure(conf.check_out) ? v.check_out : null;
     if (ci && co && (co <= stayFrom(trip) || ci > trip.to)) {
-      const fci = tripYearDate(ci, stayFrom(trip), trip.to);
-      if (fci) {
-        const fco = `${fci.slice(0, 4)}${co.slice(4)}` > fci ? `${fci.slice(0, 4)}${co.slice(4)}` : addDays(fci, 1);
-        return unreadable({ ...read, values: { ...v, check_in: fci, check_out: fco } }, s.kind, YEAR_OFF(ci, fci));
-      }
+      // was: a year-fix guess into hand entry (27 Nov 2026: the rep sets the stay dates)
+      if (tripYearDate(ci, stayFrom(trip), trip.to) && typeof v.total === "number" && v.total > 0 && sure(conf.total)) return askDate(read, s.kind);
       return { ok: false, reason: `This stay is ${span(ci, addDays(co, -1))}${ci.slice(0, 4) !== trip.from.slice(0, 4) ? ` ${ci.slice(0, 4)}` : ""} — outside this trip (${span(stayFrom(trip), trip.to)}).` };
     }
   }
@@ -271,7 +274,8 @@ export function tripBillVerdict(read, slot, trip) {
     if (!checkIn && !checkOut) {
       // no stay dates printed: the bill's own date, usually made out at
       // check-out -- the night before it, else that day itself
-      if (!ISO.test(String(v.date || "")) || !sure(conf.date)) return unreadable(read, s.kind);
+      // 27 Nov 2026: an unsure date -> the rep sets the stay dates (was: unreadable -> full hand entry)
+      if (!ISO.test(String(v.date || "")) || !sure(conf.date)) return askDate(read, s.kind);
       const prev = addDays(v.date, -1);
       checkIn = prev >= stayFrom(trip) && prev <= trip.to ? prev : v.date;
       checkOut = addDays(checkIn, 1);
@@ -286,10 +290,11 @@ export function tripBillVerdict(read, slot, trip) {
     return { ...base, amount: Math.round((billed * nights.length) / all.length), date: nights[0], nights, checkIn, checkOut };
   }
 
-  if (!ISO.test(String(v.date || "")) || !sure(conf.date)) return unreadable(read, s.kind);
+  // 27 Nov 2026: an unsure date -> the rep sets it (was: unreadable -> full hand entry)
+  if (!ISO.test(String(v.date || "")) || !sure(conf.date)) return askDate(read, s.kind);
   if (v.date < trip.from || v.date > trip.to) {
-    const fixed = tripYearDate(v.date, trip.from, trip.to);
-    if (fixed) return unreadable({ ...read, values: { ...v, date: fixed } }, s.kind, YEAR_OFF(v.date, fixed));
+    // was: a year-fix guess (tripYearDate) into hand entry
+    if (tripYearDate(v.date, trip.from, trip.to)) return askDate(read, s.kind);
     return { ok: false, reason: `This bill is dated ${billDay(v.date, trip)} — outside ${outsideWhat(slot)} (${span(trip.from, trip.to)}).` };
   }
   return { ...base, amount: billed, date: v.date, nights: [] };

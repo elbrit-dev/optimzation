@@ -291,6 +291,8 @@ export function FieldExpensesProvider({ children }) {
       helpOf: (trip) => helpList.filter((t) => t.from === trip.from && t.to === trip.to),
       helpFor: (trip) => helpSummary(helpList.filter((t) => t.from === trip.from && t.to === trip.to)),
       helpSeenTick: help.seen,
+      // every request of the month (the Help card, 27 Nov 2026)
+      helpAll: helpList,
       requests: liveRequests,
       plans,
       manager,
@@ -313,7 +315,9 @@ export function FieldExpensesProvider({ children }) {
 
   // from: "local" -- opened from the HQ & EQ days list, closing goes back there
   const openTrip = useCallback((id, from) => setSheet({ kind: "trip", id, ...(from ? { from } : {}) }), []);
-  const openLocal = useCallback(() => setSheet({ kind: "local" }), []);
+  // opts.ids: only these trips (an HQ & EQ card's run of days, 27 Nov 2026)
+  const openLocal = useCallback((opts) => setSheet({ kind: "local", ...(opts?.ids ? { ids: opts.ids } : {}) }), []);
+  const openHelp = useCallback((opts) => setSheet({ kind: "help", ...(opts || {}) }), []);
   /* opts: { tripId } a travelled trip, { planId } a planned one, { draft } a recalled request's values */
   const openCarRequest = useCallback((opts = {}) => setSheet({ kind: "car", ...(typeof opts === "string" ? { tripId: opts } : opts || {}) }), []);
   const openRequest = useCallback((id) => setSheet({ kind: "request", id }), []);
@@ -321,7 +325,7 @@ export function FieldExpensesProvider({ children }) {
   // date: open straight on that day's form
   const openNonReport = useCallback((date) => setSheet({ kind: "nonreport", ...(date ? { date } : {}) }), []);
   const openCab = useCallback(() => setSheet({ kind: "cab" }), []);
-  const closeSheet = useCallback(() => setSheet((s) => (s?.from === "local" ? { kind: "local" } : null)), []);
+  const closeSheet = useCallback(() => setSheet((s) => (s?.from === "local" ? { kind: "local", ...(s.ids ? { ids: s.ids } : {}) } : null)), []);
   const toggleStrip = useCallback(() => setStripOpen((v) => !v), []);
 
   /* one hotel bill over several cards (23 Nov 2026): whenever the trips or
@@ -393,7 +397,7 @@ export function FieldExpensesProvider({ children }) {
   );
 
   return (
-    <FieldContext.Provider value={{ ...value, actions, openTrip, openLocal, openCarRequest, openRequest, openKpi, openNonReport, openCab, closeSheet, toggleStrip }}>
+    <FieldContext.Provider value={{ ...value, actions, openTrip, openLocal, openHelp, openCarRequest, openRequest, openKpi, openNonReport, openCab, closeSheet, toggleStrip }}>
       {children}
     </FieldContext.Provider>
   );

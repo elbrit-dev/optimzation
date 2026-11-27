@@ -84,7 +84,8 @@ import {
   HELP_FILE_MAX,
 } from "@calendar/lib/field-expenses/trip-help";
 import { NonReportCard, NonReportDayRow, NonReportSheet } from "@calendar/components/calendar/field/field-nonreport";
-import { CabCard, CabSheet } from "@calendar/components/calendar/field/field-cab";
+import { CabSheet } from "@calendar/components/calendar/field/field-cab";
+import { BlockCard, CarCabCard, HelpCard, HelpSheet, OwnCarSection, blocksOf, useCarCab, useFuelUpload } from "@calendar/components/calendar/field/field-cards";
 
 const MONTH_LONG = ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"];
 const monthName = (ym) => MONTH_LONG[Number(ym.slice(5, 7)) - 1];
@@ -214,17 +215,20 @@ export function FieldStrip() {
                 ABM's OS trips -- 14 Nov 2026), then the trips with bill uploads:
                 outstation by date (earliest first), an EQ day with its own car
                 after them, the month's summary last; each card says OS / EQ */}
-            {f.claimed.some(isLocalTrip) && <LocalCard items={f.claimed.filter(isLocalTrip)} onOpen={f.openLocal} />}
+            {/* 27 Nov 2026 (the user): 1 Help, 2 Car · Ola · Uber, then the trips by date
+                (an OS card each, an HQ & EQ card per run of local days), the summary last.
+                Was: LocalCard, NonReportCard, CabCard, the OS TripCards, the rest. */}
+            <HelpCard />
+            <CarCabCard />
             {/* the working days with nothing on record (19 Nov 2026): say what was done */}
             <NonReportCard />
-            {/* SM / ZSM: the month's cab bills, apart from TA/DA (20 Nov 2026) */}
-            <CabCard />
-            {[(x) => x.trip.kind === "tour", (x) => x.trip.kind !== "tour"].flatMap((pick) =>
-              f.claimed
-                .filter((x) => !isLocalTrip(x) && pick(x))
-                .sort((p, q) => p.trip.from.localeCompare(q.trip.from))
-                .map((x) => <TripCard key={x.trip.id} item={x} onOpen={() => f.openTrip(x.trip.id)} />)
-            )}
+            {blocksOf(f.claimed, isLocalTrip).map((b) => (
+              <BlockCard
+                key={b.id}
+                block={b}
+                onOpen={() => (b.items.length === 1 ? (b.kind === "local" ? f.openLocal({ ids: [b.items[0].trip.id] }) : f.openTrip(b.items[0].trip.id)) : f.openLocal({ ids: b.items.map((x) => x.trip.id) }))}
+              />
+            ))}
             <MonthCard month={m} closed={f.month < thisMonth()} stats={f.stats} claimed={f.claimed} pulledAt={f.data?.pulledAt} onOpen={f.openKpi} />
           </div>
           {PREVIEW && (
@@ -342,7 +346,8 @@ function LocalCard({ items, onOpen }) {
    into the month's claim at once. */
 function LocalDaysSheet() {
   const f = useFieldExpenses();
-  const items = f.claimed.filter(isLocalTrip).sort((a, b) => a.trip.from.localeCompare(b.trip.from));
+  const only = f.sheet?.ids ? new Set(f.sheet.ids) : null;
+  const items = f.claimed.filter((x) => isLocalTrip(x) && (!only || only.has(x.trip.id))).sort((a, b) => a.trip.from.localeCompare(b.trip.from));
   const open = items.filter((x) => x.claim.status === "unclaimed" && x.calc.total > 0 && !x.calc.carBlock);
   const openTotal = open.reduce((a, x) => a + x.calc.total, 0);
   const allTotal = items.reduce((a, x) => a + x.calc.total, 0);
@@ -884,12 +889,41 @@ function FieldSheets() {
         <ModalContent className={cls}>{kind === "nonreport" && <NonReportSheet key={f.sheet?.date || "list"} />}</ModalContent>
       </Modal>
       <Modal side={side} open={kind === "cab"} onOpenChange={close}>
-        <ModalContent className={cls}>{kind === "cab" && <CabSheet />}</ModalContent>
+        <ModalContent className={cls}>{kind === "cab" && <CarCabSheet />}</ModalContent>
+      </Modal>
+      <Modal side={side} open={kind === "help"} onOpenChange={close}>
+        <ModalContent className={cls}>{kind === "help" && <HelpSheet TripHelp={TripHelp} />}</ModalContent>
       </Modal>
       <Modal side={side} open={kind === "kpi"} onOpenChange={close}>
         <ModalContent className={cls}>{kind === "kpi" && <KpiSheet />}</ModalContent>
       </Modal>
     </>
+  );
+}
+
+/* Car · Ola · Uber (27 Nov 2026): the own car (request, limit, fuel bills) on top,
+   the ride bills (SM, ZSM) below -- one Add bill for both. An RBM sees the car only. */
+function CarCabSheet() {
+  const f = useFieldExpenses();
+  const c = useCarCab();
+  const fuel = useFuelUpload(c);
+  if (f.canCab)
+    return (
+      <>
+        {fuel.input}
+        <CabSheet title={f.canCar ? "Car · Ola · Uber" : "Ola · Uber · Rapido"} top={<OwnCarSection c={c} />} onAddFuel={f.canCar && c.approved.length ? fuel.add : null} />
+        {fuel.sheet}
+      </>
+    );
+  return (
+    <div className="-mx-4 flex min-h-0 flex-1 flex-col overflow-hidden">
+      {fuel.input}
+      <div className="flex min-h-0 flex-1 flex-col gap-3 overflow-y-auto overscroll-contain px-4 pb-4">
+        <ModalTitle className="pr-10 text-[20px] font-extrabold text-gray-900">Own car</ModalTitle>
+        <OwnCarSection c={c} onAddFuel={fuel.add} />
+      </div>
+      {fuel.sheet}
+    </div>
   );
 }
 
@@ -1289,15 +1323,21 @@ const HELP_TOPICS = [
   { k: "other", label: "Something else", Icon: Ellipsis, hint: "Tell us what is wrong" },
 ];
 
-function TripHelp({ item, day = false }) {
+// bare (27 Nov 2026, the Help sheet): no bar, opened at once on initialChat (or a new
+// request); onClose when it shuts
+function TripHelp({ item, day = false, bare = false, initialChat = null, onClose = null }) {
   const f = useFieldExpenses();
   const { trip, calc, claim } = item;
-  const [open, setOpen] = useState(false);
+  const [open, setOpen0] = useState(bare);
+  const setOpen = (v) => {
+    setOpen0(v);
+    if (!v && onClose) onClose();
+  };
   const [busy, setBusy] = useState(false);
   // the rep's requests on this trip, in full: null = loading, [] = none
   const [tasks, setTasks] = useState(null);
   const [loadError, setLoadError] = useState("");
-  const [chat, setChat] = useState(null); // the request open as a chat
+  const [chat, setChat] = useState(initialChat); // the request open as a chat
   const [topic, setTopic] = useState("da");
   const [text, setText] = useState("");
   const firstDay = (trip.days.find((d) => d.payable) || trip.days[0])?.date || trip.from;
@@ -1399,7 +1439,7 @@ function TripHelp({ item, day = false }) {
   const open1 = chat && (tasks || []).find((x) => x.name === chat);
   return (
     <>
-      <button
+      {!bare && <button
         type="button"
         onClick={() => setOpen(true)}
         className={cn(
@@ -1416,7 +1456,7 @@ function TripHelp({ item, day = false }) {
         <span className={cn("flex shrink-0 items-center font-extrabold", day ? "text-[12.5px]" : "text-[13px]")}>
           {st ? "Open" : "Help"} <ChevronRight className="h-4 w-4" aria-hidden />
         </span>
-      </button>
+      </button>}
       {open && (
         // fixed inside the sheet (its panel is transformed): covers the sheet only
         <div className="fixed inset-0 z-30 flex items-end bg-black/40 backdrop-blur-[1px]" onClick={busy ? undefined : () => setOpen(false)}>
