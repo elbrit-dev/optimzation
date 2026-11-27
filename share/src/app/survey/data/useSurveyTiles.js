@@ -15,17 +15,21 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { createSurveyApi } from '../api';
 import { surveyTiles } from './tiles';
 import { reviewTile } from '../components/MapReview';
+import { approveTile } from '../components/ApprovalQueue';
 import { DEFAULT_REFRESH_MS } from '@/app/ring-nav/data/useErpTiles';
 
 const MIN_WAKE_MS = 60 * 1000;
 const last = new Map();
 const lastReview = new Map();
+const lastApprove = new Map();
 
 export function useSurveyTiles({ enabled, gqlEnvironment = 'ERP', gqlToken, today, refreshEvery, hrefBase = '/survey' }) {
   const key = `${gqlEnvironment}|${gqlToken ?? ''}`;
   const [list, setList] = useState(() => last.get(key) ?? null);
   /* 25 Nov 2026 · managers: their team's map locations to review (survey_map_review) → a "To review" circle */
   const [review, setReview] = useState(() => lastReview.get(key) ?? null);
+  /* 27 Nov 2026 · approvers: answers waiting for them (survey_approval) → a "To approve" circle, as the artifact's Approver */
+  const [approve, setApprove] = useState(() => lastApprove.get(key) ?? null);
   const lastFetch = useRef(0);
 
   useEffect(() => {
@@ -33,6 +37,7 @@ export function useSurveyTiles({ enabled, gqlEnvironment = 'ERP', gqlToken, toda
     let stale = false;
     setList(last.get(key) ?? null);
     setReview(lastReview.get(key) ?? null);
+    setApprove(lastApprove.get(key) ?? null);
     const api = createSurveyApi({ source: 'erp', gqlEnvironment, gqlToken });
     const load = async () => {
       lastFetch.current = Date.now();
@@ -50,6 +55,14 @@ export function useSurveyTiles({ enabled, gqlEnvironment = 'ERP', gqlToken, toda
         if (!stale) setReview(rv);
       } catch (error) {
         console.warn('[RingNav] could not load the reviews.', error);
+      }
+      try {
+        const [p, d] = await Promise.all([api.approval({ action: 'list', which: 'pending' }), api.approval({ action: 'list', which: 'done' })]);
+        const ap = { loaded: true, items: p?.items ?? [], done: d?.items ?? [] };
+        lastApprove.set(key, ap);
+        if (!stale) setApprove(ap);
+      } catch (error) {
+        console.warn('[RingNav] could not load the approvals.', error);
       }
     };
     load();
@@ -69,11 +82,12 @@ export function useSurveyTiles({ enabled, gqlEnvironment = 'ERP', gqlToken, toda
   }, [enabled, key, gqlEnvironment, gqlToken, refreshEvery]);
 
   return useMemo(() => {
-    if (!enabled || (!list && !review)) return NONE;
+    if (!enabled || (!list && !review && !approve)) return NONE;
     const rt = reviewTile(review, { hrefBase });
+    const at = approveTile(approve, { hrefBase });
     const day = today || list?.today || new Date().toISOString().slice(0, 10);
-    return [...(list ? surveyTiles(list, day, { hrefBase }) : []), ...(rt ? [rt] : [])];
-  }, [enabled, list, review, today, hrefBase]);
+    return [...(list ? surveyTiles(list, day, { hrefBase }) : []), ...(rt ? [rt] : []), ...(at ? [at] : [])];
+  }, [enabled, list, review, approve, today, hrefBase]);
 }
 
 const NONE = [];
