@@ -433,6 +433,7 @@ export function tripChecks(trip, claim, calc) {
   if (p?.on) {
     out.push({
       ok: true,
+      pool: true, // the trip sheet shows this in its Outstation DA block (27 Nov 2026)
       text: `Stay + food ₹${fmt(p.bills)} → DA ₹${fmt(p.paid)}${p.topUp ? ` (+₹${fmt(p.topUp)} to 50 %)` : ""}${p.capped ? ` (−₹${fmt(p.capped)} over 100 %)` : ""}${p.unpaid ? ` · ₹${fmt(p.unpaid)} not on DA days` : ""}.`,
     });
   } else if (calc.missingStayBills) {

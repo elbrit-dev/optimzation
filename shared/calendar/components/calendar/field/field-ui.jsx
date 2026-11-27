@@ -66,7 +66,7 @@ import { readTripBill } from "@calendar/lib/field-expenses/bill-reader";
 import { addTripToMonth, addTripsToMonth, monthWord, removeTripFromMonth, tripClaimRows } from "@calendar/lib/field-expenses/erp-claim";
 import { CarRequestSheet, KpiSheet, RequestSheet } from "@calendar/components/calendar/field/field-sheets";
 import { BILL_NAME, BillChip, BillEditor, ChipButton, ManualBill, useBillPicker } from "@calendar/components/calendar/field/field-bills";
-import { useTripBillViewer } from "@calendar/components/calendar/field/field-bill-view";
+import { BillTiles, useTripBillViewer } from "@calendar/components/calendar/field/field-bill-view";
 import {
   HELP_STATE,
   askedText,
@@ -1988,21 +1988,8 @@ function TripSheet({ item }) {
       {calc.billsAllowed && calc.stayBills + calc.foodBills > 0 && (
         <div>
           <span className={sectionLabel}>DA bills · stay &amp; food</span>
-          <div className="mt-2 flex flex-wrap gap-2">
-            {["stays", "foods"].flatMap((kind) =>
-              (claim[kind] || []).map((b) => (
-                <BillChip key={b.id} kind={kind} bill={b} on={editing?.id === b.id} readOnly={!editable} onClick={() => setEditing(editing?.id === b.id ? null : { kind, id: b.id })} />
-              ))
-            )}
-          </div>
-          {editable && (editing?.kind === "stays" || editing?.kind === "foods") && (
-            <BillEditor
-              key={editing.id}
-              bill={(claim[editing.kind] || []).find((b) => b.id === editing.id)}
-              kind={editing.kind}
-              onRemove={() => removeBill(editing.kind, editing.id)}
-            />
-          )}
+          {/* 27 Nov 2026 (the user): the bills as pictures; a tap opens the bill, Remove is there */}
+          <BillTiles claim={claim} kinds={["stays", "foods"]} editable={editable} onRemove={(kind, id) => run(`rm-${id}`, () => f.actions.removeBill(trip.id, kind, id), "Bill removed")} />
           {/* the night before the trip's first day, on a hotel bill (23 Nov 2026) */}
           {calc.eveNight && (
             <p className="mt-2 flex items-start gap-1.5 text-[12.5px] leading-snug text-gray-700">
@@ -2012,12 +1999,11 @@ function TripSheet({ item }) {
               }.`}
             </p>
           )}
-          {calc.nights.length > 0 && calc.pool?.on && (
+          {/* the day-off amount is in the Outstation DA block; only a night with no stay bill is said here */}
+          {calc.nights.length > 0 && calc.pool?.on && nextNight && calc.stayBills > 0 && (
             <p className="mt-2 flex items-start gap-1.5 text-[12.5px] leading-snug text-gray-500">
               <Info className="mt-0.5 h-4 w-4 shrink-0" aria-hidden />
-              {[calc.pool.unpaid ? `${inr(calc.pool.unpaid)} not paid · day off` : null, nextNight && calc.stayBills > 0 ? `No stay bill · ${dayLabel(nextNight.date)}` : null]
-                .filter(Boolean)
-                .join(" · ") || "Held to the trip's full DA"}
+              {`No stay bill · ${dayLabel(nextNight.date)}`}
             </p>
           )}
         </div>
@@ -2049,7 +2035,8 @@ function TripSheet({ item }) {
 
       {/* checks that send it to a reviewer */}
       {checks
-        .filter((c) => c.level === "review" || c.ok)
+        // the stay + food line is the Outstation DA block above (27 Nov 2026)
+        .filter((c) => (c.level === "review" || c.ok) && !c.pool)
         .map((c, i) => (
           <p key={i} className={cn("flex items-start gap-2 rounded-2xl px-3 py-2.5 text-[12.5px] leading-snug", c.ok ? "bg-green-50 text-green-800" : "bg-amber-50 text-amber-800")}>
             {c.ok ? <ShieldCheck className="mt-0.5 h-4 w-4 shrink-0" /> : <Eye className="mt-0.5 h-4 w-4 shrink-0" />}
