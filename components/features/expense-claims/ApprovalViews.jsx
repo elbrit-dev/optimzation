@@ -164,7 +164,7 @@ function Split({ wide, items, open, setOpen, bottom }) {
 
 function Page({ title, month, onMonth, children }) {
   return (
-    <div className="mx-auto flex min-h-full w-full max-w-[560px] flex-col lg:max-w-none bg-[#f6f7f9] pb-6 font-[Inter,system-ui,sans-serif] text-gray-900">
+    <div className="mx-auto flex min-h-full w-full flex-col lg:max-w-none bg-[#f6f7f9] pb-6 font-[Inter,system-ui,sans-serif] text-gray-900">
       <div className="flex items-center gap-2 bg-white px-4 pb-2 pt-4">
         <h1 className="text-[22px] font-extrabold tracking-tight">{title}</h1>
         {month && (
@@ -756,11 +756,14 @@ function nrSummary(r) {
   }
   return [docs ? `${docs} visit${docs > 1 ? "s" : ""}` : null, meet ? `${meet > 1 ? meet + " meetings" : "meeting"}` : null, ...other].filter(Boolean).join(" + ") || "Day";
 }
+const titleCase = (x) => String(x || "").toLowerCase().replace(/\b\w/g, (c) => c.toUpperCase());
 function nrTowns(r) {
-  const t = new Set();
-  for (const e of r.entries || []) for (const d of e.doctors || []) t.add(d.city || nrHq(e.hq));
-  for (const e of r.entries || []) if (e.type !== "doctor_visit" && e.hq) t.add(nrHq(e.hq));
-  return [...t].filter(Boolean);
+  // title case, each town once ("TRISSUR" and "Trissur" are one)
+  const t = new Map();
+  const add = (x) => x && !t.has(String(x).toLowerCase()) && t.set(String(x).toLowerCase(), titleCase(x));
+  for (const e of r.entries || []) for (const d of e.doctors || []) add(d.city || nrHq(e.hq));
+  for (const e of r.entries || []) if (e.type !== "doctor_visit" && e.hq) add(nrHq(e.hq));
+  return [...t.values()];
 }
 function NrBody({ r, busy, onApprove, onReject }) {
   return (
@@ -769,7 +772,7 @@ function NrBody({ r, busy, onApprove, onReject }) {
         if (e.type === "doctor_visit") {
           const byTown = new Map();
           for (const d of e.doctors || []) {
-            const k = d.city || nrHq(e.hq) || "—";
+            const k = titleCase(d.city || nrHq(e.hq)) || "—";
             if (!byTown.has(k)) byTown.set(k, []);
             byTown.get(k).push(d.name);
           }
@@ -1057,7 +1060,12 @@ export default function ApprovalView({ view, url, token, className }) {
   }, [url, token]);
   if (!conn) return <Err msg="Sign in to see approvals." />;
   return (
-    <div ref={ref} className={className} style={box ? { width: box.width, marginLeft: box.marginLeft, maxWidth: "none" } : undefined}>
+    // a phone (27 Nov 2026): edge to edge -- the page's own side padding left gaps both sides
+    <div
+      ref={ref}
+      className={className}
+      style={box ? { width: box.width, marginLeft: box.marginLeft, maxWidth: "none" } : !wide ? { width: "100vw", marginLeft: "calc(50% - 50vw)", maxWidth: "none" } : undefined}
+    >
       {view === "tada" ? <TaDaView conn={conn} /> : view === "nonrep" ? <NonRepView conn={conn} /> : <CarsView conn={conn} />}
     </div>
   );
