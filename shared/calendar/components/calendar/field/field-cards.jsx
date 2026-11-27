@@ -114,6 +114,12 @@ export function BlockCard({ block, onOpen }) {
   const ta = items.reduce((a, x) => a + x.calc.ta, 0);
   const da = items.reduce((a, x) => a + x.calc.da, 0);
   const total = items.reduce((a, x) => a + x.calc.total, 0);
+  /* part sent (27 Nov 2026): some days already claimed / approved, some not -- the card shows
+     what is still to claim, not the whole block as "Not claimed" */
+  const left = items.filter((x) => x.claim.status === "unclaimed");
+  const part = left.length > 0 && left.length < items.length;
+  const leftDays = left.reduce((a, x) => a + x.trip.days.filter((d) => d.payable).length, 0);
+  const leftTotal = left.reduce((a, x) => a + x.calc.total, 0);
   // the DA's full limit while bills can still add to it
   const one = items.length === 1 ? items[0].calc : null;
   const gap = S.act && one && one.billsAllowed && one.nights.length > 0 && !one.fullNoBill ? Math.max(0, (one.pool?.full || 0) - (one.pool?.paid || 0)) : 0;
@@ -144,7 +150,7 @@ export function BlockCard({ block, onOpen }) {
     <button type="button" onClick={onOpen} className={cn(CARD, S.edge)} title={`${place} · ${spanLabel(block.from, block.to)} · ${S.label}`}>
       <span className="flex items-center gap-1.5">
         {tag}
-        <StatePill k={k} />
+        <StatePill k={k} label={part ? `${leftDays} day${leftDays > 1 ? "s" : ""} to claim` : undefined} />
       </span>
       <span className="mt-1.5 flex items-center gap-1.5">
         <b className="whitespace-nowrap text-[15px] font-extrabold tracking-tight text-gray-900">{spanLabel(block.from, block.to)}</b>
@@ -166,9 +172,9 @@ export function BlockCard({ block, onOpen }) {
           {gap > 0 && <i className="ml-0.5 text-[10px] font-semibold not-italic text-gray-400">/{inr(da + gap).slice(1)}</i>}
         </Fig>
         <span className="flex min-w-0 flex-col items-end justify-end">
-          <small className="mb-0.5 text-[8.5px] font-bold uppercase leading-[11px] tracking-wide text-gray-400">Total</small>
+          <small className="mb-0.5 text-[8.5px] font-bold uppercase leading-[11px] tracking-wide text-gray-400">{part ? "To claim" : "Total"}</small>
           <b className={cn("flex h-[19px] items-center text-[14px] font-extrabold", S.total)}>
-            {inr(total)}
+            {inr(part ? leftTotal : total)}
             <span className="ml-px text-gray-400">›</span>
           </b>
         </span>
@@ -618,7 +624,9 @@ export function FieldBarSummary({ isLocalTrip, month, toClaim }) {
       </span>
       <span className="flex-1" />
       {toClaim > 0 ? (
-        <b className="shrink-0 text-[13px] font-extrabold text-pink-600">{inr(toClaim)}</b>
+        <b className="shrink-0 whitespace-nowrap text-[13px] font-extrabold text-pink-600">
+          {inr(toClaim)} <small className="text-[11px] font-bold">to claim</small>
+        </b>
       ) : all > 0 && sent === all ? (
         <b className="shrink-0 text-[12px] font-extrabold text-green-700">All sent</b>
       ) : null}
