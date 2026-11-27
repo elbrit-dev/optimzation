@@ -31,7 +31,7 @@
 
 import { AUTH_CONFIG } from "@calendar/components/auth/calendar-users";
 import { DAY_TYPE_LABEL, dayLabel, fareBasis } from "@calendar/lib/field-expenses/field-days";
-import { stayShares } from "@calendar/lib/field-expenses/claim-rules";
+import { stayShares, ticketDay } from "@calendar/lib/field-expenses/claim-rules";
 import { parseTripTag, tripTag } from "../../../../components/features/expense-claims/fieldTrips";
 
 const api = () => import("../../../../components/features/expense-claims/data/claimsApi");
@@ -87,7 +87,7 @@ export function tripClaimRows(trip, claim, calc, data) {
       if (rest > 0)
         rows.push({ date: d.date, type: "Travel", sub: "", note: `TA · ${dayLabel(d.date)} · local run (the journey is paid by ticket below)`, amount: rest });
       const lines = (claim.travels || [])
-        .filter((b) => b.date === d.date)
+        .filter((b) => ticketDay(trip, b.date) === d.date)
         .map((b) => ({ b, type: "Travel", note: `TA by ticket · ${b.vendor || "train / bus"} · ${dayLabel(d.date)} · tickets ₹${tk.tickets} over the fare ₹${tk.base} (+₹${tk.extra})` }));
       rows.push(...billRows(lines, tk.tickets, "capped"));
     }

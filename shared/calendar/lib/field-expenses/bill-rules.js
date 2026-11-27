@@ -112,6 +112,10 @@ function askDate(read, kind) {
    (trip.eve, the night before its first day -- the rep travelled out the day
    before, holiday or not; 23 Nov 2026), else the trip's first day. Stays only. */
 const stayFrom = (trip) => (trip?.eve && trip.eve === addDays(trip.from, -1) ? trip.eve : trip.from);
+/* 27 Nov 2026 (the user): a train / bus ticket may be dated from the day BEFORE the
+   trip (a night bus / train out) to its last day; it counts against the trip's first
+   day's journey fare (claim-rules.js ticketDay). Other bills keep the trip's dates. */
+const billWin = (slot, trip) => (slot === "travels" ? { from: addDays(trip.from, -1), to: trip.to } : trip);
 
 const sure = (c) => typeof c === "number" && c >= MIN_READ;
 /* 13 Nov 2026: a bill the reader takes for ANOTHER kind (cab, auto, train ...)
@@ -235,10 +239,10 @@ export function tripBillVerdict(read, slot, trip) {
   // its date is read off handwriting -- it goes to hand entry, where the date
   // typed is checked against the trip. A date off by its YEAR only goes to
   // hand entry too, with the trip's year filled in (tripYearDate).
-  if (!read.handwritten && slot !== "stays" && ISO.test(String(v.date || "")) && sure(conf.date) && (v.date < trip.from || v.date > trip.to)) {
+  if (!read.handwritten && slot !== "stays" && ISO.test(String(v.date || "")) && sure(conf.date) && (v.date < billWin(slot, trip).from || v.date > trip.to)) {
     // was: a year-fix guess (tripYearDate) into hand entry (27 Nov 2026: ask the rep instead)
     if (tripYearDate(v.date, trip.from, trip.to) && typeof v.total === "number" && v.total > 0 && sure(conf.total)) return askDate(read, s.kind);
-    return { ok: false, reason: `This bill is dated ${billDay(v.date, trip)} — outside ${outsideWhat(slot)} (${span(trip.from, trip.to)}).` };
+    return { ok: false, reason: `This bill is dated ${billDay(v.date, trip)} — outside ${outsideWhat(slot)} (${span(billWin(slot, trip).from, trip.to)}).` };
   }
   if (!read.handwritten && slot === "stays") {
     const ci = ISO.test(String(v.check_in || "")) && sure(conf.check_in) ? v.check_in : null;
@@ -251,7 +255,7 @@ export function tripBillVerdict(read, slot, trip) {
   }
   // a handwritten bill whose date (read off the handwriting) is off by its year:
   // hand entry starts from the trip's year
-  if (read.handwritten && ISO.test(String(v.date || "")) && (v.date < trip.from || v.date > trip.to)) {
+  if (read.handwritten && ISO.test(String(v.date || "")) && (v.date < billWin(slot, trip).from || v.date > trip.to)) {
     const fixed = tripYearDate(v.date, trip.from, trip.to);
     if (fixed) return unreadable({ ...read, values: { ...v, date: fixed } }, s.kind, HANDWRITTEN);
   }
@@ -292,10 +296,10 @@ export function tripBillVerdict(read, slot, trip) {
 
   // 27 Nov 2026: an unsure date -> the rep sets it (was: unreadable -> full hand entry)
   if (!ISO.test(String(v.date || "")) || !sure(conf.date)) return askDate(read, s.kind);
-  if (v.date < trip.from || v.date > trip.to) {
+  if (v.date < billWin(slot, trip).from || v.date > trip.to) {
     // was: a year-fix guess (tripYearDate) into hand entry
     if (tripYearDate(v.date, trip.from, trip.to)) return askDate(read, s.kind);
-    return { ok: false, reason: `This bill is dated ${billDay(v.date, trip)} — outside ${outsideWhat(slot)} (${span(trip.from, trip.to)}).` };
+    return { ok: false, reason: `This bill is dated ${billDay(v.date, trip)} — outside ${outsideWhat(slot)} (${span(billWin(slot, trip).from, trip.to)}).` };
   }
   return { ...base, amount: billed, date: v.date, nights: [] };
 }
@@ -339,7 +343,7 @@ export function manualBillVerdict(entry, slot, trip, opts = {}) {
   if (!ISO.test(String(e.date || ""))) return { ok: false, reason: "Enter the bill's date." };
   // a fuel bill: anywhere in the claim's month (25 Nov 2026)
   const fuelBill = e.kind === "Fuel";
-  const win = fuelBill ? monthSpan(trip) : trip;
+  const win = fuelBill ? monthSpan(trip) : e.kind === "Travel" ? billWin("travels", trip) : trip;
   if (e.date < win.from || e.date > win.to) return { ok: false, reason: `${shortDate(e.date)} is outside ${fuelBill ? "the claim's month" : outsideWhat(slot)} (${span(win.from, win.to)}).` };
   return { ...base, amount: billed, date: e.date, nights: [] };
 }

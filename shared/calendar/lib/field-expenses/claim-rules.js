@@ -105,6 +105,15 @@ function tripCap(rows) {
   for (const n of rows) n.capped = n.billSum > 0 && n.billSum + n.topUp > n.paid ? n.billSum + n.topUp - n.paid : 0;
 }
 
+/* The trip day a train / bus ticket counts on (27 Nov 2026): its own date, or -- a ticket
+   from the day before the trip (a night bus / train out) -- the trip's first paid day,
+   where the journey out is paid. */
+export function ticketDay(trip, date) {
+  if (!date || !trip?.from || date >= trip.from) return date;
+  const first = (trip.days || []).find((d) => d.payable);
+  return first ? first.date : trip.from;
+}
+
 /* An own-car request covering any day of the trip. */
 export const requestFor = (trip, requests) => {
   const live = (requests || []).filter((r) => r.status !== "withdrawn");
@@ -324,7 +333,8 @@ export function tripClaim(trip, claim, { role, requests, eqKm, carPool = null } 
   const travel = sum(travels);
   const travelDays = {};
   for (const b of travels) {
-    const t = (travelDays[b.date] = travelDays[b.date] || { date: b.date, tickets: 0, count: 0 });
+    const at = ticketDay(trip, b.date);
+    const t = (travelDays[at] = travelDays[at] || { date: at, tickets: 0, count: 0 });
     t.tickets += Math.round(Number(b.amount) || 0);
     t.count += 1;
   }

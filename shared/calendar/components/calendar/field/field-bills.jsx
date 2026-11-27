@@ -176,7 +176,7 @@ export function ManualBill({ file, slot, trip, prefill, reason, onCancel, onDone
   const kinds = MANUAL_KINDS[slot] || [];
   const p = prefill || {};
   const [kind, setKind] = useState(kinds.includes(p.kind) ? p.kind : kinds.length === 1 ? kinds[0] : null);
-  const inTrip = (d) => (d && d >= trip.from && d <= trip.to ? d : "");
+  const inTrip = (d) => (d && d >= (p.kind === "Travel" ? addDays(trip.from, -1) : trip.from) && d <= trip.to ? d : "");
   const [date, setDate] = useState(inTrip(p.date));
   // a stay may start on the trip's arrival night (travelled the day before, 23 Nov 2026)
   const stayFrom = trip.eve || trip.from;
@@ -295,7 +295,8 @@ export function ManualBill({ file, slot, trip, prefill, reason, onCancel, onDone
               type="date"
               className={input}
               // a fuel bill: any day of the claim's month (25 Nov 2026)
-              min={kind === "Fuel" ? `${trip.from.slice(0, 7)}-01` : trip.from}
+              // a train / bus ticket: from the day before the trip (27 Nov 2026)
+              min={kind === "Fuel" ? `${trip.from.slice(0, 7)}-01` : kind === "Travel" ? addDays(trip.from, -1) : trip.from}
               max={kind === "Fuel" ? new Date(Date.UTC(Number(trip.to.slice(0, 4)), Number(trip.to.slice(5, 7)), 0)).toISOString().slice(0, 10) : trip.to}
               value={date}
               onChange={(e) => setDate(e.target.value)}
