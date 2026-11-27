@@ -669,7 +669,7 @@ export function MapLocation({ q, value, onChange, disabled, api, response }) {
         </div>
       ) : cur ? (
         placeLine(cur, () => onChange(null))
-      ) : (
+      ) : start ? null : (
         <p className="flex items-start gap-1.5 text-12 text-ds-muted">
           <Icon name={start ? 'map-marker' : 'info-circle'} size="sm" className={cx('mt-px shrink-0', start ? 'text-brand-text' : '')} />
           <span>

@@ -33,6 +33,17 @@ export const QUESTION_TYPES = [
 /* 27 Nov 2026 · Repeated group (type 'repeat'): a few questions (q.fields) answered again for every entry. The answer
    is a list of entries, each { <field id>: value }; an entry with nothing filled is left out. */
 export const repeatNoun = (q) => String(q?.button || '').replace(/^\s*(add|\+)\s+(another|one more|a|an|more)?\s*/i, '').trim() || 'entry';
+/* 27 Nov 2026 · an older answer or draft of a map question that is now a group with a map inside (a list of places,
+   or one place) is read as entries of that map, so nothing typed before is lost */
+/* "hospital or clinic" -> "hospitals or clinics" */
+export const repeatPlural = (noun) => noun.split(' or ').map((w) => (/s$/.test(w) ? w : `${w}s`)).join(' or ');
+export function repeatList(q, v) {
+  const mk = (q?.fields ?? []).find((k) => k?.type === 'map_location');
+  if (!mk) return v;
+  const isPt = (r) => Boolean(r && typeof r === 'object' && !Array.isArray(r) && r.lat != null && r.lng != null && !(mk.id in r));
+  if (isPt(v)) return [{ [mk.id]: v }];
+  return Array.isArray(v) ? v.map((r) => (isPt(r) ? { [mk.id]: r } : r)) : v;
+}
 export const repeatRows = (v) => (Array.isArray(v) ? v.filter((r) => r && typeof r === 'object' && Object.values(r).some((x) => !isEmpty(x))) : []);
 /* 25 Nov 2026 · Visiting timings — { place_id, place_name, days: { Monday: { state: open | closed | na,
    slots: [[HH:MM, HH:MM]] } }, source }, linked to the Map location question q.of */
@@ -197,7 +208,7 @@ export function isAnswered(q, v) {
     const one = (x) => Boolean(x && x.days) && TIMING_DAYS.every((d) => !timingDayError(x, d));
     return Array.isArray(v) ? v.length > 0 && v.every(one) : one(v);
   }
-  if (q?.type === 'repeat') return repeatRows(v).length > 0 && !answerProblem(q, v);
+  if (q?.type === 'repeat') return repeatRows(repeatList(q, v)).length > 0 && !answerProblem(q, v);
   return true;
 }
 
@@ -242,13 +253,14 @@ export function answerProblem(q, v, answers) {
 
 /* 27 Nov 2026 · a Repeated group: enough entries, and every required question in every entry answered */
 function repeatProblem(q, v) {
-  const rows = Array.isArray(v) ? v : [];
+  const lv = repeatList(q, v);
+  const rows = Array.isArray(lv) ? lv : [];
   const filled = repeatRows(rows);
   const noun = repeatNoun(q);
   const min = Math.max(q.required ? 1 : 0, Number(q.min) || 0);
-  if (!filled.length) return min ? (min > 1 ? `Add at least ${min} ${noun}s to continue.` : `Add at least one ${noun} to continue.`) : null;
-  if (filled.length < min) return `Add at least ${min} ${noun}s to continue.`;
-  if (q.max && filled.length > q.max) return `You can add up to ${q.max} ${noun}s here.`;
+  if (!filled.length) return min ? (min > 1 ? `Add at least ${min} ${repeatPlural(noun)} to continue.` : `Add at least one ${noun} to continue.`) : null;
+  if (filled.length < min) return `Add at least ${min} ${repeatPlural(noun)} to continue.`;
+  if (q.max && filled.length > q.max) return `You can add up to ${q.max} ${repeatPlural(noun)} here.`;
   let n = 0;
   for (const r of rows) {
     if (!filled.includes(r)) continue;
@@ -281,7 +293,7 @@ export function toPayload(questions, answers) {
     if (q.type === 'file_upload') out[q.id] = v.map((f) => ({ url: f.url, name: f.name, size: f.size || 0 }));
     else if (q.type === 'number') out[q.id] = Number(v);
     else if (q.type === 'repeat') {
-      const rows = repeatRows(v).map((r) => {
+      const rows = repeatRows(repeatList(q, v)).map((r) => {
         const one = {};
         for (const k of q.fields ?? []) {
           const x = r[k.id];
@@ -307,7 +319,7 @@ export function answerText(q, v) {
   }
   if (q.type === 'timings') return timingsText(v);
   if (q.type === 'repeat') {
-    const rows = repeatRows(v);
+    const rows = repeatRows(repeatList(q, v));
     if (!rows.length) return '—';
     return rows
       .map((r, i) => `${i + 1}. ${(q.fields ?? []).map((k) => (isEmpty(r[k.id]) ? '' : answerText(k, r[k.id]))).filter(Boolean).join(' · ')}`)

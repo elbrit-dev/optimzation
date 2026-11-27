@@ -2,7 +2,7 @@
 
 import { useEffect, useRef, useState } from 'react';
 import { Card, Icon, ProgressBar, cx } from '@/design-system';
-import { LOGIN_EXCEPTIONS, TIMING_DAYS, answerProblem, answerText, fileProblem, fileRules, isAnswered, isEmpty, loginExceptions, repeatNoun, scaleRange, timingDayError } from '../data/shape';
+import { LOGIN_EXCEPTIONS, TIMING_DAYS, answerProblem, answerText, fileProblem, fileRules, isAnswered, isEmpty, loginExceptions, repeatList, repeatNoun, repeatPlural, scaleRange, timingDayError } from '../data/shape';
 import { MapLocation } from './MapLocation';
 
 /* One question, by its type (SURVEYS_CONTEXT.md §3) — answered, or shown
@@ -849,8 +849,13 @@ function Input({ q, value, onChange, disabled, onUpload, api, response, answers,
 /* 27 Nov 2026 · Repeated group: one small card per entry, each asking the group's questions (q.fields) with the
    usual controls; "+ <button text>" under the last one adds an empty entry, ✕ takes one off. It opens with one
    empty entry so the rep just starts filling. */
-function RepeatInput({ q, value, onChange, disabled, onUpload, api, response, showErrors = false }) {
-  const rows = Array.isArray(value) && value.length ? value : [{}];
+function RepeatInput({ q, value: raw, onChange, disabled, onUpload, api, response, showErrors = false }) {
+  const value = repeatList(q, raw);
+  /* 27 Nov 2026 · it starts with ONE entry; another appears only when the rep taps "+ Add another …". An entry left
+     empty (an old draft, or one added and never filled) is not kept — except the one just added, being filled now. */
+  const [fresh, setFresh] = useState(false);
+  const filled = (Array.isArray(value) ? value : []).filter((r) => r && typeof r === 'object' && Object.values(r).some((x) => !isEmpty(x)));
+  const rows = filled.length ? (fresh ? [...filled, {}] : filled) : [{}];
   const noun = repeatNoun(q);
   const Noun = noun.charAt(0).toUpperCase() + noun.slice(1);
   const max = Number(q.max) || 50;
@@ -858,8 +863,12 @@ function RepeatInput({ q, value, onChange, disabled, onUpload, api, response, sh
   /* 27 Nov 2026 · one entry open at a time (its questions, its map); the others are one line each — tap to edit */
   const [open, setOpen] = useState(() => rows.length - 1);
   const openI = Math.min(open, rows.length - 1);
-  const setOne = (i, id, v) => onChange(rows.map((r, j) => (j === i ? { ...r, [id]: v } : r)));
+  const setOne = (i, id, v) => {
+    if (fresh && i === rows.length - 1 && !isEmpty(v)) setFresh(false);
+    onChange(rows.map((r, j) => (j === i ? { ...r, [id]: v } : r)));
+  };
   const drop = (i) => {
+    if (fresh && i === rows.length - 1) setFresh(false);
     const next = rows.filter((_, j) => j !== i);
     setOpen(Math.max(0, Math.min(open > i ? open - 1 : open, next.length - 1)));
     onChange(next.length ? next : null);
@@ -922,12 +931,12 @@ function RepeatInput({ q, value, onChange, disabled, onUpload, api, response, sh
         </div>
         ),
       )}
-      {disabled || rows.length >= max ? null : (
+      {disabled || rows.length >= max || fresh || !filled.length ? null : (
         <button
           type="button"
           onClick={() => {
             setOpen(rows.length);
-            onChange([...rows, {}]);
+            setFresh(true);
           }}
           className="flex h-10 items-center gap-1.5 self-start rounded-lg border border-dashed border-brand px-3 text-13 font-semibold text-brand-text hover:bg-brand-tint-weak"
         >
@@ -936,7 +945,7 @@ function RepeatInput({ q, value, onChange, disabled, onUpload, api, response, sh
         </button>
       )}
       <span className="text-11 text-ds-muted">
-        {rows.length} {rows.length === 1 ? noun : `${noun}s`} · {Number(q.min) ? `at least ${q.min}, ` : ''}at most {max}
+        {rows.length} {rows.length === 1 ? noun : repeatPlural(noun)} · {Number(q.min) ? `at least ${q.min}, ` : ''}at most {max}
       </span>
     </div>
   );

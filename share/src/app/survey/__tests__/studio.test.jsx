@@ -149,6 +149,13 @@ describe('Repeated group', () => {
     expect(answerProblem(withPhoto, [{ c1: 'Cardio', c4: [{ url: '/private/files/a.jpg', name: 'a.jpg', ai: { redo: 1 } }] }])).toBe('Product 1 · Photo of the shelf: A file is not clear — remove it and upload it again.');
   });
 
+  it('reads an older list of places as entries of the group map', () => {
+    const loc = { id: 'q1', type: 'repeat', label: 'Every place', required: 1, button: 'Add another hospital or clinic', min: 1, max: 10, fields: [{ id: 'p', type: 'map_location', label: 'Hospital or clinic', required: 1 }] };
+    const old = [{ lat: 26.79, lng: 82.19, place_id: 'a', name: 'SHIWAY HOSPITAL', how: 'place' }, { lat: 26.78, lng: 82.21, place_id: 'b', name: 'Saketpuri clinic', how: 'place' }];
+    expect(answerProblem(loc, old)).toBeNull();
+    expect(toPayload([loc], { q1: old })).toEqual({ q1: [{ p: old[0] }, { p: old[1] }] });
+  });
+
   it('keeps one entry open; the others are one line each', () => {
     render(<QuestionCard q={grp} index={1} value={[{ c1: 'Cardio 10 mg', c2: 40 }, { c1: 'Derma Soft' }]} onChange={() => {}} />);
     expect(screen.getByText('Cardio 10 mg · 40')).toBeTruthy();
@@ -156,9 +163,13 @@ describe('Repeated group', () => {
     expect(screen.queryByRole('group', { name: 'Product 1' })).toBeNull();
   });
 
-  it('opens with one empty entry and the Add another button', () => {
-    render(<QuestionCard q={grp} index={1} value={undefined} onChange={() => {}} />);
+  it('opens with ONE empty entry; Add another shows once it is filled; empty entries are not kept', () => {
+    const { unmount } = render(<QuestionCard q={grp} index={1} value={undefined} onChange={() => {}} />);
     expect(screen.getByText('Product 1')).toBeTruthy();
+    expect(screen.queryByText('Add another product')).toBeNull();
+    unmount();
+    render(<QuestionCard q={grp} index={1} value={[{ c1: 'Cardio 10 mg', c2: 40 }, {}, {}]} onChange={() => {}} />);
     expect(screen.getByText('Add another product')).toBeTruthy();
+    expect(screen.queryByText('Product 2')).toBeNull();
   });
 });
