@@ -618,10 +618,9 @@ export function FieldBarSummary({ isLocalTrip, month, toClaim, total = 0 }) {
       </span>
       <span className="flex-1" />
       {toClaim > 0 ? (
-        // claimed / total (27 Nov 2026, the owner): what is sent of the month, against its whole
-        <b className="shrink-0 whitespace-nowrap text-[13px] font-extrabold text-pink-600" title={`${inr(toClaim)} still to claim`}>
+        // claimed (27 Nov 2026, the owner): what is sent of the month
+        <b className="shrink-0 whitespace-nowrap text-[13px] font-extrabold text-gray-900" title={`${inr(toClaim)} still to claim`}>
           {inr(Math.max(0, total - toClaim))}
-          <span className="font-bold text-gray-400"> / {inr(total)}</span>
         </b>
       ) : all > 0 && sent === all ? (
         <b className="shrink-0 text-[12px] font-extrabold text-green-700">All sent</b>
