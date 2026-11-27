@@ -633,7 +633,7 @@ export function MapLocation({ q, value, onChange, disabled, api, response }) {
         : near.busy
           ? `Finding ${n1} nearby…`
           : start
-            ? `No ${n0} found nearby — search by name`
+            ? `No ${n0} found nearby`
             : `Tap Near me or search to see ${n1}`;
   const err = findErr || near.err;
 
@@ -705,7 +705,8 @@ export function MapLocation({ q, value, onChange, disabled, api, response }) {
       {/* 27 Nov 2026 · while matches are listed the box grows to fit them (inside 230 px on a phone only 2 showed) */}
       <div className={cx('relative overflow-hidden rounded-lg border border-line bg-sunken', showMatches ? 'min-h-[300px] max-sm:min-h-[230px]' : 'h-[300px] max-sm:h-[230px]')}>
         <div ref={boxRef} className="absolute inset-0 scroll-mt-2" role="region" aria-label={`Map of ${n1} — tap one to choose it`} />
-        {disabled ? null : (
+        {/* 27 Nov 2026 · a doctor with a saved location: no search, just the map and the places around it */}
+        {disabled || start ? null : (
           <div className="absolute inset-x-2 top-2 flex gap-2">
             <label className="relative min-w-0 flex-1">
               <span className="sr-only">Search {n1}</span>
