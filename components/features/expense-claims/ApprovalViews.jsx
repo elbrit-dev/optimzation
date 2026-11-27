@@ -252,10 +252,11 @@ const CHIP = {
   back: "bg-red-100 text-red-700",
   notsent: "bg-gray-100 text-gray-600",
   waiting: "bg-gray-100 text-gray-600",
+  partial: "bg-amber-50 text-amber-700",
   approved: "bg-green-600 text-white",
   rejected: "bg-red-100 text-red-700",
 };
-const EDGE = { accepted: "border-l-green-500", sent: "border-l-green-500", back: "border-l-red-500", notsent: "border-l-gray-300", waiting: "border-l-amber-400", approved: "border-l-green-500", rejected: "border-l-red-500" };
+const EDGE = { partial: "border-l-amber-400", accepted: "border-l-green-500", sent: "border-l-green-500", back: "border-l-red-500", notsent: "border-l-gray-300", waiting: "border-l-amber-400", approved: "border-l-green-500", rejected: "border-l-red-500" };
 
 function Card({ state, label, title, tag, sub, amount, open, selected, onToggle, children }) {
   return (
@@ -436,7 +437,8 @@ function blocksOf(trips) {
     const days = ps.flatMap((p) => p.days);
     const nHq = days.filter((d) => d.day_type === "HQ").length;
     const has = (st) => ps.some((p) => p.state === st);
-    const state = has("back") ? "back" : has("sent") ? "sent" : has("notsent") ? "notsent" : "accepted";
+    const nNot = ps.filter((p) => p.state === "notsent").reduce((a, p) => a + p.days.length, 0);
+    const state = has("back") ? "back" : has("sent") ? "sent" : has("notsent") ? (has("accepted") ? "partial" : "notsent") : "accepted";
     const dayState = {};
     for (const p of ps) for (const d of p.days) dayState[String(d.date).slice(0, 10)] = { state: p.state, sent: p.sent };
     return {
@@ -454,12 +456,13 @@ function blocksOf(trips) {
       bills: ps.flatMap((p) => p.bills),
       amount: ps.reduce((a, p) => a + p.amount, 0),
       title: "HQ & EQ days",
-      sub: [nHq ? `${nHq} HQ` : null, days.length - nHq ? `${days.length - nHq} EQ` : null, has("notsent") ? `${ps.filter((p) => p.state === "notsent").length} not sent` : null].filter(Boolean).join(" · "),
+      sub: [nHq ? `${nHq} HQ` : null, days.length - nHq ? `${days.length - nHq} EQ` : null].filter(Boolean).join(" · "),
+      partialLabel: nNot ? `${nNot} day${nNot > 1 ? "s" : ""} not sent` : null,
       note: ps.map((p) => p.note).filter(Boolean).join(" · "),
     };
   });
 }
-const STATE_LABEL = { accepted: "Accepted", sent: "Sent", back: "Sent back", notsent: "Not sent yet" };
+const STATE_LABEL = { accepted: "Accepted", sent: "Sent", back: "Sent back", notsent: "Not sent yet", partial: "Partly sent" };
 
 function BillTile({ conn, bill, onOpen }) {
   const file = useMemo(() => billFile(bill.url), [bill.url]);
@@ -558,6 +561,7 @@ function TripBody({ conn, trip, busy, onAccept, onBack }) {
       )}
       {trip.state === "sent" && <Actions busy={busy} backLabel="Send back trip" okLabel="Accept trip" onOk={onAccept} onBack={onBack} />}
       {trip.state === "notsent" && <p className="mt-2 text-[11.5px] text-gray-500">Not sent yet — accept it once it is sent.</p>}
+      {trip.state === "partial" && <p className="mt-2 text-[11.5px] text-gray-500">{trip.partialLabel} yet — the rest are accepted.</p>}
       {full && conn ? <FilePreview conn={conn} file={full} files={files} onClose={() => setFull(null)} /> : null}
     </>
   );
@@ -595,7 +599,8 @@ function TaDaView({ conn }) {
           const done = trips.length > 0 && (r.claims || []).every((c) => ["Approved", "Verified", "Paid"].includes(c.workflow_state)) && sent === trips.length;
           // what the page counts: the cards (a run of HQ / EQ days is one card)
           const blocks = blocksOf(trips);
-          const card = { n: blocks.length, sent: blocks.filter((b) => b.state !== "notsent").length, acc: blocks.filter((b) => b.state === "accepted").length, toAccept: blocks.filter((b) => b.state === "sent").length };
+          const dayN = (st) => trips.filter(st).reduce((a, t) => a + t.days.filter((d) => Number(d.total) > 0).length, 0);
+          const card = { n: dayN(() => true), sent: dayN((t) => t.sent), acc: dayN((t) => t.state === "accepted"), toAccept: blocks.filter((b) => b.state === "sent").length };
           return { ...r, trips, blocks, card, sent, acc, toAccept: card.toAccept, waiting, done };
         })
         .filter((r) => r.trips.length)
@@ -659,8 +664,8 @@ function TaDaView({ conn }) {
     );
 
   const trips = rep ? rep.blocks : [];
-  const counts = { all: trips.length, accept: trips.filter((t) => t.state === "sent").length, notsent: trips.filter((t) => t.state === "notsent" || t.state === "back").length, accepted: trips.filter((t) => t.state === "accepted").length };
-  const shown = trips.filter((t) => flt === "all" || (flt === "accept" ? t.state === "sent" : flt === "notsent" ? t.state === "notsent" || t.state === "back" : t.state === "accepted"));
+  const counts = { all: trips.length, accept: trips.filter((t) => t.state === "sent").length, notsent: trips.filter((t) => t.state === "notsent" || t.state === "back" || t.state === "partial").length, accepted: trips.filter((t) => t.state === "accepted").length };
+  const shown = trips.filter((t) => flt === "all" || (flt === "accept" ? t.state === "sent" : flt === "notsent" ? t.state === "notsent" || t.state === "back" || t.state === "partial" : t.state === "accepted"));
   const canApprove = rep && rep.sent === rep.trips.length && rep.acc === rep.trips.length && rep.waiting.length > 0;
 
   return (
@@ -672,7 +677,7 @@ function TaDaView({ conn }) {
         <>
           <Body
             wide={wide}
-            people={reps.map((r) => ({ id: r.employee, name: r.name, badge: r.toAccept, sub: r.done ? "approved" : r.card.sent === r.card.n ? "all sent" : `${r.card.sent}/${r.card.n} sent`, subOk: r.done || r.card.sent === r.card.n }))}
+            people={reps.map((r) => ({ id: r.employee, name: r.name, badge: r.toAccept, sub: r.done ? "approved" : r.card.sent === r.card.n ? "all sent" : `${r.card.sent}/${r.card.n} days`, subOk: r.done || r.card.sent === r.card.n }))}
             sel={rep.employee}
             onSel={(id) => {
               setSel(id);
@@ -683,9 +688,9 @@ function TaDaView({ conn }) {
           <div className="mx-4 mt-3 rounded-xl border border-blue-200 bg-blue-50 px-3 py-2">
             <div className="flex items-baseline justify-between gap-2 text-[13px]">
               <b className="text-blue-900">
-                {rep.card.sent} of {rep.card.n} sent · {rep.card.acc} accepted
+                {rep.card.sent} of {rep.card.n} days sent · {rep.card.acc} accepted
               </b>
-              <span className="text-[11.5px] font-semibold text-slate-500">{rep.done ? "Approved" : `Approve after all ${rep.card.n}`}</span>
+              <span className="text-[11.5px] font-semibold text-slate-500">{rep.done ? "Approved" : `Approve once all ${rep.card.n} days are in`}</span>
             </div>
             <div className="mt-1.5 flex h-[5px] overflow-hidden rounded-full bg-blue-100">
               <i className="block bg-green-600" style={{ width: `${(rep.card.acc / rep.card.n) * 100}%` }} />
@@ -711,7 +716,7 @@ function TaDaView({ conn }) {
               id: t.id,
               from: t.from,
               to: t.to,
-              card: { state: t.state, label: STATE_LABEL[t.state], tag: t.os ? "OS" : "HQ", title: t.title, sub: t.sub, amount: t.amount },
+              card: { state: t.state, label: t.state === "partial" ? t.partialLabel : STATE_LABEL[t.state], tag: t.os ? "OS" : "HQ", title: t.title, sub: t.sub, amount: t.amount },
               body: <TripBody conn={conn} trip={t} busy={busy?.trip === t.id ? busy.what : null} onAccept={() => accept(t)} onBack={(why) => sendBack(t, why)} />,
             }))}
           />
@@ -719,9 +724,9 @@ function TaDaView({ conn }) {
             <div className="sticky bottom-0 mt-3 flex items-center gap-2 border-t border-gray-200 bg-white px-4 py-3">
               <span className="flex-1 text-[13px]">
                 <b>
-                  {rep.card.acc} of {rep.card.n} accepted
+                  {rep.card.acc} of {rep.card.n} days accepted
                 </b>
-                <small className="block text-[11px] text-gray-500">{canApprove ? "Everything is in" : rep.card.sent < rep.card.n ? `${rep.card.n - rep.card.sent} not sent yet` : `${rep.card.toAccept} waiting for you`}</small>
+                <small className="block text-[11px] text-gray-500">{canApprove ? "Everything is in" : rep.card.sent < rep.card.n ? `${rep.card.n - rep.card.sent} day${rep.card.n - rep.card.sent > 1 ? "s" : ""} not sent yet` : `${rep.card.toAccept} waiting for you`}</small>
               </span>
               <button
                 type="button"
@@ -1033,8 +1038,11 @@ function useFullWidth(wide) {
         a = a.parentElement;
       }
       if (!best) return setBox(null);
+      // the page column sits centred in the content area: grow by the room on its RIGHT, on both
+      // sides -- the left of the wider box may hold the app's own menu (27 Nov 2026)
       const pad = 24;
-      setBox({ width: Math.round(best.width - pad * 2), marginLeft: Math.round(best.left + pad - pr.left) });
+      const gap = Math.max(0, Math.min(best.right - pr.right, pr.left - best.left) - pad);
+      setBox({ width: Math.round(pr.width + gap * 2), marginLeft: Math.round(-gap) });
     };
     measure();
     const ro = new ResizeObserver(measure);
