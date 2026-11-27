@@ -196,7 +196,7 @@ export function FieldStrip() {
       >
         {/* 27 Nov 2026 (the user): ready -> ring of cards sent, icons with counts, the amount to claim */}
         {canOpen ? (
-          <FieldBarSummary isLocalTrip={isLocalTrip} month={m.slice(0, 3)} toClaim={sum(toClaim) + sum(toFix)} />
+          <FieldBarSummary isLocalTrip={isLocalTrip} month={m.slice(0, 3)} toClaim={sum(toClaim) + sum(toFix)} total={sum(f.claimed || [])} />
         ) : (
         <>
         <Car className="relative h-3.5 w-3.5 shrink-0 text-blue-600" aria-hidden />
