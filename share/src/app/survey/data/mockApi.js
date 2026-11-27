@@ -17,14 +17,6 @@ import { answerProblem, fileProblem, toPayload } from './shape';
 const wait = (ms) => new Promise((r) => setTimeout(r, ms));
 
 export function createMockApi({ role = 'BE', scenario = 'normal', today = MOCK_TODAY, delay = 400 } = {}) {
-  const reviews = [
-    {
-      response: 'SR-MOCK-R1', question: 'qclinic', label: 'Choose Dr. Anand’s hospital or clinic', title: 'Clinic locations', rep: 'Ravi Kumar', submitted_on: '2026-11-25 10:30:00',
-      subject: { doctype: 'Lead', name: 'DR-1', label: 'Dr. Anand', code: 'DR-1', hq: 'Chennai' },
-      answer: { lat: 13.0612, lng: 80.2505, how: 'place', place_id: 'mock-h1', name: 'City Care Hospital', kind: 'Hospital', address: '12 Anna Salai, Chennai 600002', url: '', was: { lat: 13.0604, lng: 80.2496 } },
-      review: { status: 'Pending' },
-    },
-  ];
   /* 26 Nov 2026 · answers waiting for this approver (survey_approval) */
   const approvals = [
     {
@@ -198,17 +190,6 @@ export function createMockApi({ role = 'BE', scenario = 'normal', today = MOCK_T
       }
       if (mode === 'text') return { places: all.filter((p) => p.title.toLowerCase().includes(String(q || '').toLowerCase().split(' ')[0])) };
       return { places: all };
-    },
-
-    /* the ABM review: one location to check, decided in memory */
-    async mapReview({ action, which, response, question, decision, note }) {
-      await wait(250);
-      if (action === 'decide') {
-        const x = reviews.find((r) => r.response === response && r.question === question);
-        if (x) x.review = { status: decision === 'accept' ? 'Accepted' : 'Rejected', by_name: 'You', at: new Date().toISOString(), note, applied: { done: decision === 'accept' } };
-        return { applied: { done: decision === 'accept' } };
-      }
-      return { items: reviews.filter((r) => (which === 'done' ? r.review.status !== 'Pending' : r.review.status === 'Pending')), all: 0, writes: 'erp-uat' };
     },
 
     /* 26 Nov 2026 · Survey Studio approvals, played in memory */

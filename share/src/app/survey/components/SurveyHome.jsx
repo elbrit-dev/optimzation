@@ -12,7 +12,6 @@ import { DEFAULT_REFRESH_MS, useErpTiles } from '@/app/ring-nav/data/useErpTiles
 import { SurveyScreen } from './SurveyScreen';
 import { DiscardChangesSheet, PageHeader, readDrafts, scroller, writeDrafts } from './parts';
 import { SubjectForm } from './SubjectForm';
-import { MapReview, reviewTile, useMapReviews } from './MapReview';
 import { ApprovalQueue, approveTile, useApprovals } from './ApprovalQueue';
 
 /* A survey page scrolls INSIDE the Elbrit frame (under its header, beside its menu) — not the whole browser page,
@@ -138,18 +137,14 @@ export function SurveyHome({
      Nav loads them — the same hook, as the signed-in person. */
   const erpTiles = useErpTiles({ enabled: tiles == null && source === 'erp' && !apiProp, gqlEnvironment, gqlToken, today: todayProp, refreshEvery });
   const stripTiles = tiles ?? erpTiles.items;
-  /* 25 Nov 2026 · managers: a "To review" circle for their team's Map location answers */
-  const reviews = useMapReviews(api);
-  const reviewItem = reviewTile(reviews, { hrefBase });
   /* 26 Nov 2026 · approvers: a "To approve" circle (Survey Studio approvals) */
   const approvals = useApprovals(api);
   const approveItem = approveTile(approvals, { hrefBase });
   const ringItems = useMemo(
-    () => withSurveyTiles(stripTiles, [...(list ? surveyTiles(list, today, { hrefBase }) : []), ...(reviewItem ? [reviewItem] : []), ...(approveItem ? [approveItem] : [])]),
+    () => withSurveyTiles(stripTiles, [...(list ? surveyTiles(list, today, { hrefBase }) : []), ...(approveItem ? [approveItem] : [])]),
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [stripTiles, list, today, hrefBase, reviewItem?.count, reviewItem?.caption, approveItem?.count, approveItem?.caption],
+    [stripTiles, list, today, hrefBase, approveItem?.count, approveItem?.caption],
   );
-  const reviewing = view.campaign === 'review';
   const approving = view.campaign === 'approve';
 
   const setDraft = (response, answers) =>
@@ -218,19 +213,14 @@ export function SurveyHome({
   const offline = typeof navigator !== 'undefined' && navigator.onLine === false;
 
   return (
-    <section ref={rootRef} className={cx('@container/survey flex w-full scroll-mt-3 flex-col', survey || reviewing || approving ? INSIDE_FRAME : '', className)}>
+    <section ref={rootRef} className={cx('@container/survey flex w-full scroll-mt-3 flex-col', survey || approving ? INSIDE_FRAME : '', className)}>
       {/* The strip is home's alone: a survey or form is its own page. */}
-      {survey || reviewing || approving ? null : <RingNav items={ringItems} onItemClick={onTile} stickyBar={stickyBar} inset={inset} ariaLabel={ariaLabel} />}
+      {survey || approving ? null : <RingNav items={ringItems} onItemClick={onTile} stickyBar={stickyBar} inset={inset} ariaLabel={ariaLabel} />}
 
       {approving ? (
         <div className="flex w-full flex-col gap-3 px-4 pb-4 pt-3 @2xl/survey:gap-4">
           <PageHeader onBack={toHome} backLabel="Back to home" title="To approve" />
           <ApprovalQueue api={api} approvals={approvals} />
-        </div>
-      ) : reviewing ? (
-        <div className="flex w-full flex-col gap-3 px-4 pb-4 pt-3 @2xl/survey:gap-4">
-          <PageHeader onBack={toHome} backLabel="Back to home" title="To review" />
-          <MapReview api={api} reviews={reviews} />
         </div>
       ) : survey ? (
         <div className="flex w-full flex-col gap-3 px-4 pb-4 pt-3 @2xl/survey:gap-4">

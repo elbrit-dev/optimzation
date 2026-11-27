@@ -22,7 +22,7 @@ import { mapDist, mapIsPoint, mapMeters, mapStart, mapUrl } from '../data/shape'
  *
  * The answer: { lat, lng, how: 'place', place_id, name, address, url, kind,
  * was?: the saved point, was_place?: the Google place at the saved point }.
- * The ERP sends it to the rep's ABM to accept / reject (survey_map_review).
+ * It is approved like every other answer, by the campaign's approval (survey_approval).
  *
  * 26 Nov 2026 · SEPARATED (q.multi): more than one hospital / pharmacy can be chosen — the answer is a list of
  * those points; a tap on a chosen one (or its ✕) takes it off. No ABM review for these.

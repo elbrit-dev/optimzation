@@ -177,17 +177,6 @@ export function createErpApi({ endpointUrl, gqlEnvironment = 'ERP', gqlToken, al
       if (!res.ok) return { result: 'not_verified', code: 'error', message: json.error || `The test could not run (HTTP ${res.status}).` };
       return json;
     },
-    /* 25 Nov 2026 · the ABM / RBM review of Map location answers (survey_map_review):
-       { action: 'list', which: 'pending' | 'done' } → { items, all, writes }
-       { action: 'decide', response, question, decision: 'accept' | 'reject', note } → { applied } */
-    mapReview(args) {
-      if (args?.action === 'decide') {
-        needWrites();
-        return call('POST', 'survey_map_review', { body: args });
-      }
-      return call('GET', 'survey_map_review', { query: args });
-    },
-
     /* 26 Nov 2026 · Survey Studio approvals (survey_approval):
        { action: 'list', which: 'pending' | 'done' } → { items, all }
        { action: 'decide', response, decision: 'approve' | 'return', note } · { action: 'approve_all', responses: JSON list } */
