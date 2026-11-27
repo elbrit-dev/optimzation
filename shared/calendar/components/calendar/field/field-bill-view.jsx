@@ -124,7 +124,8 @@ const billWhen = (kind, b) => {
 
 /* One bill as a small picture card: photo, amount, what and when. */
 function BillTile({ conn, kind, bill: b, onOpen }) {
-  const file = b.url ? billFile(b.url) : null;
+  // one file object per bill: a new one each render makes useFileUrl load again and loop (froze the sheet)
+  const file = useMemo(() => (b.url ? billFile(b.url) : null), [b.url]);
   const img = file?.kind === "image";
   const { status, url } = useFileUrl(img ? conn : null, img ? file : null);
   const Icon = TILE_ICON[kind] || Route;
@@ -165,7 +166,8 @@ function BillTile({ conn, kind, bill: b, onOpen }) {
 
 /* The bill opened: its picture, what was read, and Remove. */
 function BillOpen({ conn, kind, bill: b, editable, busy, onRemove, onFull, onClose }) {
-  const file = b.url ? billFile(b.url) : null;
+  // one file object per bill: a new one each render makes useFileUrl load again and loop (froze the sheet)
+  const file = useMemo(() => (b.url ? billFile(b.url) : null), [b.url]);
   const img = file?.kind === "image";
   const { status, url } = useFileUrl(img ? conn : null, img ? file : null);
   const [sure, setSure] = useState(false);
