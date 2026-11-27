@@ -720,13 +720,38 @@ export function MapLocation({ q, value, onChange, disabled, api, response }) {
             </ul>
           </div>
         ) : null}
+        {/* 27 Nov 2026 · several places under the finger: a small list over the map (it took room under the map before) */}
+        {!disabled && whichList.length > 1 && !showMatches ? (
+          <div role="dialog" aria-label="Which one did you tap?" className="absolute inset-x-2 bottom-2 flex max-h-[calc(100%-4rem)] flex-col overflow-hidden rounded-lg border border-brand bg-surface shadow-md">
+            <div className="flex shrink-0 items-center justify-between gap-2 border-b border-line pl-3">
+              <span className="text-12 font-semibold text-heading">Which one?</span>
+              <button type="button" aria-label="Close" onClick={() => setWhich(null)} className="flex size-9 items-center justify-center text-ds-muted hover:bg-sunken">
+                <Icon name="times" size="sm" />
+              </button>
+            </div>
+            <ul role="listbox" className="flex min-h-0 flex-col overflow-y-auto">
+              {whichList.map((x) => {
+                const on = isOn(x.id);
+                const dd = ref ? mapMeters(ref, x) : null;
+                return (
+                  <li key={x.id} role="option" aria-selected={on}>
+                    <button type="button" onClick={() => choose(x.id)} className={cx('flex min-h-11 w-full items-center gap-2 px-3 text-left hover:bg-brand-tint-weak', on && 'bg-success-wash')}>
+                      <span className="min-w-0 flex-1 truncate text-13 font-semibold text-heading">{x.title}</span>
+                      {dd != null ? <span className="shrink-0 text-11 text-ds-muted">{mapDist(dd)}</span> : null}
+                    </button>
+                  </li>
+                );
+              })}
+            </ul>
+          </div>
+        ) : null}
         {mapErr ? (
           <div className="absolute inset-x-0 bottom-0 top-14 flex items-center justify-center gap-2 p-4 text-center text-12 text-ds-muted">
             <Icon name="map" size="lg" className="shrink-0" />
             <span>{mapErr} You can still search and choose from the list.</span>
           </div>
         ) : null}
-        {moved && !disabled && !showMatches ? (
+        {moved && !disabled && !showMatches && whichList.length < 2 ? (
           <button
             type="button"
             onClick={searchHere}
@@ -736,7 +761,7 @@ export function MapLocation({ q, value, onChange, disabled, api, response }) {
             Search this area
           </button>
         ) : null}
-        {(near.busy || searching) && !showMatches ? (
+        {(near.busy || searching) && !showMatches && whichList.length < 2 ? (
           <div role="status" className="absolute bottom-2.5 left-2.5 flex items-center gap-1.5 rounded-full bg-surface px-3 py-1.5 text-12 text-heading shadow-md">
             <Icon name="spinner pi-spin" size="sm" />
             {near.busy === 'more' ? `Loading all ${n1}…` : `Finding ${n1}…`}
@@ -775,22 +800,6 @@ export function MapLocation({ q, value, onChange, disabled, api, response }) {
         <span className="text-11 text-ds-muted">{recHead}</span>
       ) : null}
 
-      {!disabled && whichList.length > 1 ? (
-        <div role="dialog" aria-label="Which one did you tap?" className="flex flex-col gap-1.5 rounded-lg border-[1.5px] border-brand bg-surface p-2">
-          <div className="flex items-center justify-between gap-2 px-1">
-            <span className="flex items-center gap-1.5 text-14 font-semibold text-heading">
-              <Icon name="question-circle" size="sm" />
-              Which one did you tap?
-            </span>
-            <button type="button" aria-label="Close" onClick={() => setWhich(null)} className="flex size-11 items-center justify-center rounded-md text-ds-muted hover:bg-sunken">
-              <Icon name="times" size="sm" />
-            </button>
-          </div>
-          <ul role="listbox" className="flex flex-col">
-            {whichList.map((x) => row(x, true))}
-          </ul>
-        </div>
-      ) : null}
 
       {multi && picks.length && !adding && !disabled ? (
         <button

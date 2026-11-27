@@ -2,7 +2,7 @@
 
 import { useEffect, useRef, useState } from 'react';
 import { Card, Icon, ProgressBar, cx } from '@/design-system';
-import { LOGIN_EXCEPTIONS, TIMING_DAYS, answerProblem, answerText, fileProblem, fileRules, isAnswered, isEmpty, loginExceptions, repeatList, repeatNoun, repeatPlural, scaleRange, timingDayError } from '../data/shape';
+import { LOGIN_EXCEPTIONS, TIMING_DAYS, answerProblem, answerText, fileProblem, fileRules, isAnswered, isEmpty, loginExceptions, repeatList, repeatNoun, scaleRange, timingDayError } from '../data/shape';
 import { MapLocation } from './MapLocation';
 
 /* One question, by its type (SURVEYS_CONTEXT.md §3) — answered, or shown
@@ -947,9 +947,6 @@ function RepeatInput({ q, value: raw, onChange, disabled, onUpload, api, respons
           {q.button || 'Add another'}
         </button>
       )}
-      <span className="text-11 text-ds-muted">
-        {rows.length} {rows.length === 1 ? noun : repeatPlural(noun)} · {Number(q.min) ? `at least ${q.min}, ` : ''}at most {max}
-      </span>
     </div>
   );
 }
