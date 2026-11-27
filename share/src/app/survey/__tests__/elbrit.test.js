@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { elbritPrompt, matchElbrit, tagElbrit, withElbrit } from '../../../../../lib/elbritProducts';
+import { elbritPrompt, erpMonth, matchElbrit, tagElbrit, withElbrit } from '../../../../../lib/elbritProducts';
 
 /* 28 Nov 2026 · a few of Elbrit's products as the ERP lists them (Item group "Products") */
 const P = ['TELBRIT 20', 'TELBRIT 40', 'TELBRIT AM', 'TELBRIT NB 40/5', 'ROZULA 10', 'ROZULA 20', 'ROZULA CV 10', 'GLIMIBRIT M1', 'GLIMIBRIT M1 FORTE', 'MY GUT', 'C 500', 'MYWASH 100 ML', 'SITADOC M 50 / 500'];
@@ -56,6 +56,36 @@ describe('Elbrit products in AI reads', () => {
     const f = { rows: [{ medicine: 'Tab Glimibrit M1', tablets: '30' }, { medicine: 'Tab Dolo 650', tablets: '10' }] };
     tagElbrit(f, P);
     expect(f._elbrit).toMatchObject({ elbrit: 1, found: true, items: ['GLIMIBRIT M1'], qty: 30, totals: { tablets: 30 } });
+  });
+
+  it('turns the statement period into the ERP month (Secondary Data Entry date, Doctor Support period)', () => {
+    expect(erpMonth('01/11/2026 to 26/11/2026')).toEqual({ date: '2026-11-01', period: '2026-November' });
+    expect(erpMonth('Nov 2026')).toEqual({ date: '2026-11-01', period: '2026-November' });
+    expect(erpMonth('2026-July')).toEqual({ date: '2026-07-01', period: '2026-July' });
+    expect(erpMonth('27/11/26')).toEqual({ date: '2026-11-01', period: '2026-November' });
+    expect(erpMonth('')).toBeNull();
+  });
+
+  it('Read as Secondary statement: what the ERP entry needs, Elbrit lines only, and what is missing', () => {
+    // the sample statement's layout (Product, Pack, Opening, Receipt, Sales, Closing) with Elbrit products in it
+    const f = { distributor_name: 'Buddha Medical Agencies, Ayodhya', statement_month: '01/11/2026 to 26/11/2026', rows: [
+      { product: 'Telbrit 40 Tab', sales_qty: '95', closing_qty: '45' },
+      { product: 'Derma Soft Cream', sales_qty: '60', closing_qty: '25' },
+      { product: 'Rozula 10', sales_qty: null, closing_qty: null },
+    ] };
+    tagElbrit(f, P);
+    expect(f._elbrit).toMatchObject({ month: { date: '2026-11-01', period: '2026-November' }, elbrit: 2, others: 1, items: ['TELBRIT 40', 'ROZULA 10'], totals: { sales_qty: 95, closing_qty: 45 }, no_qty: 1 });
+    expect(f._elbrit.missing).toBeUndefined();
+  });
+
+  it('Read as Support statement: one line per doctor and product; a missing period is flagged', () => {
+    const f = { distributor_name: 'Buddha Medical Agencies', period: null, rows: [
+      { doctor_name: 'Dr A Upadhyay', product: 'Telbrit 20 Tab', qty: '20', amount: '2,840' },
+      { doctor_name: 'Dr A K Gupta', product: 'Derma Soft Cream', qty: '12', amount: '1,980' },
+    ] };
+    tagElbrit(f, P);
+    expect(f.rows.map((r) => r.elbrit_product)).toEqual(['TELBRIT 20', null]);
+    expect(f._elbrit).toMatchObject({ elbrit: 1, qty: 20, value: 2840, missing: ['period'] });
   });
 
   it('a prescription with no Elbrit medicine says so', () => {
