@@ -15,7 +15,7 @@
 
 import { useEffect, useState } from "react";
 import { toast } from "sonner";
-import { BedDouble, BookOpen, Car, CarTaxiFront, Fuel, MessageSquare, Plane, Plus, Receipt, RotateCcw, SendHorizontal, Train } from "lucide-react";
+import { BedDouble, BookOpen, Car, CarTaxiFront, Fuel, MessageSquare, Plane, Plus, Receipt, RotateCcw, Train } from "lucide-react";
 import { cn } from "@calendar/lib/utils";
 import { ModalTitle } from "@calendar/components/ui/responsive-modal";
 import { useFieldExpenses } from "@calendar/components/calendar/field/field-context";
@@ -576,7 +576,7 @@ function HowItWorks() {
    flights by company, fuel bills, Ola / Uber rides, stay / food / ticket bills,
    help requests (orange dot: new reply) -- each only when above 0, and what is
    still to claim (or "All sent"). */
-export function FieldBarSummary({ isLocalTrip, month, toClaim }) {
+export function FieldBarSummary({ isLocalTrip, month, toClaim, total = 0 }) {
   const f = useFieldExpenses();
   const c = useCarCab();
   const blocks = blocksOf(f.claimed || [], isLocalTrip);
@@ -618,10 +618,9 @@ export function FieldBarSummary({ isLocalTrip, month, toClaim }) {
       </span>
       <span className="flex-1" />
       {toClaim > 0 ? (
-        // to claim (27 Nov 2026): a pink chip with the send arrow -- money, no words
-        <b className="inline-flex shrink-0 items-center gap-1 whitespace-nowrap rounded-full bg-pink-50 px-2 py-0.5 text-[12.5px] font-extrabold text-pink-700" title="Still to claim">
-          <SendHorizontal className="h-3 w-3" aria-hidden />
-          {inr(toClaim)}
+        // claimed (27 Nov 2026, the owner): what is sent of the month
+        <b className="shrink-0 whitespace-nowrap text-[13px] font-extrabold text-gray-900" title={`${inr(toClaim)} still to claim`}>
+          {inr(Math.max(0, total - toClaim))}
         </b>
       ) : all > 0 && sent === all ? (
         <b className="shrink-0 text-[12px] font-extrabold text-green-700">All sent</b>
