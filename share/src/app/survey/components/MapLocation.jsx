@@ -397,7 +397,6 @@ export function MapLocation({ q, value, onChange, disabled, api, response }) {
         if (crowded && (map.getZoom() || 0) < 20) {
           map.setZoom(Math.min((map.getZoom() || 0) + 2, 20));
           map.panTo(dots[pick].getPosition());
-          flash('Zoomed in: tap another place if this isn’t the one.');
         }
         return undefined;
       }
