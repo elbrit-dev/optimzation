@@ -15,7 +15,7 @@
 
 import { useEffect, useState } from "react";
 import { toast } from "sonner";
-import { BedDouble, BookOpen, Car, CarTaxiFront, Fuel, MessageSquare, Plane, Plus, Receipt, RotateCcw, Train } from "lucide-react";
+import { BedDouble, BookOpen, Car, CarTaxiFront, Fuel, MessageSquare, Plane, Plus, Receipt, RotateCcw, SendHorizontal, Train } from "lucide-react";
 import { cn } from "@calendar/lib/utils";
 import { ModalTitle } from "@calendar/components/ui/responsive-modal";
 import { useFieldExpenses } from "@calendar/components/calendar/field/field-context";
@@ -624,8 +624,10 @@ export function FieldBarSummary({ isLocalTrip, month, toClaim }) {
       </span>
       <span className="flex-1" />
       {toClaim > 0 ? (
-        <b className="shrink-0 whitespace-nowrap text-[13px] font-extrabold text-pink-600">
-          {inr(toClaim)} <small className="text-[11px] font-bold">to claim</small>
+        // to claim (27 Nov 2026): a pink chip with the send arrow -- money, no words
+        <b className="inline-flex shrink-0 items-center gap-1 whitespace-nowrap rounded-full bg-pink-50 px-2 py-0.5 text-[12.5px] font-extrabold text-pink-700" title="Still to claim">
+          <SendHorizontal className="h-3 w-3" aria-hidden />
+          {inr(toClaim)}
         </b>
       ) : all > 0 && sent === all ? (
         <b className="shrink-0 text-[12px] font-extrabold text-green-700">All sent</b>
