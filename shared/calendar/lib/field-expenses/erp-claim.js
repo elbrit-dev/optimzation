@@ -141,7 +141,7 @@ export function tripClaimRows(trip, claim, calc, data) {
     for (const b of (claim.foods || []).filter((x) => x.date === n.date)) {
       lines.push({ b, type: "Food", note: `Food · ${b.vendor || "bill"} · ${dayLabel(n.date)}` });
     }
-    rows.push(...billRows(lines, n.paid - n.topUp, `capped: ${dayLabel(n.date)} over its full DA ₹${n.full}`));
+    rows.push(...billRows(lines, n.paid - n.topUp, `capped: the trip's stay + food over its full DA ₹${calc.pool?.full ?? n.full}`));
     if (n.topUp > 0) {
       rows.push({
         date: n.date,

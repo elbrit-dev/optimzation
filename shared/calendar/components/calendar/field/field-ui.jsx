@@ -691,7 +691,8 @@ function MonthCard({ month, closed, stats, claimed, pulledAt, onOpen }) {
   // bill and up to its full outstation DA with one
   const moreWithBills = claimed
     .filter((x) => x.claim.status === "unclaimed" && x.calc.billsAllowed)
-    .reduce((s, x) => s + x.calc.nights.reduce((a, n) => a + (n.fullNoBill ? 0 : Math.max(0, n.full - n.paid)), 0), 0);
+    // by the trip's limit (27 Nov 2026); was per night: max(0, n.full - n.paid)
+    .reduce((s, x) => s + (x.calc.nights.every((n) => n.fullNoBill) ? 0 : Math.max(0, x.calc.nights.reduce((a, n) => a + n.full - n.paid, 0))), 0);
   // the prototype's k-grid: a small label, then its amount on the same line, never shortened
   const krow = (label, value, tone) => (
     <span
@@ -2412,7 +2413,7 @@ function TripDay({ row, data, car, last, multi, night, bills, stayOff, billStrip
             {/* short: the bills, then what the day is paid -- "max" when the
                 day's full DA cuts it, "min 50 %" when it is raised */}
             {bills ? (
-              <span title={`${nightLabel} · the day's DA is paid between ${inr(night.amount)} (50 %) and ${inr(night.full)} (100 %)`}>
+              <span title={`${nightLabel} · paid as billed, at least ${inr(night.amount)} (50 %) · the trip's stay + food is held to its full DA`}>
                 {[bills.stay ? `Stay ${inr(bills.stay)}` : null, bills.food ? `Food ${inr(bills.food)}` : null].filter(Boolean).join(" + ")}
                 {night.capped ? (
                   <>
