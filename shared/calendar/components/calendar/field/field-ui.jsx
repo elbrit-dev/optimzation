@@ -43,6 +43,7 @@ import {
   SendHorizontal,
   ShieldCheck,
   TrainFront,
+  UtensilsCrossed,
   Undo2,
   X,
   Zap,
@@ -1985,33 +1986,6 @@ function TripSheet({ item }) {
         </div>
       )}
 
-      {/* bills only for a night spent away: back at HQ the same day, no stay
-          or food bill is asked for (one already added still shows) */}
-      {/* only once there are bills: with none, the upload button at the
-          bottom and each day's DA line already say it (13 Nov 2026) */}
-      {calc.billsAllowed && calc.stayBills + calc.foodBills > 0 && (
-        <div>
-          <span className={sectionLabel}>DA bills · stay &amp; food</span>
-          {/* 27 Nov 2026 (the user): the bills as pictures; a tap opens the bill, Remove is there */}
-          <BillTiles claim={claim} kinds={["stays", "foods"]} editable={editable} onRemove={(kind, id) => run(`rm-${id}`, () => f.actions.removeBill(trip.id, kind, id), "Bill removed")} />
-          {/* the night before the trip's first day, on a hotel bill (23 Nov 2026) */}
-          {calc.eveNight && (
-            <p className="mt-2 flex items-start gap-1.5 text-[12.5px] leading-snug text-gray-700">
-              <Info className="mt-0.5 h-4 w-4 shrink-0" aria-hidden />
-              {`Arrival night ${dayLabel(calc.eveNight.date)} (travelled the day before): stay ${inr(calc.eveNight.paid)}${
-                calc.eveNight.capped ? ` — kept to the trip's full DA ${inr(calc.eveNight.full)}` : ""
-              }.`}
-            </p>
-          )}
-          {/* the day-off amount is in the Outstation DA block; only a night with no stay bill is said here */}
-          {calc.nights.length > 0 && calc.pool?.on && nextNight && calc.stayBills > 0 && (
-            <p className="mt-2 flex items-start gap-1.5 text-[12.5px] leading-snug text-gray-500">
-              <Info className="mt-0.5 h-4 w-4 shrink-0" aria-hidden />
-              {`No stay bill · ${dayLabel(nextNight.date)}`}
-            </p>
-          )}
-        </div>
-      )}
 
       {/* train / bus tickets (23 Nov 2026): each day, the larger of its journey fare and its tickets */}
       {calc.travelBills > 0 && (
@@ -2169,12 +2143,53 @@ function TripSheet({ item }) {
         </div>
       )}
 
+      {/* the DA bills sit with the trip cost, at the bottom (27 Nov 2026, the owner) */}
+      {/* bills only for a night spent away: back at HQ the same day, no stay
+          or food bill is asked for (one already added still shows) */}
+      {/* only once there are bills: with none, the upload button at the
+          bottom and each day's DA line already say it (13 Nov 2026) */}
+      {calc.billsAllowed && calc.stayBills + calc.foodBills > 0 && (
+        <div>
+          <span className={sectionLabel}>DA bills · stay &amp; food</span>
+          {/* 27 Nov 2026 (the user): the bills as pictures; a tap opens the bill, Remove is there */}
+          <BillTiles claim={claim} kinds={["stays", "foods"]} editable={editable} onRemove={(kind, id) => run(`rm-${id}`, () => f.actions.removeBill(trip.id, kind, id), "Bill removed")} />
+          {/* the night before the trip's first day, on a hotel bill (23 Nov 2026) */}
+          {calc.eveNight && (
+            <p className="mt-2 flex items-start gap-1.5 text-[12.5px] leading-snug text-gray-700">
+              <Info className="mt-0.5 h-4 w-4 shrink-0" aria-hidden />
+              {`Arrival night ${dayLabel(calc.eveNight.date)} (travelled the day before): stay ${inr(calc.eveNight.paid)}${
+                calc.eveNight.capped ? ` — kept to the trip's full DA ${inr(calc.eveNight.full)}` : ""
+              }.`}
+            </p>
+          )}
+        </div>
+      )}
+
       {/* total + the one action, pinned to the bottom; Submit asks first */}
       <div className="sticky bottom-0 z-10 -mx-4 mt-auto flex flex-col gap-3 border-t bg-white px-4 pt-3 pb-[max(12px,env(safe-area-inset-bottom))]">
         {/* ONE upload, always in reach (16 Nov 2026): the bill itself says what
             it is. Stay and food bills on a trip with outstation days; fuel
             once the GM approved the car (asked for on the month summary) --
             with both, the one button takes all three. Tolls are not paid. */}
+        {/* the bills on the trip by kind, as pills above the upload (27 Nov 2026) */}
+        {editable && !confirming && (stayFood || fuelOn || travelOn) && (() => {
+          const kinds = [
+            ["stays", "Stay", BedDouble],
+            ["foods", "Food", UtensilsCrossed],
+            ["travels", "Travel", TrainFront],
+            ["fuels", "Fuel", Fuel],
+          ].filter(([k]) => (claim[k] || []).length);
+          return kinds.length ? (
+            <span className="-mb-1 flex flex-wrap gap-1.5">
+              {kinds.map(([k, label, Icon]) => (
+                <span key={k} className="inline-flex items-center gap-1 rounded-full border border-gray-200 bg-white px-2 py-0.5 text-[11.5px] font-bold text-gray-700">
+                  <Icon className="h-3 w-3 text-gray-500" aria-hidden />
+                  {label} {(claim[k] || []).length} · {inr((claim[k] || []).reduce((a2, b) => a2 + (Number(b.billed ?? b.amount) || 0), 0))}
+                </span>
+              ))}
+            </span>
+          ) : null;
+        })()}
         {editable && !confirming && (stayFood || fuelOn || travelOn) && (
           <button
             type="button"

@@ -173,7 +173,7 @@ export function BlockCard({ block, onOpen }) {
           </b>
         </span>
       </span>
-      {gap > 0 && <Meter p={(total / (total + gap)) * 100} />}
+      {/* no progress bar on the trip card (27 Nov 2026) */}
     </button>
   );
 }
