@@ -183,8 +183,22 @@ export function filledQuestions(survey, row) {
     options: Array.isArray(q.options) ? q.options.map(f) : q.options,
     min_label: f(q.min_label),
     max_label: f(q.max_label),
-    /* 26 Nov 2026 · "Show from ERP": each field's value from the record */
-    ...(Array.isArray(q.fields) ? { fields: q.fields.map((x) => ({ ...x, value: f(x.tag) })) } : {}),
+    /* 26 Nov 2026 · "Show from ERP": each field's value from the record. 27 Nov 2026 · a Repeated group's own
+       questions: their words, and a map's start (the record's location) */
+    ...(Array.isArray(q.fields)
+      ? {
+          fields:
+            q.type === 'repeat'
+              ? q.fields.map((x) => ({
+                  ...x,
+                  label: f(x.label),
+                  ...(x.lat != null ? { lat: f(x.lat) } : {}),
+                  ...(x.lng != null ? { lng: f(x.lng) } : {}),
+                  ...(x.latlng != null ? { latlng: f(x.latlng) } : {}),
+                }))
+              : q.fields.map((x) => ({ ...x, value: f(x.tag) })),
+        }
+      : {}),
     /* map_location: where the map starts — the record's own location */
     ...(q.lat != null ? { lat: f(q.lat) } : {}),
     ...(q.lng != null ? { lng: f(q.lng) } : {}),

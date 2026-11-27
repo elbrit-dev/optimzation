@@ -608,7 +608,6 @@ export function MapLocation({ q, value, onChange, disabled, api, response }) {
   const typed = term.trim();
   const pool = all();
   const whichList = (which ?? []).map((id) => pool.find((x) => x.id === id)).filter(Boolean);
-  const dCur = cur && start ? mapMeters(start, cur) : null;
   const recs = typed.length >= 2 ? res : near.places;
   const recHead =
     typed.length >= 2
@@ -626,32 +625,42 @@ export function MapLocation({ q, value, onChange, disabled, api, response }) {
             : `Tap Near me or search to see ${n1}`;
   const err = findErr || near.err;
 
+  /* 27 Nov 2026 · compact, map first (one screen on a phone): the chosen place as one line, the map with the search
+     on top of it (matches open over the map), and the nearby places as one row of buttons under it */
+  const placeLine = (v, onRemove) => {
+    const d = start ? mapMeters(start, v) : null;
+    return (
+      <div key={v.place_id || 'cur'} className="flex items-center gap-2 rounded-lg border border-success bg-success-wash px-3 py-2">
+        <Icon name="check-circle" size="sm" className="shrink-0 text-success" />
+        <span className="flex min-w-0 flex-1 flex-col">
+          <span className="text-13 font-semibold text-heading [overflow-wrap:anywhere]">{v.name || 'Place'}</span>
+          <span className="truncate text-12 text-ds-muted">
+            {[v.kind, d != null ? (d <= SAME && !ph ? 'At the saved location' : `${mapDist(d)} from the saved location`) : '', v.address].filter(Boolean).join(' · ')}
+          </span>
+        </span>
+        <a href={mapUrl(v)} target="_blank" rel="noopener noreferrer" aria-label="Open in Google Maps" className="flex size-9 shrink-0 items-center justify-center rounded-md text-brand-text hover:bg-surface">
+          <Icon name="external-link" size="sm" />
+        </a>
+        {disabled ? null : (
+          <button type="button" aria-label={`Take off ${v.name || 'this place'}`} onClick={onRemove} className="-mr-1.5 flex size-10 shrink-0 items-center justify-center rounded-md text-ds-muted hover:bg-surface">
+            <Icon name="times" size="sm" />
+          </button>
+        )}
+      </div>
+    );
+  };
+  const showMatches = !disabled && typed.length >= 2;
+  const chips = !disabled && !showMatches ? near.places.slice(0, 15) : [];
+
   return (
-    <div className="flex flex-col gap-2.5">
+    <div className="flex flex-col gap-2">
       {multi && picks.length ? (
-        <div className="flex flex-col gap-1.5">
-          <ul className="flex flex-col gap-1.5" aria-label={`Chosen ${n1}`}>
-              {picks.map((p) => (
-                <li key={p.place_id} className="flex items-start gap-2 rounded-md border border-success bg-success-wash px-2.5 py-2">
-                  <Icon name="check-circle" size="sm" className="mt-0.5 shrink-0 text-success" />
-                  <span className="flex min-w-0 flex-1 flex-col">
-                    <span className="text-13 font-semibold text-heading [overflow-wrap:anywhere]">{p.name || 'Place'}</span>
-                    <span className="text-12 text-ds-muted [overflow-wrap:anywhere]">
-                      {[p.kind, start ? `${mapDist(mapMeters(start, p))} from the saved location` : '', p.address].filter(Boolean).join(' · ')}
-                    </span>
-                  </span>
-                  {disabled ? null : (
-                    <button type="button" aria-label={`Take off ${p.name || 'this place'}`} onClick={() => onChange(picks.length > 1 ? picks.filter((x) => x.place_id !== p.place_id) : null)} className="-m-1.5 flex size-10 shrink-0 items-center justify-center rounded-md text-ds-muted hover:bg-sunken">
-                      <Icon name="times" size="sm" />
-                    </button>
-                  )}
-                </li>
-              ))}
-          </ul>
+        <div className="flex flex-col gap-1.5" aria-label={`Chosen ${n1}`}>
+          {picks.map((v) => placeLine(v, () => onChange(picks.length > 1 ? picks.filter((x) => x.place_id !== v.place_id) : null)))}
           {adding && !disabled ? (
-            <div className="flex items-center gap-2 rounded-lg border border-brand bg-brand-tint-weak px-3 py-2">
+            <div className="flex items-center gap-2 rounded-lg border border-brand bg-brand-tint-weak px-3 py-1.5">
               <Icon name="plus-circle" size="sm" className="shrink-0 text-brand-text" />
-              <span className="min-w-0 flex-1 text-12 font-semibold text-heading">Tap one more {n0} on the map or in the list.</span>
+              <span className="min-w-0 flex-1 text-12 font-semibold text-heading">Tap one more {n0} on the map.</span>
               <button type="button" onClick={() => setAdding(false)} className="flex h-9 shrink-0 items-center rounded-md px-2 text-12 font-semibold text-brand-text hover:bg-surface">
                 Cancel
               </button>
@@ -659,70 +668,112 @@ export function MapLocation({ q, value, onChange, disabled, api, response }) {
           ) : null}
         </div>
       ) : cur ? (
-        <div className="flex items-start gap-2.5 rounded-lg border border-success bg-success-wash px-3 py-2.5">
-          <Icon name="check-circle" size="sm" className="mt-0.5 shrink-0 text-success" />
-          <div className="flex min-w-0 flex-1 flex-col gap-0.5">
-            <span className="text-11 font-semibold uppercase tracking-wide text-success">{cur.kind || 'Chosen'}</span>
-            <span className="text-13 font-semibold text-heading [overflow-wrap:anywhere]">{cur.name || 'Place'}</span>
-            {cur.address ? <span className="text-12 text-ds-muted [overflow-wrap:anywhere]">{cur.address}</span> : null}
-            {dCur != null ? (
-              <span className={cx('text-12', dCur <= SAME && !ph ? 'text-success' : 'text-ds-muted')}>
-                {ph ? `${mapDist(dCur)} from the doctor’s saved location` : dCur <= SAME ? 'At the saved location — the doctor’s latitude / longitude stay as they are' : `${mapDist(dCur)} from the saved location — the ABM will check the change`}
-              </span>
-            ) : null}
-            <a href={mapUrl(cur)} target="_blank" rel="noopener noreferrer" className="flex items-center gap-1 text-12 font-semibold text-brand-text">
-              <Icon name="external-link" size="var(--fs-10)" />
-              Open in Google Maps
-            </a>
-          </div>
-          {disabled ? null : (
-            <button type="button" aria-label="Choose a different place" onClick={() => onChange(null)} className="-m-2 flex size-11 shrink-0 items-center justify-center rounded-md text-ds-muted hover:bg-sunken">
-              <Icon name="times" size="sm" />
-            </button>
-          )}
-        </div>
+        placeLine(cur, () => onChange(null))
       ) : (
-        <div className={cx('flex items-start gap-2.5 rounded-lg border px-3 py-2.5', start ? 'border-line bg-surface' : 'border-line bg-sunken')}>
-          <Icon name={start ? 'map-marker' : 'info-circle'} size="sm" className={cx('mt-0.5 shrink-0', start ? 'text-brand-text' : 'text-ds-muted')} />
-          <div className="flex min-w-0 flex-col gap-0.5">
-            <span className="text-13 font-semibold text-heading">{start ? `Choose the doctor’s ${n0}${multi ? ' (the main one first)' : ''}` : 'No location saved for this doctor'}</span>
-            <span className="text-12 text-ds-muted">
-              {start
-                ? `The map starts at the doctor’s saved location. Move or zoom it, then tap the ${n0} to choose it.`
-                : area
-                  ? `The map starts at ${area.label} (${area.level}). Move it and tap Search this area, search by name, or tap Near me.`
-                  : `Search the ${n0} by name, or tap Near me to see the ones near you.`}
-            </span>
-          </div>
-        </div>
+        <p className="flex items-start gap-1.5 text-12 text-ds-muted">
+          <Icon name={start ? 'map-marker' : 'info-circle'} size="sm" className={cx('mt-px shrink-0', start ? 'text-brand-text' : '')} />
+          <span>
+            {start
+              ? `The map starts at the doctor’s saved location. Tap the ${n0} on the map or below.`
+              : area
+                ? `No saved location: the map starts at ${area.label}. Search, or tap Near me.`
+                : `No saved location. Search the ${n0} by name, or tap Near me.`}
+          </span>
+        </p>
       )}
 
-      {disabled ? null : (
-        <div className="flex gap-2">
-          <label className="relative min-w-0 flex-1">
-            <span className="sr-only">Search {n1}</span>
-            <Icon name="search" size="sm" className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-ds-muted" />
-            <input
-              type="search"
-              value={term}
-              autoComplete="off"
-              placeholder={start ? 'Can’t see it? Search by name' : `Search a ${n0}`}
-              onChange={(e) => setTerm(e.target.value)}
-              className="h-11 w-full rounded-lg bg-surface pl-9 pr-3 text-14 text-body shadow-field placeholder:text-placeholder focus:outline-none"
-            />
-          </label>
-          {start ? null : (
-            <button
-              type="button"
-              onClick={nearMe}
-              className="flex h-11 shrink-0 items-center gap-1.5 rounded-lg border border-line bg-surface px-3 text-12 font-semibold text-heading hover:border-line-strong"
-            >
-              <Icon name="compass" size="sm" />
-              Near me
-            </button>
-          )}
+      <div className="relative h-[300px] overflow-hidden rounded-lg border border-line bg-sunken max-sm:h-[280px]">
+        <div ref={boxRef} className="size-full" role="region" aria-label={`Map of ${n1} — tap one to choose it`} />
+        {disabled ? null : (
+          <div className="absolute inset-x-2 top-2 flex gap-2">
+            <label className="relative min-w-0 flex-1">
+              <span className="sr-only">Search {n1}</span>
+              <Icon name="search" size="sm" className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-ds-muted" />
+              <input
+                type="search"
+                value={term}
+                autoComplete="off"
+                placeholder={start ? 'Can’t see it? Search by name' : `Search a ${n0}`}
+                onChange={(e) => setTerm(e.target.value)}
+                className="h-10 w-full rounded-lg bg-surface pl-9 pr-3 text-14 text-body shadow-md placeholder:text-placeholder focus:outline-none"
+              />
+            </label>
+            {start ? null : (
+              <button type="button" onClick={nearMe} className="flex h-10 shrink-0 items-center gap-1.5 rounded-lg bg-surface px-3 text-12 font-semibold text-heading shadow-md">
+                <Icon name="compass" size="sm" />
+                Near me
+              </button>
+            )}
+          </div>
+        )}
+        {showMatches ? (
+          <div role="region" aria-label={`Matching ${n1}`} className="absolute inset-x-2 top-14 flex max-h-[calc(100%-4.5rem)] flex-col overflow-hidden rounded-lg bg-surface shadow-md">
+            <p className="shrink-0 border-b border-line px-3 py-1.5 text-12 font-semibold text-body">{recHead}</p>
+            <ul role="listbox" className="flex min-h-0 flex-col overflow-y-auto p-1">
+              {res.map((x) => row(x, false))}
+              {searching ? (
+                <li className="flex items-center gap-1.5 px-2.5 py-2 text-12 text-ds-muted">
+                  <Icon name="spinner pi-spin" size="sm" />
+                  Looking on Google Maps too…
+                </li>
+              ) : null}
+            </ul>
+          </div>
+        ) : null}
+        {mapErr ? (
+          <div className="absolute inset-x-0 bottom-0 top-14 flex items-center justify-center gap-2 p-4 text-center text-12 text-ds-muted">
+            <Icon name="map" size="lg" className="shrink-0" />
+            <span>{mapErr} You can still search and choose from the list.</span>
+          </div>
+        ) : null}
+        {moved && !disabled && !showMatches ? (
+          <button
+            type="button"
+            onClick={searchHere}
+            className="absolute bottom-2.5 left-1/2 flex h-10 -translate-x-1/2 items-center gap-1.5 rounded-full bg-surface px-4 text-12 font-semibold text-brand-text shadow-md"
+          >
+            <Icon name="refresh" size="sm" />
+            Search this area
+          </button>
+        ) : null}
+        {(near.busy || searching) && !showMatches ? (
+          <div role="status" className="absolute bottom-2.5 left-2.5 flex items-center gap-1.5 rounded-full bg-surface px-3 py-1.5 text-12 text-heading shadow-md">
+            <Icon name="spinner pi-spin" size="sm" />
+            {near.busy === 'more' ? `Loading all ${n1}…` : `Finding ${n1}…`}
+          </div>
+        ) : null}
+        {hint ? (
+          <div role="status" className="absolute left-1/2 top-14 max-w-[90%] -translate-x-1/2 rounded-lg bg-heading px-3 py-2 text-center text-12 text-surface shadow-md">
+            {hint}
+          </div>
+        ) : null}
+      </div>
+
+      {chips.length ? (
+        <div className="flex flex-col gap-1">
+          <span className="text-11 font-medium text-ds-muted">{recHead}</span>
+          <ul role="listbox" aria-label={`Nearby ${n1}`} className="-mx-1 flex gap-1.5 overflow-x-auto px-1 pb-1 [scrollbar-width:none]">
+            {chips.map((x) => {
+              const on = isOn(x.id);
+              const d = ref ? mapMeters(ref, x) : null;
+              return (
+                <li key={x.id} role="option" aria-selected={on} className="shrink-0">
+                  <button
+                    type="button"
+                    onClick={() => choose(x.id)}
+                    className={cx('flex min-h-11 max-w-[220px] flex-col items-start justify-center rounded-lg border px-3 py-1 text-left', on ? 'border-success bg-success-wash' : 'border-line bg-surface hover:border-line-strong')}
+                  >
+                    <span className="w-full truncate text-12 font-semibold text-heading">{x.title}</span>
+                    {d != null ? <span className="text-11 text-ds-muted">{mapDist(d)}</span> : null}
+                  </button>
+                </li>
+              );
+            })}
+          </ul>
         </div>
-      )}
+      ) : !disabled && !showMatches && near.busy ? null : !disabled && !showMatches && start && !near.places.length ? (
+        <span className="text-11 text-ds-muted">{recHead}</span>
+      ) : null}
 
       {!disabled && whichList.length > 1 ? (
         <div role="dialog" aria-label="Which one did you tap?" className="flex flex-col gap-1.5 rounded-lg border-[1.5px] border-brand bg-surface p-2">
@@ -736,64 +787,11 @@ export function MapLocation({ q, value, onChange, disabled, api, response }) {
             </button>
           </div>
           <ul role="listbox" className="flex flex-col">
-            {whichList.map((p) => row(p, true))}
+            {whichList.map((x) => row(x, true))}
           </ul>
         </div>
       ) : null}
 
-      {/* 25 Nov 2026 · the recommendations (nearest to the saved point, or the matches while typing) in the top 30%,
-          the map in the other 70% */}
-      <div className="flex h-[620px] flex-col gap-2 max-sm:h-[560px]">
-      {disabled ? null : (
-        <div role="region" aria-label={`Recommended ${n1}`} className="flex min-h-0 basis-[calc(30%-4px)] flex-col overflow-hidden rounded-lg border border-line bg-surface">
-          <p className="flex shrink-0 items-center gap-1.5 border-b border-line bg-sunken px-3 py-2 text-12 font-semibold text-body">
-            <Icon name={typed.length >= 2 ? 'search' : 'map-marker'} size="sm" className="shrink-0 text-danger-text" />
-            {recHead}
-          </p>
-          {recs.length || (typed.length >= 2 && searching) ? (
-            <ul role="listbox" aria-label={typed.length >= 2 ? `Matching ${n1}` : `Nearby ${n1}`} className="flex min-h-0 flex-1 flex-col overflow-y-auto p-1">
-              {recs.map((p) => row(p, false))}
-              {typed.length >= 2 && searching ? (
-                <li className="flex items-center gap-1.5 px-2.5 py-2 text-12 text-ds-muted">
-                  <Icon name="spinner pi-spin" size="sm" />
-                  Looking on Google Maps too…
-                </li>
-              ) : null}
-            </ul>
-          ) : null}
-        </div>
-      )}
-      <div className="relative min-h-0 flex-1 overflow-hidden rounded-lg border border-line bg-sunken">
-        <div ref={boxRef} className="size-full" role="region" aria-label={`Map of ${n1} — tap one to choose it`} />
-        {mapErr ? (
-          <div className="absolute inset-0 flex items-center justify-center gap-2 p-4 text-center text-12 text-ds-muted">
-            <Icon name="map" size="lg" className="shrink-0" />
-            <span>{mapErr} You can still search and choose from the list.</span>
-          </div>
-        ) : null}
-        {moved && !disabled ? (
-          <button
-            type="button"
-            onClick={searchHere}
-            className="absolute left-1/2 top-2.5 flex h-10 -translate-x-1/2 items-center gap-1.5 rounded-full bg-surface px-4 text-12 font-semibold text-brand-text shadow-md"
-          >
-            <Icon name="refresh" size="sm" />
-            Search this area
-          </button>
-        ) : null}
-        {near.busy || searching ? (
-          <div role="status" className="absolute bottom-2.5 left-1/2 flex -translate-x-1/2 items-center gap-1.5 rounded-full bg-surface px-3 py-1.5 text-12 text-heading shadow-md">
-            <Icon name="spinner pi-spin" size="sm" />
-            {searching ? 'Searching…' : near.busy === 'more' ? `Loading all ${n1}…` : `Finding ${n1}…`}
-          </div>
-        ) : null}
-        {hint ? (
-          <div role="status" className="absolute left-1/2 top-2.5 max-w-[90%] -translate-x-1/2 rounded-lg bg-heading px-3 py-2 text-center text-12 text-surface shadow-md">
-            {hint}
-          </div>
-        ) : null}
-      </div>
-      </div>
       {multi && picks.length && !adding && !disabled ? (
         <button
           type="button"

@@ -149,6 +149,13 @@ describe('Repeated group', () => {
     expect(answerProblem(withPhoto, [{ c1: 'Cardio', c4: [{ url: '/private/files/a.jpg', name: 'a.jpg', ai: { redo: 1 } }] }])).toBe('Product 1 · Photo of the shelf: A file is not clear — remove it and upload it again.');
   });
 
+  it('keeps one entry open; the others are one line each', () => {
+    render(<QuestionCard q={grp} index={1} value={[{ c1: 'Cardio 10 mg', c2: 40 }, { c1: 'Derma Soft' }]} onChange={() => {}} />);
+    expect(screen.getByText('Cardio 10 mg · 40')).toBeTruthy();
+    expect(screen.getByRole('group', { name: 'Product 2' })).toBeTruthy();
+    expect(screen.queryByRole('group', { name: 'Product 1' })).toBeNull();
+  });
+
   it('opens with one empty entry and the Add another button', () => {
     render(<QuestionCard q={grp} index={1} value={undefined} onChange={() => {}} />);
     expect(screen.getByText('Product 1')).toBeTruthy();

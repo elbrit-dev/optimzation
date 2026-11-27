@@ -855,14 +855,38 @@ function RepeatInput({ q, value, onChange, disabled, onUpload, api, response, sh
   const Noun = noun.charAt(0).toUpperCase() + noun.slice(1);
   const max = Number(q.max) || 50;
   const kids = q.fields ?? [];
+  /* 27 Nov 2026 · one entry open at a time (its questions, its map); the others are one line each — tap to edit */
+  const [open, setOpen] = useState(() => rows.length - 1);
+  const openI = Math.min(open, rows.length - 1);
   const setOne = (i, id, v) => onChange(rows.map((r, j) => (j === i ? { ...r, [id]: v } : r)));
   const drop = (i) => {
     const next = rows.filter((_, j) => j !== i);
+    setOpen(Math.max(0, Math.min(open > i ? open - 1 : open, next.length - 1)));
     onChange(next.length ? next : null);
   };
+  /* a photo / file (read by the AI) and a map get "<group id>.<question id>", so their reads and map keep apart */
+  const kidQ = (k) => (k.type === 'file_upload' || k.type === 'map_location' ? { ...k, id: `${q.id}.${k.id}` } : k);
+  const summary = (r) => kids.map((k) => (isEmpty(r[k.id]) ? '' : answerText(k, r[k.id]).split('\n')[0])).filter(Boolean).join(' · ');
+  const problemOf = (r) => kids.map((k) => answerProblem(k, r[k.id])).find(Boolean) || null;
   return (
     <div className="flex flex-col gap-2.5">
-      {rows.map((r, i) => (
+      {rows.map((r, i) =>
+        i !== openI && !disabled ? (
+          <div key={i} className={cx('flex items-center gap-2 rounded-[10px] border bg-sunken px-3 py-2', showErrors && problemOf(r) ? 'border-danger-border' : 'border-line')}>
+            <button type="button" onClick={() => setOpen(i)} className="flex min-h-10 min-w-0 flex-1 flex-col items-start justify-center text-left" aria-label={`Edit ${noun} ${i + 1}`}>
+              <span className="text-13 font-semibold text-heading">
+                {Noun} {i + 1}
+              </span>
+              <span className={cx('w-full truncate text-12', showErrors && problemOf(r) ? 'text-danger-text' : 'text-ds-muted')}>
+                {showErrors && problemOf(r) ? problemOf(r) : summary(r) || 'Not filled yet'}
+              </span>
+            </button>
+            <Icon name="pencil" size="sm" className="shrink-0 text-ds-muted" />
+            <button type="button" aria-label={`Remove ${noun} ${i + 1}`} onClick={() => drop(i)} className="-mr-1.5 flex size-10 shrink-0 items-center justify-center rounded-md text-ds-muted hover:bg-surface">
+              <Icon name="times" size="sm" />
+            </button>
+          </div>
+        ) : (
         <div key={i} className="flex flex-col gap-2.5 rounded-[10px] border border-line bg-sunken p-3" role="group" aria-label={`${Noun} ${i + 1}`}>
           <div className="flex items-center justify-between gap-2">
             <span className="text-13 font-semibold text-heading">
@@ -882,8 +906,7 @@ function RepeatInput({ q, value, onChange, disabled, onUpload, api, response, sh
                   {k.label}
                   {k.required ? <span className="text-danger-text"> *</span> : null}
                 </span>
-                {/* 27 Nov 2026 · a photo / file here is read by the AI as "<group id>.<question id>" (its own reads on the response) */}
-                <Input q={k.type === 'file_upload' ? { ...k, id: `${q.id}.${k.id}` } : k} value={r[k.id]} onChange={(v) => setOne(i, k.id, v)} disabled={disabled} onUpload={onUpload} api={api} response={response} />
+                <Input q={kidQ(k)} value={r[k.id]} onChange={(v) => setOne(i, k.id, v)} disabled={disabled} onUpload={onUpload} api={api} response={response} />
                 {k.type === 'file_upload' && k.ai?.schema && aiReads(k) && !disabled ? (
                   <span className="flex items-start gap-1.5 text-11 text-ds-muted">
                     <Icon name="eye" size="sm" className="mt-px shrink-0" />
@@ -897,11 +920,15 @@ function RepeatInput({ q, value, onChange, disabled, onUpload, api, response, sh
             );
           })}
         </div>
-      ))}
+        ),
+      )}
       {disabled || rows.length >= max ? null : (
         <button
           type="button"
-          onClick={() => onChange([...rows, {}])}
+          onClick={() => {
+            setOpen(rows.length);
+            onChange([...rows, {}]);
+          }}
           className="flex h-10 items-center gap-1.5 self-start rounded-lg border border-dashed border-brand px-3 text-13 font-semibold text-brand-text hover:bg-brand-tint-weak"
         >
           <Icon name="plus" size="sm" />
