@@ -256,25 +256,18 @@ function BillOpen({ conn, kind, bill: b, editable, busy, onRemove, onFull, onClo
   );
 }
 
-/* The trip's bills of the given kinds as picture cards; tap -> the bill, Remove there.
-   onRemove(kind, id) -> Promise */
-export function BillTiles({ claim, kinds, editable, onRemove }) {
+/* The opened bill with ‹ › / swipe through the given kinds (27 Nov 2026): used by the DA bill
+   cards and by the pills above the upload. open / setOpen: the bill id shown (null = closed). */
+export function BillViewer({ claim, kinds, editable, onRemove, open, setOpen }) {
   const conn = useBillConn();
   const list = kinds.flatMap((kind) => (claim[kind] || []).map((bill) => ({ kind, bill })));
   const files = useMemo(() => list.map((x) => (x.bill.url ? billFile(x.bill.url) : null)).filter(Boolean), [claim, kinds.join()]); // eslint-disable-line react-hooks/exhaustive-deps
-  const [open, setOpen] = useState(null); // bill id
   const [full, setFull] = useState(null);
   const [busy, setBusy] = useState(false);
   const at = list.findIndex((x) => x.bill.id === open);
   const cur = at >= 0 ? list[at] : null;
-  if (!list.length) return null;
   return (
     <>
-      <div className="-mx-1 mt-2 flex gap-2 overflow-x-auto px-1 pb-1">
-        {list.map(({ kind, bill }) => (
-          <BillTile key={bill.id} conn={conn} kind={kind} bill={bill} onOpen={() => setOpen(bill.id)} />
-        ))}
-      </div>
       {cur && (
         <BillOpen
           conn={conn}
@@ -299,6 +292,25 @@ export function BillTiles({ claim, kinds, editable, onRemove }) {
         />
       )}
       {full && conn ? <FilePreview conn={conn} file={full} files={files} onClose={() => setFull(null)} /> : null}
+    </>
+  );
+}
+
+/* The trip's bills of the given kinds as picture cards; tap -> the bill, Remove there.
+   onRemove(kind, id) -> Promise */
+export function BillTiles({ claim, kinds, editable, onRemove }) {
+  const conn = useBillConn();
+  const list = kinds.flatMap((kind) => (claim[kind] || []).map((bill) => ({ kind, bill })));
+  const [open, setOpen] = useState(null); // bill id
+  if (!list.length) return null;
+  return (
+    <>
+      <div className="-mx-1 mt-2 flex gap-2 overflow-x-auto px-1 pb-1">
+        {list.map(({ kind, bill }) => (
+          <BillTile key={bill.id} conn={conn} kind={kind} bill={bill} onOpen={() => setOpen(bill.id)} />
+        ))}
+      </div>
+      <BillViewer claim={claim} kinds={kinds} editable={editable} onRemove={onRemove} open={open} setOpen={setOpen} />
     </>
   );
 }
