@@ -84,8 +84,8 @@ import {
   HELP_FILE_MAX,
 } from "@calendar/lib/field-expenses/trip-help";
 import { NonReportCard, NonReportDayRow, NonReportSheet } from "@calendar/components/calendar/field/field-nonreport";
-import { CabSheet } from "@calendar/components/calendar/field/field-cab";
-import { BlockCard, CarCabCard, HelpCard, HelpSheet, OwnCarSection, blocksOf, useCarCab, useFuelUpload } from "@calendar/components/calendar/field/field-cards";
+import { CabSheet, useCabActions } from "@calendar/components/calendar/field/field-cab";
+import { BlockCard, CarCabCard, CarCabSheetV2, FieldBarSummary, HelpCard, HelpSheet, OwnCarSection, blocksOf, useCarCab, useFuelUpload } from "@calendar/components/calendar/field/field-cards";
 
 const MONTH_LONG = ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"];
 const monthName = (ym) => MONTH_LONG[Number(ym.slice(5, 7)) - 1];
@@ -183,7 +183,6 @@ export function FieldStrip() {
             : null;
   }
   // the fill: how many trips are past "to claim" (a trip sent back is not)
-  const done = f.claimed.length ? (f.claimed.length - toClaim.length - toFix.length) / f.claimed.length : 0;
 
   return (
     <div className="shrink-0 bg-white px-3 pb-2 pt-1.5">
@@ -192,11 +191,13 @@ export function FieldStrip() {
         disabled={!canOpen}
         onClick={f.toggleStrip}
         aria-expanded={!!f.stripOpen}
-        className="relative flex min-h-9 w-full items-center gap-1.5 overflow-hidden rounded-xl border border-gray-200 bg-white pl-2.5 pr-2 text-left text-[12px] shadow-sm active:opacity-80"
+        className="relative flex min-h-[42px] w-full items-center gap-1.5 overflow-hidden rounded-[14px] border border-gray-200 bg-white pl-2 pr-2 text-left text-[12px] shadow-sm active:opacity-80"
       >
-        {canOpen && f.claimed.length > 0 && (
-          <span className="absolute inset-y-0 left-0 bg-blue-100/80 transition-[width] duration-500" style={{ width: `${Math.max(6, Math.round(done * 100))}%` }} aria-hidden />
-        )}
+        {/* 27 Nov 2026 (the user): ready -> ring of cards sent, icons with counts, the amount to claim */}
+        {canOpen ? (
+          <FieldBarSummary isLocalTrip={isLocalTrip} month={m.slice(0, 3)} toClaim={sum(toClaim) + sum(toFix)} />
+        ) : (
+        <>
         <Car className="relative h-3.5 w-3.5 shrink-0 text-blue-600" aria-hidden />
         <span className="relative flex min-w-0 flex-1 items-center gap-1 truncate font-semibold text-gray-600">
           <b className="font-extrabold text-gray-900">Field</b>
@@ -205,6 +206,8 @@ export function FieldStrip() {
           <span className={cn("truncate", !toClaim.length && toFix.length > 0 && "text-rose-700")}>· {left}</span>
         </span>
         {right && <b className="relative shrink-0 text-[12.5px] font-extrabold text-gray-900">{right}</b>}
+        </>
+        )}
         {canOpen && <ChevronDown className={cn("relative h-4 w-4 shrink-0 text-gray-400 transition-transform", f.stripOpen && "rotate-180")} aria-hidden />}
       </button>
 
@@ -889,7 +892,7 @@ function FieldSheets() {
         <ModalContent className={cls}>{kind === "nonreport" && <NonReportSheet key={f.sheet?.date || "list"} />}</ModalContent>
       </Modal>
       <Modal side={side} open={kind === "cab"} onOpenChange={close}>
-        <ModalContent className={cls}>{kind === "cab" && <CarCabSheet />}</ModalContent>
+        <ModalContent className={cls}>{kind === "cab" && <CarCabSheetNew />}</ModalContent>
       </Modal>
       <Modal side={side} open={kind === "help"} onOpenChange={close}>
         <ModalContent className={cls}>{kind === "help" && <HelpSheet TripHelp={TripHelp} />}</ModalContent>
@@ -903,6 +906,12 @@ function FieldSheets() {
 
 /* Car · Ola · Uber (27 Nov 2026): the own car (request, limit, fuel bills) on top,
    the ride bills (SM, ZSM) below -- one Add bill for both. An RBM sees the car only. */
+// the approved design (27 Nov 2026): CarCabSheetV2 in field-cards.jsx; the earlier wrapper below is kept unused
+function CarCabSheetNew() {
+  const cab = useCabActions();
+  return <CarCabSheetV2 cab={cab} />;
+}
+// eslint-disable-next-line no-unused-vars
 function CarCabSheet() {
   const f = useFieldExpenses();
   const c = useCarCab();
@@ -1938,6 +1947,40 @@ function TripSheet({ item }) {
         ))}
       </ol>
 
+      {/* OUTSTATION DA for the whole trip (27 Nov 2026, the user): the nights' DA together --
+          stay + food bills paid as billed, at least 50 % a night, held to the trip's full DA */}
+      {calc.nights.length > 0 && (
+        <div className="rounded-2xl border border-gray-200 bg-white px-3.5 py-3">
+          <span className="flex items-baseline justify-between">
+            <b className="text-[13.5px] font-bold text-gray-900">
+              Outstation DA · {calc.nights.length} night{calc.nights.length > 1 ? "s" : ""}
+            </b>
+            <span className="text-[13px] text-gray-600">
+              <b className="text-[15px] font-extrabold text-gray-900">{inr(calc.pool.paid)}</b>
+              {calc.pool.full > calc.pool.paid && !calc.fullNoBill ? <span className="text-gray-400"> / {inr(calc.pool.full)}</span> : null}
+            </span>
+          </span>
+          {!calc.fullNoBill && calc.pool.full > 0 && (
+            <span className="mt-2 block h-[5px] overflow-hidden rounded-full bg-gray-100">
+              <i className="block h-full rounded-full bg-green-600" style={{ width: `${Math.min(100, Math.round((calc.pool.paid / calc.pool.full) * 100))}%` }} />
+            </span>
+          )}
+          <span className="mt-1.5 block text-[12px] leading-snug text-gray-500">
+            {calc.fullNoBill
+              ? "Full outstation DA — no bills needed."
+              : calc.pool.on
+                ? [
+                    `Stay + food bills ${inr(calc.pool.bills)}`,
+                    calc.pool.capped ? `${inr(calc.pool.capped)} over the trip's limit` : null,
+                    calc.pool.unpaid ? `${inr(calc.pool.unpaid)} on a day off, not paid` : null,
+                  ]
+                    .filter(Boolean)
+                    .join(" · ")
+                : `No bills yet · 50 % (${inr(calc.pool.half)}) · add hotel and food bills to raise it to ${inr(calc.pool.full)}`}
+          </span>
+        </div>
+      )}
+
       {/* bills only for a night spent away: back at HQ the same day, no stay
           or food bill is asked for (one already added still shows) */}
       {/* only once there are bills: with none, the upload button at the
@@ -1974,7 +2017,7 @@ function TripSheet({ item }) {
               <Info className="mt-0.5 h-4 w-4 shrink-0" aria-hidden />
               {[calc.pool.unpaid ? `${inr(calc.pool.unpaid)} not paid · day off` : null, nextNight && calc.stayBills > 0 ? `No stay bill · ${dayLabel(nextNight.date)}` : null]
                 .filter(Boolean)
-                .join(" · ") || "Paid 50–100 % of DA a day"}
+                .join(" · ") || "Held to the trip's full DA"}
             </p>
           )}
         </div>
@@ -2395,7 +2438,8 @@ function TripDay({ row, data, car, last, multi, night, bills, stayOff, billStrip
                 {row.dayType === "HQ" ? "HQ day" : AWAY_TYPES.has(row.dayType) ? "OS day" : row.dayType === "EQ" ? "EQ day" : null}
               </MoneyRow>
             )}
-            {row.da > 0 && (
+            {/* 27 Nov 2026 (the user): an outstation night's DA is shown for the whole trip (below), not per day */}
+            {row.da > 0 && !night && (
               <MoneyRow label="DA" amount={night && bills ? night.paid : row.da}>
                 {night
                   ? bills
@@ -2442,7 +2486,8 @@ function TripDay({ row, data, car, last, multi, night, bills, stayOff, billStrip
         {/* the night's DA; the stay bill itself is scanned in "Stay & food bills" */}
         {/* no bill yet: the DA row above says 50 %; the chip shows the bills once there are some */}
         {night ? (
-          !bills ? null : (
+          // the night's stay / food chip is gone (27 Nov 2026): the trip's DA block says it once
+          true || !bills ? null : (
           <span
             className={cn(
               "mt-2 inline-flex items-center gap-1.5 rounded-xl px-2.5 py-1.5 text-[12px] font-semibold",

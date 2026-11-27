@@ -373,3 +373,75 @@ export function CabSheet({ title = "Ola, Uber, Rapido, Cab bills", top = null, o
     </div>
   );
 }
+
+/* The ride-bill actions without the old sheet (27 Nov 2026): for the Car · Ola · Uber
+   sheet in field-cards.jsx -- scan / hand entry, send, recall, remove, view a bill. */
+export function useCabActions() {
+  const f = useFieldExpenses();
+  const month = f.month;
+  const { claims } = useCabs(f.emp, month, !!f.canCab);
+  const [billInput, pickBill] = useBillPicker();
+  const [manual, setManual] = useState(null);
+  const [viewing, setViewing] = useState(null);
+  const conn = useMemo(() => {
+    try {
+      return AUTH_CONFIG.authToken ? makeConn({ url: AUTH_CONFIG.erpUrl, token: AUTH_CONFIG.authToken }) : null;
+    } catch {
+      return null;
+    }
+  }, []);
+  const files = (claims || []).flatMap((c) => c.lines).filter((r) => r.bill).map((r) => billFile(r.bill));
+  const add = (bill) =>
+    addCabBill({ employee: f.emp, month, bill }).then((r) => {
+      toast.success(`Ride bill ${inr(bill.billed ?? bill.amount)} added${r.resent ? ` — sent to ${f.manager} again` : ""}`);
+      if (r.warning) toast.message(r.warning, { duration: 8000 });
+      if (bill.flag) toast.message(`${bill.flag} Your reporting officer will see this.`, { duration: 10000 });
+    });
+  const scan = () =>
+    pickBill(async (file) => {
+      const tid = toast.loading("Reading the ride bill…", { duration: Infinity });
+      try {
+        const r = await readCabBill(file, month);
+        if (!r.ok) {
+          if (r.manual) {
+            toast.dismiss(tid);
+            return setManual({ file, prefill: r.prefill, reason: r.reason });
+          }
+          return toast.error(r.reason, { id: tid, duration: r.duplicate ? 10000 : 6000 });
+        }
+        toast.dismiss(tid);
+        await add(r.bill);
+      } catch (e) {
+        toast.error(errText(e), { id: tid });
+      }
+    });
+  const send = async () => {
+    await sendCabs({ employee: f.emp, month });
+    toast.success(`Ride bills sent to ${f.manager}`);
+  };
+  const recall = async () => {
+    await recallCabs({ employee: f.emp, month });
+    toast.success("Taken back — change it and send again");
+  };
+  const remove = async (line) => {
+    await removeCabBill({ employee: f.emp, month, lineId: line.id });
+    toast.success(`Ride bill ${inr(line.amount)} removed`);
+  };
+  const sheet = (
+    <>
+      {manual && (
+        <ManualBill
+          file={manual.file}
+          slot="cabs"
+          trip={cabTrip(month)}
+          prefill={manual.prefill}
+          reason={manual.reason}
+          onCancel={() => setManual(null)}
+          onDone={(_slot, bill) => add(bill).then(() => setManual(null)).catch((e) => toast.error(errText(e)))}
+        />
+      )}
+      {viewing && conn && <FilePreview conn={conn} file={billFile(viewing)} files={files} onClose={() => setViewing(null)} />}
+    </>
+  );
+  return { input: billInput, scan, send, recall, remove, view: setViewing, sheet };
+}

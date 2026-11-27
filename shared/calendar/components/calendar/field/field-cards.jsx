@@ -13,9 +13,9 @@
    A card still to send shows its DA against the trip's full limit ("₹4,150 /7,900")
    and a thin bar along its bottom; once sent, the plain amounts. */
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useState } from "react";
 import { toast } from "sonner";
-import { BedDouble, BookOpen, Car, CarTaxiFront, Fuel, MessageSquare, Plane, Plus, RotateCcw, Train } from "lucide-react";
+import { BedDouble, BookOpen, Car, CarTaxiFront, Fuel, MessageSquare, Plane, Plus, Receipt, RotateCcw, Train } from "lucide-react";
 import { cn } from "@calendar/lib/utils";
 import { ModalTitle } from "@calendar/components/ui/responsive-modal";
 import { useFieldExpenses } from "@calendar/components/calendar/field/field-context";
@@ -415,7 +415,6 @@ export function HelpSheet({ TripHelp }) {
   const [tab, setTab] = useState(f.sheet?.tab || "tickets");
   // { item, chat } -- a request opened (chat = its name) or a new one (chat null)
   const [open, setOpen] = useState(null);
-  const [pickNew, setPickNew] = useState(false);
   const list = f.helpAll || [];
   const itemOf = (t) => (f.claimed || []).find((x) => x.trip.from === t.from && x.trip.to === t.to) || null;
   const rows = list
@@ -423,7 +422,6 @@ export function HelpSheet({ TripHelp }) {
     .sort((a, b) => String(b.t.creation).localeCompare(String(a.t.creation)));
   const openRows = rows.filter((r) => r.k !== "done");
   const doneRows = rows.filter((r) => r.k === "done");
-  const trips = useMemo(() => [...(f.claimed || [])].sort((a, b) => a.trip.from.localeCompare(b.trip.from)), [f.claimed]);
   useEffect(() => {
     if (tab === "tickets") f.actions?.seenHelp?.();
   }, [tab]); // eslint-disable-line react-hooks/exhaustive-deps
@@ -461,20 +459,6 @@ export function HelpSheet({ TripHelp }) {
       <div className="flex min-h-0 flex-1 flex-col gap-3 overflow-y-auto overscroll-contain px-4 py-3">
         {tab === "tickets" ? (
           <>
-            {pickNew && (
-              <section className="flex flex-col gap-2">
-                <b className="px-1 text-[12px] font-bold uppercase tracking-wide text-gray-600">About</b>
-                <div className="-mx-4 flex gap-2 overflow-x-auto px-4 pb-1 [scrollbar-width:none]">
-                  {trips.map((x) => (
-                    <button key={x.trip.id} type="button" onClick={() => setOpen({ item: x, chat: null })} className="flex w-24 shrink-0 flex-col gap-0.5 rounded-xl border border-gray-200 bg-white px-2.5 py-2 text-left">
-                      <Tag tone={x.trip.kind === "tour" ? "bg-indigo-50 text-indigo-700" : "bg-slate-100 text-slate-600"}>{x.trip.kind === "tour" ? "OS" : x.trip.kind === "day" ? "EQ" : "HQ"}</Tag>
-                      <b className="whitespace-nowrap text-[13px] font-bold text-gray-900">{spanLabel(x.trip.from, x.trip.to)}</b>
-                      <small className="truncate text-[11px] text-gray-400">{x.trip.name.split(" · ")[0]}</small>
-                    </button>
-                  ))}
-                </div>
-              </section>
-            )}
             {openRows.length > 0 && (
               <section className="flex flex-col gap-2">
                 <span className="flex px-1 text-[12px] font-bold uppercase tracking-wide text-gray-600">
@@ -499,17 +483,16 @@ export function HelpSheet({ TripHelp }) {
                 </div>
               </section>
             )}
-            {!rows.length && !pickNew && <p className="px-1 py-6 text-center text-[13px] text-gray-500">No help requests this month.</p>}
+            {!rows.length && <p className="px-1 py-6 text-center text-[13px] text-gray-500">No help requests this month.</p>}
           </>
         ) : (
           <HowItWorks />
         )}
       </div>
-      <div className="border-t border-gray-100 bg-white px-4 pb-4 pt-3">
-        <button type="button" onClick={() => { setTab("tickets"); setPickNew(true); }} className="flex min-h-12 w-full items-center justify-center gap-2 rounded-2xl bg-blue-600 text-[15px] font-bold text-white">
-          <MessageSquare className="h-4 w-4" aria-hidden /> {tab === "how" ? "Ask a question" : "Ask for help"}
-        </button>
-      </div>
+      {/* 27 Nov 2026 (the user): no new request from here -- it is raised on the trip it is about */}
+      <p className="border-t border-gray-100 bg-white px-4 pb-4 pt-3 text-center text-[12.5px] text-gray-500">
+        To ask about a trip, open its card and tap <b className="font-semibold text-gray-700">Help</b>.
+      </p>
       {open && <TripHelp key={`${open.item.trip.id}:${open.chat || "new"}`} item={open.item} bare initialChat={open.chat} onClose={() => { setOpen(null); f.actions?.refreshHelp?.(); }} />}
     </div>
   );
@@ -587,3 +570,316 @@ function HowItWorks() {
   );
 }
 
+
+/* ---------- the Field bar (27 Nov 2026, the user): one line --
+   a ring of cards sent out of all, Field · month, then counts with icons --
+   flights by company, fuel bills, Ola / Uber rides, stay / food / ticket bills,
+   help requests (orange dot: new reply) -- each only when above 0, and what is
+   still to claim (or "All sent"). */
+export function FieldBarSummary({ isLocalTrip, month, toClaim }) {
+  const f = useFieldExpenses();
+  const c = useCarCab();
+  const blocks = blocksOf(f.claimed || [], isLocalTrip);
+  const sent = blocks.filter((b) => ["wait", "ok"].includes(stateOf(b.items))).length;
+  const all = blocks.length;
+  const p = all ? Math.round((sent / all) * 100) : 0;
+  const days = (f.claimed || []).flatMap((x) => x.trip.days);
+  const flights = days.filter((d) => d.flight || d.company === "Travel").length;
+  const fuel = c.fuelBills.length;
+  const rides = f.canCab ? c.t.count : 0;
+  const bills = (f.claimed || []).reduce((a, x) => a + (x.calc.stayBills || 0) + (x.calc.foodBills || 0) + (x.calc.travelBills || 0), 0);
+  const help = helpSummary(f.helpAll || []);
+  const chip = (Icon, n, title, tone = "bg-sky-50 text-sky-700", dot = false) =>
+    n > 0 ? (
+      <span key={title} title={title} className={cn("relative inline-flex h-[21px] shrink-0 items-center gap-0.5 rounded-md px-1 text-[11.5px] font-extrabold", tone)}>
+        <Icon className="h-3 w-3" aria-hidden />
+        {n}
+        {dot && <i className="absolute -right-[3px] -top-[3px] h-[7px] w-[7px] rounded-full border-[1.5px] border-white bg-orange-500" />}
+      </span>
+    ) : null;
+  const helpTone = help.state === "raised" ? "bg-red-50 text-red-700" : help.state === "prog" ? "bg-orange-50 text-orange-700" : "bg-green-50 text-green-700";
+  return (
+    <>
+      <span
+        className="relative grid h-7 w-7 shrink-0 place-items-center rounded-full"
+        style={{ background: `conic-gradient(#22c55e 0 ${p}%, #eef0f3 ${p}% 100%)` }}
+        title={`${sent} of ${all} cards sent`}
+      >
+        <span className="grid h-[21px] w-[21px] place-items-center rounded-full bg-white text-[10px] font-extrabold text-gray-900">{sent}</span>
+      </span>
+      <b className="text-[13.5px] font-extrabold text-gray-900">Field</b>
+      <span className="shrink-0 rounded-md bg-blue-50 px-1.5 py-px text-[11px] font-extrabold text-blue-700">{month}</span>
+      <span className="flex min-w-0 items-center gap-[3px] overflow-hidden">
+        {chip(Plane, flights, "Flights by company")}
+        {chip(Fuel, fuel, "Fuel bills")}
+        {chip(CarTaxiFront, rides, "Ola / Uber rides")}
+        {chip(Receipt, bills, "Stay / food / ticket bills")}
+        {chip(MessageSquare, help.total, "Help requests", helpTone, help.unread > 0)}
+      </span>
+      <span className="flex-1" />
+      {toClaim > 0 ? (
+        <b className="shrink-0 text-[13px] font-extrabold text-pink-600">{inr(toClaim)}</b>
+      ) : all > 0 && sent === all ? (
+        <b className="shrink-0 text-[12px] font-extrabold text-green-700">All sent</b>
+      ) : null}
+    </>
+  );
+}
+
+/* ---------- Car · Ola · Uber sheet (27 Nov 2026, the approved design) ----------
+   the month's total with a fuel / rides bar on top; OWN CAR (request, fuel limit,
+   fuel bills) and OLA · UBER · RAPIDO (the ride bills) as two quiet groups; one
+   bottom bar: Add bill (fuel or ride) and the one action that applies -- Send,
+   Resend after a send-back, or Recall while it is with the officer. */
+const RIDE_BADGE = (v) =>
+  /uber/i.test(v || "") ? ["U", "bg-gray-900"] : /ola\b/i.test(v || "") ? ["O", "bg-lime-600"] : /rapido/i.test(v || "") ? ["R", "bg-yellow-500"] : [null, "bg-gray-500"];
+const lineState = (c) =>
+  c.done ? ["Approved", "text-green-600"] : c.waiting ? ["Awaiting", "text-amber-600"] : c.status === "Rejected" ? ["Fix", "text-red-600"] : ["Not sent", "text-orange-600"];
+const fuelState = (s) =>
+  s === "approved" || s === "paid" || s === "okd" ? ["Approved", "text-green-600"] : s === "rejected" ? ["Fix", "text-red-600"] : s === "unclaimed" ? ["Not sent", "text-orange-600"] : ["Awaiting", "text-amber-600"];
+export function CarCabSheetV2({ cab }) {
+  const f = useFieldExpenses();
+  const c = useCarCab();
+  const fuel = useFuelUpload(c);
+  const [choose, setChoose] = useState(false);
+  const [confirm, setConfirm] = useState(false);
+  const [busy, setBusy] = useState("");
+  const rows = (c.claims || []).flatMap((cl) => cl.lines.map((l) => ({ ...l, claim: cl }))).sort((a, b) => String(a.date).localeCompare(String(b.date)));
+  const rideTotal = f.canCab ? c.t.total : 0;
+  const total = c.fuel + rideTotal;
+  const S = STATE[c.k];
+  const req = c.approved[0] || c.reqs.find((r) => r.status === "pending") || null;
+  const cap = c.cap || (req && req.ask) || 0;
+  const run = async (what, fn) => {
+    setBusy(what);
+    try {
+      await fn();
+    } catch (e) {
+      toast.error(errText(e));
+    } finally {
+      setBusy("");
+      setConfirm(false);
+    }
+  };
+  const addBill = () => {
+    const canFuel = f.canCar && c.approved.length > 0;
+    if (canFuel && f.canCab) return setChoose(true);
+    if (canFuel) return fuel.add();
+    if (f.canCab) return cab.scan();
+    toast.message("Request the car first — fuel bills are added once the GM approves it.");
+  };
+  const seg = (n, cls) => (n > 0 ? <i className={cn("block h-full", cls)} style={{ flex: n }} /> : null);
+  const Row = ({ badge, title, sub, amount, st, onClick, extra }) => (
+    <button type="button" onClick={onClick} className="flex w-full items-center gap-3 border-t border-gray-100 px-3.5 py-2.5 text-left first:border-t-0">
+      {badge}
+      <span className="flex min-w-0 flex-1 flex-col">
+        <b className="truncate text-[14px] font-semibold text-gray-900">{title}</b>
+        <small className="truncate text-[12px] text-gray-400">{sub}</small>
+        {extra}
+      </span>
+      <span className="flex shrink-0 flex-col items-end">
+        <b className="text-[14px] font-bold tabular-nums text-gray-900">{inr(amount)}</b>
+        <small className={cn("flex items-center gap-1 text-[11px] font-semibold", st[1])}>
+          <i className="h-1.5 w-1.5 rounded-full bg-current" />
+          {st[0]}
+        </small>
+      </span>
+    </button>
+  );
+  const primary = c.t.sentBack
+    ? { label: "Resend", amt: c.t.draft.total || null, cls: "bg-red-600", go: () => run("send", () => cab.send()) }
+    : c.t.draft.count
+      ? { label: "Send", amt: c.t.draft.total, cls: "bg-blue-600", go: () => setConfirm(true) }
+      : c.t.waiting.count
+        ? { label: "Recall", amt: null, cls: "border border-gray-300 bg-white text-gray-800", go: () => run("recall", () => cab.recall()) }
+        : null;
+  return (
+    <div className="-mx-4 flex min-h-0 flex-1 flex-col overflow-hidden bg-gray-50">
+      {fuel.input}
+      {cab.input}
+      <div className="bg-white px-4 pb-3.5">
+        <span className="flex items-center gap-2 pr-10">
+          <ModalTitle className="text-[17px] font-bold text-gray-900">{f.canCab ? "Car · Ola · Uber" : "Own car"}</ModalTitle>
+          <small className="text-[12px] font-semibold text-gray-500">{`${MON[Number(f.month.slice(5, 7)) - 1]} ${f.month.slice(0, 4)}`}</small>
+        </span>
+        <span className="mt-3 flex items-end justify-between">
+          <span className="flex flex-col">
+            <small className="text-[11px] font-semibold text-gray-500">Total this month</small>
+            <b className="text-[30px] font-extrabold leading-none tracking-tight text-gray-900">{inr(total)}</b>
+          </span>
+          <span className={cn("rounded-full px-2.5 py-0.5 text-[11px] font-bold", S.pill)}>{c.label}</span>
+        </span>
+        {(total > 0 || cap > 0) && (
+          <>
+            <span className="mt-3 flex h-1.5 gap-0.5 overflow-hidden rounded-full bg-gray-100">
+              {seg(c.fuel, "bg-green-600")}
+              {seg(rideTotal, "bg-purple-500")}
+              {seg(Math.max(0, cap - c.fuel), "bg-gray-100")}
+            </span>
+            <span className="mt-2 flex gap-4 text-[11.5px] font-semibold text-gray-600">
+              {f.canCar && (
+                <span className="flex items-center gap-1.5">
+                  <i className="h-2 w-2 rounded-sm bg-green-600" />
+                  Fuel <b className="text-gray-900">{inr(c.fuel)}</b>
+                  {cap ? ` / ${inr(cap)}` : ""}
+                </span>
+              )}
+              {f.canCab && (
+                <span className="flex items-center gap-1.5">
+                  <i className="h-2 w-2 rounded-sm bg-purple-500" />
+                  Ola · Uber <b className="text-gray-900">{inr(rideTotal)}</b>
+                </span>
+              )}
+            </span>
+          </>
+        )}
+      </div>
+
+      <div className="flex min-h-0 flex-1 flex-col gap-1 overflow-y-auto overscroll-contain px-4 pb-3 [&>*]:shrink-0">
+        {f.canCar && (
+          <>
+            <span className="mx-1 mb-1.5 mt-3.5 flex items-center gap-2">
+              <span className="grid h-[22px] w-[22px] place-items-center rounded-[7px] bg-cyan-50 text-cyan-700">
+                <Car className="h-3.5 w-3.5" aria-hidden />
+              </span>
+              <b className="text-[12px] font-bold uppercase tracking-wide text-gray-600">Own car</b>
+              <span className={cn("ml-auto text-[12px] font-semibold", !req ? "text-gray-500" : req.status === "approved" ? "text-green-700" : "text-amber-700")}>
+                {!req ? "Not requested" : req.status === "approved" ? "Approved" : "Car requested"}
+              </span>
+            </span>
+            <div className="overflow-hidden rounded-2xl bg-white shadow-[0_1px_2px_rgba(16,24,40,.04)]">
+              {!req ? (
+                <div className="flex items-center justify-between gap-3 px-3.5 py-3">
+                  <b className="text-[14px] font-semibold text-gray-900">Own car this month?</b>
+                  <button type="button" onClick={() => f.openCarRequest({ pick: true })} className="flex h-9 items-center gap-1.5 rounded-[10px] bg-gray-900 px-3.5 text-[13px] font-semibold text-white">
+                    <Car className="h-3.5 w-3.5" aria-hidden /> Request
+                  </button>
+                </div>
+              ) : (
+                <button type="button" onClick={() => f.openRequest(req.id)} className="flex w-full flex-col px-3.5 py-3 text-left">
+                  <span className="flex items-baseline justify-between text-[13px] text-gray-600">
+                    <span>Fuel limit</span>
+                    <span>
+                      <b className="text-[14px] text-gray-900">{inr(c.fuel)}</b> of {inr(cap)}
+                    </span>
+                  </span>
+                  <span className="mt-2 block h-[5px] overflow-hidden rounded-full bg-gray-100">
+                    <i className="block h-full rounded-full bg-green-600" style={{ width: `${Math.min(100, Math.round((c.fuel / (cap || 1)) * 100))}%` }} />
+                  </span>
+                </button>
+              )}
+              {c.fuelBills.map((b) => (
+                <Row
+                  key={b.id}
+                  badge={
+                    <span className="grid h-8 w-8 shrink-0 place-items-center rounded-[10px] bg-orange-500 text-white">
+                      <Fuel className="h-4 w-4" aria-hidden />
+                    </span>
+                  }
+                  title={b.vendor || "Fuel bill"}
+                  sub={`${day(b.date)} ${mon(b.date)} · ${String(b.item.trip.name).split(" · ")[0]}`}
+                  amount={b.amount}
+                  st={fuelState(b.item.claim.status)}
+                  onClick={() => f.openTrip(b.item.trip.id)}
+                />
+              ))}
+            </div>
+          </>
+        )}
+
+        {f.canCab && (
+          <>
+            <span className="mx-1 mb-1.5 mt-3.5 flex items-center gap-2">
+              <span className="grid h-[22px] w-[22px] place-items-center rounded-[7px] bg-fuchsia-50 text-fuchsia-700">
+                <CarTaxiFront className="h-3.5 w-3.5" aria-hidden />
+              </span>
+              <b className="text-[12px] font-bold uppercase tracking-wide text-gray-600">Ola · Uber · Rapido</b>
+              <span className="ml-auto text-[12px] font-semibold text-gray-500">
+                {rows.length} ride{rows.length === 1 ? "" : "s"}
+              </span>
+            </span>
+            {rows.length ? (
+              <div className="overflow-hidden rounded-2xl bg-white shadow-[0_1px_2px_rgba(16,24,40,.04)]">
+                {rows.map((r) => {
+                  const [ltr, tone] = RIDE_BADGE(r.vendor);
+                  const st = lineState(r.claim);
+                  return (
+                    <Row
+                      key={r.id}
+                      badge={
+                        <span className={cn("grid h-8 w-8 shrink-0 place-items-center rounded-[10px] text-[12px] font-extrabold text-white", tone)}>
+                          {ltr || <CarTaxiFront className="h-4 w-4" aria-hidden />}
+                        </span>
+                      }
+                      title={r.vendor || "Ride"}
+                      sub={`${day(r.date)} ${mon(r.date)}${r.checked ? "" : " · bill check pending"}`}
+                      amount={r.amount}
+                      st={st}
+                      onClick={() => r.bill && cab.view(r.bill)}
+                      extra={
+                        (r.claim.open || r.claim.waiting) && (
+                          <span
+                            role="button"
+                            tabIndex={0}
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              if (window.confirm(`Remove this ${inr(r.amount)} ride?`)) run(r.id, () => cab.remove(r));
+                            }}
+                            className="mt-0.5 w-fit text-[11.5px] font-semibold text-gray-400"
+                          >
+                            Remove
+                          </span>
+                        )
+                      }
+                    />
+                  );
+                })}
+              </div>
+            ) : (
+              <p className="rounded-2xl bg-white px-3.5 py-3 text-[13px] text-gray-500">No ride bills yet.</p>
+            )}
+          </>
+        )}
+      </div>
+
+      <div className="border-t border-gray-100 bg-white px-4 pb-4 pt-3">
+        {confirm ? (
+          <div className="flex items-center gap-2">
+            <span className="flex-1 text-[13px] font-semibold text-gray-700">
+              Send {inr(c.t.draft.total)} to {f.manager}?
+            </span>
+            <button type="button" disabled={!!busy} onClick={() => setConfirm(false)} className="h-11 rounded-xl border border-gray-300 bg-white px-4 text-[14px] font-bold text-gray-800">
+              Cancel
+            </button>
+            <button type="button" disabled={!!busy} onClick={() => run("send", () => cab.send())} className="h-11 rounded-xl bg-blue-600 px-5 text-[14px] font-bold text-white">
+              Send
+            </button>
+          </div>
+        ) : choose ? (
+          <div className="flex gap-2.5">
+            <button type="button" onClick={() => { setChoose(false); fuel.add(); }} className="flex h-[52px] flex-1 items-center justify-center gap-1.5 rounded-2xl border border-gray-300 bg-white text-[15px] font-bold text-gray-900">
+              <Fuel className="h-4 w-4" aria-hidden /> Fuel bill
+            </button>
+            <button type="button" onClick={() => { setChoose(false); cab.scan(); }} className="flex h-[52px] flex-1 items-center justify-center gap-1.5 rounded-2xl border border-gray-300 bg-white text-[15px] font-bold text-gray-900">
+              <CarTaxiFront className="h-4 w-4" aria-hidden /> Ola / Uber ride
+            </button>
+          </div>
+        ) : (
+          <div className="flex gap-2.5">
+            <button type="button" onClick={addBill} disabled={!!busy} className="flex h-[52px] flex-1 items-center justify-center gap-1.5 rounded-2xl border border-gray-300 bg-white text-[15px] font-bold text-gray-900">
+              <Plus className="h-4 w-4" aria-hidden /> Add bill
+            </button>
+            {primary && (
+              <button type="button" onClick={primary.go} disabled={!!busy} className={cn("flex h-[52px] flex-1 items-center justify-between rounded-2xl px-4 text-[15px] font-bold", primary.cls.includes("bg-white") ? primary.cls : `${primary.cls} text-white`)}>
+                {primary.label}
+                {primary.amt ? <span className="font-semibold opacity-90">{inr(primary.amt)}</span> : null}
+              </button>
+            )}
+          </div>
+        )}
+      </div>
+      {fuel.sheet}
+      {cab.sheet}
+    </div>
+  );
+}
