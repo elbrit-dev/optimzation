@@ -882,7 +882,16 @@ function RepeatInput({ q, value, onChange, disabled, onUpload, api, response, sh
                   {k.label}
                   {k.required ? <span className="text-danger-text"> *</span> : null}
                 </span>
-                <Input q={k} value={r[k.id]} onChange={(v) => setOne(i, k.id, v)} disabled={disabled} onUpload={onUpload} api={api} response={response} />
+                {/* 27 Nov 2026 · a photo / file here is read by the AI as "<group id>.<question id>" (its own reads on the response) */}
+                <Input q={k.type === 'file_upload' ? { ...k, id: `${q.id}.${k.id}` } : k} value={r[k.id]} onChange={(v) => setOne(i, k.id, v)} disabled={disabled} onUpload={onUpload} api={api} response={response} />
+                {k.type === 'file_upload' && k.ai?.schema && aiReads(k) && !disabled ? (
+                  <span className="flex items-start gap-1.5 text-11 text-ds-muted">
+                    <Icon name="eye" size="sm" className="mt-px shrink-0" />
+                    <span>
+                      We read this automatically: {aiReads(k)}{Array.isArray(k.ai?.lines) && k.ai.lines.length ? `, and every line (${k.ai.lines.join(', ')})` : ''}. You can correct the values before you submit.
+                    </span>
+                  </span>
+                ) : null}
                 {p ? <span className="text-11 font-medium text-danger-text">{p}</span> : null}
               </div>
             );

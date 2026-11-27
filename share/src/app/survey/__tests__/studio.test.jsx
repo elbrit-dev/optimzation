@@ -142,6 +142,13 @@ describe('Repeated group', () => {
     expect(answerText(grp, [{ c1: 'Cardio 10 mg', c2: 40 }, { c1: 'Derma Soft', c2: 12 }])).toBe('1. Cardio 10 mg · 40\n2. Derma Soft · 12');
   });
 
+  it('reads a photo inside the group with the AI, and says so', () => {
+    const withPhoto = { ...grp, fields: [grp.fields[0], { id: 'c4', type: 'file_upload', label: 'Photo of the shelf', required: 1, accept: 'image', max_files: 1, ai: { schema: { type: 'object', properties: { batch_no: { type: 'string' } } }, fields: ['Batch no'] } }] };
+    render(<QuestionCard q={withPhoto} index={1} value={undefined} onChange={() => {}} onUpload={() => Promise.resolve({})} />);
+    expect(screen.getByText(/We read this automatically: Batch no/)).toBeTruthy();
+    expect(answerProblem(withPhoto, [{ c1: 'Cardio', c4: [{ url: '/private/files/a.jpg', name: 'a.jpg', ai: { redo: 1 } }] }])).toBe('Product 1 · Photo of the shelf: A file is not clear — remove it and upload it again.');
+  });
+
   it('opens with one empty entry and the Add another button', () => {
     render(<QuestionCard q={grp} index={1} value={undefined} onChange={() => {}} />);
     expect(screen.getByText('Product 1')).toBeTruthy();
