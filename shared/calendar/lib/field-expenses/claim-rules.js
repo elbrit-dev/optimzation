@@ -87,16 +87,18 @@ export function tripNights(trip) {
 /* The whole-trip DA limit (27 Nov 2026): nights paid as billed (at least 50 %),
    then the trip held to the sum of its nights' full DA -- trimmed from the
    nights furthest over their own day first. Sets paid / capped on each row. */
-function tripCap(rows) {
+function tripCap(rows, pooled = false) {
   const limit = rows.reduce((s, n) => s + n.full, 0);
   let over = rows.reduce((s, n) => s + n.paid, 0) - limit;
   if (over > 0) {
     const order = [...rows].sort((a, b) => b.paid - b.full - (a.paid - a.full));
-    // first down to each night's own full DA, then (still over) down to its 50 %
-    for (const floor of [(n) => n.full, (n) => n.amount]) {
+    // first down to each night's own full DA, then (still over) down to its 50 % -- pooled
+    // (27 Nov 2026) there is no per-night floor: a night may go down to nothing
+    const base = (n) => (pooled ? 0 : n.amount);
+    for (const floor of [(n) => n.full, base]) {
       for (const n of order) {
         if (over <= 0) break;
-        const cut = Math.min(over, Math.max(0, n.paid - Math.max(floor(n), n.amount)));
+        const cut = Math.min(over, Math.max(0, n.paid - Math.max(floor(n), base(n))));
         n.paid -= cut;
         over -= cut;
       }
@@ -261,7 +263,15 @@ export function tripClaim(trip, claim, { role, requests, eqKm, carPool = null } 
   // the trip's limit (27 Nov 2026): the nights' full outstation DA added up. A trip
   // over it gives back the excess from the nights that went most over their own day
   // first, never below a night's 50 %. capped / topUp per night follow the result.
-  tripCap(nightRows);
+  /* POOLED (27 Nov 2026, the owner -- as told to the field the same day): with any stay / food
+     bill on the trip, the trip's DA is its bills ADDED TOGETHER, at least half the trip's full DA
+     and at most the full DA. No night is topped up on its own: a night with no bill pays nothing
+     of its own, a night's bills are paid as billed, and any top-up to half is one amount for the
+     trip (pool.topUp). Without a bill nothing changes: each night keeps its 50 %. */
+  const anyBill = nightRows.some((n) => n.billSum > 0);
+  if (anyBill) for (const n of nightRows) Object.assign(n, { paid: n.billSum, topUp: 0 });
+  tripCap(nightRows, anyBill);
+  const tripTopUp = anyBill ? Math.max(0, nightRows.reduce((s, n) => s + n.amount, 0) - nightRows.reduce((s, n) => s + n.paid, 0)) : 0;
   // the ERP's DA already holds the stay: nothing on top of it
   const nightDA = 0;
 
@@ -270,7 +280,7 @@ export function tripClaim(trip, claim, { role, requests, eqKm, carPool = null } 
      the trip) pay nothing -- `unpaid`. Never refused on the amount. */
   const half = nightRows.reduce((s, n) => s + n.amount, 0);
   const full = nightRows.reduce((s, n) => s + n.full, 0);
-  const nightsPaid = nightRows.reduce((s, n) => s + n.paid, 0);
+  const nightsPaid = nightRows.reduce((s, n) => s + n.paid, 0) + tripTopUp;
   const billed = sum(stays) + sum(foods);
   const onNights = nightRows.reduce((s, n) => s + n.billSum, 0);
   const poolOn = nights.length > 0 && stays.length + foods.length > 0;
@@ -281,7 +291,7 @@ export function tripClaim(trip, claim, { role, requests, eqKm, carPool = null } 
     bills: billed,
     paid: nightsPaid,
     capped: nightRows.reduce((s, n) => s + n.capped, 0),
-    topUp: nightRows.reduce((s, n) => s + n.topUp, 0),
+    topUp: tripTopUp,
     unpaid: Math.max(0, billed - onNights),
   };
 

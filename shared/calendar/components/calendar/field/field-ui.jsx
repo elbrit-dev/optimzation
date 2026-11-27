@@ -1971,6 +1971,7 @@ function TripSheet({ item }) {
               : calc.pool.on
                 ? [
                     `Stay + food bills ${inr(calc.pool.bills)}`,
+                    calc.pool.topUp ? `raised to half the trip's DA (${inr(calc.pool.half)})` : null,
                     calc.pool.capped ? `${inr(calc.pool.capped)} over the trip's limit` : null,
                     calc.pool.unpaid ? `${inr(calc.pool.unpaid)} on a day off, not paid` : null,
                   ]
