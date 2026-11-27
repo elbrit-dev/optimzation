@@ -67,7 +67,7 @@ import { readTripBill } from "@calendar/lib/field-expenses/bill-reader";
 import { addTripToMonth, addTripsToMonth, monthWord, removeTripFromMonth, tripClaimRows } from "@calendar/lib/field-expenses/erp-claim";
 import { CarRequestSheet, KpiSheet, RequestSheet } from "@calendar/components/calendar/field/field-sheets";
 import { BILL_NAME, BillChip, BillEditor, ChipButton, ManualBill, useBillPicker } from "@calendar/components/calendar/field/field-bills";
-import { BillTiles, useTripBillViewer } from "@calendar/components/calendar/field/field-bill-view";
+import { BillTiles, BillViewer, useTripBillViewer } from "@calendar/components/calendar/field/field-bill-view";
 import {
   HELP_STATE,
   askedText,
@@ -1635,6 +1635,7 @@ function TripSheet({ item }) {
   const upCount = (stayFood ? calc.stayBills + calc.foodBills : 0) + (fuelOn ? (claim.fuels || []).length : 0) + (travelOn ? calc.travelBills : 0);
   const upAmount = (stayFood ? calc.pool?.bills || 0 : 0) + (fuelOn ? calc.fuel : 0) + (travelOn ? calc.travel : 0);
   const [sendError, setSendError] = useState(null); // why the last send was refused
+  const [pillBill, setPillBill] = useState(null); // the bill a pill above the upload opened
   const [billInput, pickBill] = useBillPicker();
   // each day's bills as pictures, and the full-screen viewer (13 Nov 2026)
   const billView = useTripBillViewer(claim);
@@ -2165,6 +2166,15 @@ function TripSheet({ item }) {
         </div>
       )}
 
+      {/* the pills above the upload open the same bill view (27 Nov 2026) */}
+      <BillViewer
+        claim={claim}
+        kinds={["stays", "foods", "travels", "fuels"]}
+        editable={editable}
+        onRemove={(kind, id) => run(`rm-${id}`, () => f.actions.removeBill(trip.id, kind, id), "Bill removed")}
+        open={pillBill}
+        setOpen={setPillBill}
+      />
       {/* total + the one action, pinned to the bottom; Submit asks first */}
       <div className="sticky bottom-0 z-10 -mx-4 mt-auto flex flex-col gap-3 border-t bg-white px-4 pt-3 pb-[max(12px,env(safe-area-inset-bottom))]">
         {/* ONE upload, always in reach (16 Nov 2026): the bill itself says what
@@ -2182,10 +2192,15 @@ function TripSheet({ item }) {
           return kinds.length ? (
             <span className="-mb-1 flex flex-wrap gap-1.5">
               {kinds.map(([k, label, Icon]) => (
-                <span key={k} className="inline-flex items-center gap-1 rounded-full border border-gray-200 bg-white px-2 py-0.5 text-[11.5px] font-bold text-gray-700">
+                <button
+                  key={k}
+                  type="button"
+                  onClick={() => setPillBill((claim[k] || [])[0]?.id || null)}
+                  className="inline-flex items-center gap-1 rounded-full border border-gray-200 bg-white px-2 py-0.5 text-[11.5px] font-bold text-gray-700 active:bg-gray-50"
+                >
                   <Icon className="h-3 w-3 text-gray-500" aria-hidden />
                   {label} {(claim[k] || []).length} · {inr((claim[k] || []).reduce((a2, b) => a2 + (Number(b.billed ?? b.amount) || 0), 0))}
-                </span>
+                </button>
               ))}
             </span>
           ) : null;

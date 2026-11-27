@@ -9,7 +9,7 @@
  * Non-reported days and car requests: the same layout -- people tabs, a date column, cards that
  * open -- each day / request decided on its own. */
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { BedDouble, Car, Check, ChevronDown, ChevronLeft, ChevronRight, Fuel, Loader2, Lock, MessageSquare, Receipt, TrainFront, UtensilsCrossed, CalendarDays } from "lucide-react";
 import {
   addClaimComment,
@@ -98,7 +98,22 @@ function Body({ wide, people, sel, onSel, children }) {
 
 /* the list: cards that open in place on a phone; on a PC a list on the left and the
    opened one in a panel on the right (the first one when none is picked) */
-function Split({ wide, items, open, setOpen }) {
+/* the columns fill the window down to the bottom bar (bottom = room kept for it) */
+function useFit(wide, bottom = 76) {
+  const ref = useRef(null);
+  const [h, setH] = useState(null);
+  useLayoutEffect(() => {
+    if (!wide || !ref.current) return undefined;
+    const fit = () => ref.current && setH(Math.max(320, Math.round(window.innerHeight - ref.current.getBoundingClientRect().top - bottom)));
+    fit();
+    window.addEventListener("resize", fit);
+    return () => window.removeEventListener("resize", fit);
+  });
+  return [ref, h];
+}
+
+function Split({ wide, items, open, setOpen, bottom }) {
+  const [fitRef, fitH] = useFit(wide, bottom);
   if (!items.length) return <Empty>Nothing here.</Empty>;
   if (!wide)
     return (
@@ -115,8 +130,8 @@ function Split({ wide, items, open, setOpen }) {
     );
   const cur = items.find((i) => i.id === open) || items[0];
   return (
-    <div className="grid grid-cols-[minmax(300px,380px)_minmax(0,1fr)] gap-4 px-4 pt-3">
-      <div className="flex flex-col gap-2.5">
+    <div ref={fitRef} className="grid grid-cols-[minmax(320px,420px)_minmax(0,1fr)] gap-4 px-4 pt-3" style={fitH ? { height: fitH } : undefined}>
+      <div className="flex min-h-0 flex-col gap-2.5 overflow-y-auto pb-3 pr-1">
         {items.map((it) => (
           <div key={it.id} className="flex gap-2">
             <Rail from={it.from} to={it.to} />
@@ -124,7 +139,7 @@ function Split({ wide, items, open, setOpen }) {
           </div>
         ))}
       </div>
-      <div className="sticky top-3 max-h-[calc(100vh-24px)] self-start overflow-y-auto rounded-xl border border-gray-200 bg-white p-4">
+      <div className="min-h-0 self-start overflow-y-auto rounded-xl border border-gray-200 bg-white p-4" style={fitH ? { maxHeight: fitH - 12 } : undefined}>
         <div className="mb-3 flex items-start gap-3 border-b border-gray-100 pb-3">
           <span className="min-w-0 flex-1">
             <b className="block text-[17px] font-extrabold">
@@ -405,6 +420,45 @@ function tripsOfRep(rep) {
       return { ...t, id: `${t.from}..${t.to}`, days: tdays, os, state, bills, amount, title, sub, note, claim, claimState };
     });
 }
+
+/* the local days between outstation trips as ONE HQ & EQ block (27 Nov 2026, as the rep's own
+   HQ & EQ card): a row per day with its own state; accept / send back covers its sent days */
+function blocksOf(trips) {
+  const out = [];
+  for (const t of trips) {
+    const last = out[out.length - 1];
+    if (!t.os && last && last.local) last.parts.push(t);
+    else out.push(t.os ? t : { local: true, parts: [t] });
+  }
+  return out.map((b) => {
+    if (!b.local) return b;
+    const ps = b.parts;
+    const days = ps.flatMap((p) => p.days);
+    const nHq = days.filter((d) => d.day_type === "HQ").length;
+    const has = (st) => ps.some((p) => p.state === st);
+    const state = has("back") ? "back" : has("sent") ? "sent" : has("notsent") ? "notsent" : "accepted";
+    const dayState = {};
+    for (const p of ps) for (const d of p.days) dayState[String(d.date).slice(0, 10)] = { state: p.state, sent: p.sent };
+    return {
+      id: `local:${ps[0].from}`,
+      from: ps[0].from,
+      to: ps[ps.length - 1].to,
+      os: false,
+      local: true,
+      parts: ps,
+      days,
+      lines: ps.flatMap((p) => p.lines),
+      sent: ps.every((p) => p.sent),
+      state,
+      dayState,
+      bills: ps.flatMap((p) => p.bills),
+      amount: ps.reduce((a, p) => a + p.amount, 0),
+      title: "HQ & EQ days",
+      sub: [nHq ? `${nHq} HQ` : null, days.length - nHq ? `${days.length - nHq} EQ` : null, has("notsent") ? `${ps.filter((p) => p.state === "notsent").length} not sent` : null].filter(Boolean).join(" · "),
+      note: ps.map((p) => p.note).filter(Boolean).join(" · "),
+    };
+  });
+}
 const STATE_LABEL = { accepted: "Accepted", sent: "Sent", back: "Sent back", notsent: "Not sent yet" };
 
 function BillTile({ conn, bill, onOpen }) {
@@ -458,9 +512,11 @@ function TripBody({ conn, trip, busy, onAccept, onBack }) {
       {trip.days.map((d) => {
         const date = String(d.date).slice(0, 10);
         const { place, km } = placeOf(d.route);
-        const ta = trip.sent ? lineOf(date, "Travel") : Number(d.ta) || 0;
+        const ta = (trip.dayState ? trip.dayState[date]?.sent : trip.sent) ? lineOf(date, "Travel") : Number(d.ta) || 0;
         const os = shareOf[date];
-        const da = os ? os.sh : trip.sent ? lineOf(date, "Daily Allowance") : Number(d.da) || 0;
+        const ds = trip.dayState ? trip.dayState[date] : null;
+        const daySent = ds ? ds.sent : trip.sent;
+        const da = os ? os.sh : daySent ? lineOf(date, "Daily Allowance") : Number(d.da) || 0;
         return (
           <div key={date} className="grid grid-cols-[30px_minmax(0,1fr)_52px_52px] items-start gap-x-2 py-1 text-[12px]">
             <b className="text-gray-700">{Number(date.slice(8))}</b>
@@ -470,6 +526,7 @@ function TripBody({ conn, trip, busy, onAccept, onBack }) {
                 {typeWord(d.day_type)}
                 {km ? <span className="ml-1 font-semibold text-gray-500">{km} km</span> : null}
                 {os && os.n > 1 ? <span className="ml-1 font-semibold text-gray-400">· OS day {os.i}/{os.n}</span> : null}
+                {ds && ds.state !== "accepted" ? <span className={cn("ml-1.5 rounded-full px-1.5 text-[10px] font-bold", CHIP[ds.state])}>{STATE_LABEL[ds.state]}</span> : null}
               </span>
             </span>
             <b className="text-right">{inr(ta)}</b>
@@ -494,6 +551,11 @@ function TripBody({ conn, trip, busy, onAccept, onBack }) {
         <span className="text-gray-600">{trip.sent ? "Claimed" : "So far"}</span>
         <b>{inr(trip.amount)}</b>
       </div>
+      {trip.state === "sent" && trip.local && (
+        <p className="mt-2 text-[11.5px] text-gray-500">
+          Accepts the {trip.parts.filter((p) => p.state === "sent").reduce((a, p) => a + p.days.length, 0)} sent day(s); days not sent yet wait.
+        </p>
+      )}
       {trip.state === "sent" && <Actions busy={busy} backLabel="Send back trip" okLabel="Accept trip" onOk={onAccept} onBack={onBack} />}
       {trip.state === "notsent" && <p className="mt-2 text-[11.5px] text-gray-500">Not sent yet — accept it once it is sent.</p>}
       {full && conn ? <FilePreview conn={conn} file={full} files={files} onClose={() => setFull(null)} /> : null}
@@ -531,7 +593,10 @@ function TaDaView({ conn }) {
           const toAccept = trips.filter((t) => t.state === "sent").length;
           const waiting = (r.claims || []).filter((c) => c.workflow_state === "Waiting for Approval");
           const done = trips.length > 0 && (r.claims || []).every((c) => ["Approved", "Verified", "Paid"].includes(c.workflow_state)) && sent === trips.length;
-          return { ...r, trips, sent, acc, toAccept, waiting, done };
+          // what the page counts: the cards (a run of HQ / EQ days is one card)
+          const blocks = blocksOf(trips);
+          const card = { n: blocks.length, sent: blocks.filter((b) => b.state !== "notsent").length, acc: blocks.filter((b) => b.state === "accepted").length, toAccept: blocks.filter((b) => b.state === "sent").length };
+          return { ...r, trips, blocks, card, sent, acc, toAccept: card.toAccept, waiting, done };
         })
         .filter((r) => r.trips.length)
         .sort((a, b) => b.toAccept - a.toAccept || a.done - b.done || String(a.name).localeCompare(String(b.name))),
@@ -555,16 +620,31 @@ function TaDaView({ conn }) {
       setBusy(null);
     }
   };
+  // a block decides each of its sent parts (each in its own claim / trip tag)
+  const partsOf = (t) => (t.local ? t.parts.filter((p) => p.state === "sent") : [t]);
   const accept = (t) =>
-    run(t, "ok", () => decideTrip(conn, { claim: t.claim, rows: t.lines.map((l) => l.name), decision: "Approved", note: "", trip: `${dd(t.from)}–${dd(t.to)} · ${t.title}` }), `${t.title} accepted`);
+    run(
+      t,
+      "ok",
+      async () => {
+        for (const p of partsOf(t)) await decideTrip(conn, { claim: p.claim, rows: p.lines.map((l) => l.name), decision: "Approved", note: "", trip: `${dd(p.from)}–${dd(p.to)} · ${p.title}` });
+      },
+      `${t.title} accepted`
+    );
   const sendBack = (t, why) =>
     run(
       t,
       "back",
       async () => {
-        await decideTrip(conn, { claim: t.claim, rows: t.lines.map((l) => l.name), decision: "Rejected", note: why, trip: `${dd(t.from)}–${dd(t.to)} · ${t.title}` });
-        await addClaimComment(conn, t.claim, `Sent back -- ${dd(t.from)}–${dd(t.to)} ${t.title}: ${why}`);
-        if (t.claimState === "Waiting for Approval") await applyAction(conn, t.claim, "Reject");
+        const claims = new Map();
+        for (const p of partsOf(t)) {
+          await decideTrip(conn, { claim: p.claim, rows: p.lines.map((l) => l.name), decision: "Rejected", note: why, trip: `${dd(p.from)}–${dd(p.to)} · ${p.title}` });
+          claims.set(p.claim, p.claimState);
+        }
+        for (const [c, st] of claims) {
+          await addClaimComment(conn, c, `Sent back -- ${dd(t.from)}–${dd(t.to)} ${t.title}: ${why}`);
+          if (st === "Waiting for Approval") await applyAction(conn, c, "Reject");
+        }
       },
       `${t.title} sent back to ${firstName(rep?.name)}`
     );
@@ -578,7 +658,7 @@ function TaDaView({ conn }) {
       `${firstName(rep.name)}'s ${monthLabel(month)} approved`
     );
 
-  const trips = rep ? rep.trips : [];
+  const trips = rep ? rep.blocks : [];
   const counts = { all: trips.length, accept: trips.filter((t) => t.state === "sent").length, notsent: trips.filter((t) => t.state === "notsent" || t.state === "back").length, accepted: trips.filter((t) => t.state === "accepted").length };
   const shown = trips.filter((t) => flt === "all" || (flt === "accept" ? t.state === "sent" : flt === "notsent" ? t.state === "notsent" || t.state === "back" : t.state === "accepted"));
   const canApprove = rep && rep.sent === rep.trips.length && rep.acc === rep.trips.length && rep.waiting.length > 0;
@@ -592,7 +672,7 @@ function TaDaView({ conn }) {
         <>
           <Body
             wide={wide}
-            people={reps.map((r) => ({ id: r.employee, name: r.name, badge: r.toAccept, sub: r.done ? "approved" : r.sent === r.trips.length ? "all sent" : `${r.sent}/${r.trips.length} sent`, subOk: r.done || r.sent === r.trips.length }))}
+            people={reps.map((r) => ({ id: r.employee, name: r.name, badge: r.toAccept, sub: r.done ? "approved" : r.card.sent === r.card.n ? "all sent" : `${r.card.sent}/${r.card.n} sent`, subOk: r.done || r.card.sent === r.card.n }))}
             sel={rep.employee}
             onSel={(id) => {
               setSel(id);
@@ -603,13 +683,13 @@ function TaDaView({ conn }) {
           <div className="mx-4 mt-3 rounded-xl border border-blue-200 bg-blue-50 px-3 py-2">
             <div className="flex items-baseline justify-between gap-2 text-[13px]">
               <b className="text-blue-900">
-                {rep.sent} of {rep.trips.length} sent · {rep.acc} accepted
+                {rep.card.sent} of {rep.card.n} sent · {rep.card.acc} accepted
               </b>
-              <span className="text-[11.5px] font-semibold text-slate-500">{rep.done ? "Approved" : `Approve after all ${rep.trips.length}`}</span>
+              <span className="text-[11.5px] font-semibold text-slate-500">{rep.done ? "Approved" : `Approve after all ${rep.card.n}`}</span>
             </div>
             <div className="mt-1.5 flex h-[5px] overflow-hidden rounded-full bg-blue-100">
-              <i className="block bg-green-600" style={{ width: `${(rep.acc / rep.trips.length) * 100}%` }} />
-              <i className="block bg-blue-300" style={{ width: `${((rep.sent - rep.acc) / rep.trips.length) * 100}%` }} />
+              <i className="block bg-green-600" style={{ width: `${(rep.card.acc / rep.card.n) * 100}%` }} />
+              <i className="block bg-blue-300" style={{ width: `${((rep.card.sent - rep.card.acc) / rep.card.n) * 100}%` }} />
             </div>
           </div>
           <Filters
@@ -639,9 +719,9 @@ function TaDaView({ conn }) {
             <div className="sticky bottom-0 mt-3 flex items-center gap-2 border-t border-gray-200 bg-white px-4 py-3">
               <span className="flex-1 text-[13px]">
                 <b>
-                  {rep.acc} of {rep.trips.length} trips accepted
+                  {rep.card.acc} of {rep.card.n} accepted
                 </b>
-                <small className="block text-[11px] text-gray-500">{canApprove ? "Everything is in" : rep.sent < rep.trips.length ? `${rep.trips.length - rep.sent} not sent yet` : `${rep.toAccept} waiting for you`}</small>
+                <small className="block text-[11px] text-gray-500">{canApprove ? "Everything is in" : rep.card.sent < rep.card.n ? `${rep.card.n - rep.card.sent} not sent yet` : `${rep.card.toAccept} waiting for you`}</small>
               </span>
               <button
                 type="button"
@@ -785,6 +865,7 @@ function NonRepView({ conn }) {
           {msg && <p className={cn("mx-4 mt-2 rounded-lg px-3 py-2 text-[12.5px]", msg.ok ? "bg-green-50 text-green-800" : "bg-red-50 text-red-800")}>{msg.text}</p>}
           <Split
             wide={wide}
+            bottom={16}
             open={open}
             setOpen={setOpen}
             items={shown.map((r) => ({
@@ -902,6 +983,7 @@ function CarsView({ conn }) {
           {msg && <p className={cn("mx-4 mt-2 rounded-lg px-3 py-2 text-[12.5px]", msg.ok ? "bg-green-50 text-green-800" : "bg-red-50 text-red-800")}>{msg.text}</p>}
           <Split
             wide={wide}
+            bottom={16}
             open={open}
             setOpen={setOpen}
             items={shown.map((r) => ({
@@ -921,7 +1003,51 @@ function CarsView({ conn }) {
 
 /* --------------------------------- the page -------------------------------- */
 
+/* FULL WIDTH (27 Nov 2026): the page that holds this may be a narrow centred column; on a PC
+   the approvals take the app shell's whole content area -- the nearest ancestor wider than
+   the column -- measured, and kept in step on resize */
+function useFullWidth(wide) {
+  const ref = useRef(null);
+  const [box, setBox] = useState(null);
+  useLayoutEffect(() => {
+    if (!wide || !ref.current) {
+      setBox(null);
+      return undefined;
+    }
+    const el = ref.current;
+    const measure = () => {
+      const parent = el.parentElement;
+      if (!parent) return;
+      const pr = parent.getBoundingClientRect();
+      let a = parent.parentElement;
+      let best = null;
+      while (a && a !== document.body) {
+        const r = a.getBoundingClientRect();
+        if (r.width > pr.width + 80) {
+          best = r;
+          break;
+        }
+        a = a.parentElement;
+      }
+      if (!best) return setBox(null);
+      const pad = 24;
+      setBox({ width: Math.round(best.width - pad * 2), marginLeft: Math.round(best.left + pad - pr.left) });
+    };
+    measure();
+    const ro = new ResizeObserver(measure);
+    ro.observe(document.body);
+    window.addEventListener("resize", measure);
+    return () => {
+      ro.disconnect();
+      window.removeEventListener("resize", measure);
+    };
+  }, [wide]);
+  return [ref, box];
+}
+
 export default function ApprovalView({ view, url, token, className }) {
+  const wide = useWide();
+  const [ref, box] = useFullWidth(wide);
   const conn = useMemo(() => {
     try {
       return url && token ? makeConn({ url, token }) : null;
@@ -931,7 +1057,7 @@ export default function ApprovalView({ view, url, token, className }) {
   }, [url, token]);
   if (!conn) return <Err msg="Sign in to see approvals." />;
   return (
-    <div className={className}>
+    <div ref={ref} className={className} style={box ? { width: box.width, marginLeft: box.marginLeft, maxWidth: "none" } : undefined}>
       {view === "tada" ? <TaDaView conn={conn} /> : view === "nonrep" ? <NonRepView conn={conn} /> : <CarsView conn={conn} />}
     </div>
   );
