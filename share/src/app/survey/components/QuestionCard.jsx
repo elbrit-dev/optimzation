@@ -558,18 +558,26 @@ function sizeText(bytes) {
 const readWord = (k) => String(k).replace(/_/g, ' ').replace(/^./, (c) => c.toUpperCase());
 const readText = (v) => (v == null || v === '' ? '—' : Array.isArray(v) ? `${v.length} row${v.length === 1 ? '' : 's'}` : typeof v === 'object' ? Object.values(v).filter((x) => x != null && x !== '').join(' · ') : v === true ? 'Yes' : v === false ? 'No' : String(v));
 /* 27 Nov 2026 · Survey Studio "Also read every line of a table": the lines the AI read (medicines, products), read only */
+/* 28 Nov 2026 · lines matched to Elbrit's products (fields._elbrit): only the Elbrit lines are shown and counted */
+const inr = (n) => `₹${Number(n).toLocaleString('en-IN', { maximumFractionDigits: 2 })}`;
 function ReadLines({ fields }) {
-  const lists = Object.entries(fields).filter(([, v]) => Array.isArray(v) && v.length && v.every((x) => x && typeof x === 'object'));
+  const el = fields._elbrit && typeof fields._elbrit === 'object' ? fields._elbrit : null;
+  const lists = Object.entries(fields).filter(([k, v]) => !k.startsWith('_') && Array.isArray(v) && v.length && v.every((x) => x && typeof x === 'object'));
   if (!lists.length) return null;
-  return lists.map(([k, rows]) => {
-    const cols = [...new Set(rows.flatMap((x) => Object.keys(x)))].slice(0, 8);
+  return lists.map(([k, all]) => {
+    const rows = el ? all.filter((x) => x.elbrit_product) : all;
+    const cols = [...new Set(rows.flatMap((x) => Object.keys(x)))].filter((c) => c !== 'elbrit_product').slice(0, 7);
+    if (el) cols.unshift('elbrit_product');
+    if (el && !rows.length) return <span key={k} className="text-11 text-ds-muted">No Elbrit medicine found ({all.length} {all.length === 1 ? 'line' : 'lines'} read)</span>;
     return (
       <div key={k} className="flex flex-col gap-1">
-        <span className="text-10 font-semibold uppercase tracking-wide text-ds-muted">{rows.length} {rows.length === 1 ? 'line' : 'lines'} read</span>
+        <span className="text-10 font-semibold uppercase tracking-wide text-ds-muted">
+          {el ? `${rows.length} Elbrit ${rows.length === 1 ? 'line' : 'lines'} of ${all.length}${el.value != null ? ` · ${inr(el.value)}` : ''}` : `${rows.length} ${rows.length === 1 ? 'line' : 'lines'} read`}
+        </span>
         <div className="overflow-x-auto rounded-md border border-line bg-surface">
           <table className="w-full text-11">
             <thead>
-              <tr>{cols.map((c) => <th key={c} className="whitespace-nowrap px-2 py-1 text-left font-medium text-ds-muted">{readWord(c)}</th>)}</tr>
+              <tr>{cols.map((c) => <th key={c} className="whitespace-nowrap px-2 py-1 text-left font-medium text-ds-muted">{c === 'elbrit_product' ? 'Elbrit product' : readWord(c)}</th>)}</tr>
             </thead>
             <tbody>
               {rows.slice(0, 50).map((x, i) => (
@@ -589,7 +597,7 @@ function ReadValues({ fields, onEdit }) {
     return (
       <div className="flex flex-col gap-1.5 rounded-md bg-sunken px-2.5 py-2">
         <span className="text-10 font-semibold uppercase tracking-wide text-ds-muted">We read · check and correct</span>
-        {Object.entries(fields).slice(0, 20).filter(([k, v]) => !/^check_/.test(k) && !Array.isArray(v)).map(([k, v]) => (
+        {Object.entries(fields).slice(0, 20).filter(([k, v]) => !/^check_/.test(k) && !k.startsWith('_') && !Array.isArray(v)).map(([k, v]) => (
           <label key={k} className="flex items-center gap-2 text-12">
             <span className="w-28 shrink-0 text-ds-muted">{readWord(k)}</span>
             <input type="text" value={v == null ? '' : typeof v === 'boolean' ? (v ? 'Yes' : 'No') : typeof v === 'object' ? JSON.stringify(v) : String(v)} onChange={(e) => onEdit(k, e.target.value)} className="h-8 min-w-0 flex-1 rounded-md border border-line-strong bg-surface px-2 text-12 text-heading" />
@@ -603,7 +611,7 @@ function ReadValues({ fields, onEdit }) {
     <div className="flex flex-col gap-1 rounded-md bg-sunken px-2.5 py-2">
       <span className="text-10 font-semibold uppercase tracking-wide text-ds-muted">We read</span>
       <dl className="grid grid-cols-[auto_1fr] gap-x-3 gap-y-0.5 text-11">
-        {Object.entries(fields).slice(0, 12).filter(([, v]) => !Array.isArray(v)).map(([k, v]) => (
+        {Object.entries(fields).slice(0, 12).filter(([k, v]) => !k.startsWith('_') && !Array.isArray(v)).map(([k, v]) => (
           <div key={k} className="contents">
             <dt className="text-ds-muted">{readWord(k)}</dt>
             <dd className="min-w-0 break-words font-semibold text-heading">{readText(v)}</dd>

@@ -24,6 +24,7 @@
 
 import { allowedErpHosts } from "../../../lib/erpServer";
 import { fileReaderOn, readFile, readFileParts, toJpeg, FILE_MODEL } from "../../../lib/fileReader";
+import { elbritPrompt, tagElbrit, withElbrit } from "../../../lib/elbritProducts";
 import { limiter } from "../../../lib/limit";
 
 const aiSlot = limiter(Number(process.env.SURVEY_READ_PARALLEL) || 6);
@@ -179,6 +180,10 @@ export default async function handler(req, res) {
     return res.status(e.status === 403 || e.status === 417 ? 403 : 502).json({ error: e.message });
   }
   if (!info || info.skip || !info.schema) return res.status(200).json({ skipped: "no AI on this question" });
+  // 28 Nov 2026 · a file whose table lines are read: the ERP sent Elbrit's products (live); every line gets
+  // elbrit_product, and only Elbrit lines are counted (fields._elbrit)
+  const products = Array.isArray(info.products) ? info.products.map(String).filter(Boolean).slice(0, 2000) : [];
+  if (products.length) info = { ...info, schema: withElbrit(info.schema), extra: elbritPrompt(products) };
 
   // 3. read it
   const save = (read) => erpCall(origin, service, "survey_ai_read", { ...base, step: "save", read: JSON.stringify(read) });
@@ -189,8 +194,8 @@ export default async function handler(req, res) {
       const pages = form.getAll("page").filter((p) => p && typeof p.arrayBuffer === "function").slice(0, MAX_PARTS);
       if (/\.pdf$/i.test(fileUrl)) {
         // 26 Nov 2026: page by page (each page its own read, joined) — long statements are no longer cut off
-        if (text) return readFileParts({ schema: info.schema, label: info.label, parts: textParts(text) });
-        if (pages.length) return readFileParts({ schema: info.schema, label: info.label, parts: await Promise.all(pages.map(async (p) => ({ jpeg: await toJpeg(Buffer.from(await p.arrayBuffer())) }))) });
+        if (text) return readFileParts({ schema: info.schema, label: info.label, extra: info.extra, parts: textParts(text) });
+        if (pages.length) return readFileParts({ schema: info.schema, label: info.label, extra: info.extra, parts: await Promise.all(pages.map(async (p) => ({ jpeg: await toJpeg(Buffer.from(await p.arrayBuffer())) }))) });
         return { readable: false, reason: "This PDF could not be opened.", fields: {}, model: FILE_MODEL, ms: 0 };
       }
       // 26 Nov 2026: a spreadsheet is read too — its sheets as text, block by block
@@ -206,7 +211,7 @@ export default async function handler(req, res) {
           return { readable: false, reason: "This spreadsheet could not be opened.", fields: {}, model: FILE_MODEL, ms: 0 };
         }
         if (!sp.length) return { readable: false, reason: "The spreadsheet is empty.", fields: {}, model: FILE_MODEL, ms: 0 };
-        return readFileParts({ schema: info.schema, label: info.label, parts: sp });
+        return readFileParts({ schema: info.schema, label: info.label, extra: info.extra, parts: sp });
       }
       if (!/\.(jpe?g|png|webp|gif|heic|heif|tiff?|bmp)$/i.test(fileUrl)) return null; // Word…: not read
       const f = await fetch(`${origin}${encodeURI(fileUrl).replace(/%25/g, "%")}`, { headers: { Authorization: tokenHeader(userErp) }, redirect: "manual", signal: AbortSignal.timeout(30000) });
@@ -219,7 +224,7 @@ export default async function handler(req, res) {
       } catch {
         return { readable: false, reason: "This image could not be opened.", fields: {}, model: FILE_MODEL, ms: 0 };
       }
-      return readFile({ schema: info.schema, label: info.label, jpegs: [jpeg] });
+      return readFile({ schema: info.schema, label: info.label, extra: info.extra, jpegs: [jpeg] });
     });
   } catch (e) {
     // the AI failed: kept for Survey Center, the rep is not bothered
@@ -227,6 +232,7 @@ export default async function handler(req, res) {
     return res.status(200).json({ readable: true });
   }
   if (!read) return res.status(200).json({ skipped: "not a photo or PDF" });
+  if (products.length && read.readable) tagElbrit(read.fields, products);
 
   // 4. keep it on the response
   let kept;
