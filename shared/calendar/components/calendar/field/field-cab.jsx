@@ -92,7 +92,9 @@ export function CabCard() {
 
 /* ---------- the sheet ---------- */
 
-export function CabSheet() {
+// 27 Nov 2026: inside the Car · Ola · Uber sheet -- title, the Own car part on top,
+// and one Add bill that asks Fuel or Ola / Uber when both apply
+export function CabSheet({ title = "Ola, Uber, Rapido, Cab bills", top = null, onAddFuel = null } = {}) {
   const f = useFieldExpenses();
   const month = f.month;
   const mon = monthName(month);
@@ -105,6 +107,7 @@ export function CabSheet() {
   const [removing, setRemoving] = useState(null); // line id asked to remove
   const [manual, setManual] = useState(null); // { file, prefill, reason }
   const [viewing, setViewing] = useState(null); // bill url
+  const [choose, setChoose] = useState(false); // Add bill: fuel or ride
   const conn = useMemo(() => {
     try {
       return AUTH_CONFIG.authToken ? makeConn({ url: AUTH_CONFIG.erpUrl, token: AUTH_CONFIG.authToken }) : null;
@@ -179,9 +182,10 @@ export function CabSheet() {
       {billInput}
       <div className="flex min-h-0 flex-1 flex-col gap-3 overflow-y-auto overscroll-contain px-4 pb-4 [&>*]:shrink-0">
         <div className="pr-10">
-          <ModalTitle className="text-[22px] font-extrabold leading-tight tracking-tight text-gray-900">Ola, Uber, Rapido, Cab bills</ModalTitle>
+          <ModalTitle className="text-[22px] font-extrabold leading-tight tracking-tight text-gray-900">{title}</ModalTitle>
           <p className="mt-0.5 text-[14px] font-semibold text-gray-500">{mon} · kept apart from TA/DA</p>
         </div>
+        {top}
 
         {/* the month at a glance */}
         <div className="grid grid-cols-3 divide-x divide-gray-100 rounded-2xl border border-gray-200 bg-white">
@@ -301,7 +305,16 @@ export function CabSheet() {
 
       {/* footer: add, and send what is not sent */}
       <div className="sticky bottom-0 border-t border-gray-100 bg-white/95 px-4 pb-4 pt-3 backdrop-blur">
-        {confirm ? (
+        {choose ? (
+          <div className="flex gap-2">
+            <button type="button" onClick={() => { setChoose(false); onAddFuel(); }} className="flex min-h-[52px] flex-1 items-center justify-center gap-1.5 rounded-2xl border border-gray-300 bg-white text-[15px] font-bold text-gray-900">
+              Fuel bill
+            </button>
+            <button type="button" onClick={() => { setChoose(false); scan(); }} className="flex min-h-[52px] flex-1 items-center justify-center gap-1.5 rounded-2xl border border-gray-300 bg-white text-[15px] font-bold text-gray-900">
+              Ola / Uber ride
+            </button>
+          </div>
+        ) : confirm ? (
           <div className="flex flex-col gap-2 rounded-2xl border border-blue-200 bg-blue-50/60 p-3">
             <b className="text-[14px] text-gray-900">
               Send {plural(t.draft.count, "cab bill")} · {inr(t.draft.total)}?
@@ -322,13 +335,13 @@ export function CabSheet() {
             <button
               type="button"
               disabled={!!busy}
-              onClick={scan}
+              onClick={onAddFuel ? () => setChoose(true) : scan}
               className={cn(
                 "flex min-h-[52px] items-center justify-center gap-1.5 rounded-2xl px-4 text-[15px] font-bold disabled:opacity-60",
                 t.draft.count ? "border-[1.5px] border-dashed border-blue-300 bg-white text-blue-700" : "flex-1 bg-blue-600 text-white"
               )}
             >
-              <Plus className="h-4 w-4" aria-hidden /> Add cab bill
+              <Plus className="h-4 w-4" aria-hidden /> {onAddFuel ? "Add bill" : "Add ride bill"}
             </button>
             {t.draft.count > 0 && (
               <button type="button" disabled={!!busy || reading > 0} onClick={() => setConfirm(true)} className="flex min-h-[52px] flex-1 flex-col items-center justify-center rounded-2xl bg-blue-600 px-4 text-white disabled:opacity-60">
@@ -359,4 +372,76 @@ export function CabSheet() {
       {viewing && conn && <FilePreview conn={conn} file={billFile(viewing)} files={files} onClose={() => setViewing(null)} />}
     </div>
   );
+}
+
+/* The ride-bill actions without the old sheet (27 Nov 2026): for the Car · Ola · Uber
+   sheet in field-cards.jsx -- scan / hand entry, send, recall, remove, view a bill. */
+export function useCabActions() {
+  const f = useFieldExpenses();
+  const month = f.month;
+  const { claims } = useCabs(f.emp, month, !!f.canCab);
+  const [billInput, pickBill] = useBillPicker();
+  const [manual, setManual] = useState(null);
+  const [viewing, setViewing] = useState(null);
+  const conn = useMemo(() => {
+    try {
+      return AUTH_CONFIG.authToken ? makeConn({ url: AUTH_CONFIG.erpUrl, token: AUTH_CONFIG.authToken }) : null;
+    } catch {
+      return null;
+    }
+  }, []);
+  const files = (claims || []).flatMap((c) => c.lines).filter((r) => r.bill).map((r) => billFile(r.bill));
+  const add = (bill) =>
+    addCabBill({ employee: f.emp, month, bill }).then((r) => {
+      toast.success(`Ride bill ${inr(bill.billed ?? bill.amount)} added${r.resent ? ` — sent to ${f.manager} again` : ""}`);
+      if (r.warning) toast.message(r.warning, { duration: 8000 });
+      if (bill.flag) toast.message(`${bill.flag} Your reporting officer will see this.`, { duration: 10000 });
+    });
+  const scan = () =>
+    pickBill(async (file) => {
+      const tid = toast.loading("Reading the ride bill…", { duration: Infinity });
+      try {
+        const r = await readCabBill(file, month);
+        if (!r.ok) {
+          if (r.manual) {
+            toast.dismiss(tid);
+            return setManual({ file, prefill: r.prefill, reason: r.reason });
+          }
+          return toast.error(r.reason, { id: tid, duration: r.duplicate ? 10000 : 6000 });
+        }
+        toast.dismiss(tid);
+        await add(r.bill);
+      } catch (e) {
+        toast.error(errText(e), { id: tid });
+      }
+    });
+  const send = async () => {
+    await sendCabs({ employee: f.emp, month });
+    toast.success(`Ride bills sent to ${f.manager}`);
+  };
+  const recall = async () => {
+    await recallCabs({ employee: f.emp, month });
+    toast.success("Taken back — change it and send again");
+  };
+  const remove = async (line) => {
+    await removeCabBill({ employee: f.emp, month, lineId: line.id });
+    toast.success(`Ride bill ${inr(line.amount)} removed`);
+  };
+  const sheet = (
+    <>
+      {manual && (
+        <ManualBill
+          file={manual.file}
+          slot="cabs"
+          trip={cabTrip(month)}
+          prefill={manual.prefill}
+          reason={manual.reason}
+          onCancel={() => setManual(null)}
+          onDone={(_slot, bill) => add(bill).then(() => setManual(null)).catch((e) => toast.error(errText(e)))}
+        />
+      )}
+      {viewing && conn && <FilePreview conn={conn} file={billFile(viewing)} files={files} onClose={() => setViewing(null)} />}
+    </>
+  );
+  return { input: billInput, scan, send, recall, remove, view: setViewing, sheet };
 }

@@ -176,7 +176,7 @@ export function ManualBill({ file, slot, trip, prefill, reason, onCancel, onDone
   const kinds = MANUAL_KINDS[slot] || [];
   const p = prefill || {};
   const [kind, setKind] = useState(kinds.includes(p.kind) ? p.kind : kinds.length === 1 ? kinds[0] : null);
-  const inTrip = (d) => (d && d >= trip.from && d <= trip.to ? d : "");
+  const inTrip = (d) => (d && d >= (p.kind === "Travel" ? addDays(trip.from, -1) : trip.from) && d <= trip.to ? d : "");
   const [date, setDate] = useState(inTrip(p.date));
   // a stay may start on the trip's arrival night (travelled the day before, 23 Nov 2026)
   const stayFrom = trip.eve || trip.from;
@@ -208,16 +208,24 @@ export function ManualBill({ file, slot, trip, prefill, reason, onCancel, onDone
   const [url] = useState(() => (file && /^image\//.test(file.type) ? URL.createObjectURL(file) : null));
   useEffect(() => () => url && URL.revokeObjectURL(url), [url]);
 
+  // 27 Nov 2026: the AI read the bill but not its date -- only the date is asked
+  const onlyDate = !!p.askDate && !!kind && Number(p.amount) > 0;
   const stay = kind === "Stay";
   const nights = stay && checkIn && checkOut && checkOut > checkIn ? Math.round((new Date(checkOut) - new Date(checkIn)) / 86400000) : 0;
   // 13 Nov 2026: the payment proof is required -- unless paid in cash; the reason always
   const whyOptional = fx?.data?.hwReasonOptional ?? true;
-  const ready = kind && Number(amount) > 0 && (stay ? checkIn && checkOut > checkIn : date) && (whyOptional || why.trim().length >= 5) && (cash || !!proof);
+  const ready = kind && Number(amount) > 0 && (stay ? checkIn && checkOut > checkIn : date) && (onlyDate || ((whyOptional || why.trim().length >= 5) && (cash || !!proof)));
   const save = async () => {
     setError("");
     setBusy(true);
     try {
-      const r = await enterTripBill(file, slot, trip, { kind, date, checkIn, checkOut, amount: Number(amount), vendor, why: why.trim(), cash, billNo: p.billNo || null }, cash ? null : proof);
+      const r = await enterTripBill(
+        file,
+        slot,
+        trip,
+        { kind, date, checkIn, checkOut, amount: Number(amount), vendor, why: onlyDate ? "Date set by the rep — the reader was not sure of it" : why.trim(), cash: onlyDate ? true : cash, billNo: p.billNo || null },
+        onlyDate || cash ? null : proof
+      );
       if (!r.ok) return setError(r.reason);
       onDone(KIND_SLOT[r.bill.kind] || KIND_SLOT[kind], r.bill);
     } finally {
@@ -236,7 +244,7 @@ export function ManualBill({ file, slot, trip, prefill, reason, onCancel, onDone
         onClick={(e) => e.stopPropagation()}
       >
         <span className="flex items-start justify-between gap-2">
-          <b className="text-[16px] font-extrabold text-gray-900">Enter the bill</b>
+          <b className="text-[16px] font-extrabold text-gray-900">{onlyDate ? "Set the bill's date" : "Enter the bill"}</b>
           <button type="button" aria-label="Cancel" disabled={busy} onClick={onCancel} className="rounded-lg p-1 text-gray-500 hover:bg-gray-100">
             <X className="h-5 w-5" />
           </button>
@@ -248,7 +256,13 @@ export function ManualBill({ file, slot, trip, prefill, reason, onCancel, onDone
           <span className="rounded-xl bg-gray-50 px-3 py-2 text-[12.5px] text-gray-600">{file?.name || "bill"}</span>
         )}
 
-        {kinds.length > 1 && (
+        {onlyDate && (
+          <span className="flex items-center justify-between rounded-xl border border-gray-200 bg-white px-3 py-2 text-[13px]">
+            <b className="font-bold text-gray-900">{vendor || KIND_WORD[kind] || "Bill"}</b>
+            <b className="font-extrabold text-gray-900">{inr(Number(amount))}</b>
+          </span>
+        )}
+        {kinds.length > 1 && !onlyDate && (
           <div className={label}>
             What is this bill?
             {/* one row, however many kinds (21 Nov 2026: Fuel wrapped onto a row of its own) */}
@@ -281,14 +295,15 @@ export function ManualBill({ file, slot, trip, prefill, reason, onCancel, onDone
               type="date"
               className={input}
               // a fuel bill: any day of the claim's month (25 Nov 2026)
-              min={kind === "Fuel" ? `${trip.from.slice(0, 7)}-01` : trip.from}
+              // a train / bus ticket: from the day before the trip (27 Nov 2026)
+              min={kind === "Fuel" ? `${trip.from.slice(0, 7)}-01` : kind === "Travel" ? addDays(trip.from, -1) : trip.from}
               max={kind === "Fuel" ? new Date(Date.UTC(Number(trip.to.slice(0, 4)), Number(trip.to.slice(5, 7)), 0)).toISOString().slice(0, 10) : trip.to}
               value={date}
               onChange={(e) => setDate(e.target.value)}
             />
           </label>
         )}
-        {kind && (
+        {kind && !onlyDate && (
           <label className={label}>
             Total on the bill{stay && nights ? ` · ${nights} night${nights > 1 ? "s" : ""}` : ""}
             <span className="flex h-11 items-center gap-1 rounded-xl border border-gray-300 bg-white px-3 focus-within:border-blue-500">
@@ -297,14 +312,14 @@ export function ManualBill({ file, slot, trip, prefill, reason, onCancel, onDone
             </span>
           </label>
         )}
-        {kind && (
+        {kind && !onlyDate && (
           <label className={label}>
             {kind === "Travel" ? "Bus / train / cab operator" : "Hotel / shop name"} <span className="font-normal text-gray-400">optional</span>
             <input className={input} value={vendor} onChange={(e) => setVendor(e.target.value)} placeholder={stay ? "e.g. Sri Lakshmi Lodge" : kind === "Travel" ? "e.g. KPN Travels" : "e.g. Hotel Saravana"} />
           </label>
         )}
 
-        {kind && (
+        {kind && !onlyDate && (
           <div className={label}>
             Payment proof <span className="font-normal text-gray-400">{cash ? "not needed · paid in cash" : "required · GPay / UPI / bank screenshot of this payment"}</span>
             <input ref={proofInput} type="file" accept={BILL_ACCEPT} className="hidden" onChange={(e) => { pickProof(e.target.files?.[0]); e.target.value = ""; }} />
@@ -332,16 +347,16 @@ export function ManualBill({ file, slot, trip, prefill, reason, onCancel, onDone
             {!proof && !cash && <span className="text-[11.5px] font-semibold text-amber-700">Add it to save — or tick “Paid in cash” if it was paid in cash.</span>}
           </div>
         )}
-        {kind && (
+        {kind && !onlyDate && (
           <label className={label}>
             Why only a handwritten bill? <span className="font-normal text-gray-400">{whyOptional ? "optional" : "required"}</span>
             <textarea rows={2} value={why} onChange={(e) => setWhy(e.target.value)} placeholder="e.g. Small mess near the hospital — they give only handwritten bills" className="w-full rounded-xl border border-gray-300 bg-white px-3 py-2 text-[14px] font-semibold text-gray-900 outline-none focus:border-blue-500" />
           </label>
         )}
 
-        <span className="text-[11.5px] leading-snug text-gray-500">
+        {!onlyDate && <span className="text-[11.5px] leading-snug text-gray-500">
           Your officer sees the photo, {cash ? "that it was paid in cash" : "the payment proof"}{why.trim() ? " and your reason" : ""} before approving.
-        </span>
+        </span>}
         {error && <span className="rounded-xl bg-rose-50 px-3 py-2 text-[12.5px] font-semibold text-rose-800">{error}</span>}
         <span className="flex gap-2">
           <button type="button" disabled={busy} onClick={onCancel} className="min-h-11 flex-1 rounded-xl border border-gray-300 bg-white text-[14px] font-bold text-gray-800">

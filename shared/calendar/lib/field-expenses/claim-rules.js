@@ -84,6 +84,36 @@ export function tripNights(trip) {
   return trip.days.filter((d) => d.payable && AWAY_TYPES.has(d.dayType) && d.osDaFull > 0 && d.company !== "Stay").map((d) => d.date);
 }
 
+/* The whole-trip DA limit (27 Nov 2026): nights paid as billed (at least 50 %),
+   then the trip held to the sum of its nights' full DA -- trimmed from the
+   nights furthest over their own day first. Sets paid / capped on each row. */
+function tripCap(rows) {
+  const limit = rows.reduce((s, n) => s + n.full, 0);
+  let over = rows.reduce((s, n) => s + n.paid, 0) - limit;
+  if (over > 0) {
+    const order = [...rows].sort((a, b) => b.paid - b.full - (a.paid - a.full));
+    // first down to each night's own full DA, then (still over) down to its 50 %
+    for (const floor of [(n) => n.full, (n) => n.amount]) {
+      for (const n of order) {
+        if (over <= 0) break;
+        const cut = Math.min(over, Math.max(0, n.paid - Math.max(floor(n), n.amount)));
+        n.paid -= cut;
+        over -= cut;
+      }
+    }
+  }
+  for (const n of rows) n.capped = n.billSum > 0 && n.billSum + n.topUp > n.paid ? n.billSum + n.topUp - n.paid : 0;
+}
+
+/* The trip day a train / bus ticket counts on (27 Nov 2026): its own date, or -- a ticket
+   from the day before the trip (a night bus / train out) -- the trip's first paid day,
+   where the journey out is paid. */
+export function ticketDay(trip, date) {
+  if (!date || !trip?.from || date >= trip.from) return date;
+  const first = (trip.days || []).find((d) => d.payable);
+  return first ? first.date : trip.from;
+}
+
 /* An own-car request covering any day of the trip. */
 export const requestFor = (trip, requests) => {
   const live = (requests || []).filter((r) => r.status !== "withdrawn");
@@ -206,10 +236,12 @@ export function tripClaim(trip, claim, { role, requests, eqKm, carPool = null } 
     const full = day.osDaFull || 0;
     const b = billsByDate[date] || null;
     const billSum = b ? b.stay + b.food : 0;
-    /* PER DAY (12 Nov 2026, the user's rule): the day's stay share + its own
-       food, at least the day's 50 % and at most its 100 %. What one day goes
-       over is NOT carried to a cheaper day. */
-    const paid = billSum > 0 ? Math.min(full, Math.max(amount, billSum)) : amount;
+    /* WHOLE TRIP (27 Nov 2026, the user's rule, told to the field the same day):
+       a day's stay share + its own food is paid as billed, at least the day's
+       50 % -- no daily ceiling; the TRIP's total is held to the sum of its days'
+       full outstation DA below (tripCap). Was, per day (12 Nov 2026):
+       billSum > 0 ? Math.min(full, Math.max(amount, billSum)) : amount */
+    const paid = billSum > 0 ? Math.max(amount, billSum) : amount;
     return {
       date,
       ...(eve ? { eve: true } : {}),
@@ -226,6 +258,10 @@ export function tripClaim(trip, claim, { role, requests, eqKm, carPool = null } 
       fullNoBill: full > 0 && amount >= full,
     };
   });
+  // the trip's limit (27 Nov 2026): the nights' full outstation DA added up. A trip
+  // over it gives back the excess from the nights that went most over their own day
+  // first, never below a night's 50 %. capped / topUp per night follow the result.
+  tripCap(nightRows);
   // the ERP's DA already holds the stay: nothing on top of it
   const nightDA = 0;
 
@@ -288,12 +324,17 @@ export function tripClaim(trip, claim, { role, requests, eqKm, carPool = null } 
      an away day). Their other OS trips and EQ days over 100 km go in the HQ & EQ block,
      no bills. RBM and above unchanged. */
   const osMeeting = osTrip && (trip.days || []).some((d) => d.payable && AWAY_TYPES.has(d.dayType) && ((d.otherWork || []).length > 0 || d.meetAway));
-  const travelAllowed = !car && (MEETING_ONLY_ROLES.includes(roleKey(role)) ? osMeeting : osTrip || eqFar);
+  /* 27 Nov 2026 (the user): BE / ABM may add train / bus tickets on EVERY outstation trip
+     (their outstation DA stays 100 % without bills); the larger of the ticket and the
+     fare is paid. EQ days over 100 km stay fare only for them. Was:
+     MEETING_ONLY_ROLES.includes(roleKey(role)) ? osMeeting : osTrip || eqFar */
+  const travelAllowed = !car && (MEETING_ONLY_ROLES.includes(roleKey(role)) ? osTrip || osMeeting : osTrip || eqFar);
   const travels = travelAllowed ? c.travels || [] : [];
   const travel = sum(travels);
   const travelDays = {};
   for (const b of travels) {
-    const t = (travelDays[b.date] = travelDays[b.date] || { date: b.date, tickets: 0, count: 0 });
+    const at = ticketDay(trip, b.date);
+    const t = (travelDays[at] = travelDays[at] || { date: at, tickets: 0, count: 0 });
     t.tickets += Math.round(Number(b.amount) || 0);
     t.count += 1;
   }
@@ -392,6 +433,7 @@ export function tripChecks(trip, claim, calc) {
   if (p?.on) {
     out.push({
       ok: true,
+      pool: true, // the trip sheet shows this in its Outstation DA block (27 Nov 2026)
       text: `Stay + food ₹${fmt(p.bills)} → DA ₹${fmt(p.paid)}${p.topUp ? ` (+₹${fmt(p.topUp)} to 50 %)` : ""}${p.capped ? ` (−₹${fmt(p.capped)} over 100 %)` : ""}${p.unpaid ? ` · ₹${fmt(p.unpaid)} not on DA days` : ""}.`,
     });
   } else if (calc.missingStayBills) {

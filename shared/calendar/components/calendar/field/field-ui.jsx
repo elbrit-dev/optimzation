@@ -66,7 +66,7 @@ import { readTripBill } from "@calendar/lib/field-expenses/bill-reader";
 import { addTripToMonth, addTripsToMonth, monthWord, removeTripFromMonth, tripClaimRows } from "@calendar/lib/field-expenses/erp-claim";
 import { CarRequestSheet, KpiSheet, RequestSheet } from "@calendar/components/calendar/field/field-sheets";
 import { BILL_NAME, BillChip, BillEditor, ChipButton, ManualBill, useBillPicker } from "@calendar/components/calendar/field/field-bills";
-import { useTripBillViewer } from "@calendar/components/calendar/field/field-bill-view";
+import { BillTiles, useTripBillViewer } from "@calendar/components/calendar/field/field-bill-view";
 import {
   HELP_STATE,
   askedText,
@@ -84,7 +84,8 @@ import {
   HELP_FILE_MAX,
 } from "@calendar/lib/field-expenses/trip-help";
 import { NonReportCard, NonReportDayRow, NonReportSheet } from "@calendar/components/calendar/field/field-nonreport";
-import { CabCard, CabSheet } from "@calendar/components/calendar/field/field-cab";
+import { CabSheet, useCabActions } from "@calendar/components/calendar/field/field-cab";
+import { BlockCard, CarCabCard, CarCabSheetV2, FieldBarSummary, HelpCard, HelpSheet, OwnCarSection, blocksOf, useCarCab, useFuelUpload } from "@calendar/components/calendar/field/field-cards";
 
 const MONTH_LONG = ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"];
 const monthName = (ym) => MONTH_LONG[Number(ym.slice(5, 7)) - 1];
@@ -182,7 +183,6 @@ export function FieldStrip() {
             : null;
   }
   // the fill: how many trips are past "to claim" (a trip sent back is not)
-  const done = f.claimed.length ? (f.claimed.length - toClaim.length - toFix.length) / f.claimed.length : 0;
 
   return (
     <div className="shrink-0 bg-white px-3 pb-2 pt-1.5">
@@ -191,11 +191,13 @@ export function FieldStrip() {
         disabled={!canOpen}
         onClick={f.toggleStrip}
         aria-expanded={!!f.stripOpen}
-        className="relative flex min-h-9 w-full items-center gap-1.5 overflow-hidden rounded-xl border border-gray-200 bg-white pl-2.5 pr-2 text-left text-[12px] shadow-sm active:opacity-80"
+        className="relative flex min-h-[42px] w-full items-center gap-1.5 overflow-hidden rounded-[14px] border border-gray-200 bg-white pl-2 pr-2 text-left text-[12px] shadow-sm active:opacity-80"
       >
-        {canOpen && f.claimed.length > 0 && (
-          <span className="absolute inset-y-0 left-0 bg-blue-100/80 transition-[width] duration-500" style={{ width: `${Math.max(6, Math.round(done * 100))}%` }} aria-hidden />
-        )}
+        {/* 27 Nov 2026 (the user): ready -> ring of cards sent, icons with counts, the amount to claim */}
+        {canOpen ? (
+          <FieldBarSummary isLocalTrip={isLocalTrip} month={m.slice(0, 3)} toClaim={sum(toClaim) + sum(toFix)} />
+        ) : (
+        <>
         <Car className="relative h-3.5 w-3.5 shrink-0 text-blue-600" aria-hidden />
         <span className="relative flex min-w-0 flex-1 items-center gap-1 truncate font-semibold text-gray-600">
           <b className="font-extrabold text-gray-900">Field</b>
@@ -204,6 +206,8 @@ export function FieldStrip() {
           <span className={cn("truncate", !toClaim.length && toFix.length > 0 && "text-rose-700")}>· {left}</span>
         </span>
         {right && <b className="relative shrink-0 text-[12.5px] font-extrabold text-gray-900">{right}</b>}
+        </>
+        )}
         {canOpen && <ChevronDown className={cn("relative h-4 w-4 shrink-0 text-gray-400 transition-transform", f.stripOpen && "rotate-180")} aria-hidden />}
       </button>
 
@@ -214,17 +218,20 @@ export function FieldStrip() {
                 ABM's OS trips -- 14 Nov 2026), then the trips with bill uploads:
                 outstation by date (earliest first), an EQ day with its own car
                 after them, the month's summary last; each card says OS / EQ */}
-            {f.claimed.some(isLocalTrip) && <LocalCard items={f.claimed.filter(isLocalTrip)} onOpen={f.openLocal} />}
+            {/* 27 Nov 2026 (the user): 1 Help, 2 Car · Ola · Uber, then the trips by date
+                (an OS card each, an HQ & EQ card per run of local days), the summary last.
+                Was: LocalCard, NonReportCard, CabCard, the OS TripCards, the rest. */}
+            <HelpCard />
+            <CarCabCard />
             {/* the working days with nothing on record (19 Nov 2026): say what was done */}
             <NonReportCard />
-            {/* SM / ZSM: the month's cab bills, apart from TA/DA (20 Nov 2026) */}
-            <CabCard />
-            {[(x) => x.trip.kind === "tour", (x) => x.trip.kind !== "tour"].flatMap((pick) =>
-              f.claimed
-                .filter((x) => !isLocalTrip(x) && pick(x))
-                .sort((p, q) => p.trip.from.localeCompare(q.trip.from))
-                .map((x) => <TripCard key={x.trip.id} item={x} onOpen={() => f.openTrip(x.trip.id)} />)
-            )}
+            {blocksOf(f.claimed, isLocalTrip).map((b) => (
+              <BlockCard
+                key={b.id}
+                block={b}
+                onOpen={() => (b.items.length === 1 ? (b.kind === "local" ? f.openLocal({ ids: [b.items[0].trip.id] }) : f.openTrip(b.items[0].trip.id)) : f.openLocal({ ids: b.items.map((x) => x.trip.id) }))}
+              />
+            ))}
             <MonthCard month={m} closed={f.month < thisMonth()} stats={f.stats} claimed={f.claimed} pulledAt={f.data?.pulledAt} onOpen={f.openKpi} />
           </div>
           {PREVIEW && (
@@ -342,7 +349,8 @@ function LocalCard({ items, onOpen }) {
    into the month's claim at once. */
 function LocalDaysSheet() {
   const f = useFieldExpenses();
-  const items = f.claimed.filter(isLocalTrip).sort((a, b) => a.trip.from.localeCompare(b.trip.from));
+  const only = f.sheet?.ids ? new Set(f.sheet.ids) : null;
+  const items = f.claimed.filter((x) => isLocalTrip(x) && (!only || only.has(x.trip.id))).sort((a, b) => a.trip.from.localeCompare(b.trip.from));
   const open = items.filter((x) => x.claim.status === "unclaimed" && x.calc.total > 0 && !x.calc.carBlock);
   const openTotal = open.reduce((a, x) => a + x.calc.total, 0);
   const allTotal = items.reduce((a, x) => a + x.calc.total, 0);
@@ -691,7 +699,8 @@ function MonthCard({ month, closed, stats, claimed, pulledAt, onOpen }) {
   // bill and up to its full outstation DA with one
   const moreWithBills = claimed
     .filter((x) => x.claim.status === "unclaimed" && x.calc.billsAllowed)
-    .reduce((s, x) => s + x.calc.nights.reduce((a, n) => a + (n.fullNoBill ? 0 : Math.max(0, n.full - n.paid)), 0), 0);
+    // by the trip's limit (27 Nov 2026); was per night: max(0, n.full - n.paid)
+    .reduce((s, x) => s + (x.calc.nights.every((n) => n.fullNoBill) ? 0 : Math.max(0, x.calc.nights.reduce((a, n) => a + n.full - n.paid, 0))), 0);
   // the prototype's k-grid: a small label, then its amount on the same line, never shortened
   const krow = (label, value, tone) => (
     <span
@@ -883,12 +892,47 @@ function FieldSheets() {
         <ModalContent className={cls}>{kind === "nonreport" && <NonReportSheet key={f.sheet?.date || "list"} />}</ModalContent>
       </Modal>
       <Modal side={side} open={kind === "cab"} onOpenChange={close}>
-        <ModalContent className={cls}>{kind === "cab" && <CabSheet />}</ModalContent>
+        <ModalContent className={cls}>{kind === "cab" && <CarCabSheetNew />}</ModalContent>
+      </Modal>
+      <Modal side={side} open={kind === "help"} onOpenChange={close}>
+        <ModalContent className={cls}>{kind === "help" && <HelpSheet TripHelp={TripHelp} />}</ModalContent>
       </Modal>
       <Modal side={side} open={kind === "kpi"} onOpenChange={close}>
         <ModalContent className={cls}>{kind === "kpi" && <KpiSheet />}</ModalContent>
       </Modal>
     </>
+  );
+}
+
+/* Car · Ola · Uber (27 Nov 2026): the own car (request, limit, fuel bills) on top,
+   the ride bills (SM, ZSM) below -- one Add bill for both. An RBM sees the car only. */
+// the approved design (27 Nov 2026): CarCabSheetV2 in field-cards.jsx; the earlier wrapper below is kept unused
+function CarCabSheetNew() {
+  const cab = useCabActions();
+  return <CarCabSheetV2 cab={cab} />;
+}
+// eslint-disable-next-line no-unused-vars
+function CarCabSheet() {
+  const f = useFieldExpenses();
+  const c = useCarCab();
+  const fuel = useFuelUpload(c);
+  if (f.canCab)
+    return (
+      <>
+        {fuel.input}
+        <CabSheet title={f.canCar ? "Car · Ola · Uber" : "Ola · Uber · Rapido"} top={<OwnCarSection c={c} />} onAddFuel={f.canCar && c.approved.length ? fuel.add : null} />
+        {fuel.sheet}
+      </>
+    );
+  return (
+    <div className="-mx-4 flex min-h-0 flex-1 flex-col overflow-hidden">
+      {fuel.input}
+      <div className="flex min-h-0 flex-1 flex-col gap-3 overflow-y-auto overscroll-contain px-4 pb-4">
+        <ModalTitle className="pr-10 text-[20px] font-extrabold text-gray-900">Own car</ModalTitle>
+        <OwnCarSection c={c} onAddFuel={fuel.add} />
+      </div>
+      {fuel.sheet}
+    </div>
   );
 }
 
@@ -1288,15 +1332,21 @@ const HELP_TOPICS = [
   { k: "other", label: "Something else", Icon: Ellipsis, hint: "Tell us what is wrong" },
 ];
 
-function TripHelp({ item, day = false }) {
+// bare (27 Nov 2026, the Help sheet): no bar, opened at once on initialChat (or a new
+// request); onClose when it shuts
+function TripHelp({ item, day = false, bare = false, initialChat = null, onClose = null }) {
   const f = useFieldExpenses();
   const { trip, calc, claim } = item;
-  const [open, setOpen] = useState(false);
+  const [open, setOpen0] = useState(bare);
+  const setOpen = (v) => {
+    setOpen0(v);
+    if (!v && onClose) onClose();
+  };
   const [busy, setBusy] = useState(false);
   // the rep's requests on this trip, in full: null = loading, [] = none
   const [tasks, setTasks] = useState(null);
   const [loadError, setLoadError] = useState("");
-  const [chat, setChat] = useState(null); // the request open as a chat
+  const [chat, setChat] = useState(initialChat); // the request open as a chat
   const [topic, setTopic] = useState("da");
   const [text, setText] = useState("");
   const firstDay = (trip.days.find((d) => d.payable) || trip.days[0])?.date || trip.from;
@@ -1398,7 +1448,7 @@ function TripHelp({ item, day = false }) {
   const open1 = chat && (tasks || []).find((x) => x.name === chat);
   return (
     <>
-      <button
+      {!bare && <button
         type="button"
         onClick={() => setOpen(true)}
         className={cn(
@@ -1415,7 +1465,7 @@ function TripHelp({ item, day = false }) {
         <span className={cn("flex shrink-0 items-center font-extrabold", day ? "text-[12.5px]" : "text-[13px]")}>
           {st ? "Open" : "Help"} <ChevronRight className="h-4 w-4" aria-hidden />
         </span>
-      </button>
+      </button>}
       {open && (
         // fixed inside the sheet (its panel is transformed): covers the sheet only
         <div className="fixed inset-0 z-30 flex items-end bg-black/40 backdrop-blur-[1px]" onClick={busy ? undefined : () => setOpen(false)}>
@@ -1897,6 +1947,40 @@ function TripSheet({ item }) {
         ))}
       </ol>
 
+      {/* OUTSTATION DA for the whole trip (27 Nov 2026, the user): the nights' DA together --
+          stay + food bills paid as billed, at least 50 % a night, held to the trip's full DA */}
+      {calc.nights.length > 0 && (
+        <div className="rounded-2xl border border-gray-200 bg-white px-3.5 py-3">
+          <span className="flex items-baseline justify-between">
+            <b className="text-[13.5px] font-bold text-gray-900">
+              Outstation DA · {calc.nights.length} night{calc.nights.length > 1 ? "s" : ""}
+            </b>
+            <span className="text-[13px] text-gray-600">
+              <b className="text-[15px] font-extrabold text-gray-900">{inr(calc.pool.paid)}</b>
+              {calc.pool.full > calc.pool.paid && !calc.fullNoBill ? <span className="text-gray-400"> / {inr(calc.pool.full)}</span> : null}
+            </span>
+          </span>
+          {!calc.fullNoBill && calc.pool.full > 0 && (
+            <span className="mt-2 block h-[5px] overflow-hidden rounded-full bg-gray-100">
+              <i className="block h-full rounded-full bg-green-600" style={{ width: `${Math.min(100, Math.round((calc.pool.paid / calc.pool.full) * 100))}%` }} />
+            </span>
+          )}
+          <span className="mt-1.5 block text-[12px] leading-snug text-gray-500">
+            {calc.fullNoBill
+              ? "Full outstation DA — no bills needed."
+              : calc.pool.on
+                ? [
+                    `Stay + food bills ${inr(calc.pool.bills)}`,
+                    calc.pool.capped ? `${inr(calc.pool.capped)} over the trip's limit` : null,
+                    calc.pool.unpaid ? `${inr(calc.pool.unpaid)} on a day off, not paid` : null,
+                  ]
+                    .filter(Boolean)
+                    .join(" · ")
+                : `No bills yet · 50 % (${inr(calc.pool.half)}) · add hotel and food bills to raise it to ${inr(calc.pool.full)}`}
+          </span>
+        </div>
+      )}
+
       {/* bills only for a night spent away: back at HQ the same day, no stay
           or food bill is asked for (one already added still shows) */}
       {/* only once there are bills: with none, the upload button at the
@@ -1904,21 +1988,8 @@ function TripSheet({ item }) {
       {calc.billsAllowed && calc.stayBills + calc.foodBills > 0 && (
         <div>
           <span className={sectionLabel}>DA bills · stay &amp; food</span>
-          <div className="mt-2 flex flex-wrap gap-2">
-            {["stays", "foods"].flatMap((kind) =>
-              (claim[kind] || []).map((b) => (
-                <BillChip key={b.id} kind={kind} bill={b} on={editing?.id === b.id} readOnly={!editable} onClick={() => setEditing(editing?.id === b.id ? null : { kind, id: b.id })} />
-              ))
-            )}
-          </div>
-          {editable && (editing?.kind === "stays" || editing?.kind === "foods") && (
-            <BillEditor
-              key={editing.id}
-              bill={(claim[editing.kind] || []).find((b) => b.id === editing.id)}
-              kind={editing.kind}
-              onRemove={() => removeBill(editing.kind, editing.id)}
-            />
-          )}
+          {/* 27 Nov 2026 (the user): the bills as pictures; a tap opens the bill, Remove is there */}
+          <BillTiles claim={claim} kinds={["stays", "foods"]} editable={editable} onRemove={(kind, id) => run(`rm-${id}`, () => f.actions.removeBill(trip.id, kind, id), "Bill removed")} />
           {/* the night before the trip's first day, on a hotel bill (23 Nov 2026) */}
           {calc.eveNight && (
             <p className="mt-2 flex items-start gap-1.5 text-[12.5px] leading-snug text-gray-700">
@@ -1928,12 +1999,11 @@ function TripSheet({ item }) {
               }.`}
             </p>
           )}
-          {calc.nights.length > 0 && calc.pool?.on && (
+          {/* the day-off amount is in the Outstation DA block; only a night with no stay bill is said here */}
+          {calc.nights.length > 0 && calc.pool?.on && nextNight && calc.stayBills > 0 && (
             <p className="mt-2 flex items-start gap-1.5 text-[12.5px] leading-snug text-gray-500">
               <Info className="mt-0.5 h-4 w-4 shrink-0" aria-hidden />
-              {[calc.pool.unpaid ? `${inr(calc.pool.unpaid)} not paid · day off` : null, nextNight && calc.stayBills > 0 ? `No stay bill · ${dayLabel(nextNight.date)}` : null]
-                .filter(Boolean)
-                .join(" · ") || "Paid 50–100 % of DA a day"}
+              {`No stay bill · ${dayLabel(nextNight.date)}`}
             </p>
           )}
         </div>
@@ -1965,7 +2035,8 @@ function TripSheet({ item }) {
 
       {/* checks that send it to a reviewer */}
       {checks
-        .filter((c) => c.level === "review" || c.ok)
+        // the stay + food line is the Outstation DA block above (27 Nov 2026)
+        .filter((c) => (c.level === "review" || c.ok) && !c.pool)
         .map((c, i) => (
           <p key={i} className={cn("flex items-start gap-2 rounded-2xl px-3 py-2.5 text-[12.5px] leading-snug", c.ok ? "bg-green-50 text-green-800" : "bg-amber-50 text-amber-800")}>
             {c.ok ? <ShieldCheck className="mt-0.5 h-4 w-4 shrink-0" /> : <Eye className="mt-0.5 h-4 w-4 shrink-0" />}
@@ -2354,7 +2425,8 @@ function TripDay({ row, data, car, last, multi, night, bills, stayOff, billStrip
                 {row.dayType === "HQ" ? "HQ day" : AWAY_TYPES.has(row.dayType) ? "OS day" : row.dayType === "EQ" ? "EQ day" : null}
               </MoneyRow>
             )}
-            {row.da > 0 && (
+            {/* 27 Nov 2026 (the user): an outstation night's DA is shown for the whole trip (below), not per day */}
+            {row.da > 0 && !night && (
               <MoneyRow label="DA" amount={night && bills ? night.paid : row.da}>
                 {night
                   ? bills
@@ -2401,7 +2473,8 @@ function TripDay({ row, data, car, last, multi, night, bills, stayOff, billStrip
         {/* the night's DA; the stay bill itself is scanned in "Stay & food bills" */}
         {/* no bill yet: the DA row above says 50 %; the chip shows the bills once there are some */}
         {night ? (
-          !bills ? null : (
+          // the night's stay / food chip is gone (27 Nov 2026): the trip's DA block says it once
+          true || !bills ? null : (
           <span
             className={cn(
               "mt-2 inline-flex items-center gap-1.5 rounded-xl px-2.5 py-1.5 text-[12px] font-semibold",
@@ -2412,7 +2485,7 @@ function TripDay({ row, data, car, last, multi, night, bills, stayOff, billStrip
             {/* short: the bills, then what the day is paid -- "max" when the
                 day's full DA cuts it, "min 50 %" when it is raised */}
             {bills ? (
-              <span title={`${nightLabel} · the day's DA is paid between ${inr(night.amount)} (50 %) and ${inr(night.full)} (100 %)`}>
+              <span title={`${nightLabel} · paid as billed, at least ${inr(night.amount)} (50 %) · the trip's stay + food is held to its full DA`}>
                 {[bills.stay ? `Stay ${inr(bills.stay)}` : null, bills.food ? `Food ${inr(bills.food)}` : null].filter(Boolean).join(" + ")}
                 {night.capped ? (
                   <>
