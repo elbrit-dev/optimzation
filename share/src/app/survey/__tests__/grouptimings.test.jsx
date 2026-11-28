@@ -37,4 +37,25 @@ describe('Visiting timings inside a Repeated group', () => {
     expect(screen.getByText('Google shows 24 hours — enter the actual timings.')).toBeTruthy();
     expect(answerProblem(grp, [all])).toMatch(/Fix the timings in red/);
   });
+
+  it('a place Google lists as 24 hours: the days load empty with one hint, and Monday can be copied to every open day', async () => {
+    const { fireEvent, waitFor } = await import('@testing-library/react');
+    const all = {};
+    ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'].forEach((d) => (all[d] = { state: 'open', slots: [] }));
+    let got = null;
+    const api = { mapsKey: async () => ({}), places: async (a) => (a.mode === 'hours' ? { hours: { has: 1, name: 'Sagar Dispensary', days: all, h24: Object.keys(all), special: [] } } : { places: [] }) };
+    const { rerender } = render(<QuestionCard q={grp} index={0} value={[{ p: place }]} onChange={(v) => { got = v; }} api={api} response="SR-1" />);
+    await waitFor(() => expect(got?.[0]?.p_t?.days).toBeTruthy());
+    expect(got[0].p_t.days.Monday).toEqual({ state: 'open', slots: [['', '']] });
+    rerender(<QuestionCard q={grp} index={0} value={got} onChange={(v) => { got = v; }} api={api} response="SR-1" />);
+    expect(screen.getByText(/Google lists this place as open 24 hours — enter when the doctor is there/)).toBeTruthy();
+    expect(screen.queryByText(/Google shows 24 hours/)).toBeNull();
+    const filled = JSON.parse(JSON.stringify(got));
+    filled[0].p_t.days.Monday.slots = [['10:00', '13:00']];
+    filled[0].p_t.days.Sunday = { state: 'closed', slots: [] };
+    rerender(<QuestionCard q={grp} index={0} value={filled} onChange={(v) => { got = v; }} api={api} response="SR-1" />);
+    fireEvent.click(screen.getByRole('button', { name: /Same as Monday for all open days/ }));
+    expect(got[0].p_t.days.Friday.slots).toEqual([['10:00', '13:00']]);
+    expect(got[0].p_t.days.Sunday).toEqual({ state: 'closed', slots: [] });
+  });
 });

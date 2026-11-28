@@ -234,9 +234,11 @@ function TimingsOne({ q, mapAns, value, onChange, disabled, api, showErrors = fa
         const days = {};
         TIMING_DAYS.forEach((d) => {
           const g = h.days?.[d];
-          days[d] = h.has && g ? { state: g.state === 'open' ? 'open' : 'closed', slots: (g.slots || []).slice(0, 3).map((s) => [s[0], s[1]]) } : { state: 'open', slots: [['', '']] };
+          /* 28 Nov 2026 · an Open day without times (Google lists the place as 24 hours) gets one empty timing to fill */
+          const gs = h.has && g ? (g.slots || []).slice(0, 3).map((s) => [s[0], s[1]]) : [];
+          days[d] = h.has && g ? { state: g.state === 'open' ? 'open' : 'closed', slots: g.state === 'open' && !gs.length ? [['', '']] : gs } : { state: 'open', slots: [['', '']] };
         });
-        onChange({ place_id: pid, place_name: h.name || mapAns?.name || '', days, source: h.has ? 'google' : 'typed', special: h.special || [] });
+        onChange({ place_id: pid, place_name: h.name || mapAns?.name || '', days, source: h.has ? 'google' : 'typed', h24: h.h24 || [], special: h.special || [] });
       })
       .catch((e) => !gone && setErr(e?.message || 'Couldn’t load the timings.'))
       .finally(() => !gone && setBusy(false));
@@ -245,6 +247,18 @@ function TimingsOne({ q, mapAns, value, onChange, disabled, api, showErrors = fa
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [pid, tries]);
+
+  /* 28 Nov 2026 · timings loaded before today with Google's 24 hours as 00:00-23:59 (refused on every day): those days
+     are emptied once, for the rep to fill */
+  const old24 = v && v.place_id === pid && v.source === 'google' ? TIMING_DAYS.filter((d) => /24 hours/.test(timingDayError(v, d))) : [];
+  useEffect(() => {
+    if (!old24.length || disabled) return;
+    const next = JSON.parse(JSON.stringify(v));
+    old24.forEach((d) => (next.days[d].slots = [['', '']]));
+    next.h24 = old24;
+    onChange(next);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [old24.join('|')]);
 
   if (!pid) {
     return (
@@ -278,6 +292,14 @@ function TimingsOne({ q, mapAns, value, onChange, disabled, api, showErrors = fa
     onChange(next);
   };
   const src = v.source === 'google' ? 'From Google — check and correct' : v.source === 'edited' ? 'From Google, edited' : 'No timings on Google — please fill them';
+  /* 28 Nov 2026 · "Same as Monday for all open days": the first open day with complete timings, when another open day differs */
+  const copyFrom = (() => {
+    const f = TIMING_DAYS.find((d) => v.days[d]?.state === 'open' && (v.days[d].slots || []).length && !timingDayError(v, d));
+    if (!f) return '';
+    const key = JSON.stringify(v.days[f].slots);
+    return TIMING_DAYS.some((d) => d !== f && v.days[d]?.state === 'open' && JSON.stringify(v.days[d].slots || []) !== key) ? f : '';
+  })();
+  const h24 = Array.isArray(v.h24) ? v.h24 : [];
   return (
     <div className="flex flex-col gap-2">
       {/* 28 Nov 2026 · one line (the place's full name is right above, in the map question) */}
@@ -288,6 +310,28 @@ function TimingsOne({ q, mapAns, value, onChange, disabled, api, showErrors = fa
         </span>
       </p>
       {note ? <p className="flex items-center gap-1.5 text-12 text-body"><Icon name="info-circle" size="sm" />{note}</p> : null}
+      {h24.length ? (
+        <p className="flex items-start gap-1.5 text-12 text-ds-secondary">
+          <Icon name="clock" size="sm" className="mt-px shrink-0" />
+          <span>Google lists this place as open 24 hours{h24.length < 7 ? ` on ${h24.join(', ')}` : ''} — enter when the doctor is there.</span>
+        </p>
+      ) : null}
+      {copyFrom && !disabled ? (
+        <button
+          type="button"
+          onClick={() =>
+            edit((n) => {
+              TIMING_DAYS.forEach((d) => {
+                if (d !== copyFrom && n.days[d]?.state === 'open') n.days[d].slots = JSON.parse(JSON.stringify(n.days[copyFrom].slots));
+              });
+            })
+          }
+          className="flex h-9 items-center gap-1.5 self-start rounded-lg border border-line bg-surface px-3 text-12 font-semibold text-brand-text hover:border-brand"
+        >
+          <Icon name="copy" size="sm" />
+          Same as {copyFrom} for all open days
+        </button>
+      ) : null}
       {(v.special || []).length ? (
         <p className="flex items-center gap-1.5 text-12 text-body">
           <Icon name="calendar" size="sm" />
