@@ -106,28 +106,30 @@ export function SurveyScreen({ survey, today, drafts, api, onOpenRow, onChanged,
     </>
   );
 
+  const duePill = (
+    <StatusPill status={survey.state === 'missed' ? 'neutral' : late ? 'danger' : 'warning'} className="shrink-0">
+      {survey.state === 'missed' ? `Closed ${shortDate(survey.due_date)}` : survey.due_date ? `Due ${shortDate(survey.due_date)}` : 'Open'}
+    </StatusPill>
+  );
+
   /* An announcement: the message to read, not rows to answer. */
   if (survey.kind === 'announcement') return <AnnouncementScreen survey={survey} api={api} onChanged={onChanged} />;
 
   return (
     <div className="flex flex-col gap-3">
-      {/* 27 Nov 2026 · Survey Studio: the campaign's name and due date on top, then the progress (the artifact's phone) */}
-      <div className="flex flex-col gap-1 pt-1">
-        <div className="flex items-start justify-between gap-2">
-          <p className="min-w-0 text-20 font-semibold leading-[26px] tracking-[-0.01em] text-heading">{survey.title}</p>
-          <StatusPill status={survey.state === 'missed' ? 'neutral' : late ? 'danger' : 'warning'} className="shrink-0">
-            {survey.state === 'missed' ? `Closed ${shortDate(survey.due_date)}` : survey.due_date ? `Due ${shortDate(survey.due_date)}` : 'Open'}
-          </StatusPill>
-        </div>
-        {survey.description ? <p className="text-14 leading-5 text-ds-secondary">{survey.description}</p> : null}
-      </div>
+      {/* 28 Nov 2026 · no second big title: the top bar already names the survey. The due date sits in the progress line. */}
+      {survey.description ? <p className="text-13 leading-5 text-ds-secondary">{survey.description}</p> : null}
+      {selfEmpty || rows.length ? null : <div className="flex justify-end">{duePill}</div>}
       {selfEmpty ? (
         <div className="flex flex-col gap-2">
           <div className="flex items-center justify-between gap-2 text-13 font-medium text-ds-secondary">
             <span className="tabular-nums">
               <span className="text-16 font-semibold text-heading">0</span> of {minN || 1} {t.many} added
             </span>
-            {minN ? <StatusPill status="warning" className="shrink-0">At least {minN}</StatusPill> : null}
+            <span className="flex shrink-0 items-center gap-1.5">
+              {minN ? <StatusPill status="warning" className="shrink-0">At least {minN}</StatusPill> : null}
+              {duePill}
+            </span>
           </div>
           <div className="h-1.5 w-full overflow-hidden rounded-full bg-sunken" role="progressbar" aria-valuemin={0} aria-valuemax={100} aria-valuenow={0} />
           <div className="flex justify-between gap-3 text-12 text-ds-muted">
@@ -141,6 +143,8 @@ export function SurveyScreen({ survey, today, drafts, api, onOpenRow, onChanged,
             <span className="tabular-nums">
               <span className="text-16 font-semibold text-heading">{done}</span> of {rows.length} {rows.length === 1 ? t.one : t.many} done
             </span>
+            <span className="flex shrink-0 items-center gap-1.5">
+            {duePill}
             {multi ? (
               <button
                 type="button"
@@ -153,6 +157,7 @@ export function SurveyScreen({ survey, today, drafts, api, onOpenRow, onChanged,
                 History · {done}
               </button>
             ) : null}
+            </span>
           </div>
           <div className="flex h-1.5 w-full overflow-hidden rounded-full bg-sunken" role="progressbar" aria-valuemin={0} aria-valuemax={rows.length} aria-valuenow={done} aria-label={`${done} of ${rows.length} done`}>
             <span className="h-full rounded-full bg-success" style={{ width: `${pct}%`, minWidth: done ? 6 : 0 }} />

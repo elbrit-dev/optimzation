@@ -1,8 +1,7 @@
 'use client';
 
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { Button, Card, Icon, ProgressBar } from '@/design-system';
-import { PinnedBar, PinnedBarSpacer } from '@/app/secondary-entry/components/PinnedBar';
+import { Button, Card, Icon } from '@/design-system';
 import { aiWaiting, formProblems, isAnswered, shortDate, shortName, toPayload } from '../data/shape';
 import { filledQuestions } from '../data/view';
 import { SubjectCard } from './SubjectCard';
@@ -28,29 +27,23 @@ const READ_WAIT = 120000;
  * now, so the page's "Leave this form?" can save them for later. */
 /* 26 Nov 2026 · Survey Studio: a section's title over its questions, with how many are answered */
 function SectionHead({ title, done, total }) {
-  /* the artifact's section card: its title, how many are answered, a thin bar */
+  /* 28 Nov 2026 · one slim line (it was a card with a bar and took the space the questions need): the section's
+     name, a hairline, how many of its questions are answered */
   return (
-    <Card variant="hairline" className="flex flex-col gap-2.5 rounded-xl px-4 pb-3 pt-4">
-      <div className="flex items-center justify-between gap-3">
-        <h3 className="min-w-0 truncate text-15 font-semibold text-heading">{title}</h3>
-        {total ? (
-          <span className="shrink-0 text-13 font-medium tabular-nums text-ds-muted">
-            <span className="text-heading">{done}</span>/{total} answered
-          </span>
-        ) : null}
-      </div>
+    <div className="flex items-center gap-2 px-1 pt-1">
+      <h3 className="min-w-0 truncate text-12 font-semibold uppercase tracking-wide text-ds-muted">{title}</h3>
+      <span aria-hidden="true" className="h-px min-w-4 flex-1 bg-line" />
       {total ? (
-        <div className="h-1 w-full overflow-hidden rounded-full bg-sunken" role="progressbar" aria-valuemin={0} aria-valuemax={total} aria-valuenow={done} aria-label={`${title}: ${done} of ${total} answered`}>
-          <span className="block h-full rounded-full bg-success" style={{ width: `${Math.round((done / total) * 100)}%` }} />
-        </div>
+        <span className="shrink-0 text-12 font-medium tabular-nums text-ds-muted" aria-label={`${done} of ${total} answered`}>
+          <span className={done === total ? 'text-success' : 'text-heading'}>{done}</span>/{total}
+        </span>
       ) : null}
-    </Card>
+    </div>
   );
 }
 
-/* 27 Nov 2026 · the pinned Save for later / Submit bar sits ABOVE the app's bottom navigation while it shows
-   (on a phone it covered Planner / Doctor / Product / Chat). The nav is fixed at the bottom of the screen; its height
-   is measured, so a gap set in Plasmic is still added on top of it. No nav (desktop, a fullscreen page): unchanged. */
+/* 27 Nov 2026 · the app's bottom navigation is fixed at the bottom of the screen; its height is measured so the end of
+   the form (Save for later / Submit) can be scrolled clear of it. No nav (desktop, a fullscreen page): just the gap. */
 function useBottomNavGap(gap) {
   const [nav, setNav] = useState(0);
   useEffect(() => {
@@ -79,7 +72,6 @@ export function SubjectForm({ survey, row, rows, me, draft, api, onBack, onDraft
   /* The questions with this record's values in their {#fields} (data/view.js). */
   const questions = useMemo(() => filledQuestions(survey, row), [survey, row]);
   const rootRef = useRef(null);
-  const [barHeight, setBarHeight] = useState(0);
   const editable = row.state === 'todo';
   /* 26 Nov 2026: a returned answer opens with what was sent, to fix and send again */
   const start = useMemo(() => (editable ? (draft ?? (row.returned ? row.answers ?? {} : {})) : (row.answers ?? {})), [editable, draft, row.answers, row.returned]);
@@ -224,19 +216,9 @@ export function SubjectForm({ survey, row, rows, me, draft, api, onBack, onDraft
       <SubjectCard subject={row.subject} me={me} state={row.state === 'todo' ? (row.returned ? 'returned' : draft ? 'draft' : 'new') : row.state} fields={(survey.studio?.card ?? []).map((f) => ({ k: f.k, l: f.l, v: row.values?.[f.k] ?? '' }))} added={Boolean(row.added)} />
       <SurveyView survey={survey} row={row} />
 
-      {/* the whole-form count — only when the questions have no sections (each section has its own) */}
-      {Object.keys(sections).length ? null : (
-      <Card className="flex flex-col gap-2">
-        <div className="flex items-baseline justify-between gap-3">
-          <span className="min-w-0 truncate text-12 font-semibold text-heading">{survey.title}</span>
-          <span className="shrink-0 text-12 tabular-nums">
-            <span className="font-semibold text-heading">{answered}</span>
-            <span className="text-ds-muted">/{answerable.length} answered</span>
-          </span>
-        </div>
-        <ProgressBar value={answered} max={answerable.length || 1} size="sm" tone={requiredLeft ? 'brand' : 'success'} label={`${answered} of ${answerable.length} answered`} />
-      </Card>
-      )}
+      {/* the whole-form count — only when the questions have no sections (each section has its own); 28 Nov 2026: one
+         slim line, without the survey's name again (the top bar has it) */}
+      {Object.keys(sections).length || !answerable.length ? null : <SectionHead title="Questions" done={answered} total={answerable.length} />}
 
       {editable && row.returned ? (
         <p role="alert" className="flex items-start gap-2 rounded-lg bg-warning-wash px-3 py-2.5 text-12 text-warning-text">
@@ -285,11 +267,10 @@ export function SubjectForm({ survey, row, rows, me, draft, api, onBack, onDraft
         </div>
       ))}
 
+      {/* 28 Nov 2026 · Save for later / Submit at the end of the form (it was pinned over every screen of questions) */}
       {editable ? (
-        <>
-          <PinnedBarSpacer height={barHeight} bottomGap={bottomGap} />
-          <PinnedBar anchorRef={rootRef} bottomGap={bottomGap} onHeight={setBarHeight}>
-            <Card className="flex flex-col gap-2 shadow-pop" role="region" aria-label="Send this survey">
+        <div className="pt-1" style={{ paddingBottom: bottomGap }}>
+            <Card className="flex flex-col gap-2" role="region" aria-label="Send this survey">
               {error ? (
                 <p role="alert" className="flex items-start gap-2 rounded-lg bg-danger-wash px-3 py-2 text-11 text-danger-text">
                   <Icon name="exclamation-circle" size="sm" className="mt-px shrink-0" />
@@ -320,8 +301,7 @@ export function SubjectForm({ survey, row, rows, me, draft, api, onBack, onDraft
                     : 'Ready to send. You can’t change it after.'}
               </p>
             </Card>
-          </PinnedBar>
-        </>
+        </div>
       ) : null}
     </div>
   );
