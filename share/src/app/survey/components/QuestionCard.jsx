@@ -211,6 +211,30 @@ function TimingsInput({ q, value, onChange, disabled, api, answers, showErrors =
     </div>
   );
 }
+/* 28 Nov 2026 · the week in one line: days with the same hours grouped ("Mon–Sat 10:00–13:00 · Sun Closed");
+   done = every open day has complete, valid timings */
+function weekSummary(v) {
+  const word = (d) => {
+    const x = v?.days?.[d] || { state: 'closed', slots: [] };
+    if (x.state === 'closed') return 'Closed';
+    if (x.state === 'na') return 'N/A';
+    if (timingDayError(v, d)) return 'to fill';
+    return (x.slots || []).map((s2) => `${s2[0]}–${s2[1]}`).join(', ');
+  };
+  const groups = [];
+  TIMING_DAYS.forEach((d, i) => {
+    const w = word(d);
+    const g = groups[groups.length - 1];
+    if (g && g.w === w && g.last === i - 1) {
+      g.to = d;
+      g.last = i;
+    } else groups.push({ from: d, to: d, w, last: i });
+  });
+  const text = groups.map((g) => `${g.from.slice(0, 3)}${g.to !== g.from ? `–${g.to.slice(0, 3)}` : ''} ${g.w}`).join(' · ');
+  const done = TIMING_DAYS.every((d) => word(d) !== 'to fill') && TIMING_DAYS.some((d) => v?.days?.[d]?.state === 'open');
+  return { text, done };
+}
+export const weekLine = weekSummary;
 function TimingsOne({ q, mapAns, value, onChange, disabled, api, showErrors = false }) {
   /* 27 Nov 2026 · a day's problem shows once that day is touched, or after Submit was tried — not before */
   const [touched, setTouched] = useState({});
@@ -291,136 +315,158 @@ function TimingsOne({ q, mapAns, value, onChange, disabled, api, showErrors = fa
     if (next.source === 'google') next.source = 'edited';
     onChange(next);
   };
-  const src = v.source === 'google' ? 'From Google — check and correct' : v.source === 'edited' ? 'From Google, edited' : 'No timings on Google — please fill them';
-  /* 28 Nov 2026 · "Same as Monday for all open days": the first open day with complete timings, when another open day differs */
+  const h24 = Array.isArray(v.h24) ? v.h24 : [];
+  const src = h24.length ? '' : v.source === 'google' ? 'Hours from Google — check them' : v.source === 'edited' ? 'From Google, edited' : 'Not on Google — fill them in';
+  /* "Copy Monday to all open days": the first open day with complete timings, when another open day differs */
   const copyFrom = (() => {
     const f = TIMING_DAYS.find((d) => v.days[d]?.state === 'open' && (v.days[d].slots || []).length && !timingDayError(v, d));
     if (!f) return '';
     const key = JSON.stringify(v.days[f].slots);
     return TIMING_DAYS.some((d) => d !== f && v.days[d]?.state === 'open' && JSON.stringify(v.days[d].slots || []) !== key) ? f : '';
   })();
-  const h24 = Array.isArray(v.h24) ? v.h24 : [];
+  const sum = weekSummary(v);
+  const setState = (d, st) =>
+    edit((n) => {
+      const y = n.days[d] || (n.days[d] = { state: 'closed', slots: [] });
+      y.state = st;
+      if (st === 'open' && !(y.slots || []).length) y.slots = [['', '']];
+      if (st !== 'open') y.slots = [];
+    });
+  /* 28 Nov 2026 · the timings editor, rebuilt for a phone: the week as rows — the day, a one-tap Open | Closed | N/A
+     switch, its times as small pills under it; a problem is one red line and a red outline, not a pink block. A place
+     Google lists as 24 hours gets its own amber note and a "24h" tag on those days (that is the hospital, not the
+     doctor). A one-line summary of the week sits on top. */
   return (
     <div className="flex flex-col gap-2">
-      {/* 28 Nov 2026 · one line (the place's full name is right above, in the map question) */}
-      <p className="flex min-w-0 items-center gap-1.5 text-12 text-ds-muted">
-        <Icon name="map-marker" size="sm" className="shrink-0 text-danger-text" />
-        <span className="min-w-0 truncate">
-          <b className="font-semibold text-heading">{v.place_name || mapAns?.name || 'Chosen place'}</b> · {src}
-        </span>
-      </p>
-      {note ? <p className="flex items-center gap-1.5 text-12 text-body"><Icon name="info-circle" size="sm" />{note}</p> : null}
       {h24.length ? (
-        <p className="flex items-start gap-1.5 text-12 text-ds-secondary">
-          <Icon name="clock" size="sm" className="mt-px shrink-0" />
-          <span>Google lists this place as open 24 hours{h24.length < 7 ? ` on ${h24.join(', ')}` : ''} — enter when the doctor is there.</span>
+        <div className="flex items-start gap-2 rounded-lg bg-warning-wash px-3 py-2 text-warning-text">
+          <Icon name="clock" size="sm" className="mt-0.5 shrink-0" />
+          <span className="flex min-w-0 flex-col">
+            <b className="text-13 font-semibold">Open 24 hours on Google{h24.length < 7 ? ` · ${h24.map((d) => d.slice(0, 3)).join(', ')}` : ''}</b>
+            <span className="text-12">That’s the hospital. Enter the hours the doctor sits here.</span>
+          </span>
+        </div>
+      ) : (
+        <p className="flex min-w-0 items-center gap-1.5 text-12 text-ds-muted">
+          <Icon name="map-marker" size="sm" className="shrink-0 text-danger-text" />
+          <span className="min-w-0 truncate">
+            <b className="font-semibold text-heading">{v.place_name || mapAns?.name || 'Chosen place'}</b> · {src}
+          </span>
         </p>
-      ) : null}
-      {copyFrom && !disabled ? (
-        <button
-          type="button"
-          onClick={() =>
-            edit((n) => {
-              TIMING_DAYS.forEach((d) => {
-                if (d !== copyFrom && n.days[d]?.state === 'open') n.days[d].slots = JSON.parse(JSON.stringify(n.days[copyFrom].slots));
-              });
-            })
-          }
-          className="flex h-9 items-center gap-1.5 self-start rounded-lg border border-line bg-surface px-3 text-12 font-semibold text-brand-text hover:border-brand"
-        >
-          <Icon name="copy" size="sm" />
-          Same as {copyFrom} for all open days
-        </button>
-      ) : null}
+      )}
+      {note ? <p className="flex items-center gap-1.5 text-12 text-body"><Icon name="info-circle" size="sm" />{note}</p> : null}
       {(v.special || []).length ? (
-        <p className="flex items-center gap-1.5 text-12 text-body">
+        <p className="flex items-center gap-1.5 text-12 text-ds-secondary">
           <Icon name="calendar" size="sm" />
-          Google shows special hours on {v.special.join(', ')} (e.g. a festival) — the usual weekly timings are filled.
+          Special hours on {v.special.join(', ')} (a holiday) — fill the usual week.
         </p>
       ) : null}
-      {/* 28 Nov 2026 · the week as one list: a day is its name, the + and Open / Closed on one line, its timings under
-          it, and a one-line warning (each day was a card with its own "Add a timing" line — a week took 3 screens) */}
-      <div className="flex flex-col divide-y divide-line overflow-hidden rounded-lg border border-line bg-surface">
-        {TIMING_DAYS.map((d) => {
-          const x = v.days[d] || { state: 'closed', slots: [] };
-          /* 28 Nov 2026 · a day Google shows as 24 hours is warned at once (before, it was only refused) */
-          const er0 = timingDayError(v, d);
-          const er = touched[d] || showErrors || /24 hours/.test(er0) ? er0 : '';
-          const canAdd = x.state === 'open' && (x.slots || []).length < 3 && !disabled;
-          return (
-            <div key={d} onChangeCapture={() => !touched[d] && setTouched((t) => ({ ...t, [d]: true }))} className={cx('flex flex-col gap-1.5 px-2.5 py-2', er ? 'bg-danger-wash' : '')}>
-              <div className="flex items-center gap-2">
-                <b className="min-w-0 flex-1 text-13 text-heading">{d}</b>
-                {canAdd ? (
-                  <button
-                    type="button"
-                    aria-label={`Add a timing on ${d}`}
-                    onClick={() => edit((n) => (n.days[d].slots = (n.days[d].slots || []).concat([['', '']]).slice(0, 3)))}
-                    className="flex size-9 shrink-0 items-center justify-center rounded-md text-brand-text hover:bg-brand-tint-weak"
-                  >
-                    <Icon name="plus" size="sm" />
-                  </button>
-                ) : null}
-                <select
-                  aria-label={d}
-                  value={x.state}
-                  disabled={disabled}
-                  onChange={(e) =>
-                    edit((n) => {
-                      const y = n.days[d];
-                      y.state = e.target.value;
-                      if (y.state === 'open' && !(y.slots || []).length) y.slots = [['', '']];
-                      if (y.state !== 'open') y.slots = [];
-                    })
-                  }
-                  className={cx(FIELD, 'h-9 w-32 py-1')}
-                >
-                  <option value="open">Open</option>
-                  <option value="closed">Closed</option>
-                  <option value="na">Not available</option>
-                </select>
-              </div>
-              {x.state === 'open'
-                ? (x.slots || []).map((s, k) => (
-                    <div key={k} className="flex items-center gap-1.5">
-                      <input
-                        aria-label={`${d} start`}
-                        type="time"
-                        value={s[0] || ''}
+
+      <div className="overflow-hidden rounded-xl border border-line bg-surface">
+        {/* the week at a glance */}
+        <div className={cx('flex items-start gap-1.5 border-b border-line px-3 py-2 text-12', sum.done ? 'bg-success-wash text-success' : 'bg-sunken text-ds-secondary')}>
+          <Icon name={sum.done ? 'check-circle' : 'clock'} size="sm" className="mt-px shrink-0" />
+          <span className="min-w-0 flex-1 font-medium">{sum.text}</span>
+          {copyFrom && !disabled ? (
+            <button
+              type="button"
+              onClick={() =>
+                edit((n) => {
+                  TIMING_DAYS.forEach((d) => {
+                    if (d !== copyFrom && n.days[d]?.state === 'open') n.days[d].slots = JSON.parse(JSON.stringify(n.days[copyFrom].slots));
+                  });
+                })
+              }
+              className="-my-1 flex h-7 shrink-0 items-center gap-1 rounded-md px-1.5 text-12 font-semibold text-brand-text hover:bg-brand-tint-weak"
+            >
+              <Icon name="copy" size="var(--fs-12)" />
+              Copy {copyFrom.slice(0, 3)} to all
+            </button>
+          ) : null}
+        </div>
+        <div className="flex flex-col divide-y divide-line">
+          {TIMING_DAYS.map((d) => {
+            const x = v.days[d] || { state: 'closed', slots: [] };
+            /* a day Google shows as 24 hours (00:00-23:59 typed or kept) is warned at once */
+            const er0 = timingDayError(v, d);
+            const er = touched[d] || showErrors || /24 hours/.test(er0) ? er0 : '';
+            const sl = x.state === 'open' ? x.slots || [] : [];
+            return (
+              <div key={d} onChangeCapture={() => !touched[d] && setTouched((t) => ({ ...t, [d]: true }))} className="flex flex-col gap-1.5 px-3 py-2">
+                <div className="flex items-center gap-2">
+                  <b className="w-9 shrink-0 text-13 text-heading" title={d}>{d.slice(0, 3)}</b>
+                  {h24.includes(d) ? <span className="shrink-0 rounded-full bg-warning-wash px-1.5 py-0.5 text-10 font-semibold text-warning-text">24h</span> : null}
+                  <span className="min-w-0 flex-1" />
+                  <div role="radiogroup" aria-label={d} className="flex shrink-0 rounded-lg bg-sunken p-0.5">
+                    {[['open', 'Open'], ['closed', 'Closed'], ['na', 'N/A']].map(([st, lb]) => (
+                      <button
+                        key={st}
+                        type="button"
+                        role="radio"
+                        aria-checked={x.state === st}
+                        aria-label={st === 'na' ? 'Not available' : lb}
                         disabled={disabled}
-                        onChange={(e) => edit((n) => (n.days[d].slots[k][0] = e.target.value))}
-                        className={cx(FIELD, 'h-9 min-w-0 flex-1 py-1')}
-                      />
-                      <span className="text-ds-muted">–</span>
-                      <input
-                        aria-label={`${d} end`}
-                        type="time"
-                        value={s[1] || ''}
-                        disabled={disabled}
-                        onChange={(e) => edit((n) => (n.days[d].slots[k][1] = e.target.value))}
-                        className={cx(FIELD, 'h-9 min-w-0 flex-1 py-1')}
-                      />
+                        onClick={() => x.state !== st && setState(d, st)}
+                        className={cx(
+                          'h-8 min-w-[3.25rem] rounded-md px-2 text-12 font-semibold transition-colors',
+                          x.state === st ? (st === 'open' ? 'bg-surface text-heading shadow-sm' : 'bg-surface text-ds-secondary shadow-sm') : 'text-ds-muted hover:text-heading',
+                        )}
+                      >
+                        {lb}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+                {sl.length ? (
+                  <div className="flex flex-wrap items-center gap-1.5">
+                    {sl.map((s, k) => (
+                      <span key={k} className={cx('inline-flex h-9 items-center rounded-lg border bg-surface pl-1', er ? 'border-danger-border' : 'border-line-strong', sl.length > 1 ? 'pr-0' : 'pr-1')}>
+                        <input
+                          aria-label={`${d} start`}
+                          type="time"
+                          value={s[0] || ''}
+                          disabled={disabled}
+                          onChange={(e) => edit((n) => (n.days[d].slots[k][0] = e.target.value))}
+                          className="h-8 w-[6.25rem] min-w-0 rounded-md bg-transparent px-1 text-center text-13 tabular-nums text-heading focus:bg-brand-tint-weak focus:outline-none"
+                        />
+                        <span className="px-0.5 text-ds-muted">–</span>
+                        <input
+                          aria-label={`${d} end`}
+                          type="time"
+                          value={s[1] || ''}
+                          disabled={disabled}
+                          onChange={(e) => edit((n) => (n.days[d].slots[k][1] = e.target.value))}
+                          className="h-8 w-[6.25rem] min-w-0 rounded-md bg-transparent px-1 text-center text-13 tabular-nums text-heading focus:bg-brand-tint-weak focus:outline-none"
+                        />
+                        {sl.length > 1 && !disabled ? (
+                          <button type="button" aria-label="Remove this timing" onClick={() => edit((n) => n.days[d].slots.splice(k, 1))} className="flex size-8 items-center justify-center rounded-md text-ds-muted hover:text-danger-text">
+                            <Icon name="times" size="var(--fs-12)" />
+                          </button>
+                        ) : null}
+                      </span>
+                    ))}
+                    {sl.length < 3 && !disabled ? (
                       <button
                         type="button"
-                        aria-label="Remove this timing"
-                        disabled={disabled}
-                        onClick={() => edit((n) => n.days[d].slots.splice(k, 1))}
-                        className="flex size-9 shrink-0 items-center justify-center rounded-md text-ds-muted hover:bg-sunken"
+                        aria-label={`Add a timing on ${d}`}
+                        onClick={() => edit((n) => (n.days[d].slots = (n.days[d].slots || []).concat([['', '']]).slice(0, 3)))}
+                        className="flex h-9 items-center gap-1 rounded-lg px-2 text-12 font-semibold text-brand-text hover:bg-brand-tint-weak"
                       >
-                        <Icon name="times" size="sm" />
+                        <Icon name="plus" size="var(--fs-12)" />
+                        Add
                       </button>
-                    </div>
-                  ))
-                : null}
-              {er ? (
-                <p role="alert" className="flex items-center gap-1.5 text-11 font-semibold text-danger-text">
-                  <Icon name="exclamation-circle" size="var(--fs-12)" className="shrink-0" />
-                  {er}
-                </p>
-              ) : null}
-            </div>
-          );
-        })}
+                    ) : null}
+                  </div>
+                ) : null}
+                {er ? (
+                  <p role="alert" className="text-11 font-medium text-danger-text">
+                    {er}
+                  </p>
+                ) : null}
+              </div>
+            );
+          })}
+        </div>
       </div>
     </div>
   );

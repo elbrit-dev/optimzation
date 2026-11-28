@@ -48,14 +48,27 @@ describe('Visiting timings inside a Repeated group', () => {
     await waitFor(() => expect(got?.[0]?.p_t?.days).toBeTruthy());
     expect(got[0].p_t.days.Monday).toEqual({ state: 'open', slots: [['', '']] });
     rerender(<QuestionCard q={grp} index={0} value={got} onChange={(v) => { got = v; }} api={api} response="SR-1" />);
-    expect(screen.getByText(/Google lists this place as open 24 hours — enter when the doctor is there/)).toBeTruthy();
+    expect(screen.getByText(/Open 24 hours on Google/)).toBeTruthy();
     expect(screen.queryByText(/Google shows 24 hours/)).toBeNull();
     const filled = JSON.parse(JSON.stringify(got));
     filled[0].p_t.days.Monday.slots = [['10:00', '13:00']];
     filled[0].p_t.days.Sunday = { state: 'closed', slots: [] };
     rerender(<QuestionCard q={grp} index={0} value={filled} onChange={(v) => { got = v; }} api={api} response="SR-1" />);
-    fireEvent.click(screen.getByRole('button', { name: /Same as Monday for all open days/ }));
+    fireEvent.click(screen.getByRole('button', { name: /Copy Mon to all/ }));
     expect(got[0].p_t.days.Friday.slots).toEqual([['10:00', '13:00']]);
     expect(got[0].p_t.days.Sunday).toEqual({ state: 'closed', slots: [] });
+    // one tap: Open | Closed | N/A
+    fireEvent.click(screen.getAllByRole('radio', { name: 'Closed' })[1]);
+    expect(got[0].p_t.days.Tuesday).toEqual({ state: 'closed', slots: [] });
+  });
+
+  it('the week in one line', async () => {
+    const { weekLine } = await import('../components/QuestionCard');
+    const o = (sl) => ({ state: 'open', slots: sl });
+    const v = { days: { Monday: o([['10:00', '13:00']]), Tuesday: o([['10:00', '13:00']]), Wednesday: o([['10:00', '13:00']]), Thursday: o([['10:00', '13:00']]), Friday: o([['10:00', '13:00']]), Saturday: o([['10:00', '13:00']]), Sunday: { state: 'closed', slots: [] } } };
+    expect(weekLine(v)).toEqual({ text: 'Mon–Sat 10:00–13:00 · Sun Closed', done: true });
+    v.days.Friday = o([['', '']]);
+    expect(weekLine(v).done).toBe(false);
+    expect(weekLine(v).text).toBe('Mon–Thu 10:00–13:00 · Fri to fill · Sat 10:00–13:00 · Sun Closed');
   });
 });
