@@ -2,7 +2,7 @@
 
 import { useEffect, useRef, useState } from 'react';
 import { Card, Icon, ProgressBar, cx } from '@/design-system';
-import { LOGIN_EXCEPTIONS, TIMING_DAYS, answerProblem, answerText, fileProblem, fileRules, isAnswered, isEmpty, loginExceptions, repeatList, repeatNoun, scaleRange, timingDayError } from '../data/shape';
+import { LOGIN_EXCEPTIONS, TIMING_DAYS, answerProblem, answerText, fileProblem, fileRules, isAnswered, isEmpty, loginExceptions, mapParseLatLng, repeatList, repeatNoun, scaleRange, timingDayError } from '../data/shape';
 import { MapLocation } from './MapLocation';
 
 /* One question, by its type (SURVEYS_CONTEXT.md §3) — answered, or shown
@@ -976,6 +976,14 @@ function RepeatInput({ q, value: raw, onChange, disabled, onUpload, api, respons
 }
 
 /* 26 Nov 2026 · Survey Studio "Show from ERP": saved data of the record to read and check against — nothing to answer */
+/* 28 Nov 2026 · a saved location (the Lead's "Latitude and Longitude" is kept as {"x": lat, "y": lng}) is shown as
+   "26.776763, 82.178278" with a link to the map, not as the raw value */
+function erpPoint(f) {
+  const v = String(f?.value ?? '').trim();
+  if (!v || !(v.startsWith('{') || /lat|long|location|geo/i.test(`${f.label || ''} ${f.tag || ''}`))) return null;
+  return mapParseLatLng(v);
+}
+
 function ErpInfoCard({ q }) {
   const fields = (q.fields ?? []).filter((f) => f && f.label);
   return (
@@ -990,7 +998,18 @@ function ErpInfoCard({ q }) {
           {fields.map((f) => (
             <div key={f.tag} className="contents">
               <dt className="text-ds-muted">{f.label}</dt>
-              <dd className="min-w-0 break-words font-semibold text-heading">{f.value && f.value !== '—' ? f.value : <span className="font-normal text-ds-muted">Not on record</span>}</dd>
+              <dd className="min-w-0 break-words font-semibold text-heading">
+                {erpPoint(f) ? (
+                  <a href={`https://www.google.com/maps?q=${erpPoint(f).lat},${erpPoint(f).lng}`} target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-1 text-brand-text underline-offset-2 hover:underline">
+                    <Icon name="map-marker" size="sm" />
+                    {erpPoint(f).lat.toFixed(6)}, {erpPoint(f).lng.toFixed(6)}
+                  </a>
+                ) : f.value && f.value !== '—' ? (
+                  f.value
+                ) : (
+                  <span className="font-normal text-ds-muted">Not on record</span>
+                )}
+              </dd>
             </div>
           ))}
         </dl>
