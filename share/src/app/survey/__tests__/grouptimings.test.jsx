@@ -71,4 +71,17 @@ describe('Visiting timings inside a Repeated group', () => {
     expect(weekLine(v).done).toBe(false);
     expect(weekLine(v).text).toBe('Mon–Thu 10:00–13:00 · Fri to fill · Sat 10:00–13:00 · Sun Closed');
   });
+
+  it('a sent answer reads as places and a week, not one line of text', () => {
+    const shop = { lat: 26.79, lng: 82.2, place_id: 'gp-2', name: 'Prakash Medical store', kind: 'Pharmacy', address: 'Darshan Nagar Rd, Ayodhya 224135', how: 'place', serving: { customer: 'C1', label: 'Buddha Medical Agencies' } };
+    const wk = { place_id: 'gp-2', place_name: 'Prakash Medical store', days: week(day('open', [['10:00', '13:00']])) };
+    render(<QuestionCard q={grp} index={0} value={[{ p: shop, p_t: wk }]} onChange={() => {}} readOnly />);
+    expect(screen.getByText('Prakash Medical store', { selector: 'p' })).toBeTruthy();
+    expect(screen.getByText('Darshan Nagar Rd, Ayodhya 224135')).toBeTruthy();
+    expect(screen.getByText('Buddha Medical Agencies')).toBeTruthy();
+    expect(screen.getByText('Visiting timings at this place')).toBeTruthy();
+    expect(screen.getByText('10:00–13:00')).toBeTruthy();
+    expect(screen.getByText('Tue–Sat')).toBeTruthy();
+    expect(screen.queryByText(/Distributor: Buddha/)).toBeNull();
+  });
 });

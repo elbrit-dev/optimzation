@@ -2,7 +2,7 @@
 
 import { useEffect, useRef, useState } from 'react';
 import { Card, Icon, ProgressBar, cx } from '@/design-system';
-import { LOGIN_EXCEPTIONS, TIMING_DAYS, aiFlags, aiReading, aiUnchecked, answerProblem, answerText, fileProblem, fileRules, isAnswered, isEmpty, loginExceptions, mapIsPoint, mapParseLatLng, repeatList, repeatNoun, scaleRange, timingDayError } from '../data/shape';
+import { LOGIN_EXCEPTIONS, TIMING_DAYS, aiFlags, aiReading, aiUnchecked, answerProblem, answerText, fileProblem, fileRules, isAnswered, isEmpty, loginExceptions, mapIsPoint, mapParseLatLng, mapUrl, repeatList, repeatNoun, repeatRows, scaleRange, timingDayError } from '../data/shape';
 import { MapLocation } from './MapLocation';
 
 /* One question, by its type (SURVEYS_CONTEXT.md §3) — answered, or shown
@@ -213,7 +213,7 @@ function TimingsInput({ q, value, onChange, disabled, api, answers, showErrors =
 }
 /* 28 Nov 2026 · the week in one line: days with the same hours grouped ("Mon–Sat 10:00–13:00 · Sun Closed");
    done = every open day has complete, valid timings */
-function weekSummary(v) {
+function weekGroups(v) {
   const word = (d) => {
     const x = v?.days?.[d] || { state: 'closed', slots: [] };
     if (x.state === 'closed') return 'Closed';
@@ -230,8 +230,12 @@ function weekSummary(v) {
       g.last = i;
     } else groups.push({ from: d, to: d, w, last: i });
   });
-  const text = groups.map((g) => `${g.from.slice(0, 3)}${g.to !== g.from ? `–${g.to.slice(0, 3)}` : ''} ${g.w}`).join(' · ');
-  const done = TIMING_DAYS.every((d) => word(d) !== 'to fill') && TIMING_DAYS.some((d) => v?.days?.[d]?.state === 'open');
+  return groups.map((g) => ({ days: `${g.from.slice(0, 3)}${g.to !== g.from ? `–${g.to.slice(0, 3)}` : ''}`, w: g.w }));
+}
+function weekSummary(v) {
+  const groups = weekGroups(v);
+  const text = groups.map((g) => `${g.days} ${g.w}`).join(' · ');
+  const done = groups.every((g) => g.w !== 'to fill') && TIMING_DAYS.some((d) => v?.days?.[d]?.state === 'open');
   return { text, done };
 }
 export const weekLine = weekSummary;
@@ -1277,6 +1281,122 @@ function Rate5({ q, value, onChange, disabled }) {
 /* 28 Nov 2026 · the "We read this automatically: …" line under a photo / file question is gone (the user: too much
    text); what was read still shows after the upload ("We read · check and correct") */
 
+/* 28 Nov 2026 · an answer as it was sent (History, and anything read-only), laid out by its kind instead of one
+   run-on line: a place is its name, kind and address with its distributor; a Repeated group is one block per entry
+   with each question's label; visiting timings are the week as rows; files are file rows; choices are chips */
+function ReadPlace({ v }) {
+  if (!mapIsPoint(v)) return null;
+  if (v.how === 'same') {
+    return (
+      <p className="flex items-center gap-2 text-14 font-medium text-heading">
+        <Icon name="check-circle" size="sm" className="text-success" />
+        Location on record is correct
+      </p>
+    );
+  }
+  const sv = v.serving;
+  return (
+    <div className="flex items-start gap-2.5">
+      <span className="mt-0.5 flex size-8 shrink-0 items-center justify-center rounded-full bg-brand-tint-weak text-brand-text">
+        <Icon name="map-marker" size="sm" />
+      </span>
+      <div className="flex min-w-0 flex-1 flex-col gap-0.5">
+        <p className="text-14 font-semibold leading-5 text-heading [overflow-wrap:anywhere]">{v.name || 'Pinned on the map'}</p>
+        {v.kind ? <p className="text-12 text-ds-muted">{v.kind}</p> : null}
+        {v.address ? <p className="text-12 leading-[18px] text-ds-secondary">{v.address}</p> : null}
+        {sv ? (
+          <p className="mt-1.5 flex items-center gap-1.5 self-start rounded-md bg-sunken px-2 py-1 text-12">
+            <span className="text-ds-muted">Distributor</span>
+            <b className="font-semibold text-heading">{sv.none ? 'Not sure' : sv.label || sv.customer}</b>
+          </p>
+        ) : null}
+      </div>
+      <a href={mapUrl(v)} target="_blank" rel="noopener noreferrer" aria-label="Open in Google Maps" className="flex size-9 shrink-0 items-center justify-center rounded-md text-brand-text hover:bg-brand-tint-weak">
+        <Icon name="external-link" size="sm" />
+      </a>
+    </div>
+  );
+}
+function ReadWeek({ v, inGroup = false }) {
+  const one = (x) => (
+    <div className="flex flex-col gap-1.5">
+      {x.place_name && !inGroup ? (
+        <p className="flex items-center gap-1.5 text-12 text-ds-muted">
+          <Icon name="clock" size="var(--fs-12)" />
+          {x.place_name}
+        </p>
+      ) : null}
+      <dl className="grid grid-cols-[auto_1fr] gap-x-4 gap-y-1 rounded-lg bg-sunken px-3 py-2 text-13">
+        {weekGroups(x).map((g) => (
+          <div key={g.days} className="contents">
+            <dt className="font-semibold text-heading">{g.days}</dt>
+            <dd className={cx('tabular-nums', g.w === 'Closed' || g.w === 'N/A' ? 'text-ds-muted' : 'text-heading')}>{g.w === 'N/A' ? 'Not available' : g.w}</dd>
+          </div>
+        ))}
+      </dl>
+    </div>
+  );
+  const list = (Array.isArray(v) ? v : [v]).filter((x) => x?.days);
+  return <div className="flex flex-col gap-2.5">{list.map((x, i) => <div key={x.place_id || i}>{one(x)}</div>)}</div>;
+}
+function ReadAnswer({ q, value, inGroup = false }) {
+  if (isEmpty(value)) return <p className="text-13 text-ds-muted">Skipped</p>;
+  if (q.type === 'map_location') {
+    const pts = Array.isArray(value) ? value : [value];
+    return <div className="flex flex-col gap-3">{pts.map((v, i) => <ReadPlace key={v?.place_id || i} v={v} />)}</div>;
+  }
+  if (q.type === 'timings') return <ReadWeek v={value} inGroup={inGroup} />;
+  if (q.type === 'repeat') {
+    const rows = repeatRows(repeatList(q, value));
+    const kids = q.fields ?? [];
+    const noun = repeatNoun(q);
+    const Noun = noun.charAt(0).toUpperCase() + noun.slice(1);
+    const same = (k) => String(k.label || '').trim().toLowerCase() === String(q.label || '').trim().toLowerCase();
+    return (
+      <div className="flex flex-col gap-2">
+        {rows.map((r, i) => (
+          <div key={i} className="flex flex-col gap-2.5 rounded-lg border border-line bg-surface p-3">
+            {rows.length > 1 ? <p className="text-11 font-semibold uppercase tracking-wide text-ds-muted">{Noun} {i + 1}</p> : null}
+            {kids.filter((k) => !isEmpty(r[k.id])).map((k) => (
+              <div key={k.id} className="flex flex-col gap-1">
+                {kids.length > 1 && !same(k) ? <p className="text-12 font-medium text-ds-muted">{k.label}</p> : null}
+                <ReadAnswer q={k} value={r[k.id]} inGroup />
+              </div>
+            ))}
+          </div>
+        ))}
+      </div>
+    );
+  }
+  if (q.type === 'file_upload') {
+    return (
+      <div className="flex flex-col gap-1.5">
+        {value.map((f) => (
+          <div key={f.url || f.name} className="flex flex-col gap-1 rounded-lg bg-sunken px-3 py-2">
+            <p className="flex items-center gap-2 text-13">
+              <Icon name={/\.pdf$/i.test(f.name || '') ? 'file-pdf' : 'image'} size="sm" className="shrink-0 text-brand-text" />
+              <span className="min-w-0 flex-1 truncate font-medium text-heading">{f.name}</span>
+              {f.size ? <span className="shrink-0 text-11 tabular-nums text-ds-muted">{sizeText(f.size)}</span> : null}
+            </p>
+            {(f.check?.flags || []).length ? <p className="text-12 text-warning-text">Flagged: {f.check.flags.join('; ')}</p> : null}
+            {f.check?.reason ? <p className="text-12 text-ds-secondary">Why: {f.check.reason}</p> : null}
+          </div>
+        ))}
+      </div>
+    );
+  }
+  if (q.type === 'checkboxes' || q.type === 'days') {
+    return (
+      <div className="flex flex-wrap gap-1.5">
+        {value.map((x) => (
+          <span key={x} className="rounded-full bg-brand-tint-weak px-2.5 py-1 text-12 font-medium text-brand-text">{x}</span>
+        ))}
+      </div>
+    );
+  }
+  return <p className="whitespace-pre-line text-14 font-medium leading-5 text-heading [overflow-wrap:anywhere]">{answerText(q, value)}</p>;
+}
+
 export function QuestionCard(props) {
   if (props.q.type === 'erp_info') return <ErpInfoCard q={props.q} />;
   return <AnswerCard {...props} />;
@@ -1310,10 +1430,7 @@ function AnswerCard({ q, index, value, onChange, onUpload, api, response, answer
         {q.description && !readOnly && !helpBelow && !helpRepeats ? <p className="text-13 text-ds-muted">{q.description}</p> : null}
       </div>
       {readOnly ? (
-        <p className={cx('flex items-center gap-2 whitespace-pre-line rounded-lg bg-sunken px-3 py-2 text-12', answered ? 'font-semibold text-heading' : 'text-ds-muted')}>
-          {q.type === 'file_upload' && answered ? <Icon name="paperclip" size="sm" className="text-ds-muted" /> : null}
-          {answered ? answerText(q, value) : 'Skipped'}
-        </p>
+        <ReadAnswer q={q} value={value} />
       ) : (
         <Input q={q} value={value} onChange={onChange} disabled={disabled} onUpload={onUpload} api={api} response={response} answers={answers} onBusy={setBusy} showErrors={Boolean(error)} />
       )}
