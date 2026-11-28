@@ -25,6 +25,7 @@ import { cabTotals, useCabs } from "@calendar/lib/field-expenses/cab-claims";
 import { readTripBill } from "@calendar/lib/field-expenses/bill-reader";
 import { ManualBill, useBillPicker } from "@calendar/components/calendar/field/field-bills";
 import { BillViewer } from "@calendar/components/calendar/field/field-bill-view";
+import { carTag } from "@calendar/lib/field-expenses/erp-claim";
 
 const MON = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
 const day = (iso) => Number(String(iso).slice(8, 10));
@@ -113,7 +114,7 @@ export function BlockCard({ block, onOpen }) {
   const days = items.flatMap((x) => x.trip.days);
   const paid = days.filter((d) => d.payable);
   // own car (28 Nov 2026): the trip card shows TA / total WITHOUT the car's fuel share -- that is on the Car card
-  const carOf = (c) => (c && c.carBilled && c.carPool ? Number(c.carPool.amount) || 0 : 0);
+  const carOf = () => 0;   // the trip's TA no longer holds the car's fuel (claim-rules, 28 Nov 2026)
   const ta = items.reduce((a, x) => a + x.calc.ta - carOf(x.calc), 0);
   const da = items.reduce((a, x) => a + x.calc.da, 0);
   const total = items.reduce((a, x) => a + x.calc.total - carOf(x.calc), 0);
@@ -309,7 +310,7 @@ export function CarCabCard() {
 
 /* the Own car part of the Car · Ola · Uber sheet: the request, the limit, and
    the fuel bills (added here, onto the car's first trip still to send) */
-export function OwnCarSection({ c, onAddFuel }) {
+export function OwnCarSection({ c, onAddFuel, sentTags = null }) {
   const f = useFieldExpenses();
   // a fuel bill row opens the BILL itself (28 Nov 2026) -- not its trip or the request
   const [openBill, setOpenBill] = useState(null);
@@ -349,7 +350,12 @@ export function OwnCarSection({ c, onAddFuel }) {
                 </span>
                 {r.status === "approved" && (
                   <span className="mt-1 flex items-baseline justify-between text-[12.5px] text-gray-600">
-                    <span>Fuel</span>
+                    <span>
+                      Fuel
+                      {sentTags && bills.length ? (
+                        sentTags.has(carTag(r)) ? <span className="ml-1.5 font-semibold text-green-700">· sent</span> : <span className="ml-1.5 font-semibold text-orange-600">· not sent</span>
+                      ) : null}
+                    </span>
                     <span>
                       <b className="text-[13.5px] text-gray-900">{inr(used)}</b> of {inr(lim)}
                     </span>
@@ -686,6 +692,26 @@ export function CarCabSheetV2({ cab }) {
   const S = STATE[c.k];
   const req = c.approved[0] || c.reqs.find((r) => r.status === "pending") || null;
   const cap = c.cap || (req && req.ask) || 0;
+  // the own car's fuel, sent from HERE (28 Nov 2026), not with the trips: per approved request, its
+  // bills not sent yet (no line in the month's claim carries the request's tag)
+  const sentTags = new Set(((f.monthClaim?.claim?.all) || []).flatMap((x) => (x.lines || []).map((l) => String(l.trip || ""))));
+  const fuelDue = c.approved
+    .map((r) => {
+      const bills = c.fuelBills.filter((b) => r.from && r.to && b.date >= r.from && b.date <= r.to);
+      const lim = Math.round(Number(r.approvedAmount ?? r.ask) || 0);
+      const amt = Math.min(lim, bills.reduce((a, b) => a + (Number(b.amount) || 0), 0));
+      return { r, bills, amt, sent: sentTags.has(carTag(r)) };
+    })
+    .filter((x) => x.bills.length && !x.sent);
+  const fuelTotalDue = fuelDue.reduce((a, x) => a + x.amt, 0);
+  const sendAll = async () => {
+    if (c.t.draft.count || c.t.sentBack) await cab.send();
+    for (const x of fuelDue) {
+      const r = await f.actions.sendCar(x.r, x.bills);
+      if (r?.warning) toast.message(r.warning, { duration: 8000 });
+    }
+    toast.success("Sent to " + f.manager);
+  };
   const run = async (what, fn) => {
     setBusy(what);
     try {
@@ -723,9 +749,9 @@ export function CarCabSheetV2({ cab }) {
     </button>
   );
   const primary = c.t.sentBack
-    ? { label: "Resend", amt: c.t.draft.total || null, cls: "bg-red-600", go: () => run("send", () => cab.send()) }
-    : c.t.draft.count
-      ? { label: "Send", amt: c.t.draft.total, cls: "bg-blue-600", go: () => setConfirm(true) }
+    ? { label: "Resend", amt: (c.t.draft.total || 0) + fuelTotalDue || null, cls: "bg-red-600", go: () => run("send", sendAll) }
+    : c.t.draft.count || fuelTotalDue > 0
+      ? { label: "Send", amt: (c.t.draft.count ? c.t.draft.total : 0) + fuelTotalDue, cls: "bg-blue-600", go: () => setConfirm(true) }
       : c.t.waiting.count
         ? { label: "Recall", amt: null, cls: "border border-gray-300 bg-white text-gray-800", go: () => run("recall", () => cab.recall()) }
         : null;
@@ -776,7 +802,7 @@ export function CarCabSheetV2({ cab }) {
             its bill (not the trip); another request can always be asked -- OwnCarSection */}
         {f.canCar && (
           <div className="mt-3.5">
-            <OwnCarSection c={c} />
+            <OwnCarSection c={c} sentTags={sentTags} />
           </div>
         )}
 
@@ -839,12 +865,17 @@ export function CarCabSheetV2({ cab }) {
         {confirm ? (
           <div className="flex items-center gap-2">
             <span className="flex-1 text-[13px] font-semibold text-gray-700">
-              Send {inr(c.t.draft.total)} to {f.manager}?
+              Send {inr((c.t.draft.count ? c.t.draft.total : 0) + fuelTotalDue)} to {f.manager}?
+              {c.t.draft.count && fuelTotalDue > 0 ? (
+                <span className="block text-[11.5px] font-normal text-gray-500">
+                  rides {inr(c.t.draft.total)} · fuel {inr(fuelTotalDue)}
+                </span>
+              ) : null}
             </span>
             <button type="button" disabled={!!busy} onClick={() => setConfirm(false)} className="h-11 rounded-xl border border-gray-300 bg-white px-4 text-[14px] font-bold text-gray-800">
               Cancel
             </button>
-            <button type="button" disabled={!!busy} onClick={() => run("send", () => cab.send())} className="h-11 rounded-xl bg-blue-600 px-5 text-[14px] font-bold text-white">
+            <button type="button" disabled={!!busy} onClick={() => run("send", sendAll)} className="h-11 rounded-xl bg-blue-600 px-5 text-[14px] font-bold text-white">
               Send
             </button>
           </div>

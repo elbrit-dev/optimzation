@@ -313,7 +313,14 @@ export async function restoreBills(emp, rows, legacy) {
     } catch {
       card = null;
     }
-    const here = where(read(emp), row);
+    let here = where(read(emp), row);
+    // 28 Nov 2026: the office moved this bill to another trip (its ERP copy names it) and this device still
+    // holds it on a trip already sent -- it goes onto the named trip too (the sent one shows the ERP's lines)
+    if (here && card?.tripId && here.tid !== card.tripId && claimOf(read(emp), here.tid).status !== "unclaimed" && claimOf(read(emp), card.tripId).status === "unclaimed") {
+      const tgt = claimOf(read(emp), card.tripId);
+      const k = card.kind || here.k;
+      if (k && !(tgt[k] || []).some((x) => x.fp === row.name || (row.file_url && x.url === row.file_url))) here = null;
+    }
     if (here) {
       // this device has it and the ERP has no copy yet: send ours (the first time after this change)
       if (!card && here.b) out.backfill.push({ fp: row.name, card: { tripId: here.tid, kind: here.k, bill: here.b } });
@@ -331,7 +338,8 @@ export async function restoreBills(emp, rows, legacy) {
       bill = r.bill;
     }
     const state = read(emp);
-    if (where(state, row)) continue;
+    const again = where(state, row);
+    if (again && !(card?.tripId && again.tid !== card.tripId && claimOf(state, again.tid).status !== "unclaimed")) continue;
     const c = claimOf(state, tripId);
     if (c.status !== "unclaimed") continue;
     write(emp, { ...state, trips: { ...state.trips, [tripId]: { ...c, [kind]: [...(c[kind] || []), { ...bill, id: uid(), restored: true }] } } });

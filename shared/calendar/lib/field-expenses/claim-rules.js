@@ -360,7 +360,8 @@ export function tripClaim(trip, claim, { role, requests, eqKm, carPool = null } 
   const travelBilled = travelExtra > 0;
   // the car's shares sit on its days; the trip's other days keep their own fare
   const restFare = carBilled ? (trip.days || []).filter((d) => d.payable && cpool.carDays[d.date] == null).reduce((s, d) => s + (Number(d.ta) || 0), 0) : 0;
-  const ta = carBilled ? cpool.amount + restFare : fare + travelExtra;
+  // own car (28 Nov 2026): the car's fuel is NOT the trip's -- sent from the Car sheet; the trip keeps its other days' fare
+  const ta = carBilled ? restFare : fare + travelExtra;
   // stay and food come under DA (RBM and SM and above attach the bills): the
   // outstation days' 50 % swapped for what the pool pays
   const food = sum(foods);

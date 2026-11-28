@@ -885,6 +885,12 @@ function TaDaView({ conn }) {
       "ok",
       async () => {
         for (const p of partsOf(t)) await decideTrip(conn, { claim: p.claim, rows: p.lines.map((l) => l.name), decision: "Approved", note: "", trip: `${dd(p.from)}–${dd(p.to)} · ${p.title}` });
+        // the own car's fuel shown under this trip (28 Nov 2026): accepted with it -- else the month could never be approved
+        for (const o of officeOver(t)) {
+          const byClaim = new Map();
+          for (const l of o.lines) if (l.custom_trip_decision !== "Approved" && l.claimState === "Waiting for Approval") byClaim.set(l.claim, [...(byClaim.get(l.claim) || []), l.name]);
+          for (const [claim, rows] of byClaim) await decideTrip(conn, { claim, rows, decision: "Approved", note: "", trip: o.lines[0]?.custom_trip || "Own car" });
+        }
       },
       `${t.title} accepted`
     );

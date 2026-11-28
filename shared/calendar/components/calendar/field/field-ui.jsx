@@ -2201,11 +2201,11 @@ function TripSheet({ item }) {
         {editable && confirming && (
           <div role="alertdialog" aria-label="Confirm submit" className="flex flex-col gap-2 rounded-2xl border border-blue-200 bg-blue-50 px-3.5 py-3">
             <b className="text-[14.5px] font-extrabold text-gray-900">
-              Send {inr(totalShown(calc))}{carPart(calc) ? ` + own car ${inr(carPart(calc))}` : ""} · {rangeLabel(trip.from, trip.to)} to {f.manager}?
+              Send {inr(totalShown(calc))} · {rangeLabel(trip.from, trip.to)} to {f.manager}?
             </b>
             {/* short: what goes, where, and that it can still be recalled */}
             <span className="text-[12.5px] leading-snug text-gray-600">
-              TA {inr(taShown(calc))} + DA {inr(calc.da)}{carPart(calc) ? ` + own car ${inr(carPart(calc))}` : ""} · into your {mon} claim · recall any time before approval.
+              TA {inr(taShown(calc))} + DA {inr(calc.da)} · into your {mon} claim · recall any time before approval.
               {calc.missingStayBills ? ` ${calc.missingStayBills} day${calc.missingStayBills > 1 ? "s" : ""} at 50 % (no bill).` : ""}
             </span>
             <span className="flex gap-2">
@@ -2283,7 +2283,7 @@ function TripSheet({ item }) {
 const nightsAny = (calc) => calc.nights.length > 0;
 /* own car (28 Nov 2026): the car's fuel share is shown on the Car sheet only -- a trip shows its TA and
    total WITHOUT it (display only; what is sent to the claim is unchanged) */
-const carPart = (c) => (c && c.carBilled && c.carPool ? Number(c.carPool.amount) || 0 : 0);
+const carPart = () => 0;   // the trip's TA no longer holds the car's fuel (claim-rules, 28 Nov 2026)
 const taShown = (c) => c.ta - carPart(c);
 const totalShown = (c) => c.total - carPart(c);
 
