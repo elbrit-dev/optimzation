@@ -625,15 +625,21 @@ function TripBody({ conn, trip: trip0, office = [], busy, onAccept, onBack }) {
         <div className="mt-2 flex items-start gap-2 rounded-lg border border-gray-200 bg-gray-50 px-2.5 py-1.5 text-[12px]">
           <Car className="mt-0.5 h-4 w-4 flex-none text-gray-500" aria-hidden />
           <span className="min-w-0 flex-1 text-gray-700">
-            <b className="text-gray-900">Own car</b>
-            {fuelTotal != null ? <> · fuel {inr(fuelTotal)}</> : null}
-            {/* the office's own-car lines over this trip: one plain line each (28 Nov 2026) */}
-            {office.map((o) => (
-              <span key={o.id} className="mt-0.5 flex justify-between gap-2 text-[11.5px] text-gray-600">
-                <span>{o.lines.every((l) => l.expense_type === "Fuel") ? "Fuel" : o.title} · {rangeWords(o.from, o.to)}{/local km/i.test(o.tag || o.id) ? " · local km" : ""}</span>
-                <b className="text-gray-900">{inr(o.amount)}</b>
-              </span>
-            ))}
+            {/* ONE line (28 Nov 2026): Own car · dates · fuel ₹X · local km ₹Y -- the office's lines when there are any, else the trip's own fuel */}
+            {(() => {
+              const oFuel = office.filter((o) => !/local km/i.test(o.id)).reduce((a, o) => a + o.amount, 0);
+              const oLocal = office.filter((o) => /local km/i.test(o.id)).reduce((a, o) => a + o.amount, 0);
+              const fuel = oFuel || fuelTotal || 0;
+              const span = office.length ? rangeWords(office[0].from, office[0].to) : "";
+              return (
+                <>
+                  <b className="text-gray-900">Own car</b>
+                  {span ? ` · ${span}` : ""}
+                  {fuel ? <> · fuel <b className="text-gray-900">{inr(fuel)}</b></> : null}
+                  {oLocal ? <> · local km <b className="text-gray-900">{inr(oLocal)}</b></> : null}
+                </>
+              );
+            })()}
           </span>
         </div>
       )}
