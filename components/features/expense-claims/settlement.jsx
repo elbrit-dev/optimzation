@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { approveSettlements, decideSettlement, withdrawSettlement } from "./data/claimsApi";
+import { approveSettlements, decideSettlement, rejectSettlements, withdrawSettlement } from "./data/claimsApi";
 import { RISK, inr, shortDate } from "./model";
 import { BillThumb, FilePreview, IC, Icon, Note, Sheet, Spinner, billFile, btn, card, ell, label, tabNum } from "./ui";
 
@@ -13,7 +13,7 @@ import { BillThumb, FilePreview, IC, Icon, Note, Sheet, Spinner, billFile, btn, 
  *   ChainTrack     the chain as steps: approved (tick), waiting (dot), to come
  *   SendBar        "Send N bills for approval" on the Settlements page
  *   MyRequests     the requester's requests, each with its chain, the reason
- *                  when sent back, and "Take back" before the first approval
+ *                  when rejected (final since 28 Nov 2026), and "Take back" before the first approval
  *   SettleQueue    the approver's tab: waiting for me / my team / decided
  *   SettleSheet    one request: bills (photo, AI score), chain, Approve /
  *                  Reject with a reason
@@ -24,7 +24,7 @@ import { BillThumb, FilePreview, IC, Icon, Note, Sheet, Spinner, billFile, btn, 
 const STATUS = {
   waiting: { text: "In approval", fg: "#b54708", bg: "#fffaeb" },
   approved: { text: "Verified", fg: "#067647", bg: "#ecfdf3" },
-  rejected: { text: "Sent back", fg: "#b42318", bg: "#fef3f2" },
+  rejected: { text: "Rejected", fg: "#b42318", bg: "#fef3f2" },
   withdrawn: { text: "Taken back", fg: "#667085", bg: "#f2f4f7" },
 };
 const when = (s) => {
@@ -159,7 +159,7 @@ function StatusPill({ r }) {
 }
 
 /* The chain, left to right: each approver with a tick (approved), a cross
-   (sent back), a dot (waiting now) or nothing yet; the CEO last. */
+   (rejected), a dot (waiting now) or nothing yet; the CEO last. */
 export function ChainTrack({ r, steps: given, compact }) {
   const steps = given || r.steps;
   return (
@@ -176,7 +176,7 @@ export function ChainTrack({ r, steps: given, compact }) {
             <span style={{ display: "inline-flex", alignItems: "center", gap: 5, padding: compact ? "2px 7px" : "4px 9px", borderRadius: 99, fontSize: compact ? 11 : 12, fontWeight: 700, color: tone, background: ok ? "#ecfdf3" : no ? "#fef3f2" : now ? "#fffaeb" : "#f2f4f7", boxShadow: now ? "0 0 0 1.5px #f79009" : "none", whiteSpace: "nowrap" }}>
               {ok ? <Icon d={IC.check} size={11} sw={3} /> : no ? <Icon d={IC.x} size={11} sw={3} /> : now ? <span style={{ width: 6, height: 6, borderRadius: 99, background: "#f79009" }} /> : null}
               <span style={skip ? { textDecoration: "line-through" } : undefined}>{s.level || "Approver"}</span>
-              <span style={SR}>{`, ${ok ? "approved" : no ? "sent back" : skip ? "skipped" : now ? "waiting" : "not yet"}`}</span>{!compact && <span style={{ fontWeight: 500, color: "#475467" }}> {String(s.name || "").split(" ")[0]}</span>}
+              <span style={SR}>{`, ${ok ? "approved" : no ? "rejected" : skip ? "skipped" : now ? "waiting" : "not yet"}`}</span>{!compact && <span style={{ fontWeight: 500, color: "#475467" }}> {String(s.name || "").split(" ")[0]}</span>}
             </span>
           </li>
         );
@@ -228,7 +228,7 @@ export function MyRequests({ conn, requests, onChanged }) {
               <b style={{ fontSize: 14, ...ell }}>{kindWord(r)}{r.kind === "cash" && r.purpose ? ` · ${r.purpose}` : ""}</b>
               {typeLine(r) && <span style={{ fontSize: 12, fontWeight: 600, color: "#475467", ...ell }}>{typeLine(r)}</span>}
               <span style={{ fontSize: 12, color: r.status === "rejected" ? "#b42318" : serviceHeld(r) ? "#b54708" : "#8a93a3", ...ell }}>
-                {r.bills.length === 1 && r.bills[0].date ? `${shortDate(r.bills[0].date)} · ` : ""}{r.status === "rejected" ? "Sent back" : r.status === "approved" ? "Verified" : serviceHeld(r) ? "Waiting on doctor service" : (waitingOn(r) && waitingOn(r) + since(r)) || `sent ${when(r.created)}`}
+                {r.bills.length === 1 && r.bills[0].date ? `${shortDate(r.bills[0].date)} · ` : ""}{r.status === "rejected" ? "Rejected" : r.status === "approved" ? "Verified" : serviceHeld(r) ? "Waiting on doctor service" : (waitingOn(r) && waitingOn(r) + since(r)) || `sent ${when(r.created)}`}
               </span>
             </span>
             <b style={{ fontSize: 15, ...tabNum }}>{inr(r.amount)}</b>
@@ -262,7 +262,7 @@ function fourSteps(r) {
   const ceo = ceoAt >= 0 ? steps[ceoAt] : null;
   const out = [{ k: "Submitted", v: when(r.created), at: "done" }];
   if (no) {
-    out.push({ k: "Approval", v: `Sent back by ${no.name || "an approver"}${no.at ? ` · ${when(no.at)}` : ""}`, at: "fail" });
+    out.push({ k: "Approval", v: `Rejected by ${no.name || "an approver"}${no.at ? ` · ${when(no.at)}` : ""}`, at: "fail" });
     return out;
   }
   out.push(mgrsDone
@@ -312,7 +312,7 @@ export function MyRequestSheet({ conn, r, onClose, onChanged }) {
           {serviceHeld(r) && <Note tone="info" style={{ color: "#b54708", background: "#fffaeb" }}>Waiting on doctor service</Note>}
           {r.status === "rejected" && r.note && (
             <span style={{ fontSize: 13, color: "#b42318", padding: "10px 12px", borderRadius: 12, background: "#fef3f2", lineHeight: 1.45 }}>
-              <b>Sent back by {r.steps.find((s) => s.decision === "Rejected")?.name || "an approver"}:</b> {r.note}
+              <b>Rejected by {r.steps.find((s) => s.decision === "Rejected")?.name || "an approver"}:</b> {r.note}
               
             </span>
           )}
@@ -380,7 +380,7 @@ export function MyRequestSheet({ conn, r, onClose, onChanged }) {
  *                 the CEO approves it (17 Nov 2026, the user's rule: before a
  *                 request reaches someone they see nothing of it)
  *   Approved      the caller approved it and the CEO verified it
- *   Rejected      sent back, by the caller or by someone above them after
+ *   Rejected      rejected (final), by the caller or by someone above them after
  *                 they approved
  *   History       every request the caller acted on, approved or rejected,
  *                 with their own decision -- even while it is still moving
@@ -446,7 +446,7 @@ function QueueCard({ r, act, picked, onPick, onOpen, mine }) {
         <ChainTrack r={r} compact />
         {mine && (
           <span style={{ fontSize: 12, fontWeight: 600, color: mine.decision === "Rejected" ? "#b42318" : "#067647", ...ell }}>
-            You {mine.decision === "Rejected" ? "sent it back" : "approved"}{mine.at ? ` · ${when(mine.at)}` : ""}{mine.decision === "Rejected" && mine.note ? ` — ${mine.note}` : ""}
+            You {mine.decision === "Rejected" ? "rejected" : "approved"}{mine.at ? ` · ${when(mine.at)}` : ""}{mine.decision === "Rejected" && mine.note ? ` — ${mine.note}` : ""}
           </span>
         )}
         {!act && (r.status === "waiting" ? <span style={{ fontSize: 12, color: "#8a93a3" }}>{waitingOn(r)}{since(r)}</span> : <StatusPill r={r} />)}
@@ -488,7 +488,7 @@ export function SettleQueue({ conn, data, desk, onOpen, onDone, onError }) {
     // only what reached the caller (they approved or rejected it); the IT overview sees all
     { k: "moving", t: "In approval", list: others.filter((r) => r.status === "waiting" && (reader || myStep(r)?.decision === "Approved")) },
     { k: "approved", t: "Approved", list: others.filter((r) => r.status === "approved" && (reader || myStep(r))).sort(newest) },
-    { k: "rejected", t: "Sent back", list: others.filter((r) => r.status === "rejected" && (reader || myStep(r))).sort(newest) },
+    { k: "rejected", t: "Rejected", list: others.filter((r) => r.status === "rejected" && (reader || myStep(r))).sort(newest) },
     ...(reader ? [] : [{
       k: "history", t: "History", history: true,
       list: others.filter(myStep).sort((a, b) => String(myStep(b).at).localeCompare(String(myStep(a).at))),
@@ -538,8 +538,57 @@ export function SettleQueue({ conn, data, desk, onOpen, onDone, onError }) {
     }
     setBusy("");
   };
+  // the ticked bills rejected with one reason (28 Nov 2026) -- final
+  const [rejectOpen, setRejectOpen] = useState(false);
+  const [rejectNote, setRejectNote] = useState("");
+  const [rejectErr, setRejectErr] = useState("");
+  const pickedReqs = waiting.filter((r) => picked.has(r.id));
+  const openReject = () => { setSure(""); setRejectNote(""); setRejectErr(""); setRejectOpen(true); };
+  const rejectMany = async () => {
+    if (!rejectNote.trim()) return setRejectErr("Say why — the requester sees it.");
+    const ids = pickedReqs.map((r) => r.id);
+    setRejectErr("");
+    setBusy(`Rejecting ${ids.length}…`);
+    try {
+      const m = await rejectSettlements(conn, ids, rejectNote.trim());
+      setPicked(new Set());
+      setRejectOpen(false);
+      if (m.skipped.length) onError?.(`${m.rejected} rejected; ${m.skipped.length} no longer waited on you`);
+      else onDone?.(`${m.rejected} ${m.rejected === 1 ? "bill" : "bills"} rejected`);
+    } catch (e) {
+      setRejectErr(e.message);
+    }
+    setBusy("");
+  };
+  const rejectSheet = rejectOpen && (
+    <Sheet title={`Reject ${pickedReqs.length} ${pickedReqs.length === 1 ? "bill" : "bills"}`} sub={inr(sumOf(pickedReqs))} desktop="dialog" maxWidth={520} body="#f4f5f7"
+      onClose={busy ? () => {} : () => setRejectOpen(false)}
+      footer={<>
+        <button type="button" className="ec-ghost" disabled={!!busy} onClick={() => setRejectOpen(false)} style={{ ...btn.ghost, flex: 1 }}>Cancel</button>
+        <button type="button" disabled={!!busy} onClick={rejectMany} style={{ ...btn.primary, flex: 1.4, background: "#d92d20", display: "inline-flex", alignItems: "center", justifyContent: "center", gap: 8 }}>
+          {busy ? <><Spinner />{busy}</> : `Reject ${pickedReqs.length}`}
+        </button>
+      </>}>
+      <div style={{ padding: 14, display: "flex", flexDirection: "column", gap: 10 }}>
+        <div style={{ ...card, padding: "4px 14px", maxHeight: 220, overflow: "auto" }}>
+          {pickedReqs.map((r, i) => (
+            <span key={r.id} style={{ display: "flex", gap: 8, padding: "8px 0", borderTop: i ? "1px solid #eef1f5" : 0, fontSize: 13 }}>
+              <b style={{ flex: "none", maxWidth: "40%", ...ell }}>{r.employeeName}</b>
+              <span style={{ flex: 1, minWidth: 0, color: "#475467", ...ell }}>{r.kind === "cash" ? `Advance · ${r.purpose}` : r.bills[0]?.title || "Bill"}</span>
+              <span style={tabNum}>{inr(r.amount)}</span>
+            </span>
+          ))}
+        </div>
+        <label style={{ ...card, padding: 14, display: "flex", flexDirection: "column", gap: 6 }}>
+          <span style={label}>Why rejected · final</span>
+          <textarea rows={3} autoFocus value={rejectNote} onChange={(e) => setRejectNote(e.target.value)} placeholder="e.g. Bill date does not match" style={{ width: "100%", borderRadius: 10, border: "1px solid #d0d5dd", padding: 10, fontSize: 14, resize: "vertical" }} />
+        </label>
+        {rejectErr && <Note>{rejectErr}</Note>}
+      </div>
+    </Sheet>
+  );
   const grid = { display: "grid", gridTemplateColumns: desk ? "repeat(auto-fill,minmax(320px,1fr))" : "minmax(0,1fr)", gap: 8 };
-  const EMPTY = { waiting: "Nothing waits on you.", moving: "Nothing you approved is still going up.", approved: "Nothing approved yet.", rejected: "Nothing sent back.", history: "You have not approved or sent back anything yet." };
+  const EMPTY = { waiting: "Nothing waits on you.", moving: "Nothing you approved is still going up.", approved: "Nothing approved yet.", rejected: "Nothing rejected.", history: "You have not approved or rejected anything yet." };
 
   /* Desktop (18 Nov 2026, the user: "a business-level page, not cards"): a
      summary line, then ONE table -- Team (or HQ) > employee > bills -- with
@@ -650,7 +699,7 @@ export function SettleQueue({ conn, data, desk, onOpen, onDone, onError }) {
                         </td>
                         <td style={{ ...TD, color: "#475467" }}>
                           {cur.act ? (age ? `${age} ${age === 1 ? "day" : "days"}` : "Today")
-                            : mine ? <span style={{ color: mine.decision === "Rejected" ? "#b42318" : "#067647", fontWeight: 600 }}>{mine.decision === "Rejected" ? "Sent back" : "Approved"}{mine.at ? ` · ${when(mine.at)}` : ""}</span>
+                            : mine ? <span style={{ color: mine.decision === "Rejected" ? "#b42318" : "#067647", fontWeight: 600 }}>{mine.decision === "Rejected" ? "Rejected" : "Approved"}{mine.at ? ` · ${when(mine.at)}` : ""}</span>
                             : p.list.length === 1 ? (p.list[0].status === "waiting" ? waitingOn(p.list[0]) + since(p.list[0]) : <StatusPill r={p.list[0]} />) : `${p.list.length} bills`}
                         </td>
                         <td style={{ ...TD, textAlign: "right", fontWeight: 700, ...tabNum }}>{inr(sumOf(p.list))}</td>
@@ -682,7 +731,7 @@ export function SettleQueue({ conn, data, desk, onOpen, onDone, onError }) {
                           </td>
                           <td style={TD2} />
                           <td style={TD2}>{b ? <span style={{ display: "inline-flex", gap: 6, flexWrap: "wrap" }}><CheckBadge b={b} small /><DupTag b={b} small /></span> : <span style={{ color: "#8a93a3" }}>No bill</span>}</td>
-                          <td style={TD2}>{m ? <span style={{ color: m.decision === "Rejected" ? "#b42318" : "#067647", fontWeight: 600 }}>{m.decision === "Rejected" ? `Sent back${m.note ? ` — ${m.note}` : ""}` : "Approved"}</span> : <ChainTrack r={r} compact />}</td>
+                          <td style={TD2}>{m ? <span style={{ color: m.decision === "Rejected" ? "#b42318" : "#067647", fontWeight: 600 }}>{m.decision === "Rejected" ? `Rejected${m.note ? ` — ${m.note}` : ""}` : "Approved"}</span> : <ChainTrack r={r} compact />}</td>
                           <td style={{ ...TD2, textAlign: "right", ...tabNum }}>{inr(r.amount)}</td>
                           <td style={{ ...TD2, textAlign: "right" }}>
                             <button type="button" className="ec-link" onClick={() => onOpen(r, !!cur.act)} style={{ border: 0, background: "transparent", padding: "4px 6px", borderRadius: 6, color: "#1d4ed8", fontSize: 12.5, fontWeight: 600, cursor: "pointer" }}>{cur.act ? "Open" : "View"}</button>
@@ -701,11 +750,13 @@ export function SettleQueue({ conn, data, desk, onOpen, onDone, onError }) {
           <div style={{ position: "sticky", bottom: 12, zIndex: 5, display: "flex", alignItems: "center", gap: 10, padding: "10px 12px 10px 18px", borderRadius: 12, background: "#0b1220", color: "#fff", boxShadow: "0 12px 30px -10px rgba(16,24,40,.45)" }}>
             <span style={{ flex: 1, fontSize: 13.5 }}><b>{picked.size} {picked.size === 1 ? "bill" : "bills"}</b> selected · <b style={tabNum}>{inr(pickedAmt)}</b>{allCeo ? <span style={{ color: "#98a2b3" }}> — goes to the CEO as one batch</span> : null}</span>
             <button type="button" disabled={!!busy} onClick={() => setPicked(new Set())} style={{ height: 34, padding: "0 12px", borderRadius: 8, border: "1px solid #344054", background: "transparent", color: "#fff", fontSize: 13, fontWeight: 600, cursor: "pointer" }}>Clear</button>
+            <button type="button" disabled={!!busy} onClick={openReject} style={{ height: 34, padding: "0 12px", borderRadius: 8, border: "1px solid #f97066", background: "transparent", color: "#fda29b", fontSize: 13, fontWeight: 600, cursor: "pointer" }}>Reject {picked.size}</button>
             <button type="button" className="ec-cta" disabled={!!busy} onClick={() => approveMany()} style={{ ...btn.primary, height: 34, borderRadius: 8, fontSize: 13, display: "inline-flex", alignItems: "center", gap: 6 }}>
               {busy ? <><Spinner size={12} />{busy}</> : allCeo ? `Send ${picked.size} to the CEO` : `Approve ${picked.size}`}
             </button>
           </div>
         )}
+        {rejectSheet}
       </>
     );
   }
@@ -746,6 +797,7 @@ export function SettleQueue({ conn, data, desk, onOpen, onDone, onError }) {
                 style={{ ...btn.primary, height: 44, fontSize: 12.5, display: "inline-flex", alignItems: "center", gap: 6 }}>
                 {busy ? <><Spinner size={12} />{busy}</> : sure === "picked" ? `Tap again · ${ceoAll ? `send ${amt} to the CEO` : `approve ${amt}`}` : ceoAll ? `Send ${picked.size} to the CEO` : `Approve ${picked.size} selected`}
               </button>
+              <button type="button" className="ec-ghost" disabled={!!busy} onClick={openReject} style={{ ...btn.ghost, height: 44, fontSize: 12.5, color: "#b42318", borderColor: "#fda29b" }}>Reject {picked.size}</button>
               <button type="button" className="ec-ghost" disabled={!!busy} onClick={() => { setPicked(new Set()); setSure(""); }} style={{ ...btn.ghost, height: 44, fontSize: 12.5 }}>Clear</button>
             </>;
           })()}
@@ -816,6 +868,7 @@ export function SettleQueue({ conn, data, desk, onOpen, onDone, onError }) {
           );
         })
       )}
+      {rejectSheet}
     </>
   );
 }
@@ -841,9 +894,9 @@ export function SettleSheet({ conn, req: r, canAct, desk, onClose, onDone, onBil
   const go = async (decision) => {
     setError("");
     if (decision === "Approve" && held) return setError(`${HELD_NOTE}.`);
-    if (decision === "Reject" && !note.trim()) return setError("Say why it is sent back — the requester sees it.");
+    if (decision === "Reject" && !note.trim()) return setError("Say why — the requester sees it.");
     try {
-      setBusy(decision === "Approve" ? "Approving…" : "Sending back…");
+      setBusy(decision === "Approve" ? "Approving…" : "Rejecting…");
       // the request AFTER the decision: who it waits on now (an approver on
       // leave is skipped by the server, so r.steps[r.step + 1] may be wrong)
       const a = await decideSettlement(conn, r.id, decision, note.trim());
@@ -851,7 +904,7 @@ export function SettleSheet({ conn, req: r, canAct, desk, onClose, onDone, onBil
       onDone(decision === "Approve"
         ? (a ? a.status === "approved" : last) ? `${r.employeeName}: approved and verified (${inr(r.amount)})`
           : `${r.employeeName}: approved — on to ${nx ? (nx.level === "CEO" ? "the CEO" : nx.name) : "the next approver"}`
-        : `${r.employeeName}: sent back`);
+        : `${r.employeeName}: rejected`);
     } catch (e) {
       setBusy("");
       setError(e.message);
@@ -869,9 +922,9 @@ export function SettleSheet({ conn, req: r, canAct, desk, onClose, onDone, onBil
         <button type="button" className="ec-ghost" onClick={onClose} style={{ ...btn.ghost, flex: 1 }}>Close</button>
       ) : rejecting ? <>
         <button type="button" className="ec-ghost" disabled={!!busy} onClick={() => { setRejecting(false); setError(""); }} style={{ ...btn.ghost, flex: 1 }}>Back</button>
-        <button type="button" disabled={!!busy} onClick={() => go("Reject")} style={{ ...btn.primary, flex: 1.4, background: "#d92d20", display: "inline-flex", alignItems: "center", justifyContent: "center", gap: 8 }}>{busy ? <><Spinner />{busy}</> : "Send back"}</button>
+        <button type="button" disabled={!!busy} onClick={() => go("Reject")} style={{ ...btn.primary, flex: 1.4, background: "#d92d20", display: "inline-flex", alignItems: "center", justifyContent: "center", gap: 8 }}>{busy ? <><Spinner />{busy}</> : "Reject"}</button>
       </> : <>
-        <button type="button" className="ec-ghost" disabled={!!busy} onClick={() => setRejecting(true)} style={{ ...btn.ghost, flex: 1, color: "#b42318" }}>Send back</button>
+        <button type="button" className="ec-ghost" disabled={!!busy} onClick={() => setRejecting(true)} style={{ ...btn.ghost, flex: 1, color: "#b42318" }}>Reject</button>
         <button type="button" className="ec-cta" disabled={!!busy || held} aria-describedby={held ? "settle-held" : undefined} onClick={() => go("Approve")} style={{ ...btn.primary, flex: 1.4, display: "inline-flex", alignItems: "center", justifyContent: "center", gap: 8, ...(held ? { opacity: 0.5, cursor: "not-allowed" } : null) }}>
           {busy ? <><Spinner />{busy}</> : toCeo(r) ? `Send ${inr(r.amount)} to the CEO` : `Approve ${inr(r.amount)}`}
         </button>
@@ -880,7 +933,7 @@ export function SettleSheet({ conn, req: r, canAct, desk, onClose, onDone, onBil
       <div style={{ padding: desk ? 18 : 12, display: "flex", flexDirection: "column", gap: 10 }}>
         {canAct && held && (
           <Note tone="info" style={{ color: "#b54708", background: "#fffaeb" }}>
-            <span id="settle-held">{HELD_NOTE}{r.service?.state ? ` — it is ${r.service.state.toLowerCase()}` : ""}. You can still send this bill back.</span>
+            <span id="settle-held">{HELD_NOTE}{r.service?.state ? ` — it is ${r.service.state.toLowerCase()}` : ""}. You can still reject this bill.</span>
           </Note>
         )}
         {typeLine(r) && (
@@ -894,12 +947,12 @@ export function SettleSheet({ conn, req: r, canAct, desk, onClose, onDone, onBil
           <ChainTrack r={r} />
           {r.resent && (
             <span style={{ fontSize: 12.5, color: "#b54708", padding: "8px 10px", borderRadius: 10, background: "#fffaeb", lineHeight: 1.45 }}>
-              <b>Sent again.</b> Sent back before{r.resent.by ? ` by ${r.resent.by}` : ""}{r.resent.note ? `: “${r.resent.note}”` : ""}
+              <b>Sent again.</b> Rejected before{r.resent.by ? ` by ${r.resent.by}` : ""}{r.resent.note ? `: “${r.resent.note}”` : ""}
             </span>
           )}
           {r.steps.filter((s) => s.decision).map((s, i) => (
             <span key={i} style={{ fontSize: 12.5, color: "#475467" }}>
-              <b>{s.name}</b> ({s.level}) {s.decision === "Approved" ? "approved" : s.decision === "Skipped" ? "skipped" : "sent it back"} · {when(s.at)}{s.note ? ` — ${s.note}` : ""}
+              <b>{s.name}</b> ({s.level}) {s.decision === "Approved" ? "approved" : s.decision === "Skipped" ? "skipped" : "rejected"} · {when(s.at)}{s.note ? ` — ${s.note}` : ""}
             </span>
           ))}
           {canAct && last && <span style={{ fontSize: 12.5, fontWeight: 600, color: "#067647" }}>You are the last step: approving books {r.kind === "bills" ? "the bill" : "the advance"} for Accounts to pay.</span>}
@@ -943,8 +996,8 @@ export function SettleSheet({ conn, req: r, canAct, desk, onClose, onDone, onBil
         {r.kind !== "cash" && r.bills.filter((b) => b.dup).map((b, i) => <DupCompare key={`dup${i}`} conn={conn} b={b} employee={r.employeeName} onBill={onBill} />)}
         {canAct && (
           <label style={{ ...card, padding: 14, display: "flex", flexDirection: "column", gap: 6 }}>
-            <span style={label}>{rejecting ? "Why it is sent back" : "Remarks · optional"}</span>
-            <textarea rows={2} value={note} onChange={(e) => setNote(e.target.value)} placeholder={rejecting ? "e.g. The courier bill's date does not match — add the right bill" : "e.g. Checked the bills"} style={{ width: "100%", borderRadius: 10, border: "1px solid #d0d5dd", padding: 10, fontSize: 14, resize: "vertical" }} />
+            <span style={label}>{rejecting ? "Why rejected · final" : "Remarks · optional"}</span>
+            <textarea rows={2} value={note} onChange={(e) => setNote(e.target.value)} placeholder={rejecting ? "e.g. Bill date does not match" : "e.g. Checked the bills"} style={{ width: "100%", borderRadius: 10, border: "1px solid #d0d5dd", padding: 10, fontSize: 14, resize: "vertical" }} />
           </label>
         )}
         {error && <Note>{error}</Note>}

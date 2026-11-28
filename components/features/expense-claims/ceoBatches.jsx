@@ -10,13 +10,13 @@
  * once, a single batch, specific things in it, reject where needed"):
  *   - the list: tick several batches -> approve them all in one go
  *   - a batch: approve all of it; or tick a team, an employee or single bills
- *     -> approve just those, or send just those back with one reason (the rep
- *     sees it); the rest stays in the batch for later
- * Server: approve_many (any bills), decide (one bill), decide_batch (a whole
+ *     -> approve just those, or reject just those with one reason (the rep
+ *     sees it; final since 28 Nov 2026); the rest stays in the batch for later
+ * Server: approve_many / reject_many (any bills), decide_batch (a whole
  * batch) of the "Settlement API". */
 
 import { useState } from "react";
-import { approveCeoBatch, approveSettlements, decideSettlement } from "./data/claimsApi";
+import { approveCeoBatch, approveSettlements, rejectSettlements } from "./data/claimsApi";
 import { inr, shortDate } from "./model";
 import { BillThumb, FilePreview, IC, Icon, Note, Sheet, Spinner, billFile, btn, card, ell, label, tabNum } from "./ui";
 import { CheckBadge, DupTag, HELD_NOTE, TypeInfo, kindWord, serviceHeld } from "./settlement";
@@ -220,7 +220,7 @@ function BatchSheet({ conn, batch, desk, onClose, onDone, onError }) {
   const [error, setError] = useState("");
   const [info, setInfo] = useState("");
   const [picked, setPicked] = useState(() => new Set());
-  const [back, setBack] = useState(null); // [ids] being sent back
+  const [back, setBack] = useState(null); // [ids] being rejected
   const [note, setNote] = useState("");
   const [sure, setSure] = useState("");
   const [changed, setChanged] = useState(false);
@@ -252,27 +252,23 @@ function BatchSheet({ conn, batch, desk, onClose, onDone, onError }) {
     else setInfo(msg);
   };
 
-  const sendBack = async () => {
-    if (!note.trim()) return setError("Say why — the employee sees it and can fix and send it again.");
+  // 28 Nov 2026: one call, one reason for all -- final (no send again)
+  const reject = async () => {
+    if (!note.trim()) return setError("Say why — the employee sees it.");
     setError("");
     const ids = [...back];
-    let next = reqs;
-    let n = 0;
-    for (const id of ids) {
-      setBusy(`Sending back ${n + 1} of ${ids.length}…`);
-      try {
-        await decideSettlement(conn, id, "Reject", note.trim());
-        next = next.map((r) => (r.id === id ? { ...r, status: "rejected", note: note.trim() } : r));
-        n += 1;
-      } catch (e) {
-        setError(`${n} sent back; stopped at one bill: ${e.message}`);
-        break;
-      }
+    setBusy(`Rejecting ${plural(ids.length, "bill")}…`);
+    try {
+      const m = await rejectSettlements(conn, ids, note.trim());
+      const skip = new Set(m.skipped);
+      const next = reqs.map((r) => (ids.includes(r.id) && !skip.has(r.id) ? { ...r, status: "rejected", note: note.trim() } : r));
+      setBack(null);
+      setNote("");
+      if (m.rejected) after(next, `${plural(m.rejected, "bill")} rejected${skip.size ? ` · ${skip.size} no longer waited on you` : ""}.`);
+    } catch (e) {
+      setError(e.message);
     }
     setBusy("");
-    setBack(null);
-    setNote("");
-    if (n) after(next, `${plural(n, "bill")} sent back to the employee${n === 1 ? "" : "s"}.`);
   };
   const approvePicked = async () => {
     setSure("");
@@ -315,10 +311,10 @@ function BatchSheet({ conn, batch, desk, onClose, onDone, onError }) {
   const footer = !live || !w.length ? <button type="button" className="ec-ghost" onClick={close} style={{ ...btn.ghost, flex: 1 }}>Close</button>
     : back ? <>
       <button type="button" className="ec-ghost" disabled={!!busy} onClick={() => { setBack(null); setError(""); }} style={{ ...btn.ghost, flex: 1 }}>Back</button>
-      <button type="button" disabled={!!busy} onClick={sendBack} style={{ ...btn.primary, flex: 1.4, background: "#d92d20" }}>{busy || `Send ${backReqs.length === 1 ? "this bill" : plural(backReqs.length, "bill")} back`}</button>
+      <button type="button" disabled={!!busy} onClick={reject} style={{ ...btn.primary, flex: 1.4, background: "#d92d20" }}>{busy || `Reject ${backReqs.length === 1 ? "this bill" : plural(backReqs.length, "bill")}`}</button>
     </> : pickedReqs.length ? <>
       <button type="button" className="ec-ghost" disabled={!!busy} onClick={() => { setBack(pickedReqs.map((r) => r.id)); setNote(""); setError(""); setInfo(""); }}
-        style={{ ...btn.ghost, flex: 1, color: "#b42318", borderColor: "#fda29b" }}>Send back {pickedReqs.length}</button>
+        style={{ ...btn.ghost, flex: 1, color: "#b42318", borderColor: "#fda29b" }}>Reject {pickedReqs.length}</button>
       {two("picked", approvePicked, `Approve ${pickedReqs.length} · ${inr(sum(pickedReqs))}`, `Tap again · approve ${inr(sum(pickedReqs))}`)}
     </> : two("all", approveAll, w.length === 1 ? `Approve 1 bill · ${inr(sum(w))}` : `Approve all ${plural(w.length, "bill")} · ${inr(sum(w))}`,
       w.length === 1 ? `Tap again · approve ${inr(sum(w))}` : `Tap again · approve all ${inr(sum(w))}`);
@@ -340,7 +336,7 @@ function BatchSheet({ conn, batch, desk, onClose, onDone, onError }) {
           {info && !back && <div style={{ ...card, borderRadius: 10, padding: "10px 14px", fontSize: 13, color: "#067647", fontWeight: 600, background: "#ecfdf3", boxShadow: "0 0 0 1px #abefc6" }}>{info}</div>}
           {back ? (
             <div style={{ ...card, padding: 14, display: "flex", flexDirection: "column", gap: 10 }}>
-              <span style={label}>Send back · {plural(backReqs.length, "bill")} · {inr(sum(backReqs))}</span>
+              <span style={label}>Reject · {plural(backReqs.length, "bill")} · {inr(sum(backReqs))} · final</span>
               <div style={{ display: "flex", flexDirection: "column", gap: 4, maxHeight: 180, overflow: "auto" }}>
                 {backReqs.map((r) => (
                   <span key={r.id} style={{ display: "flex", gap: 8, fontSize: 13 }}>
@@ -350,7 +346,7 @@ function BatchSheet({ conn, batch, desk, onClose, onDone, onError }) {
                   </span>
                 ))}
               </div>
-              <textarea className="ecs-in" rows={3} autoFocus value={note} onChange={(e) => setNote(e.target.value)} placeholder="Why? Each employee sees this and can fix and send it again."
+              <textarea className="ecs-in" rows={3} autoFocus value={note} onChange={(e) => setNote(e.target.value)} placeholder="Why? Each employee sees this."
                 style={{ height: "auto", minHeight: 80, padding: "10px 12px", fontSize: 14, resize: "vertical" }} />
             </div>
           ) : (
@@ -366,7 +362,7 @@ function BatchSheet({ conn, batch, desk, onClose, onDone, onError }) {
               <label style={{ display: "inline-flex", alignItems: "center", gap: 8, minHeight: 44, paddingRight: 4, cursor: "pointer", fontWeight: 600, color: "#344054" }}>
                 <GroupBox ids={waitIds(reqs)} picked={picked} setPicked={setPicked} disabled={!!busy} label="Tick all" />Tick all
               </label>
-              {pickedReqs.length ? `${plural(pickedReqs.length, "bill")} ticked — approve or send back just those; the rest stays here.` : "Approve all at once, or tick a team, a person or single bills to decide just those."}
+              {pickedReqs.length ? `${plural(pickedReqs.length, "bill")} ticked — approve or reject just those; the rest stays here.` : "Approve all at once, or tick a team, a person or single bills to decide just those."}
             </span>
           )}
           {!back && byTeam.map((t) => {
@@ -385,7 +381,7 @@ function BatchSheet({ conn, batch, desk, onClose, onDone, onError }) {
                       {live && <GroupBox ids={waitIds(p.list)} picked={picked} setPicked={setPicked} disabled={!!busy} label={`Tick all of ${p.name}'s bills`} />}
                       <b style={{ flex: 1, minWidth: 0, fontSize: 14, ...ell }}>{p.name}{p.hq ? <span style={{ fontWeight: 500, color: "#8a93a3" }}> · {p.hq}</span> : null}</b>
                       {p.list.every((r) => r.status === "rejected")
-                        ? <span style={{ fontSize: 12.5, fontWeight: 600, color: "#b42318" }}>Sent back</span>
+                        ? <span style={{ fontSize: 12.5, fontWeight: 600, color: "#b42318" }}>Rejected</span>
                         : <b style={{ fontSize: 13.5, ...tabNum }}>{inr(live$(p.list))}</b>}
                     </span>
                     {p.list.map((r, i) => {
@@ -424,14 +420,14 @@ function BatchSheet({ conn, batch, desk, onClose, onDone, onError }) {
                                 </span>
                               );
                             })()}
-                            {gone && <span style={{ fontSize: 12, fontWeight: 600, color: "#b42318" }}>Sent back: {r.note}</span>}
+                            {gone && <span style={{ fontSize: 12, fontWeight: 600, color: "#b42318" }}>Rejected: {r.note}</span>}
                             {ok && <span style={{ fontSize: 12, fontWeight: 600, color: "#067647" }}>Approved — booked for Accounts</span>}
                           </span>
                           <span style={{ display: "flex", flexDirection: "column", alignItems: "flex-end", gap: 4 }}>
                             <b style={{ fontSize: 14, ...tabNum }}>{inr(r.amount)}</b>
                             {can && (
                               <button type="button" className="ec-link" disabled={!!busy} onClick={() => { setBack([r.id]); setNote(""); setError(""); setInfo(""); }}
-                                style={{ minHeight: 44, minWidth: 44, margin: "0 -8px 0 0", border: 0, background: "transparent", padding: "0 8px", borderRadius: 8, color: "#b42318", fontSize: 12.5, fontWeight: 600, cursor: "pointer" }}>Send back</button>
+                                style={{ minHeight: 44, minWidth: 44, margin: "0 -8px 0 0", border: 0, background: "transparent", padding: "0 8px", borderRadius: 8, color: "#b42318", fontSize: 12.5, fontWeight: 600, cursor: "pointer" }}>Reject</button>
                             )}
                           </span>
                         </div>

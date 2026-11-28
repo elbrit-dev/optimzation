@@ -41,9 +41,13 @@
 #                bank (no salary recovery)
 #   A booking that fails stops the approval too (nothing half done): the CEO
 #   sees why. Accounts then pays what is owed (Settlement Accounts API).
-#   A REJECT, at any step, needs a reason: the request goes back to the rep
-#   (bills to "Checked" with the reason, the advance draft deleted); they fix
-#   and send again. SENT AGAIN (17 Nov 2026): back to whoever rejected it --
+#   A REJECT, at any step, needs a reason, and is FINAL (28 Nov 2026, the
+#   user: no send back): the bill is "Rejected" with the reason and is never
+#   sent again; its place in the duplicate register is freed, so the rep can
+#   add the same bill as a NEW one and send that. The advance draft is
+#   deleted. reject_many = the approver's ticked bills, one reason for all.
+#   (Before 28 Nov a reject returned the bills to "Checked"; those can still
+#   be sent again, as below.) SENT AGAIN (17 Nov 2026): back to whoever rejected it --
 #   the steps approved before stay approved ("Approved before (SR-x)") -- as
 #   long as the bill's photo is the same and its amount is not higher; else
 #   from the first approver. resent_from names the rejected request.
@@ -97,6 +101,7 @@
 #                                            (overview: IT department, System Manager)
 #   POST action=decide       name, decision (Approve | Reject), note
 #   POST action=approve_many names=a,b       approve them all; those that reach the CEO go as ONE batch
+#   POST action=reject_many  names=a,b, note reject them all with one reason (final)
 #   GET  action=ceo_batches                  the CEO's batches (waiting, and the last 30 days)
 #   POST action=decide_batch name            the CEO approves what is still waiting in a batch
 #
@@ -784,14 +789,29 @@ def reject_one(d, me, who, note):
     d.next_label = None
     d.decided_by = me
     d.decided_on = frappe.utils.now()
+    # 28 Nov 2026 (the user): FINAL -- the bill is Rejected (kept, with the
+    # reason and its request) and cannot be sent again; its duplicate-register
+    # place is freed so the same bill can be added as a new one
     for b in d.bills or []:
-        frappe.db.set_value("Settlement Expense", b.row, {"status": "Checked", "settlement": None,
-                                                         "review_note": ("Returned by " + who + ": " + note)[:500]})
+        frappe.db.set_value("Settlement Expense", b.row, {"status": "Rejected",
+                                                         "review_note": ("Rejected by " + who + ": " + note)[:500]})
+        free_bill(b.row)
         unshare(b.row, [])
     if d.advance and frappe.db.get_value("Employee Advance", d.advance, "docstatus") == 0:
         frappe.delete_doc("Employee Advance", d.advance, ignore_permissions=True, force=True)
         d.advance = None
-    notify(d.user, "Sent back by " + who + ": " + note, d.name)
+    notify(d.user, "Rejected by " + who + ": " + note, d.name)
+
+
+def free_bill(name):
+    # a rejected bill no longer counts as claimed: Bill Fingerprint rows go (as
+    # on remove_bill) and the new Bill Check register's rows are Released
+    if frappe.db.exists("DocType", "Bill Fingerprint"):
+        for p in frappe.get_all("Bill Fingerprint", filters={"trip": name, "status": "Used"}, pluck="name"):
+            frappe.delete_doc("Bill Fingerprint", p, ignore_permissions=True, force=True)
+    if frappe.db.exists("DocType", "Bill Check"):
+        for p in frappe.get_all("Bill Check", filters={"source": "Settlement", "ref": name, "status": "Used"}, pluck="name"):
+            frappe.db.set_value("Bill Check", p, "status", "Released")
 
 
 def unshare(se_name, keep):
@@ -876,8 +896,8 @@ if not overview and frappe.db.exists("Has Role", {"parent": me, "parenttype": "U
 # Own / For a doctor; the TA/DA block is only up to RBM; everyone else adds any bill
 MY_LEVEL = ""
 if emp:
-    _sd = frappe.db.get_value("Employee", emp.name, ["custom_role_profile", "designation"], as_dict=True) or {}
-    MY_LEVEL = str(level_of(_sd.get("custom_role_profile"), _sd.get("designation"), me, CEO_USER, CEO_DESIGNATION, LEVELS)).upper()
+    sd_emp = frappe.db.get_value("Employee", emp.name, ["custom_role_profile", "designation"], as_dict=True) or {}
+    MY_LEVEL = str(level_of(sd_emp.get("custom_role_profile"), sd_emp.get("designation"), me, CEO_USER, CEO_DESIGNATION, LEVELS)).upper()
 FIELD = MY_LEVEL in BOOKING["field_levels"]
 TA_DA_BLOCK = MY_LEVEL in BOOKING["ta_da_levels"]
 
@@ -1354,6 +1374,34 @@ elif action == "approve_many":
         close_batch(b, me)
     frappe.response["message"] = {"approved": done, "batch": sb, "to_ceo": len(to_ceo), "skipped": skipped}
 
+elif action == "reject_many":
+    # 28 Nov 2026 (the user): the approver's ticked bills rejected in one go,
+    # one reason for all -- final, like a single reject
+    note = " ".join(str(fd.get("note") or "").split())[:1000]
+    if not note:
+        frappe.throw("Say why it is rejected -- the requester sees it.")
+    names = []
+    for x in str(fd.get("names") or "").split(","):
+        if x.strip() and x.strip() not in names:
+            names.append(x.strip())
+    who = str((emp and emp.employee_name) or me)
+    done = 0
+    skipped = []
+    batches = []
+    for name in names:
+        d = frappe.get_doc("Settlement Request", name) if frappe.db.exists("Settlement Request", name) else None
+        if not d or d.status != "Waiting" or d.next_approver != me or (d.user == me and me != CEO_USER):
+            skipped.append(name)
+            continue
+        if d.get("batch") and d.get("batch") not in batches:
+            batches.append(d.get("batch"))
+        reject_one(d, me, who, note)
+        d.save(ignore_permissions=True)
+        done = done + 1
+    for b in batches:
+        close_batch(b, me)
+    frappe.response["message"] = {"rejected": done, "skipped": skipped}
+
 elif action == "ceo_batches":
     if me != CEO_USER and not overview:
         frappe.throw("Batches are for the CEO.", frappe.PermissionError)
@@ -1374,7 +1422,7 @@ elif action == "ceo_batches":
 
 elif action == "decide_batch":
     # the CEO approves what is still waiting on him in the batch (bills he
-    # sent back one by one are already back with the rep): booked, final
+    # rejected one by one are already out of it): booked, final
     if me != CEO_USER:
         frappe.throw("Only the CEO approves a batch.", frappe.PermissionError)
     name = str(fd.get("name") or "")

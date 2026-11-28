@@ -151,6 +151,8 @@ function trackOf(e) {
   // who has it now, by name (26 Nov 2026) -- "with your managers" said nothing
   else if (s === "In Approval") steps.push({ k: "Approval", v: (e.req && waitingOn(e.req) ? waitingOn(e.req).replace(/^with/, "With") : "") || (l.settleType && l.settleType !== "Own" ? "With your manager" : "With your managers"), at: "now" });
   else if (s === "In Review") steps.push({ k: "In review", v: "Accounts checking", at: "now" });
+  // a settlement bill rejected by an approver (28 Nov 2026): final -- add it again as a new bill
+  else if (s === "Rejected" && e.claim.settlement) steps.push({ k: "Approval", v: "Rejected · add again as a new bill", note: l.review, at: "fail" });
   else if (s === "Rejected") steps.push({ k: "Reviewed by Accounts", v: "Not accepted", note: l.review, at: "fail" });
   else if (s === "Verified") steps.push({ k: "Approved", v: "Paid next run", at: "done" });
   if (s !== "Rejected") {
