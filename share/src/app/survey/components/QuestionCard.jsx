@@ -896,12 +896,12 @@ function FileUpload({ q, value, onChange, disabled, onUpload }) {
   );
 }
 
-function Input({ q, value, onChange, disabled, onUpload, api, response, answers, onBusy, showErrors = false }) {
+function Input({ q, value, onChange, disabled, onUpload, api, response, answers, onBusy, showErrors = false, slot = null }) {
   switch (q.type) {
     case 'map_location':
       return (
         <>
-          <MapLocation q={q} value={value} onChange={onChange} disabled={disabled} api={api} response={response} />
+          <MapLocation q={q} value={value} onChange={onChange} disabled={disabled} api={api} response={response} searchSlot={slot} />
           {q.serving && q.places === 'pharmacy' && mapIsPoint(value) ? <ServingPicker value={value} onChange={onChange} disabled={disabled} api={api} response={response} /> : null}
         </>
       );
@@ -979,6 +979,8 @@ function RepeatInput({ q, value: raw, onChange, disabled, onUpload, api, respons
   const kids = q.fields ?? [];
   /* 27 Nov 2026 · one entry open at a time (its questions, its map); the others are one line each — tap to edit */
   const [open, setOpen] = useState(() => rows.length - 1);
+  /* the open entry's title row: its map's search bar goes there */
+  const [slot, setSlot] = useState(null);
   const openI = Math.min(open, rows.length - 1);
   const hasAny = (r) => Object.values(r).some((x) => !isEmpty(x));
   const setOne = (i, id, v) => {
@@ -1029,9 +1031,11 @@ function RepeatInput({ q, value: raw, onChange, disabled, onUpload, api, respons
         ) : (
         <div key={i} className="flex flex-col gap-2.5 rounded-[10px] border border-line bg-sunken p-3" role="group" aria-label={`${Noun} ${i + 1}`}>
           <div className="flex items-center justify-between gap-2">
-            <span className="text-13 font-semibold text-heading">
+            <span className="shrink-0 text-13 font-semibold text-heading">
               {Noun} {i + 1}
             </span>
+            {/* 28 Nov 2026 · the entry's map puts its search bar here, in the title row */}
+            <div ref={setSlot} className="flex min-w-0 max-w-[360px] flex-1 justify-end" />
             {disabled || (rows.length < 2 && !Object.values(r).some((x) => !isEmpty(x))) ? null : (
               <button type="button" aria-label={`Remove ${noun} ${i + 1}`} onClick={() => drop(i)} className="-m-1.5 flex size-10 items-center justify-center rounded-md text-ds-muted hover:bg-surface">
                 <Icon name="times" size="sm" />
@@ -1049,7 +1053,7 @@ function RepeatInput({ q, value: raw, onChange, disabled, onUpload, api, respons
                     {k.required ? <span className="text-danger-text"> *</span> : null}
                   </span>
                 ) : null}
-                <Input q={kidQ(k)} value={r[k.id]} onChange={(v) => setOne(i, k.id, v)} disabled={disabled} onUpload={onUpload} api={api} response={response} answers={r} />
+                <Input q={kidQ(k)} value={r[k.id]} onChange={(v) => setOne(i, k.id, v)} disabled={disabled} onUpload={onUpload} api={api} response={response} answers={r} slot={k.type === 'map_location' ? slot : null} />
                 {p ? <span className="text-11 font-medium text-danger-text">{p}</span> : null}
               </div>
             );

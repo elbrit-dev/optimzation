@@ -1,6 +1,7 @@
 'use client';
 
 import { useCallback, useEffect, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
 import { Icon, cx } from '@/design-system';
 import { mapDist, mapIsPoint, mapMeters, mapStart, mapUrl } from '../data/shape';
 
@@ -69,7 +70,7 @@ const fitZoom = (pt, far, el) => {
   return Math.max(15, Math.min(18, Math.floor(Math.log2((156543.03 * Math.cos((pt.lat * Math.PI) / 180) * half) / Math.max(far, 1)))));
 };
 
-export function MapLocation({ q, value, onChange, disabled, api, response }) {
+export function MapLocation({ q, value, onChange, disabled, api, response, searchSlot = null }) {
   const start = mapStart(q);
   const startKey = start ? `${start.lat},${start.lng}` : '';
   /* 27 Nov 2026 · more than one place: a list of chosen places, added one at a time ("+ Add another") */
@@ -672,6 +673,30 @@ export function MapLocation({ q, value, onChange, disabled, api, response }) {
     shownRef.current = showMatches;
   }, [showMatches]);
   const chips = !disabled && !showMatches ? near.places.slice(0, 15) : [];
+  /* 28 Nov 2026 · the small search bar: above the map, or — inside a Repeated group — in the entry's title row
+     ("Entry 1 ········ [search]"), where the reps asked for it; Near me becomes an icon there */
+  const searchBar = (inHeader) => (
+    <div ref={searchRef} className={cx('flex scroll-mt-2 gap-2', inHeader ? 'w-full' : '')}>
+      <label className="relative min-w-0 flex-1">
+        <span className="sr-only">Search {n1}</span>
+        <Icon name="search" size="sm" className="pointer-events-none absolute left-2.5 top-1/2 -translate-y-1/2 text-ds-muted" />
+        <input
+          type="search"
+          value={term}
+          autoComplete="off"
+          placeholder={inHeader ? `Search a ${n0}` : start ? `Can’t see it? Search a ${n0}` : `Search a ${n0}`}
+          onChange={(e) => setTerm(e.target.value)}
+          className={cx('w-full rounded-lg border border-line-strong bg-surface pl-8 pr-2 text-body placeholder:text-placeholder focus:border-brand focus:outline-none', inHeader ? 'h-8 text-12' : 'h-9 text-13')}
+        />
+      </label>
+      {start ? null : (
+        <button type="button" onClick={nearMe} aria-label={inHeader ? 'Near me' : undefined} className={cx('flex shrink-0 items-center gap-1.5 rounded-lg border border-line-strong bg-surface font-semibold text-heading', inHeader ? 'h-8 px-2 text-11' : 'h-9 px-3 text-12')}>
+          <Icon name="compass" size="sm" />
+          {inHeader ? null : 'Near me'}
+        </button>
+      )}
+    </div>
+  );
 
   return (
     <div className="flex flex-col gap-2">
@@ -705,28 +730,7 @@ export function MapLocation({ q, value, onChange, disabled, api, response }) {
 
       {/* 28 Nov 2026 · a small search bar ABOVE the map on every map (also when the doctor has a saved location — reps
          asked for it), matches listed under it; nothing covers the map any more */}
-      {disabled ? null : (
-        <div ref={searchRef} className="flex scroll-mt-2 gap-2">
-          <label className="relative min-w-0 flex-1">
-            <span className="sr-only">Search {n1}</span>
-            <Icon name="search" size="sm" className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-ds-muted" />
-            <input
-              type="search"
-              value={term}
-              autoComplete="off"
-              placeholder={start ? `Can’t see it? Search a ${n0}` : `Search a ${n0}`}
-              onChange={(e) => setTerm(e.target.value)}
-              className="h-9 w-full rounded-lg border border-line-strong bg-surface pl-9 pr-3 text-13 text-body placeholder:text-placeholder focus:border-brand focus:outline-none"
-            />
-          </label>
-          {start ? null : (
-            <button type="button" onClick={nearMe} className="flex h-9 shrink-0 items-center gap-1.5 rounded-lg border border-line-strong bg-surface px-3 text-12 font-semibold text-heading">
-              <Icon name="compass" size="sm" />
-              Near me
-            </button>
-          )}
-        </div>
-      )}
+      {disabled ? null : searchSlot ? createPortal(searchBar(true), searchSlot) : searchBar(false)}
       {showMatches ? (
         <div role="region" aria-label={`Matching ${n1}`} className="flex flex-col overflow-hidden rounded-lg border border-line bg-surface shadow-sm">
           <p className="shrink-0 border-b border-line px-3 py-1.5 text-12 font-semibold text-body">{recHead}</p>
