@@ -200,7 +200,10 @@ function OneSurveyPage({
   const surveys = useMemo(() => (list ? surveysFromMyList(list) : []), [list]);
   const survey = surveys.find((s) => s.campaign === campaign) ?? null;
   const rowsView = useMemo(() => (survey ? survey.rows.map((r) => ({ ...r, view: rowState(r, drafts) })) : []), [survey, drafts]);
-  const tabRows = useMemo(() => rowsOfTab(rowsView, tab), [rowsView, tab]);
+  /* 28 Nov 2026 · a survey of one record (one distributor) has no History button: once it is sent, it opens as sent
+     (it showed "Nothing left to do" and the answers could not be seen) */
+  const tabNow = tab === 'todo' && rowsView.length === 1 && rowsView[0].view === 'done' ? 'done' : tab;
+  const tabRows = useMemo(() => rowsOfTab(rowsView, tabNow), [rowsView, tabNow]);
   const pickedRow = tabRows.find((r) => r.response === picked) ?? tabRows[0] ?? null;
   const row = pickedRow ? survey.rows.find((r) => r.response === pickedRow.response) ?? null : null;
 
@@ -382,7 +385,7 @@ function OneSurveyPage({
         today={today}
         drafts={drafts}
         api={api}
-        tab={tab}
+        tab={tabNow}
         onTab={changeTab}
         notice={notice}
         openResponse={row?.response ?? null}

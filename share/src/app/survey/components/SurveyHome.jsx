@@ -130,7 +130,10 @@ export function SurveyHome({
   const survey = surveys.find((s) => s.campaign === view.campaign) ?? null;
   /* 26 Nov 2026 · one page per survey (as SurveyPage): the tab's doctors as tags, the picked one's questions below */
   const rowsView = useMemo(() => (survey ? survey.rows.map((r) => ({ ...r, view: rowState(r, drafts) })) : []), [survey, drafts]);
-  const tabRows = useMemo(() => rowsOfTab(rowsView, tab), [rowsView, tab]);
+  /* 28 Nov 2026 · a survey of one record (one distributor) has no History button: once it is sent, it opens as sent
+     (it showed "Nothing left to do" and the answers could not be seen) */
+  const tabNow = tab === 'todo' && rowsView.length === 1 && rowsView[0].view === 'done' ? 'done' : tab;
+  const tabRows = useMemo(() => rowsOfTab(rowsView, tabNow), [rowsView, tabNow]);
   const pickedRow = tabRows.find((r) => r.response === view.response) ?? tabRows[0] ?? null;
   const row = pickedRow ? survey.rows.find((r) => r.response === pickedRow.response) ?? null : null;
   /* No `tiles` given (the app's page): the usual ERP tiles, loaded as Ring
@@ -236,7 +239,7 @@ export function SurveyHome({
             today={today}
             drafts={drafts}
             api={api}
-            tab={tab}
+            tab={tabNow}
             notice={notice}
             onChanged={load}
             openResponse={row ? row.response : null}
