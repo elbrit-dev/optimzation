@@ -62,6 +62,7 @@ import CommonDataTable from "./components/CommonDataTable/CommonDataTable";
 // import TableDataProvider from "./components/TableDataProvider";
 import jsonata from 'jsonata';
 import { db } from "./firebase";
+import { installMissingComponentFallback } from "./lib/plasmicMissingComponents";
 
 // Validate tag: only "dev" (test) and "prod" (live) are allowed.
 const plasmicTag = process.env.NEXT_PUBLIC_PLASMIC_TAG;
@@ -4187,3 +4188,8 @@ PLASMIC.registerComponent(CompositionCard, {
   },
   importPath: "./components/ProductDetail/CompositionCard",
 });
+
+// Keep last: a Plasmic version that uses a code component this build lacks
+// (e.g. a uat-only one tagged `prod` by mistake) still shows that component's
+// slot content instead of blanking the page. See lib/plasmicMissingComponents.js.
+installMissingComponentFallback(PLASMIC);
