@@ -82,3 +82,27 @@ describe('Pharmacy: which distributor serves it', () => {
     expect(got.serving).toEqual({ customer: 'Buddha Medical Agencies', label: 'Buddha Medical Agencies', why: 'Same PIN' });
   });
 });
+
+/* 28 Nov 2026 · Submit waits for the AI check (Save for later doesn't); a check that never answers needs a reason */
+describe('Submit waits for the AI check', () => {
+  it('a file still being read blocks Submit; a finished, failed or skipped check does not wait', async () => {
+    const { aiWaiting } = await import('../data/shape');
+    const reading = [{ url: '/private/files/r.pdf', name: 'r.pdf', size: 1, reading: Date.now() }];
+    expect(aiWaiting([file], { q5: reading })).toBe(1);
+    expect(answerProblem(file, reading)).toBe('Wait for the AI check on the file — or Save for later.');
+    const stale = [{ url: '/private/files/r.pdf', name: 'r.pdf', size: 1, reading: Date.now() - 10 * 60 * 1000 }];
+    expect(aiWaiting([file], { q5: stale })).toBe(0);
+    expect(answerProblem(file, stale)).toMatch(/The AI check didn’t finish for the file/);
+    const failed = [{ url: '/private/files/r.pdf', name: 'r.pdf', size: 1, ai: { failed: 1 } }];
+    expect(answerProblem(file, failed)).toMatch(/The AI check didn’t finish/);
+    expect(aiCheck({ ...failed[0], ai: { failed: 1, reason: 'Statement for October, totals at the end' } })).toEqual({ flags: ["The AI check didn't finish for this file"], reason: 'Statement for October, totals at the end' });
+    expect(answerProblem(file, [{ ...failed[0], ai: { failed: 1, reason: 'Statement for October' } }])).toBeNull();
+    expect(answerProblem(file, [{ url: '/x.jpg', name: 'x.jpg', size: 1, ai: { skipped: 1 } }])).toBeNull();
+  });
+
+  it('inside a Repeated group too', async () => {
+    const { aiWaiting } = await import('../data/shape');
+    const grp = { id: 'g', type: 'repeat', label: 'Shelves', required: 1, min: 1, max: 3, fields: [{ id: 'ph', type: 'file_upload', label: 'Shelf photo', required: 1, accept: 'image', max_files: 1, ai: { schema: { type: 'object', properties: {} } } }] };
+    expect(aiWaiting([grp], { g: [{ ph: [{ url: '/a.jpg', name: 'a.jpg', size: 1, reading: Date.now() }] }] })).toBe(1);
+  });
+});

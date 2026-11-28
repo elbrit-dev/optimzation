@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { Button, Card, Icon, ProgressBar } from '@/design-system';
 import { PinnedBar, PinnedBarSpacer } from '@/app/secondary-entry/components/PinnedBar';
-import { formProblems, isAnswered, shortDate, shortName, toPayload } from '../data/shape';
+import { aiWaiting, formProblems, isAnswered, shortDate, shortName, toPayload } from '../data/shape';
 import { filledQuestions } from '../data/view';
 import { SubjectCard } from './SubjectCard';
 import { QuestionCard } from './QuestionCard';
@@ -105,6 +105,15 @@ export function SubjectForm({ survey, row, rows, me, draft, api, onBack, onDraft
   }, [editable, answers]);
 
   const problems = useMemo(() => formProblems(questions, answers), [questions, answers]);
+  /* 28 Nov 2026 · files the AI is still checking: Submit waits (Save for later doesn't); re-checked every few
+     seconds so a check that never answers stops blocking and asks for a reason instead */
+  const aiBusy = aiWaiting(questions, answers);
+  const [, tick] = useState(0);
+  useEffect(() => {
+    if (!aiBusy) return undefined;
+    const t = setInterval(() => tick((n) => n + 1), 5000);
+    return () => clearInterval(t);
+  }, [aiBusy]);
   /* 26 Nov 2026 · Survey Studio: "Show from ERP" cards are read, not answered — not counted or numbered */
   const answerable = useMemo(() => questions.filter((q) => q.type !== 'erp_info'), [questions]);
   const answered = answerable.filter((q) => isAnswered(q, answers[q.id])).length;
@@ -297,12 +306,14 @@ export function SubjectForm({ survey, row, rows, me, draft, api, onBack, onDraft
                 <Button type="default" size="lg" block disabled={Boolean(busy) || !dirty} onClick={saveDraft}>
                   Save for later
                 </Button>
-                <Button type="primary" size="lg" block loading={busy === 'submit'} disabled={Boolean(busy) || uploading > 0} onClick={submit}>
-                  {uploading ? 'Uploading…' : 'Submit'}
+                <Button type="primary" size="lg" block loading={busy === 'submit'} disabled={Boolean(busy) || uploading > 0 || aiBusy > 0} onClick={submit}>
+                  {uploading ? 'Uploading…' : aiBusy ? 'Checking the file…' : 'Submit'}
                 </Button>
               </div>
               <p className="text-10 text-ds-muted">
-                {tried && Object.keys(problems).length
+                {aiBusy
+                  ? 'The AI is checking the file. Submit opens when it is done — you can Save for later now.'
+                  : tried && Object.keys(problems).length
                   ? `${Object.keys(problems).length} question${Object.keys(problems).length === 1 ? ' needs' : 's need'} an answer — see the red notes above.`
                   : requiredLeft
                     ? `${requiredLeft} required question${requiredLeft === 1 ? '' : 's'} left.`

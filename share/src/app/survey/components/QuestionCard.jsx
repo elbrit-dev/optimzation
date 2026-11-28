@@ -2,7 +2,7 @@
 
 import { useEffect, useRef, useState } from 'react';
 import { Card, Icon, ProgressBar, cx } from '@/design-system';
-import { LOGIN_EXCEPTIONS, TIMING_DAYS, aiFlags, answerProblem, answerText, fileProblem, fileRules, isAnswered, isEmpty, loginExceptions, mapIsPoint, mapParseLatLng, repeatList, repeatNoun, scaleRange, timingDayError } from '../data/shape';
+import { LOGIN_EXCEPTIONS, TIMING_DAYS, aiFlags, aiReading, aiUnchecked, answerProblem, answerText, fileProblem, fileRules, isAnswered, isEmpty, loginExceptions, mapIsPoint, mapParseLatLng, repeatList, repeatNoun, scaleRange, timingDayError } from '../data/shape';
 import { MapLocation } from './MapLocation';
 
 /* One question, by its type (SURVEYS_CONTEXT.md §3) — answered, or shown
@@ -564,10 +564,10 @@ const showVal = (v) => (v === true ? 'Yes' : v === false ? 'No' : v == null ? ''
 const inr = (n) => `₹${Number(n).toLocaleString('en-IN', { maximumFractionDigits: 2 })}`;
 function AiCheck({ f, disabled, onPatch }) {
   const ai = f.ai || {};
-  const fields = ai.fields && typeof ai.fields === 'object' ? ai.fields : null;
-  if (!fields) return null;
+  const fields = ai.fields && typeof ai.fields === 'object' ? ai.fields : {};
   const flags = aiFlags(f);
-  const el = fields.elbrit_summary && typeof fields.elbrit_summary === 'object' ? fields.elbrit_summary : null;
+  if (!Object.keys(fields).length && !flags.length) return null;
+  const el = fields?.elbrit_summary && typeof fields.elbrit_summary === 'object' ? fields.elbrit_summary : null;
   const values = Object.entries(fields).filter(([k, v]) => !hideReadKey(k) && !/^check_/.test(k) && !Array.isArray(v) && (v == null || typeof v !== 'object'));
   const lists = Object.entries(fields).filter(([k, v]) => !hideReadKey(k) && Array.isArray(v) && v.length && v.every((x) => x && typeof x === 'object'));
   const was = (k, i, c) => (i == null ? ai.orig?.[k] : ai.orig?.[k]?.[i]?.[c]);
@@ -746,7 +746,8 @@ function FileUpload({ q, value, onChange, disabled, onUpload }) {
         .then((res) => {
           setUps((u) => u.filter((x) => x.id !== id));
           if (res.read && res.read.readable === false) setUnread((m) => ({ ...m, [res.file_url]: res.read.reason || 'The file could not be read.' }));
-          const added = { url: res.file_url, name: res.file_name, size: res.file_size };
+          /* 28 Nov 2026 · while the AI reads it, the file says so (Submit waits; Save for later doesn't) */
+          const added = { url: res.file_url, name: res.file_name, size: res.file_size, ...(res.reading && typeof res.reading.then === 'function' ? { reading: Date.now() } : {}) };
           onChange(replace ? [added] : [...valueRef.current, added]);
           if (res.reading && typeof res.reading.then === 'function') {
             setReading((m) => ({ ...m, [res.file_url]: true }));
@@ -758,10 +759,22 @@ function FileUpload({ q, value, onChange, disabled, onUpload }) {
               });
               if (read && read.readable === false) setUnread((m) => ({ ...m, [res.file_url]: read.reason || 'The file could not be read.' }));
               /* 26 Nov 2026 · Survey Studio: this file's verdict (Redo blocks Submit) and, with "check on the phone", what was read */
+              let ai;
               if (read && (read.state || read.fields)) {
-                const ai = { state: read.state || '', why: read.why || '', redo: read.redo ? 1 : 0, ...(read.fields ? { fields: read.fields, orig: JSON.parse(JSON.stringify(read.fields)) } : {}) };
-                onChange(valueRef.current.map((x) => (x.url === res.file_url ? { ...x, ai } : x)));
+                ai = { state: read.state || '', why: read.why || '', redo: read.redo ? 1 : 0, ...(read.fields ? { fields: read.fields, orig: JSON.parse(JSON.stringify(read.fields)) } : {}) };
+              } else if (read && read.readable === false) {
+                ai = { state: '', why: read.reason || '', redo: 0, unreadable: 1 };
+              } else if (read && read.skipped && /no AI on this question|reader off|not a photo or PDF/i.test(String(read.skipped))) {
+                ai = { skipped: 1 };
+              } else {
+                ai = { failed: 1 }; // no answer in time, or the reader failed: the rep says what the file shows
               }
+              onChange(valueRef.current.map((x) => {
+                if (x.url !== res.file_url) return x;
+                const rest = { ...x };
+                delete rest.reading;
+                return { ...rest, ai: x.ai?.reason ? { ...ai, reason: x.ai.reason } : ai };
+              }));
             });
           }
         })
@@ -851,10 +864,10 @@ function FileUpload({ q, value, onChange, disabled, onUpload }) {
               <Icon name="times" size="sm" />
             </button>
           </div>
-          {reading[f.url] ? (
+          {reading[f.url] || aiReading(f) ? (
             <p role="status" className="flex items-center gap-1.5 text-11 text-ds-muted">
               <Icon name="spinner pi-spin" size="sm" className="shrink-0" />
-              <span>Uploaded · checking the file… (you can carry on)</span>
+              <span>Uploaded · checking the file… Submit opens when the check is done (you can Save for later).</span>
             </p>
           ) : null}
           {f.ai?.redo ? (
@@ -868,8 +881,8 @@ function FileUpload({ q, value, onChange, disabled, onUpload }) {
               Checked — it looks right.
             </p>
           ) : null}
-          {f.ai?.fields && Object.keys(f.ai.fields).length ? (
-            <AiCheck f={f} disabled={disabled} onPatch={(fn) => onChange(valueRef.current.map((x) => (x.url === f.url ? { ...x, ai: fn(x.ai || {}) } : x)))} />
+          {(f.ai?.fields && Object.keys(f.ai.fields).length) || (!reading[f.url] && aiUnchecked(q, f)) ? (
+            <AiCheck f={f.ai ? f : { ...f, ai: { failed: 1 } }} disabled={disabled} onPatch={(fn) => onChange(valueRef.current.map((x) => (x.url === f.url ? { ...x, ai: fn(x.ai || { failed: 1 }) } : x)))} />
           ) : null}
           {unread[f.url] ? (
             <p role="status" className="flex items-start gap-1.5 text-11 font-medium text-warning-text">

@@ -250,6 +250,9 @@ export function answerProblem(q, v, answers) {
   if (q.type === 'file_upload' && v.length > fileRules(q).maxFiles) return `You can add up to ${fileRules(q).maxFiles} file(s) here.`;
   /* 26 Nov 2026 · Survey Studio "Redo": a file the AI found not Clear must be uploaded again */
   if (q.type === 'file_upload' && v.some((f) => f?.ai?.redo)) return 'A file is not clear — remove it and upload it again.';
+  /* 28 Nov 2026 · Submit waits for the AI check; a check that didn't finish needs a reason (or a new file) */
+  if (q.type === 'file_upload' && q.ai?.schema && v.some(aiReading)) return 'Wait for the AI check on the file — or Save for later.';
+  if (q.type === 'file_upload' && v.some((f) => aiUnchecked(q, f) && !String(f?.ai?.reason ?? '').trim())) return 'The AI check didn’t finish for the file: say what it shows in “Why?”, or replace it.';
   /* 28 Nov 2026 · the AI check flagged something on a file: say why */
   if (q.type === 'file_upload' && v.some((f) => aiFlags(f).length && !String(f?.ai?.reason ?? '').trim())) return 'Write why for the flags on the file.';
   /* 28 Nov 2026 · pharmacy mapping: which distributor serves the pharmacy */
@@ -262,8 +265,28 @@ export function answerProblem(q, v, answers) {
    need a reason ("Why?") before Submit. The flags, the reason and the corrections go with the file as `check`. */
 const AI_HIDDEN = (k) => k.startsWith('_') || k === 'elbrit_summary' || k === 'parts_failed' || /^check_/.test(k);
 const aiWord = (k) => String(k).replace(/_/g, ' ');
+/* 28 Nov 2026 · Submit waits for the AI check: a file being read (f.reading = when it went) blocks Submit for up to
+   AI_WAIT_MS; a check that never came back (failed, timed out, page reopened) is a flag that needs a reason */
+export const AI_WAIT_MS = 150000;
+export const aiReading = (f) => Boolean(f?.reading && !f?.ai && Date.now() - Number(f.reading) < AI_WAIT_MS);
+export const aiUnchecked = (q, f) => Boolean(q?.ai?.schema && f && !aiReading(f) && (!f.ai || f.ai.failed));
+/* files still being read anywhere in the form (Repeated groups included) */
+export function aiWaiting(questions, answers) {
+  let n = 0;
+  const files = (q, v) => {
+    if (q?.type === 'file_upload' && q.ai?.schema && Array.isArray(v)) n += v.filter(aiReading).length;
+  };
+  for (const q of questions ?? []) {
+    const v = answers?.[q.id];
+    if (q.type === 'repeat') {
+      for (const r of Array.isArray(v) ? v : []) for (const k of q.fields ?? []) if (r && typeof r === 'object') files(k, r[k.id]);
+    } else files(q, v);
+  }
+  return n;
+}
 export function aiFlags(f) {
   const ai = f?.ai;
+  if (ai?.failed) return ["The AI check didn't finish for this file"];
   if (!ai || !ai.fields || typeof ai.fields !== 'object') return [];
   const fields = ai.fields;
   const out = [];
