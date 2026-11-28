@@ -38,7 +38,7 @@ describe('Elbrit products in AI reads', () => {
     ] };
     tagElbrit(f, P);
     expect(f.rows.map((r) => r.elbrit_product)).toEqual(['TELBRIT 40', null, 'ROZULA 10']);
-    expect(f._elbrit).toMatchObject({ lines: 3, elbrit: 2, others: 1, found: true, items: ['TELBRIT 40', 'ROZULA 10'], qty: 14, value: 1255 });
+    expect(f.elbrit_summary).toMatchObject({ lines: 3, elbrit: 2, others: 1, found: true, items: ['TELBRIT 40', 'ROZULA 10'], qty: 14, value: 1255 });
   });
 
   it('a secondary statement (Read as: Secondary statement) totals each column over Elbrit lines only', () => {
@@ -49,13 +49,13 @@ describe('Elbrit products in AI reads', () => {
     ] };
     tagElbrit(f, P);
     expect(f.rows.map((r) => r.elbrit_product)).toEqual(['TELBRIT 40', null, 'ROZULA 20']);
-    expect(f._elbrit).toMatchObject({ elbrit: 2, others: 1, qty: 24, value: 6980, totals: { sales_qty: 24, sales_value: 6980, closing_qty: 67, closing_value: 21440 } });
+    expect(f.elbrit_summary).toMatchObject({ elbrit: 2, others: 1, qty: 24, value: 6980, totals: { sales_qty: 24, sales_value: 6980, closing_qty: 67, closing_value: 21440 } });
   });
 
   it('a prescription (Read as: Prescription) counts the tablets of Elbrit medicines', () => {
     const f = { rows: [{ medicine: 'Tab Glimibrit M1', tablets: '30' }, { medicine: 'Tab Dolo 650', tablets: '10' }] };
     tagElbrit(f, P);
-    expect(f._elbrit).toMatchObject({ elbrit: 1, found: true, items: ['GLIMIBRIT M1'], qty: 30, totals: { tablets: 30 } });
+    expect(f.elbrit_summary).toMatchObject({ elbrit: 1, found: true, items: ['GLIMIBRIT M1'], qty: 30, totals: { tablets: 30 } });
   });
 
   it('turns the statement period into the ERP month (Secondary Data Entry date, Doctor Support period)', () => {
@@ -74,8 +74,8 @@ describe('Elbrit products in AI reads', () => {
       { product: 'Rozula 10', sales_qty: null, closing_qty: null },
     ] };
     tagElbrit(f, P);
-    expect(f._elbrit).toMatchObject({ month: { date: '2026-11-01', period: '2026-November' }, elbrit: 2, others: 1, items: ['TELBRIT 40', 'ROZULA 10'], totals: { sales_qty: 95, closing_qty: 45 }, no_qty: 1 });
-    expect(f._elbrit.missing).toBeUndefined();
+    expect(f.elbrit_summary).toMatchObject({ month: { date: '2026-11-01', period: '2026-November' }, elbrit: 2, others: 1, items: ['TELBRIT 40', 'ROZULA 10'], totals: { sales_qty: 95, closing_qty: 45 }, no_qty: 1 });
+    expect(f.elbrit_summary.missing).toBeUndefined();
   });
 
   it('Read as Support statement: one line per doctor and product; a missing period is flagged', () => {
@@ -85,12 +85,25 @@ describe('Elbrit products in AI reads', () => {
     ] };
     tagElbrit(f, P);
     expect(f.rows.map((r) => r.elbrit_product)).toEqual(['TELBRIT 20', null]);
-    expect(f._elbrit).toMatchObject({ elbrit: 1, qty: 20, value: 2840, missing: ['period'] });
+    expect(f.elbrit_summary).toMatchObject({ elbrit: 1, qty: 20, value: 2840, missing: ['period'] });
   });
 
   it('a prescription with no Elbrit medicine says so', () => {
     const f = { medicines: [{ medicine: 'Dolo 650', dose: '1-0-1' }] };
     tagElbrit(f, P);
-    expect(f._elbrit).toMatchObject({ lines: 1, elbrit: 0, found: false, items: [] });
+    expect(f.elbrit_summary).toMatchObject({ lines: 1, elbrit: 0, found: false, items: [] });
+  });
+});
+
+/* 28 Nov 2026 · the ERP's server scripts refuse any key starting with "_" (the read was lost): none may be saved */
+describe('what the AI reader saves', () => {
+  it('has no key starting with "_" (the ERP refuses them)', () => {
+    const f = { distributor_name: 'Buddha Medical Agencies', statement_month: '01/11/2026 to 26/11/2026', rows: [{ product: 'Telbrit 40', sales_qty: '9' }] };
+    tagElbrit(f, ['TELBRIT 40']);
+    const keys = [];
+    const walk = (o) => { if (o && typeof o === 'object') for (const [k, v] of Object.entries(o)) { keys.push(k); walk(v); } };
+    walk(f);
+    expect(keys.filter((k) => k.startsWith('_'))).toEqual([]);
+    expect(f.elbrit_summary).toMatchObject({ elbrit: 1, month: { period: '2026-November' } });
   });
 });

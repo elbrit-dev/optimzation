@@ -555,14 +555,16 @@ function sizeText(bytes) {
    as {url, name, size} — exactly what survey_submit_response takes. */
 /* 26 Nov 2026 · Survey Studio "check on the phone": what the AI read from the file, for the rep to check before
    Submit (if it is wrong, they replace the file). */
+/* the reader's own notes (the Elbrit summary, failed parts) are not values to show or correct */
+const hideReadKey = (k) => k.startsWith('_') || k === 'elbrit_summary' || k === 'parts_failed';
 const readWord = (k) => String(k).replace(/_/g, ' ').replace(/^./, (c) => c.toUpperCase());
 const readText = (v) => (v == null || v === '' ? '—' : Array.isArray(v) ? `${v.length} row${v.length === 1 ? '' : 's'}` : typeof v === 'object' ? Object.values(v).filter((x) => x != null && x !== '').join(' · ') : v === true ? 'Yes' : v === false ? 'No' : String(v));
 /* 27 Nov 2026 · Survey Studio "Also read every line of a table": the lines the AI read (medicines, products), read only */
-/* 28 Nov 2026 · lines matched to Elbrit's products (fields._elbrit): only the Elbrit lines are shown and counted */
+/* 28 Nov 2026 · lines matched to Elbrit's products (fields.elbrit_summary): only the Elbrit lines are shown and counted */
 const inr = (n) => `₹${Number(n).toLocaleString('en-IN', { maximumFractionDigits: 2 })}`;
 function ReadLines({ fields }) {
-  const el = fields._elbrit && typeof fields._elbrit === 'object' ? fields._elbrit : null;
-  const lists = Object.entries(fields).filter(([k, v]) => !k.startsWith('_') && Array.isArray(v) && v.length && v.every((x) => x && typeof x === 'object'));
+  const el = fields.elbrit_summary && typeof fields.elbrit_summary === 'object' ? fields.elbrit_summary : null;
+  const lists = Object.entries(fields).filter(([k, v]) => !hideReadKey(k) && Array.isArray(v) && v.length && v.every((x) => x && typeof x === 'object'));
   if (!lists.length) return null;
   return lists.map(([k, all]) => {
     const rows = el ? all.filter((x) => x.elbrit_product) : all;
@@ -597,7 +599,7 @@ function ReadValues({ fields, onEdit }) {
     return (
       <div className="flex flex-col gap-1.5 rounded-md bg-sunken px-2.5 py-2">
         <span className="text-10 font-semibold uppercase tracking-wide text-ds-muted">We read · check and correct</span>
-        {Object.entries(fields).slice(0, 20).filter(([k, v]) => !/^check_/.test(k) && !k.startsWith('_') && !Array.isArray(v)).map(([k, v]) => (
+        {Object.entries(fields).slice(0, 20).filter(([k, v]) => !/^check_/.test(k) && !hideReadKey(k) && !Array.isArray(v)).map(([k, v]) => (
           <label key={k} className="flex items-center gap-2 text-12">
             <span className="w-28 shrink-0 text-ds-muted">{readWord(k)}</span>
             <input type="text" value={v == null ? '' : typeof v === 'boolean' ? (v ? 'Yes' : 'No') : typeof v === 'object' ? JSON.stringify(v) : String(v)} onChange={(e) => onEdit(k, e.target.value)} className="h-8 min-w-0 flex-1 rounded-md border border-line-strong bg-surface px-2 text-12 text-heading" />
@@ -611,7 +613,7 @@ function ReadValues({ fields, onEdit }) {
     <div className="flex flex-col gap-1 rounded-md bg-sunken px-2.5 py-2">
       <span className="text-10 font-semibold uppercase tracking-wide text-ds-muted">We read</span>
       <dl className="grid grid-cols-[auto_1fr] gap-x-3 gap-y-0.5 text-11">
-        {Object.entries(fields).slice(0, 12).filter(([k, v]) => !k.startsWith('_') && !Array.isArray(v)).map(([k, v]) => (
+        {Object.entries(fields).slice(0, 12).filter(([k, v]) => !hideReadKey(k) && !Array.isArray(v)).map(([k, v]) => (
           <div key={k} className="contents">
             <dt className="text-ds-muted">{readWord(k)}</dt>
             <dd className="min-w-0 break-words font-semibold text-heading">{readText(v)}</dd>

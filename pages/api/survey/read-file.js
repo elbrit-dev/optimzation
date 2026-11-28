@@ -181,9 +181,13 @@ export default async function handler(req, res) {
   }
   if (!info || info.skip || !info.schema) return res.status(200).json({ skipped: "no AI on this question" });
   // 28 Nov 2026 · a file whose table lines are read: the ERP sent Elbrit's products (live); every line gets
-  // elbrit_product, and only Elbrit lines are counted (fields._elbrit)
+  // elbrit_product, and only Elbrit lines are counted (fields.elbrit_summary)
   const products = Array.isArray(info.products) ? info.products.map(String).filter(Boolean).slice(0, 2000) : [];
-  if (products.length) info = { ...info, schema: withElbrit(info.schema), extra: elbritPrompt(products) };
+  // 28 Nov 2026 · the survey's own notes for the reader (Survey Center's "Read as" setups say what each field means,
+  // e.g. "Statement month: the month its period covers") — kept in the question but never sent to the AI before
+  const note = String(info.note || "").trim().slice(0, 1500);
+  const aiExtra = [note ? `Notes from the survey about this file: ${note}` : "", products.length ? elbritPrompt(products) : ""].filter(Boolean).join("\n");
+  info = { ...info, ...(products.length ? { schema: withElbrit(info.schema) } : {}), extra: aiExtra };
 
   // 3. read it
   const save = (read) => erpCall(origin, service, "survey_ai_read", { ...base, step: "save", read: JSON.stringify(read) });
