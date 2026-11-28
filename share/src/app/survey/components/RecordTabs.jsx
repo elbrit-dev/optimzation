@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useRef } from 'react';
-import { cx, toneFill } from '@/design-system';
+import { Icon, cx, toneFill } from '@/design-system';
 import { ROW_TONE } from '../data/shape';
 
 /* A survey's doctors / records as TABS — Support Approval's SubmissionStrip
@@ -95,7 +95,26 @@ function chipNames(rows) {
   });
 }
 
-export function RecordTabs({ rows, value, onChange, ariaLabel = 'Records', noun = 'Record', showBar = true, className, minRows = 2, leading = null, trailing = null }) {
+/* 28 Nov 2026 · a record as a circle: its initials, its short name under it, how many questions are left as a badge */
+export const initialsOf = (label) => {
+  const w = String(label ?? '').replace(/^Dr\.?\s+/i, '').trim().split(/\s+/).filter(Boolean);
+  if (!w.length) return '·';
+  return (w.length === 1 ? w[0].slice(0, 2) : w[0][0] + w[w.length - 1][0]).toUpperCase();
+};
+export function CircleBadge({ n }) {
+  if (n == null) return null;
+  return n > 0 ? (
+    <span aria-hidden="true" className="absolute -right-1 -top-1 flex h-5 min-w-5 items-center justify-center rounded-full border-2 border-page bg-brand px-1 text-10 font-bold tabular-nums leading-none text-on-brand">
+      {n > 99 ? '99+' : n}
+    </span>
+  ) : (
+    <span aria-hidden="true" className="absolute -right-1 -top-1 flex size-5 items-center justify-center rounded-full border-2 border-page bg-success text-on-brand">
+      <Icon name="check" size="var(--fs-8)" />
+    </span>
+  );
+}
+
+export function RecordTabs({ rows, value, onChange, ariaLabel = 'Records', noun = 'Record', showBar = true, className, minRows = 2, leading = null, trailing = null, circles = false, counts = null }) {
   const listRef = useRef(null);
   /* the open one is always in view in the strip */
   useEffect(() => {
@@ -108,12 +127,47 @@ export function RecordTabs({ rows, value, onChange, ariaLabel = 'Records', noun 
   return (
     <div className={cx('flex flex-col gap-3', className)}>
       {showBar ? <StateBar rows={rows} size="sm" position={at >= 0 ? `${noun} ${at + 1} of ${rows.length}` : null} /> : null}
-      <div ref={listRef} className="ds-scroll-x -mx-1 flex gap-1.5 px-1 py-0.5">
+      <div ref={listRef} className={cx('ds-scroll-x -mx-1 flex px-1', circles ? 'gap-1 py-1' : 'gap-1.5 py-0.5')}>
         {leading}
-        <div role="tablist" aria-label={ariaLabel} className="flex gap-1.5">
+        <div role="tablist" aria-label={ariaLabel} className={cx('flex', circles ? 'gap-1' : 'gap-1.5')}>
         {rows.map((r, i) => {
           const active = r.response === value;
           const label = r.subject?.label ?? 'Your answers';
+          if (circles) {
+            const n = counts ? counts[r.response] : null;
+            return (
+              <button
+                key={r.response}
+                type="button"
+                role="tab"
+                aria-selected={active}
+                aria-label={`${label}${n != null ? (n ? `, ${n} question${n === 1 ? '' : 's'} left` : ', all answered') : ''}`}
+                title={label}
+                disabled={r.view === 'missed'}
+                onClick={() => onChange?.(r.response)}
+                className="group flex w-[4.25rem] shrink-0 flex-col items-center gap-1 pt-1.5 disabled:opacity-50"
+              >
+                <span className="relative">
+                  <span
+                    className={cx(
+                      'flex size-12 items-center justify-center rounded-full text-14 font-semibold transition-colors',
+                      active
+                        ? 'bg-heading text-on-brand outline outline-2 outline-offset-2 outline-heading'
+                        : r.view === 'draft'
+                          ? 'border border-warning bg-warning-wash text-warning-text'
+                          : r.returned
+                            ? 'border border-danger-border bg-danger-wash text-danger-text'
+                            : 'border border-line-strong bg-surface text-heading group-hover:bg-sunken',
+                    )}
+                  >
+                    {initialsOf(label)}
+                  </span>
+                  <CircleBadge n={n} />
+                </span>
+                <span className={cx('w-full truncate text-center text-11 leading-4', active ? 'font-semibold text-heading' : 'text-ds-secondary')}>{names[i]}</span>
+              </button>
+            );
+          }
           return (
             <button
               key={r.response}

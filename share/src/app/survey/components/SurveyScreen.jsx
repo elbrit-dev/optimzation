@@ -1,11 +1,11 @@
 'use client';
 
-import { cloneElement, useMemo, useState } from 'react';
-import { Button, Card, Icon, StatusPill, cx, toneFill } from '@/design-system';
-import { daysLeft, dueText, rowState, shortDate, targetOf } from '../data/shape';
+import { cloneElement, useEffect, useMemo, useState } from 'react';
+import { Button, Card, Icon, StatusPill, cx } from '@/design-system';
+import { daysLeft, dueText, isAnswered, rowState, shortDate, targetOf } from '../data/shape';
 import { AddSubjectsSheet } from './AddSubjectsSheet';
 import { AnnouncementScreen } from './AnnouncementScreen';
-import { RecordTabs, StateBar, rowsOfTab } from './RecordTabs';
+import { CircleBadge, RecordTabs, StateBar, initialsOf, rowsOfTab } from './RecordTabs';
 import { useBottomNavGap } from './SubjectForm';
 
 /* 26 Nov 2026 (later) · SURVEY STUDIO layout (the artifact the user designed): the progress says "N of M doctors
@@ -44,12 +44,33 @@ export function SurveyScreen({ survey, today, drafts, api, onOpenRow, onChanged,
   const [notice, setNotice] = useState(null);
   /* 28 Nov 2026 · History as a list: the open doctor's answers show under its row; a tap on it again closes them */
   const [shut, setShut] = useState(false);
+  /* 28 Nov 2026 · "All": every one still to do as a list; a card opens its questions to answer right there */
+  const [allMode, setAllMode] = useState(false);
+  useEffect(() => {
+    if (tab !== 'todo') setAllMode(false);
+  }, [tab]);
+  useEffect(() => {
+    if (!allMode || !openResponse || shut) return;
+    const el = typeof document !== 'undefined' ? document.querySelector(`[data-row="${openResponse}"]`) : null;
+    if (el && typeof el.scrollIntoView === 'function') el.scrollIntoView({ block: 'start', behavior: 'smooth' });
+  }, [allMode, openResponse, shut]);
   /* 28 Nov 2026 · room under the last thing on every view (To do, History) for the app's fixed bottom navigation */
   const navGap = useBottomNavGap('var(--space-8)');
 
   const rows = useMemo(() => survey.rows.map((r) => ({ ...r, view: rowState(r, drafts) })), [survey.rows, drafts]);
   const done = rows.filter((r) => r.view === 'done').length;
   const tabRows = useMemo(() => rowsOfTab(rows, tab), [rows, tab]);
+  /* 28 Nov 2026 · each one's questions still to answer (its draft on this phone, or what was sent back), for the circles */
+  const counts = useMemo(() => {
+    const qs = (survey.questions ?? []).filter((q) => q.type !== 'erp_info');
+    const out = {};
+    rows.forEach((r) => {
+      if (r.view === 'done' || r.view === 'missed') return;
+      const a = drafts?.[r.response] ?? (r.returned ? r.answers : null) ?? {};
+      out[r.response] = qs.filter((q) => !isAnswered(q, a?.[q.id])).length;
+    });
+    return out;
+  }, [rows, drafts, survey.questions]);
   const multi = rows.length >= 2;
   const days = daysLeft(today, survey.due_date);
   const late = survey.state === 'todo' && days != null && days <= 0;
@@ -93,22 +114,40 @@ export function SurveyScreen({ survey, today, drafts, api, onOpenRow, onChanged,
       To do · {left}
     </button>
   ) : null;
-  const trailing = (
-    <>
-      {multi && !history && done ? (
-        <button type="button" onClick={() => onTab?.('done')} className={cx(chip, TAB_TONE.done[0])}>
-          <span aria-hidden="true" className="size-1.5 shrink-0 rounded-full" style={{ backgroundColor: toneFill('success') }} />
-          Done · {done}
-        </button>
-      ) : null}
-      {canAdd ? (
-        <button type="button" onClick={() => setAdding(true)} className={cx(chip, 'border-dashed border-brand bg-surface text-brand-text hover:bg-brand-tint-weak')}>
-          <Icon name="plus" size="var(--fs-10)" />
-          Add {t.one}
-        </button>
-      ) : null}
-    </>
-  );
+  const allCircle =
+    multi && !history ? (
+      <button
+        type="button"
+        aria-pressed={allMode}
+        aria-label={`All ${t.many} as a list, ${left} to do`}
+        onClick={() => {
+          setShut(false);
+          setAllMode((x) => !x);
+        }}
+        className="group flex w-[4.25rem] shrink-0 flex-col items-center gap-1 pt-1.5"
+      >
+        <span className="relative">
+          <span
+            className={cx(
+              'flex size-12 items-center justify-center rounded-full transition-colors',
+              allMode ? 'bg-heading text-on-brand outline outline-2 outline-offset-2 outline-heading' : 'border border-line-strong bg-surface text-heading group-hover:bg-sunken',
+            )}
+          >
+            <Icon name="list" size="var(--fs-18)" />
+          </span>
+          <CircleBadge n={left} />
+        </span>
+        <span className={cx('w-full truncate text-center text-11 leading-4', allMode ? 'font-semibold text-heading' : 'text-ds-secondary')}>All</span>
+      </button>
+    ) : null;
+  const trailing = canAdd ? (
+    <button type="button" onClick={() => setAdding(true)} aria-label={`Add a ${t.one}`} className="group flex w-[4.25rem] shrink-0 flex-col items-center gap-1 pt-1.5">
+      <span className="flex size-12 items-center justify-center rounded-full border border-dashed border-brand text-brand-text group-hover:bg-brand-tint-weak">
+        <Icon name="plus" size="var(--fs-16)" />
+      </span>
+      <span className="w-full truncate text-center text-11 leading-4 text-brand-text">Add</span>
+    </button>
+  ) : null;
 
   const duePill = (
     <StatusPill status={survey.state === 'missed' ? 'neutral' : late ? 'danger' : 'warning'} className="shrink-0">
@@ -191,17 +230,73 @@ export function SurveyScreen({ survey, today, drafts, api, onOpenRow, onChanged,
       {(multi || canAdd) && !(history && multi) ? (
         <RecordTabs
           rows={tabRows}
-          value={openResponse}
           ariaLabel={history ? `${t.Many}: submitted` : `${t.Many}: to do`}
           showBar={false}
           minRows={1}
-          leading={leading}
+          leading={history ? leading : allCircle}
           trailing={trailing}
-          onChange={(r) => r !== openResponse && onOpenRow?.(r)}
+          circles
+          counts={counts}
+          value={allMode ? null : openResponse}
+          onChange={(r) => {
+            setAllMode(false);
+            setShut(false);
+            if (r !== openResponse) onOpenRow?.(r);
+          }}
         />
       ) : null}
 
-      {history && multi ? (
+      {allMode && !history && multi ? (
+        <div className="flex flex-col gap-3">
+          <p className="text-13 font-medium text-ds-muted">
+            {tabRows.length} to do · tap one to answer it here
+          </p>
+          {tabRows.length ? (
+            <ul aria-label={`${t.Many}: to do`} className="flex flex-col gap-3">
+              {tabRows.map((r) => {
+                const on = r.response === openResponse && !shut;
+                const n = counts[r.response];
+                const state = r.view === 'missed' ? ['neutral', 'Missed'] : r.returned ? ['danger', 'Sent back'] : r.view === 'draft' ? ['warning', 'Saved'] : ['neutral', 'Not started'];
+                return (
+                  <li key={r.response} data-row={r.response} className={cx('flex scroll-mt-2 flex-col overflow-hidden rounded-xl border bg-surface shadow-sm', on ? 'border-line-strong' : 'border-line')}>
+                    <button
+                      type="button"
+                      aria-expanded={on}
+                      disabled={r.view === 'missed'}
+                      onClick={() => {
+                        if (r.response === openResponse) setShut((x) => !x);
+                        else {
+                          setShut(false);
+                          onOpenRow?.(r.response);
+                        }
+                      }}
+                      className={cx('flex min-h-14 w-full items-center gap-3 px-3 py-2.5 text-left transition-colors hover:bg-sunken disabled:opacity-50', on && 'bg-sunken')}
+                    >
+                      <span className="relative shrink-0">
+                        <span className="flex size-10 items-center justify-center rounded-full border border-line-strong bg-surface text-13 font-semibold text-heading">{initialsOf(r.subject?.label)}</span>
+                        <CircleBadge n={n} />
+                      </span>
+                      <span className="flex min-w-0 flex-1 flex-col">
+                        <span className="truncate text-14 font-semibold text-heading">{r.subject?.label || 'Your answers'}</span>
+                        <span className="truncate text-12 tabular-nums text-ds-muted">
+                          {[r.subject?.code, n == null ? '' : n ? `${n} question${n === 1 ? '' : 's'} left` : 'Ready to submit'].filter(Boolean).join(' · ')}
+                        </span>
+                      </span>
+                      <StatusPill status={state[0]} className="shrink-0">
+                        {state[1]}
+                      </StatusPill>
+                      <Icon name="chevron-down" size="var(--fs-12)" className={cx('shrink-0 text-ds-muted transition-transform', on && 'rotate-180')} />
+                    </button>
+                    {on && form ? <div className="border-t border-line px-3 pb-3.5 pt-3">{cloneElement(form, { inList: true })}</div> : null}
+                  </li>
+                );
+              })}
+            </ul>
+          ) : (
+            <p className="py-8 text-center text-12 text-ds-muted">Nothing left to do — every one is submitted.</p>
+          )}
+        </div>
+      ) : history && multi ? (
         <div className="flex flex-col gap-2">
           <div className="flex items-center justify-between gap-2">
             {leading}

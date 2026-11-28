@@ -52,7 +52,9 @@ describe('SurveyPage — one page per survey', () => {
     expect(screen.getByText(/of 4 done/)).toBeTruthy();
     expect(screen.queryByText(/to do · next/)).toBeNull(); // 28 Nov 2026: the count and the tags say it
     expect(tagTitles()).toEqual(['Dr. Joseph Prabhu', 'Dr. Meenakshi Sundar', 'Dr. Arul Selvan']);
-    expect(screen.getByRole('button', { name: /^Done · 1$/ })).toBeTruthy();
+    /* 28 Nov 2026 · the doctors are circles with the questions left on top; "All" first opens them as a list */
+    expect(screen.getByRole('tab', { name: /^Dr\. Joseph Prabhu, \d+ questions? left$/ })).toBeTruthy();
+    expect(screen.getByRole('button', { name: /^All doctors as a list, 3 to do$/ })).toBeTruthy();
     expect(screen.getByRole('radio', { name: 'Ticagrelor' })).toBeTruthy(); // the doctor's questions, on this page
     expect(screen.queryByText('Pre-tag')).toBeNull();
     expect(screen.queryByRole('navigation')).toBeNull();
@@ -88,6 +90,21 @@ describe('SurveyPage — one page per survey', () => {
     expect(anitha.getAttribute('aria-expanded')).toBe('false');
     await user.click(screen.getByRole('button', { name: /^To do · 3$/ }));
     expect(tagTitles()).toEqual(['Dr. Joseph Prabhu', 'Dr. Meenakshi Sundar', 'Dr. Arul Selvan']);
+  });
+
+  it('All lists the doctors to do; a card opens that doctor’s questions to answer right there', async () => {
+    const user = userEvent.setup();
+    setup();
+    await waitFor(() => expect(pickedTag()).toBe('Dr. Joseph Prabhu'));
+    await user.click(screen.getByRole('button', { name: /^All doctors as a list/ }));
+    const list = await screen.findByRole('list', { name: /to do/ });
+    const cards = within(list).getAllByRole('button', { expanded: false }).concat(within(list).queryAllByRole('button', { expanded: true }));
+    expect(cards.length).toBe(3);
+    const meen = within(list).getByRole('button', { name: /Dr\. Meenakshi Sundar/ });
+    await user.click(meen);
+    await waitFor(() => expect(meen.getAttribute('aria-expanded')).toBe('true'));
+    expect(within(list).getByRole('radio', { name: 'Ticagrelor' })).toBeTruthy();
+    expect(within(list).getByRole('button', { name: 'Submit' })).toBeTruthy();
   });
 
   it('Back leaves the survey (onBack)', async () => {
