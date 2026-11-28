@@ -1906,13 +1906,9 @@ function TripSheet({ item }) {
                 </b>
               </span>
 
-              <div className="mt-3 flex flex-wrap gap-2">
-                {["fuels", "tolls"].flatMap((kind) =>
-                  (claim[kind] || []).map((b) => (
-                    <BillChip key={b.id} kind={kind} bill={b} on={editing?.id === b.id} readOnly={!editable} onClick={() => setEditing(editing?.id === b.id ? null : { kind, id: b.id })} />
-                  ))
-                )}
-              </div>
+              {/* every fuel / toll bill as a row, seen without a tap (28 Nov 2026); a tap
+                  still opens the bill's details to remove it */}
+              <CarBillRows claim={claim} calc={calc} editing={editing} editable={editable} onPick={(kind, id) => setEditing(editing?.id === id ? null : { kind, id })} />
               {editable && (editing?.kind === "fuels" || editing?.kind === "tolls") && (
                 <BillEditor
                   key={editing.id}
@@ -2310,6 +2306,64 @@ function TripSheet({ item }) {
 
 const nightsAny = (calc) => calc.nights.length > 0;
 
+const BILL_MON = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+const billDay = (iso) => (iso ? `${Number(iso.slice(8, 10))} ${BILL_MON[Number(iso.slice(5, 7)) - 1]}` : "no date");
+
+/* The own car's bills in the car box (28 Nov 2026): one row per fuel / toll bill -- icon,
+   date, vendor, amount -- and under them the fuel against the limit. Presentation only:
+   the numbers are calc's own (carPool.fuel or fuel + tolls, cap). */
+function CarBillRows({ claim, calc, editing, editable, onPick }) {
+  const rows = ["fuels", "tolls"]
+    .flatMap((kind) => (claim[kind] || []).map((b) => ({ kind, b })))
+    .sort((x, y) => String(x.b.date || "").localeCompare(String(y.b.date || "")));
+  const used = calc.carPool ? calc.carPool.fuel : calc.fuel + calc.tolls;
+  const others = calc.carPool && calc.carPool.trips > 1;
+  return (
+    <div className="mt-3">
+      {rows.length ? (
+        <ul className="divide-y divide-gray-100 overflow-hidden rounded-xl border border-gray-200 bg-white">
+          {rows.map(({ kind, b }) => {
+            const Icon = kind === "tolls" ? RouteIcon : Fuel;
+            const amt = Number(b.billed ?? b.amount) || 0;
+            const warn = b.flag || b.manual;
+            const inner = (
+              <>
+                <Icon className="h-4 w-4 shrink-0 text-gray-500" aria-hidden />
+                <span className="w-12 shrink-0 font-bold text-gray-900">{billDay(b.date)}</span>
+                <span className="min-w-0 flex-1 truncate text-gray-600">
+                  {b.vendor || (kind === "tolls" ? "Toll" : "Fuel")}
+                  {warn ? <span className="ml-1 font-semibold text-amber-700">· {b.manual ? "by hand" : "check"}</span> : null}
+                </span>
+                <b className="shrink-0 tabular-nums text-gray-900">{inr(amt)}</b>
+              </>
+            );
+            const cls = cn("flex w-full items-center gap-2 px-3 py-2 text-left text-[12.5px]", editing?.id === b.id && "bg-blue-50");
+            return (
+              <li key={b.id}>
+                {editable ? (
+                  <button type="button" className={cls} aria-pressed={editing?.id === b.id} onClick={() => onPick(kind, b.id)} aria-label={`${BILL_NAME[kind]} ${inr(amt)} — tap for details`}>
+                    {inner}
+                  </button>
+                ) : (
+                  <span className={cls}>{inner}</span>
+                )}
+              </li>
+            );
+          })}
+        </ul>
+      ) : (
+        <p className="text-gray-500">No fuel bill on this trip yet.</p>
+      )}
+      <p className="mt-2 flex items-baseline justify-between gap-2">
+        <span className="text-gray-600">
+          Fuel <b className={cn(calc.capped ? "text-amber-700" : "text-gray-900")}>{inr(used)}</b> of {inr(calc.cap)} limit
+        </span>
+        {others && <span className="text-right text-[11.5px] text-gray-500">all {calc.carPool.trips} trips {rangeLabel(calc.carPool.from, calc.carPool.to)}</span>}
+      </p>
+    </div>
+  );
+}
+
 /* One line of money: a short label (TA / DA, or blank under the line above),
    what it is, and the amount on the right. */
 function MoneyRow({ label, amount, note, children }) {
@@ -2424,10 +2478,12 @@ function TripDay({ row, data, car, last, multi, night, bills, stayOff, billStrip
               </div>
             ) : car ? (
               // the own car: one TA line, this day's share of the fuel
-              <MoneyRow label="TA" amount={carShare ? carShare.amount : null} note="fuel">
+              // (28 Nov 2026) the day shows TA ₹0: the car is paid once, from the fuel bills
+              // in the car box above -- no per-day share here (the claim itself is unchanged)
+              <MoneyRow label="TA" amount={0}>
                 <Car className="mr-1 inline h-3.5 w-3.5 align-[-2px]" aria-hidden />
                 {jr ? `${jr.from} → ${jr.to} + local` : "Local"}
-                {carShare ? (carShare.km ? ` · ${carShare.km} km by car` : " · share of the fuel bills") : ""}
+                {" · own car · paid from the fuel bills"}
               </MoneyRow>
             ) : (row.travelLegs || []).filter((l) => !l.flown).length > 1 ? (
               // a day with more than one journey (in, a move between OS HQs, home): one line each (21 Nov 2026)

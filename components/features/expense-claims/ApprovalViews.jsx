@@ -18,12 +18,14 @@ import {
   decideNonReport,
   decideTrip,
   fetchCarQueue,
+  fetchClaimsByRemark,
   fetchNonReportQueue,
   fetchTeamMonth,
   makeConn,
 } from "./data/claimsApi";
 import { parseTripTag } from "./fieldTrips";
 import { FilePreview, billFile, useFileUrl } from "./ui";
+import { loggedUser } from "../support-report/data/erpClient";
 
 const cn = (...a) => a.filter(Boolean).join(" ");
 const inr = (n) => "₹" + Math.round(Number(n) || 0).toLocaleString("en-IN");
@@ -500,6 +502,14 @@ function TripBody({ conn, trip, busy, onAccept, onBack }) {
   const files = useMemo(() => trip.bills.map((b) => billFile(b.url)).filter(Boolean), [trip.bills]);
   const lineOf = (date, type) => trip.lines.filter((l) => String(l.expense_date).slice(0, 10) === date && l.expense_type === type).reduce((a, l) => a + (Number(l.amount) || 0), 0);
   const billTotal = trip.bills.reduce((a, b) => a + b.amount, 0);
+  // an own-car trip (28 Nov 2026): its fuel bills, one summary row -- the fuel lines if sent, else the bills
+  const fuelLines = trip.lines.filter((l) => l.expense_type === "Fuel");
+  const fuelBills = trip.bills.filter((b) => b.kind === "Fuel");
+  const fuelTotal = fuelLines.length
+    ? fuelLines.reduce((a, l) => a + (Number(l.amount) || 0), 0)
+    : fuelBills.length
+      ? fuelBills.reduce((a, b) => a + b.amount, 0)
+      : null;
   /* a sent outstation trip's DA is pooled (27 Nov 2026): each OS day shows its share -- the trip's
      stay + food + DA lines split in proportion to each day's own allowance -- as "OS day i/n" */
   const osDays = trip.days.filter((d) => OS_TYPES.has(d.day_type) && Number(d.da) > 0);
@@ -546,6 +556,15 @@ function TripBody({ conn, trip, busy, onAccept, onBack }) {
           </div>
         );
       })}
+      {fuelTotal != null && (
+        <div className="mt-2 flex items-center gap-2 rounded-lg border border-gray-200 bg-gray-50 px-2.5 py-1.5 text-[12px]">
+          <Car className="h-4 w-4 flex-none text-gray-500" aria-hidden />
+          <span className="min-w-0 flex-1 text-gray-700">
+            <b className="text-gray-900">Own car</b> · fuel {inr(fuelTotal)}
+            <span className="block text-[11px] text-gray-500">TA on car days ₹0 — paid from fuel</span>
+          </span>
+        </div>
+      )}
       {trip.bills.length > 0 && (
         <>
           <p className="mb-1 mt-2 text-[10px] font-bold uppercase tracking-wide text-gray-400">
@@ -571,6 +590,79 @@ function TripBody({ conn, trip, busy, onAccept, onBack }) {
       {trip.state === "sent" && <Actions busy={busy} backLabel="Send back trip" okLabel="Accept trip" onOk={onAccept} onBack={onBack} />}
       {trip.state === "notsent" && <p className="mt-2 text-[11.5px] text-gray-500">Not sent yet — accept it once it is sent.</p>}
       {trip.state === "partial" && <p className="mt-2 text-[11.5px] text-gray-500">{trip.partialLabel} yet — the rest are accepted.</p>}
+      {full && conn ? <FilePreview conn={conn} file={full} files={files} onClose={() => setFull(null)} /> : null}
+    </>
+  );
+}
+
+/* A manager's (SM / ZSM) monthly CAB claim (28 Nov 2026): remark "Field Cab · YYYY-MM",
+   bills paid by Accounts outside payroll -- decided on its own, never with the TA/DA month.
+   Same two steps as the combined page's CabClaimPanel: Approve, or a comment + Reject. */
+const CAB_REMARK = (month) => `Field Cab · ${month}`;
+const cabCheck = (ai) =>
+  !ai ? ["not checked", "text-amber-700"]
+    : /entered by hand/i.test(ai.reason || "") ? ["handwritten", "text-amber-700"]
+      : ai.score != null && ai.score < 90 ? ["possible repeat", "text-red-700"]
+        : ["checked", "text-green-700"];
+const cabState = (st) => (st === "Waiting for Approval" ? "sent" : ["Approved", "Verified", "Paid"].includes(st) ? "approved" : st === "Rejected" ? "rejected" : "notsent");
+const CAB_LABEL = { sent: "To approve", approved: "Approved", rejected: "Sent back", notsent: "Not sent yet" };
+
+function CabRow({ conn, line, onOpen }) {
+  const file = useMemo(() => (line.bill ? billFile(line.bill) : null), [line.bill]);
+  const img = file?.kind === "image";
+  const { status, url } = useFileUrl(img ? conn : null, img ? file : null);
+  const [word, tone] = cabCheck(line.ai);
+  const vendor = line.ai?.vendor || String(line.note || "").split(" · ")[1] || "Cab";
+  return (
+    <div className="grid grid-cols-[34px_minmax(0,1fr)_auto_44px] items-center gap-x-2 border-b border-gray-100 py-1.5 text-[12px] last:border-b-0">
+      <span className="text-center leading-none">
+        <b className="block text-[14px] text-gray-800">{Number(line.date.slice(8, 10))}</b>
+        <small className="text-[9.5px] font-bold uppercase text-gray-500">{MON[Number(line.date.slice(5, 7)) - 1]}</small>
+      </span>
+      <span className="min-w-0">
+        <span className="block truncate font-semibold text-gray-800">{vendor}</span>
+        <span className={cn("block truncate text-[10.5px] font-semibold", tone)}>{word === "checked" ? "bill checked" : line.ai?.reason ? `${word} · ${line.ai.reason}` : word}</span>
+      </span>
+      <b className="text-right tabular-nums">{inr(line.amount)}</b>
+      {file ? (
+        <button type="button" onClick={onOpen} aria-label={`Bill ${dd(line.date)} ${inr(line.amount)}`} className="relative grid h-10 w-11 place-items-center overflow-hidden rounded-lg border border-gray-200 bg-gray-100 text-gray-400">
+          {img && status === "ready" ? <img src={url} alt="" className="h-full w-full object-cover object-top" /> : file.kind === "pdf" ? <b className="text-[10px] text-red-700">PDF</b> : <Receipt className="h-4 w-4" />}
+        </button>
+      ) : (
+        <span />
+      )}
+    </div>
+  );
+}
+
+function CabBody({ conn, claim: c, canAct, busy, onApprove, onBack }) {
+  const [full, setFull] = useState(null);
+  const lines = useMemo(() => [...c.lines].sort((a, b) => a.date.localeCompare(b.date)), [c.lines]);
+  const files = useMemo(() => lines.filter((l) => l.bill).map((l) => billFile(l.bill)).filter(Boolean), [lines]);
+  const total = lines.reduce((a, l) => a + (Number(l.amount) || 0), 0);
+  const flagged = lines.filter((l) => cabCheck(l.ai)[0] !== "checked").length;
+  const st = cabState(c.status);
+  return (
+    <>
+      <div className="grid grid-cols-[34px_minmax(0,1fr)_auto_44px] gap-x-2 pb-1 text-[9.5px] font-bold uppercase tracking-wide text-gray-400">
+        <span>Day</span>
+        <span>Cab</span>
+        <span className="text-right">Amount</span>
+        <span className="text-right">Bill</span>
+      </div>
+      {lines.map((l) => (
+        <CabRow key={l.id} conn={conn} line={l} onOpen={() => setFull(billFile(l.bill))} />
+      ))}
+      <div className="mt-2 flex justify-between border-t border-dashed border-gray-200 pt-2 text-[12.5px]">
+        <span className="text-gray-600">
+          {lines.length} bill{lines.length === 1 ? "" : "s"}
+          {flagged ? <span className="ml-1 font-semibold text-amber-700">· {flagged} to look at</span> : null}
+        </span>
+        <b>{inr(total)}</b>
+      </div>
+      <p className="mt-2 text-[11.5px] text-gray-500">Not TA/DA. Approving is final — Accounts pay cabs outside payroll. The TA/DA Approve below does not cover these.</p>
+      {st === "sent" && canAct && <Actions busy={busy} backLabel="Send back" okLabel="Approve cabs" onOk={onApprove} onBack={onBack} />}
+      {st === "sent" && !canAct && <p className="mt-2 text-[11.5px] text-gray-500">Waiting for its own approver.</p>}
       {full && conn ? <FilePreview conn={conn} file={full} files={files} onClose={() => setFull(null)} /> : null}
     </>
   );
@@ -621,6 +713,31 @@ function TaDaView({ conn }) {
     if (rep && rep.employee !== sel) setSel(rep.employee);
   }, [rep, sel]);
 
+  // the person's cab claim(s) of the month (28 Nov 2026) -- read on their own, decided on their own
+  const [me, setMe] = useState(null);
+  useEffect(() => {
+    let alive = true;
+    loggedUser(conn).then((u) => alive && setMe(u));
+    return () => {
+      alive = false;
+    };
+  }, [conn]);
+  const [cabs, setCabs] = useState({ key: null, list: [] });
+  const [cabTick, setCabTick] = useState(0);
+  const repId = rep?.employee || null;
+  useEffect(() => {
+    if (!repId) return undefined;
+    let alive = true;
+    const key = `${repId}|${month}`;
+    fetchClaimsByRemark(conn, repId, CAB_REMARK(month), 20)
+      .then((list) => alive && setCabs({ key, list: (list || []).filter((c) => c.lines.length) }))
+      .catch(() => alive && setCabs({ key, list: [] }));
+    return () => {
+      alive = false;
+    };
+  }, [conn, repId, month, cabTick]);
+  const cabList = cabs.key === `${repId}|${month}` ? cabs.list : [];
+
   const run = async (trip, what, fn, ok) => {
     setBusy({ trip: trip?.id || "month", what });
     setMsg(null);
@@ -662,6 +779,60 @@ function TaDaView({ conn }) {
       },
       `${t.title} sent back to ${firstName(rep?.name)}`
     );
+  const cabRun = async (c, what, fn, ok) => {
+    setBusy({ trip: `cab:${c.id}`, what });
+    setMsg(null);
+    try {
+      await fn();
+      setMsg({ ok: true, text: ok });
+      setCabTick((n) => n + 1);
+    } catch (e) {
+      const t = errText(e);
+      setMsg({ ok: false, text: /modified after/i.test(t) ? "The cab claim changed meanwhile. Refresh and try again." : t });
+    } finally {
+      setBusy(null);
+    }
+  };
+  const cabTotal = (c) => c.lines.reduce((a, l) => a + (Number(l.amount) || 0), 0);
+  const approveCabs = (c) => cabRun(c, "ok", () => applyAction(conn, c.id, "Approve"), `${firstName(c.employeeName || rep?.name)}'s cabs approved — ${inr(cabTotal(c))}, a record for Accounts (not TA/DA, not payroll)`);
+  const sendBackCabs = (c, why) =>
+    cabRun(
+      c,
+      "back",
+      async () => {
+        await addClaimComment(conn, c.id, why);
+        await applyAction(conn, c.id, "Reject");
+      },
+      `${firstName(c.employeeName || rep?.name)}'s cabs sent back`
+    );
+  const cabItems = cabList
+    .filter((c) => {
+      const st = cabState(c.status);
+      return flt === "all" || (flt === "accept" ? st === "sent" : flt === "accepted" ? st === "approved" : flt === "notsent" ? st === "notsent" || st === "rejected" : false);
+    })
+    .map((c) => {
+      const ds = c.lines.map((l) => l.date).filter(Boolean).sort();
+      const st = cabState(c.status);
+      const canAct = st === "sent" && !!me && c.approver === me;
+      return {
+        id: `cab:${c.id}`,
+        from: ds[0] || `${month}-01`,
+        to: ds[ds.length - 1] || ds[0] || `${month}-01`,
+        card: {
+          state: st,
+          label: CAB_LABEL[st],
+          title: (
+            <>
+              <Car className="mr-1 inline h-4 w-4 align-[-3px] text-gray-500" aria-hidden />
+              Cabs
+            </>
+          ),
+          sub: `${c.lines.length} bill${c.lines.length === 1 ? "" : "s"} · paid by Accounts`,
+          amount: cabTotal(c),
+        },
+        body: <CabBody conn={conn} claim={c} canAct={canAct} busy={busy?.trip === `cab:${c.id}` ? busy.what : null} onApprove={() => approveCabs(c)} onBack={(why) => sendBackCabs(c, why)} />,
+      };
+    });
   const approveMonth = () =>
     run(
       null,
@@ -673,7 +844,13 @@ function TaDaView({ conn }) {
     );
 
   const trips = rep ? rep.blocks : [];
-  const counts = { all: trips.length, accept: trips.filter((t) => t.state === "sent").length, notsent: trips.filter((t) => t.state === "notsent" || t.state === "back" || t.state === "partial").length, accepted: trips.filter((t) => t.state === "accepted").length };
+  const cabSt = cabList.map((c) => cabState(c.status));
+  const counts = {
+    all: trips.length + cabSt.length,
+    accept: trips.filter((t) => t.state === "sent").length + cabSt.filter((x) => x === "sent").length,
+    notsent: trips.filter((t) => t.state === "notsent" || t.state === "back" || t.state === "partial").length + cabSt.filter((x) => x === "notsent" || x === "rejected").length,
+    accepted: trips.filter((t) => t.state === "accepted").length + cabSt.filter((x) => x === "approved").length,
+  };
   const shown = trips.filter((t) => flt === "all" || (flt === "accept" ? t.state === "sent" : flt === "notsent" ? t.state === "notsent" || t.state === "back" || t.state === "partial" : t.state === "accepted"));
   const canApprove = rep && rep.sent === rep.trips.length && rep.acc === rep.trips.length && rep.waiting.length > 0;
 
@@ -727,7 +904,7 @@ function TaDaView({ conn }) {
               to: t.to,
               card: { state: t.state, label: t.state === "partial" ? t.partialLabel : STATE_LABEL[t.state], tag: t.os ? "OS" : "HQ", title: t.title, sub: t.sub, amount: t.amount },
               body: <TripBody conn={conn} trip={t} busy={busy?.trip === t.id ? busy.what : null} onAccept={() => accept(t)} onBack={(why) => sendBack(t, why)} />,
-            }))}
+            })).concat(cabItems)}
           />
           {!rep.done && (
             <div className="sticky bottom-0 mt-3 flex items-center gap-2 border-t border-gray-200 bg-white px-4 py-3">
