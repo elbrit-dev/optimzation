@@ -33,16 +33,8 @@ export function SubjectCard({ subject, me, state, note, onOpen, className, field
     const more = restF.filter((f) => String(f.v ?? '').trim() && String(f.v).trim() !== '—');
     return (
       <div className={cx('flex min-w-0 flex-col gap-1 rounded-lg border border-line bg-surface px-3 py-2', className)}>
-        <div className="flex min-w-0 items-center gap-2">
-          <span className="min-w-0 truncate text-14 font-semibold text-heading">{subject ? name : 'Your answers'}</span>
-          {code ? <span className={CHIP}>{code}</span> : null}
-          <span className="flex-1" />
-          {city ? (
-            <span className="flex min-w-0 shrink items-center gap-1 truncate text-12 text-ds-muted">
-              <Icon name="map-marker" size="var(--fs-12)" className="shrink-0" />
-              <span className="truncate">{city}</span>
-            </span>
-          ) : null}
+        <div className="flex min-w-0 items-start gap-2">
+          <span className="min-w-0 flex-1 text-14 font-semibold leading-5 text-heading [overflow-wrap:anywhere]">{subject ? name : 'Your answers'}</span>
           {pill ? (
             <StatusPill status={ROW_TONE[state]} className="shrink-0 gap-1">
               {state === 'done' ? <Icon name="check" size="var(--fs-8)" /> : null}
@@ -50,6 +42,17 @@ export function SubjectCard({ subject, me, state, note, onOpen, className, field
             </StatusPill>
           ) : null}
         </div>
+        {code || city ? (
+          <div className="flex min-w-0 items-center gap-2">
+            {code ? <span className={CHIP}>{code}</span> : null}
+            {city ? (
+              <span className="flex min-w-0 items-center gap-1 text-12 text-ds-muted">
+                <Icon name="map-marker" size="var(--fs-12)" className="shrink-0" />
+                <span className="truncate">{city}</span>
+              </span>
+            ) : null}
+          </div>
+        ) : null}
         {more.length ? (
           <dl className="flex flex-wrap gap-x-3 gap-y-0.5 text-12">
             {more.map((f) => (

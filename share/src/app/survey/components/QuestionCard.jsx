@@ -642,6 +642,8 @@ const readWord = (k) => String(k).replace(/_/g, ' ').replace(/^./, (c) => c.toUp
 const showVal = (v) => (v === true ? 'Yes' : v === false ? 'No' : v == null ? '' : String(v));
 const inr = (n) => `₹${Number(n).toLocaleString('en-IN', { maximumFractionDigits: 2 })}`;
 function AiCheck({ f, disabled, onPatch }) {
+  /* 28 Nov 2026 · on a phone a 69-line statement was 4-5 screens of table: the lines open folded (the first 5) */
+  const [openLists, setOpenLists] = useState({});
   const ai = f.ai || {};
   const fields = ai.fields && typeof ai.fields === 'object' ? ai.fields : {};
   const flags = aiFlags(f);
@@ -653,18 +655,19 @@ function AiCheck({ f, disabled, onPatch }) {
   const changed = (k, i, c) => !!ai.orig && String(was(k, i, c) ?? '') !== String((i == null ? fields[k] : fields[k]?.[i]?.[c]) ?? '');
   const setField = (k, val) => onPatch((a) => ({ ...a, fields: { ...a.fields, [k]: val } }));
   const setCell = (k, i, c, val) => onPatch((a) => ({ ...a, fields: { ...a.fields, [k]: a.fields[k].map((r, j) => (j === i ? { ...r, [c]: val } : r)) } }));
+  const FOLD = 5;
   return (
     <div className="flex flex-col gap-2 rounded-md bg-sunken px-2.5 py-2">
       {values.length ? (
         <div className="flex flex-col gap-1.5">
           <span className="text-10 font-semibold uppercase tracking-wide text-ds-muted">{disabled ? 'We read' : 'We read · correct anything wrong'}</span>
           {values.slice(0, 20).map(([k, v]) => (
-            <label key={k} className="flex items-center gap-2 text-12">
-              <span className="w-28 shrink-0 text-ds-muted">{readWord(k)}</span>
+            <label key={k} className="flex flex-col gap-0.5 text-12">
+              <span className="text-ds-muted">{readWord(k)}</span>
               {disabled ? (
-                <span className="min-w-0 flex-1 break-words font-semibold text-heading">{showVal(v) || '—'}</span>
+                <span className="min-w-0 break-words font-semibold text-heading">{showVal(v) || '—'}</span>
               ) : (
-                <input type="text" aria-label={readWord(k)} value={showVal(v)} onChange={(e) => setField(k, e.target.value)} className={cx('h-8 min-w-0 flex-1 rounded-md border bg-surface px-2 text-12 text-heading', changed(k) ? 'border-brand' : 'border-line-strong')} />
+                <input type="text" aria-label={readWord(k)} value={showVal(v)} onChange={(e) => setField(k, e.target.value)} className={cx('h-9 w-full min-w-0 rounded-md border bg-surface px-2 text-13 text-heading', changed(k) ? 'border-brand' : 'border-line-strong')} />
               )}
             </label>
           ))}
@@ -673,6 +676,8 @@ function AiCheck({ f, disabled, onPatch }) {
       {lists.map(([k, all]) => {
         const idx = all.map((r, i) => i).filter((i) => !el || all[i].elbrit_product);
         const cols = [...new Set(idx.flatMap((i) => Object.keys(all[i])))].filter((c) => c !== 'elbrit_product').slice(0, 7);
+        const open = Boolean(openLists[k]) || idx.length <= FOLD + 1;
+        const shown = open ? idx.slice(0, 80) : idx.slice(0, FOLD);
         return (
           <div key={k} className="flex flex-col gap-1">
             <span className="text-10 font-semibold uppercase tracking-wide text-ds-muted">
@@ -683,14 +688,14 @@ function AiCheck({ f, disabled, onPatch }) {
                 <table className="w-full text-11">
                   <thead>
                     <tr>
-                      {el ? <th className="whitespace-nowrap px-2 py-1 text-left font-medium text-ds-muted">Elbrit product</th> : null}
+                      {el ? <th className="sticky left-0 z-10 whitespace-nowrap bg-surface px-2 py-1 text-left font-medium text-ds-muted">Elbrit product</th> : null}
                       {cols.map((c) => <th key={c} className="whitespace-nowrap px-2 py-1 text-left font-medium text-ds-muted">{readWord(c)}</th>)}
                     </tr>
                   </thead>
                   <tbody>
-                    {idx.slice(0, 80).map((i) => (
+                    {shown.map((i) => (
                       <tr key={i} className="border-t border-line">
-                        {el ? <td className="whitespace-nowrap px-2 py-1 font-semibold text-heading">{all[i].elbrit_product}</td> : null}
+                        {el ? <td className="sticky left-0 z-10 whitespace-nowrap bg-surface px-2 py-1 font-semibold text-heading">{all[i].elbrit_product}</td> : null}
                         {cols.map((c) => (
                           <td key={c} className="px-1 py-0.5">
                             {disabled ? (
@@ -710,6 +715,17 @@ function AiCheck({ f, disabled, onPatch }) {
                   </tbody>
                 </table>
               </div>
+            ) : null}
+            {idx.length > FOLD + 1 ? (
+              <button
+                type="button"
+                aria-expanded={open}
+                onClick={() => setOpenLists((m) => ({ ...m, [k]: !open }))}
+                className="flex h-9 items-center justify-center gap-1.5 rounded-md border border-line bg-surface text-12 font-semibold text-brand-text hover:bg-brand-tint-weak"
+              >
+                <Icon name={open ? 'chevron-up' : 'chevron-down'} size="var(--fs-12)" />
+                {open ? 'Show fewer lines' : `Show all ${idx.length} lines`}
+              </button>
             ) : null}
           </div>
         );
