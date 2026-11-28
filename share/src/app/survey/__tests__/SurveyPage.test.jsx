@@ -77,9 +77,15 @@ describe('SurveyPage — one page per survey', () => {
     setup();
     await waitFor(() => expect(pickedTag()).toBe('Dr. Joseph Prabhu'));
     await user.click(history());
-    expect(await screen.findByText(/these are the answers you sent/)).toBeTruthy();
     expect(history().getAttribute('aria-pressed')).toBe('true');
-    expect(tagTitles()).toEqual(['Dr. Anitha Rajan']);
+    /* 28 Nov 2026 · History is a list; the open doctor's answers show under its row, a tap closes them */
+    const list = await screen.findByRole('list', { name: /submitted/ });
+    const anitha = within(list).getByRole('button', { name: /Dr\. Anitha Rajan/ });
+    await waitFor(() => expect(anitha.getAttribute('aria-expanded')).toBe('true'));
+    expect(screen.getByText('1 submitted')).toBeTruthy();
+    expect(screen.queryByText(/these are the answers you sent/)).toBeNull();
+    await user.click(anitha);
+    expect(anitha.getAttribute('aria-expanded')).toBe('false');
     await user.click(screen.getByRole('button', { name: /^To do · 3$/ }));
     expect(tagTitles()).toEqual(['Dr. Joseph Prabhu', 'Dr. Meenakshi Sundar', 'Dr. Arul Selvan']);
   });
@@ -142,7 +148,8 @@ describe('SurveyPage — one page per survey', () => {
     const anitha = await responseOf('Dr. Anitha Rajan');
     window.history.replaceState(null, '', `/survey/${RX}?r=${encodeURIComponent(anitha)}`);
     setup();
-    expect(await screen.findByText(/these are the answers you sent/)).toBeTruthy();
+    const list = await screen.findByRole('list', { name: /submitted/ });
+    await waitFor(() => expect(within(list).getByRole('button', { name: /Dr\. Anitha Rajan/ }).getAttribute('aria-expanded')).toBe('true'));
     expect(history().getAttribute('aria-pressed')).toBe('true');
     expect(row()).toBe(anitha);
   });

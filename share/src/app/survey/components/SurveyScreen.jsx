@@ -1,6 +1,6 @@
 'use client';
 
-import { useMemo, useState } from 'react';
+import { cloneElement, useMemo, useState } from 'react';
 import { Button, Card, Icon, StatusPill, cx, toneFill } from '@/design-system';
 import { daysLeft, dueText, rowState, shortDate, targetOf } from '../data/shape';
 import { AddSubjectsSheet } from './AddSubjectsSheet';
@@ -41,6 +41,8 @@ export function SurveyScreen({ survey, today, drafts, api, onOpenRow, onChanged,
   const [near, setNear] = useState(false);
   const [error, setError] = useState(null);
   const [notice, setNotice] = useState(null);
+  /* 28 Nov 2026 · History as a list: the open doctor's answers show under its row; a tap on it again closes them */
+  const [shut, setShut] = useState(false);
 
   const rows = useMemo(() => survey.rows.map((r) => ({ ...r, view: rowState(r, drafts) })), [survey.rows, drafts]);
   const done = rows.filter((r) => r.view === 'done').length;
@@ -176,7 +178,8 @@ export function SurveyScreen({ survey, today, drafts, api, onOpenRow, onChanged,
       ) : null}
 
       {/* the doctors / records still to do as tabs (History: the submitted ones) — a tab shows that one's questions below */}
-      {multi || canAdd ? (
+      {/* 28 Nov 2026 · History is a list (below), not tags */}
+      {(multi || canAdd) && !(history && multi) ? (
         <RecordTabs
           rows={tabRows}
           value={openResponse}
@@ -189,7 +192,53 @@ export function SurveyScreen({ survey, today, drafts, api, onOpenRow, onChanged,
         />
       ) : null}
 
-      {form ||
+      {history && multi ? (
+        <div className="flex flex-col gap-2">
+          <div className="flex items-center justify-between gap-2">
+            {leading}
+            <span className="text-13 font-medium text-ds-muted">{tabRows.length} submitted</span>
+          </div>
+          {tabRows.length ? (
+            <ul aria-label={`${t.Many}: submitted`} className="flex flex-col divide-y divide-line overflow-hidden rounded-xl border border-line bg-surface">
+              {tabRows.map((r) => {
+                const on = r.response === openResponse && !shut;
+                const ap = r.approval?.status;
+                const pill = ap === 'Approved' ? ['success', r.approval?.auto ? 'Approved · AI' : 'Approved'] : r.approval ? ['warning', 'Waiting approval'] : ['neutral', 'Submitted'];
+                return (
+                  <li key={r.response} className="flex flex-col">
+                    <button
+                      type="button"
+                      aria-expanded={on}
+                      onClick={() => {
+                        if (r.response === openResponse) setShut((x) => !x);
+                        else {
+                          setShut(false);
+                          onOpenRow?.(r.response);
+                        }
+                      }}
+                      className={cx('flex min-h-14 w-full items-center gap-3 px-3 py-2.5 text-left transition-colors hover:bg-sunken', on && 'bg-sunken')}
+                    >
+                      <span className="flex min-w-0 flex-1 flex-col">
+                        <span className="truncate text-14 font-semibold text-heading">{r.subject?.label || 'Your answers'}</span>
+                        <span className="truncate text-12 tabular-nums text-ds-muted">
+                          {[r.subject?.code, r.submitted_on ? `Sent ${shortDate(r.submitted_on)}` : ''].filter(Boolean).join(' · ')}
+                        </span>
+                      </span>
+                      <StatusPill status={pill[0]} className="shrink-0">
+                        {pill[1]}
+                      </StatusPill>
+                      <Icon name="chevron-down" size="var(--fs-12)" className={cx('shrink-0 text-ds-muted transition-transform', on && 'rotate-180')} />
+                    </button>
+                    {on && form ? <div className="border-t border-line bg-page px-2 pb-3 pt-2.5">{cloneElement(form, { inList: true })}</div> : null}
+                  </li>
+                );
+              })}
+            </ul>
+          ) : (
+            <p className="py-8 text-center text-12 text-ds-muted">Nothing submitted yet.</p>
+          )}
+        </div>
+      ) : form ||
         (rows.length ? (
           <p className="py-8 text-center text-12 text-ds-muted">
             {tab === 'done' ? 'Nothing submitted yet.' : tab === 'todo' ? `Nothing left to do — every one is submitted${canAdd ? `. Add more ${t.many} if you met others.` : '. Thank you.'}` : 'Nothing here.'}

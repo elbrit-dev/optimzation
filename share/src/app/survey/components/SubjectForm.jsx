@@ -67,7 +67,7 @@ function useBottomNavGap(gap) {
   return nav ? `calc(${nav}px + ${gap})` : gap;
 }
 
-export function SubjectForm({ survey, row, rows, me, draft, api, onBack, onDraft, onSubmitted, onDirtyChange, onAnswersChange, onSwitchRow, bottomGap: bottomGapProp = 'var(--space-12)' }) {
+export function SubjectForm({ survey, row, rows, me, draft, api, onBack, onDraft, onSubmitted, onDirtyChange, onAnswersChange, onSwitchRow, bottomGap: bottomGapProp = 'var(--space-12)', inList = false }) {
   const bottomGap = useBottomNavGap(bottomGapProp);
   /* The questions with this record's values in their {#fields} (data/view.js). */
   const questions = useMemo(() => filledQuestions(survey, row), [survey, row]);
@@ -213,7 +213,8 @@ export function SubjectForm({ survey, row, rows, me, draft, api, onBack, onDraft
   return (
     <div ref={rootRef} className="flex flex-col gap-3">
       {/* 26 Nov 2026: the doctors / records strip and the progress are the survey's (SurveyScreen), above this form. */}
-      <SubjectCard subject={row.subject} me={me} state={row.state === 'todo' ? (row.returned ? 'returned' : draft ? 'draft' : 'new') : row.state} fields={(survey.studio?.card ?? []).map((f) => ({ k: f.k, l: f.l, v: row.values?.[f.k] ?? '' }))} added={Boolean(row.added)} />
+      {/* 28 Nov 2026 · opened from History's list (`inList`): its row already names the record, the date and the state */}
+      {inList ? null : <SubjectCard subject={row.subject} me={me} state={row.state === 'todo' ? (row.returned ? 'returned' : draft ? 'draft' : 'new') : row.state} fields={(survey.studio?.card ?? []).map((f) => ({ k: f.k, l: f.l, v: row.values?.[f.k] ?? '' }))} added={Boolean(row.added)} />}
       <SurveyView survey={survey} row={row} />
 
       {/* the whole-form count — only when the questions have no sections (each section has its own); 28 Nov 2026: one
@@ -229,13 +230,13 @@ export function SubjectForm({ survey, row, rows, me, draft, api, onBack, onDraft
           </span>
         </p>
       ) : null}
-      {row.state === 'done' && row.approval ? (
+      {row.state === 'done' && row.approval && !inList ? (
         <p role="note" className={`flex items-center gap-2 rounded-lg px-3 py-2 text-12 ${row.approval.status === 'Approved' ? 'bg-success-wash text-success' : 'bg-sunken text-ds-secondary'}`}>
           <Icon name={row.approval.status === 'Approved' ? 'verified' : 'clock'} size="sm" className="shrink-0" />
           {row.approval.status === 'Approved' ? `Approved${row.approval.auto ? ' by the AI (Clear)' : row.approval.by_name ? ` by ${row.approval.by_name}` : ''}.` : 'Waiting for approval.'}
         </p>
       ) : null}
-      {row.state === 'done' ? (
+      {row.state === 'done' && !inList ? (
         <p role="note" className="flex items-center gap-2 rounded-lg bg-success-wash px-3 py-2 text-12 text-success">
           <Icon name="check-circle" size="sm" className="shrink-0" />
           Submitted{row.submitted_on ? ` on ${shortDate(row.submitted_on)}` : ''} — these are the answers you sent.
