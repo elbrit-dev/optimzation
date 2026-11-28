@@ -112,9 +112,11 @@ export function BlockCard({ block, onOpen }) {
   const S = STATE[k];
   const days = items.flatMap((x) => x.trip.days);
   const paid = days.filter((d) => d.payable);
-  const ta = items.reduce((a, x) => a + x.calc.ta, 0);
+  // own car (28 Nov 2026): the trip card shows TA / total WITHOUT the car's fuel share -- that is on the Car card
+  const carOf = (c) => (c && c.carBilled && c.carPool ? Number(c.carPool.amount) || 0 : 0);
+  const ta = items.reduce((a, x) => a + x.calc.ta - carOf(x.calc), 0);
   const da = items.reduce((a, x) => a + x.calc.da, 0);
-  const total = items.reduce((a, x) => a + x.calc.total, 0);
+  const total = items.reduce((a, x) => a + x.calc.total - carOf(x.calc), 0);
   // the DA's full limit while bills can still add to it
   const one = items.length === 1 ? items[0].calc : null;
   const gap = S.act && one && one.billsAllowed && one.nights.length > 0 && !one.fullNoBill ? Math.max(0, (one.pool?.full || 0) - (one.pool?.paid || 0)) : 0;
