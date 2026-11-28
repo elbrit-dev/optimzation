@@ -251,13 +251,22 @@ export function fetchOrg(conn) {
    (asked 2026-10-14). Told apart by the signed-in person's own Employee
    record, an Active one first. */
 const MANAGEMENT = ["Chief Executive Officer", "General Manager"];
+/* HEAD OFFICE takes the same reads (28 Nov 2026): HR, PMT, Accounts and CFA
+   see every division. WHO sees everything is decided by the ERP (Elbrit
+   Visit Summary / Rows, by seat and its role template, which this app does
+   not read), and every read here is the viewer's own permissions -- so
+   sending every back-office seat (BO-*), any CFA seat and a login with no
+   Employee record (the old "CFA Coimbatore" logins) this way gives
+   everyone else exactly what they saw before. */
+const HEAD_OFFICE_SEATS = /^BO-|cfa/i;
 export function isManagement(org) {
   const email = String(org?.email || "").toLowerCase();
   if (!email) return false;
   const me = (org.employees || [])
     .filter((e) => (e.userId || "").toLowerCase() === email)
     .sort((a, b) => (b.active !== false) - (a.active !== false))[0];
-  return MANAGEMENT.includes(String(me?.designation || "").trim());
+  if (!me) return Boolean(org.employees?.length);
+  return MANAGEMENT.includes(String(me.designation || "").trim()) || HEAD_OFFICE_SEATS.test(me.rp || "");
 }
 
 /* A month for MANAGEMENT, in fetchMonth's shape: only the item lines that

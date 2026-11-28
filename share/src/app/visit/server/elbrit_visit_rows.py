@@ -109,7 +109,10 @@ def downline_of(user):
 
 def visit_events(filters, fields):
     # As in elbrit_visit_summary — keep the two in step.
-    if frappe.db.get_value("User", frappe.session.user, "role_profile_name") in ALL_VISITS_PROFILES:
+    # HR, PMT, Accounts and CFA seats see every visit too (28 Nov 2026).
+    rp = frappe.db.get_value("User", frappe.session.user, "role_profile_name") or ""
+    tpl = (frappe.db.get_value("Role Profile", rp, "custom_role_template") if rp else "") or ""
+    if (tpl or rp) in ALL_VISITS_PROFILES or rp.startswith(("BO-HR-", "BO-MKT-", "BO-ACC-")) or "cfa" in (rp + " " + tpl).lower():
         return frappe.get_all("Event", filters=filters, fields=fields, limit_page_length=0)
     team = downline_of(frappe.session.user)
     out = []
