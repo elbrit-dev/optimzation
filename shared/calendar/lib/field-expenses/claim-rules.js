@@ -428,7 +428,7 @@ export function tripChecks(trip, claim, calc) {
     if (p) {
       // the range: the pool, the cap, this trip's days of it
       if (!p.fuel) out.push({ ok: true, text: `No fuel bill yet for ${p.from.slice(8)}–${p.to.slice(8)} · fare ₹${fmt(calc.fare)} paid.` });
-      else out.push({ ok: true, text: `Fuel bills ₹${fmt(p.fuel)} for ${p.from.slice(8)}–${p.to.slice(8)} · paid ₹${fmt(p.paid)}${calc.capped ? " (approved max)" : ""} over ${p.totalDays} EQ / OS days · this trip ${p.days} = ₹${fmt(p.amount)}.` });
+      // 28 Nov 2026: the pool's sums are on the Car sheet, not here
     } else if (!calc.fuel && !calc.tolls) out.push({ ok: true, text: `No car bill yet · fare ₹${fmt(calc.fare)} paid.` });
     else if (calc.capped) out.push({ ok: true, text: `Car bills ₹${fmt(calc.fuel + calc.tolls)} → ₹${fmt(calc.cap)} (approved max).` });
     else out.push({ ok: true, text: `Car bills ₹${fmt(calc.fuel + calc.tolls)} paid · up to ₹${fmt(calc.cap)}.` });

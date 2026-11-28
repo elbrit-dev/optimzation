@@ -1812,7 +1812,7 @@ function TripSheet({ item }) {
     ? `fare ${inr(calc.fare)} + ${inr(calc.travelExtra)} by train / bus tickets`
     : calc.car
     ? calc.carBilled
-      ? `own car · ${calc.carPool.days} of ${calc.carPool.totalDays} EQ / OS days of the fuel bills for ${rangeLabel(calc.carPool.from, calc.carPool.to)}`
+      ? "own car"
       : "own car · fare until the bills are in"
     : trip.kind === "hq"
       ? "no travel on an HQ day"
@@ -1884,43 +1884,23 @@ function TripSheet({ item }) {
           fuel / toll bills, and a flight -- the money itself is in Trip cost */}
       {(calc.car || (trip.flownFare > 0 && !calc.carBilled) || (f.canCar && trip.kind !== "hq" && calc.request)) && (
         <div className="flex flex-col gap-2">
+          {/* own car on this trip (28 Nov 2026): this trip's value only -- the request, its limit and every
+              fuel bill are on the Car sheet */}
           {calc.car && (
-            <div className="rounded-2xl border border-gray-200 px-3 py-2.5 text-[12.5px] text-gray-600">
-              <span className="flex items-start gap-1.5">
-                <ShieldCheck className="mt-0.5 h-4 w-4 shrink-0 text-gray-500" aria-hidden />
-                <span>
-                  {calc.carApproved ? "approved up to" : "allowed up to"} <b className="text-gray-900">{inr(calc.cap)}</b>
-                  {calc.carPool && ` for ${rangeLabel(calc.carPool.from, calc.carPool.to)} · its EQ / OS days · every fuel bill of them counts`}
-                  {!req?.ask && ` · ${trip.km} km ÷ ${MILEAGE_KM_PER_L} km/l × ₹${FUEL_PRICE.Petrol}`}
-                </span>
+            <div className="flex items-center gap-2 rounded-2xl border border-gray-200 px-3 py-2.5 text-[13px] text-gray-700">
+              <Car className="h-4 w-4 shrink-0 text-gray-500" aria-hidden />
+              <span className="min-w-0 flex-1">
+                <b className="text-gray-900">Own car</b>
+                {calc.carBilled ? " · this trip" : " · no fuel bill yet, fare paid"}
               </span>
-              <span className="mt-2 flex items-center gap-3">
-                <span className="block h-1.5 flex-1 overflow-hidden rounded-full bg-gray-100">
-                  <i
-                    className={cn("block h-full rounded-full", calc.capped ? "bg-amber-500" : "bg-green-600")}
-                    style={{ width: `${Math.min(100, Math.round(((calc.carPool ? calc.carPool.fuel : calc.fuel + calc.tolls) / (calc.cap || 1)) * 100))}%` }}
-                  />
-                </span>
-              </span>
-
-              {/* every fuel / toll bill as a row, seen without a tap (28 Nov 2026); a tap
-                  still opens the bill's details to remove it */}
-              <CarBillRows claim={claim} calc={calc} editing={editing} editable={editable} onPick={(kind, id) => setEditing(editing?.id === id ? null : { kind, id })} />
-              {editable && (editing?.kind === "fuels" || editing?.kind === "tolls") && (
-                <BillEditor
-                  key={editing.id}
-                  bill={(claim[editing.kind] || []).find((b) => b.id === editing.id)}
-                  kind={editing.kind}
-                  onRemove={() => removeBill(editing.kind, editing.id)}
-                />
-              )}
+              {calc.carBilled && <b className="shrink-0 tabular-nums text-gray-900">{inr(calc.carPool ? calc.carPool.amount : calc.fuel + calc.tolls)}</b>}
             </div>
           )}
 
           {/* a flown leg (the company's ticket, TA ₹0): each day row says it and
               the total already leaves it out -- no separate box (24 Nov 2026) */}
           {/* normal fare or own car, asked for right here (RBM, ZSM, SM) */}
-          {f.canCar && trip.kind !== "hq" && <CarMode calc={calc} editable={editable} />}
+          {f.canCar && trip.kind !== "hq" && calc.request?.status !== "approved" && <CarMode calc={calc} editable={editable} />}
         </div>
       )}
 
