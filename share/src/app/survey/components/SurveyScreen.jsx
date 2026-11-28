@@ -1,6 +1,6 @@
 'use client';
 
-import { cloneElement, useEffect, useMemo, useState } from 'react';
+import { cloneElement, useEffect, useMemo, useRef, useState } from 'react';
 import { Button, Card, Icon, StatusPill, cx } from '@/design-system';
 import { daysLeft, dueText, isAnswered, rowState, shortDate, targetOf } from '../data/shape';
 import { AddSubjectsSheet } from './AddSubjectsSheet';
@@ -49,8 +49,12 @@ export function SurveyScreen({ survey, today, drafts, api, onOpenRow, onChanged,
   useEffect(() => {
     if (tab !== 'todo') setAllMode(false);
   }, [tab]);
+  /* a card tapped in the list comes to the top; opening "All" itself keeps the circles in view */
+  const seenRef = useRef(null);
   useEffect(() => {
-    if (!allMode || !openResponse || shut) return;
+    const was = seenRef.current;
+    seenRef.current = allMode ? openResponse : null;
+    if (!allMode || !openResponse || shut || !was || was === openResponse) return;
     const el = typeof document !== 'undefined' ? document.querySelector(`[data-row="${openResponse}"]`) : null;
     if (el && typeof el.scrollIntoView === 'function') el.scrollIntoView({ block: 'start', behavior: 'smooth' });
   }, [allMode, openResponse, shut]);
