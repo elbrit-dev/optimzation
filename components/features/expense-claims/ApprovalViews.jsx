@@ -596,6 +596,14 @@ function TripBody({ conn, trip: trip0, office = [], busy, onAccept, onBack }) {
         const ds = trip.dayState ? trip.dayState[date] : null;
         const daySent = ds ? ds.sent : trip.sent;
         const da = os ? os.sh : daySent ? lineOf(date, "Daily Allowance") : Number(d.da) || 0;
+        // a day off inside the trip (weekly off, holiday, leave...): its name only, no place or amounts (28 Nov 2026)
+        if (!ta && !da && !OS_TYPES.has(d.day_type) && !/^(HQ|HQ-EQ|EQ)$/.test(String(d.day_type || "")))
+          return (
+            <div key={date} className="grid grid-cols-[30px_minmax(0,1fr)] items-start gap-x-2 py-1 text-[12px] text-gray-400">
+              <b>{Number(date.slice(8))}</b>
+              <span className="font-semibold">{d.day_type || "No work"}</span>
+            </div>
+          );
         return (
           <div key={date} className="grid grid-cols-[30px_minmax(0,1fr)_52px_52px] items-start gap-x-2 py-1 text-[12px]">
             <b className="text-gray-700">{Number(date.slice(8))}</b>
