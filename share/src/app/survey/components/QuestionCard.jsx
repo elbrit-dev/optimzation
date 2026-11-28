@@ -1296,22 +1296,19 @@ function ReadPlace({ v }) {
   }
   const sv = v.serving;
   return (
-    <div className="flex items-start gap-2.5">
-      <span className="mt-0.5 flex size-8 shrink-0 items-center justify-center rounded-full bg-brand-tint-weak text-brand-text">
-        <Icon name="map-marker" size="sm" />
-      </span>
+    <div className="flex items-start gap-2">
       <div className="flex min-w-0 flex-1 flex-col gap-0.5">
         <p className="text-14 font-semibold leading-5 text-heading [overflow-wrap:anywhere]">{v.name || 'Pinned on the map'}</p>
         {v.kind ? <p className="text-12 text-ds-muted">{v.kind}</p> : null}
         {v.address ? <p className="text-12 leading-[18px] text-ds-secondary">{v.address}</p> : null}
         {sv ? (
-          <p className="mt-1.5 flex items-center gap-1.5 self-start rounded-md bg-sunken px-2 py-1 text-12">
-            <span className="text-ds-muted">Distributor</span>
+          <p className="mt-1 text-12 leading-[18px]">
+            <span className="text-ds-muted">Distributor · </span>
             <b className="font-semibold text-heading">{sv.none ? 'Not sure' : sv.label || sv.customer}</b>
           </p>
         ) : null}
       </div>
-      <a href={mapUrl(v)} target="_blank" rel="noopener noreferrer" aria-label="Open in Google Maps" className="flex size-9 shrink-0 items-center justify-center rounded-md text-brand-text hover:bg-brand-tint-weak">
+      <a href={mapUrl(v)} target="_blank" rel="noopener noreferrer" aria-label="Open in Google Maps" className="-mr-1.5 -mt-1.5 flex size-9 shrink-0 items-center justify-center rounded-md text-brand-text hover:bg-brand-tint-weak">
         <Icon name="external-link" size="sm" />
       </a>
     </div>
@@ -1355,7 +1352,7 @@ function ReadAnswer({ q, value, inGroup = false }) {
     return (
       <div className="flex flex-col gap-2">
         {rows.map((r, i) => (
-          <div key={i} className="flex flex-col gap-2.5 rounded-lg border border-line bg-surface p-3">
+          <div key={i} className={cx('flex flex-col gap-2.5', rows.length > 1 && 'rounded-lg border border-line bg-surface p-3')}>
             {rows.length > 1 ? <p className="text-11 font-semibold uppercase tracking-wide text-ds-muted">{Noun} {i + 1}</p> : null}
             {kids.filter((k) => !isEmpty(r[k.id])).map((k) => (
               <div key={k.id} className="flex flex-col gap-1">
@@ -1402,7 +1399,7 @@ export function QuestionCard(props) {
   return <AnswerCard {...props} />;
 }
 
-function AnswerCard({ q, index, value, onChange, onUpload, api, response, answers, error, readOnly = false, disabled = false }) {
+function AnswerCard({ q, index, value, onChange, onUpload, api, response, answers, error, readOnly = false, disabled = false, flat = false, hideTitle = false }) {
   const answered = isAnswered(q, value);
   /* 27 Nov 2026 · Survey Studio (the artifact's phone): a short text / number's help sits under its box; a map's
      help that only repeats where the map starts is left out (the map's own tile says it, right for this doctor) */
@@ -1410,6 +1407,15 @@ function AnswerCard({ q, index, value, onChange, onUpload, api, response, answer
   const helpRepeats = q.type === 'map_location' && /^\s*the map starts at/i.test(q.description || '');
   const [busy, setBusy] = useState(false);
   const shownError = busy ? null : error;
+  /* 28 Nov 2026 · History's opened row: the answer without a card around it (it sat three boxes deep on a phone) */
+  if (flat && readOnly) {
+    return (
+      <div className="flex flex-col gap-1.5" data-question={q.id}>
+        {hideTitle ? null : <p className="text-12 font-semibold text-ds-muted">{q.label}</p>}
+        <ReadAnswer q={q} value={value} />
+      </div>
+    );
+  }
   return (
     <Card variant="hairline" className={cx('flex scroll-mt-20 flex-col gap-3 rounded-xl p-3 sm:p-4', shownError && 'border-danger-border')} data-question={q.id}>
       {/* 28 Nov 2026 · one line: the number, the question and its * (the "Q1 · FILE / REPEATED" line and the word

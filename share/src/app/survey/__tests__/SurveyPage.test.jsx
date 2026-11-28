@@ -49,7 +49,7 @@ describe('SurveyPage — one page per survey', () => {
     expect(header()).toBe('Rx audit — vascular rangeDr. Joseph Prabhu'); // "Survey › Dr name" (the › is an icon)
     expect(history().textContent).toBe('History · 1');
     expect(history().getAttribute('aria-pressed')).toBe('false');
-    expect(screen.getByText(/of 4 doctors done/)).toBeTruthy();
+    expect(screen.getByText(/of 4 done/)).toBeTruthy();
     expect(screen.queryByText(/to do · next/)).toBeNull(); // 28 Nov 2026: the count and the tags say it
     expect(tagTitles()).toEqual(['Dr. Joseph Prabhu', 'Dr. Meenakshi Sundar', 'Dr. Arul Selvan']);
     expect(screen.getByRole('button', { name: /^Done · 1$/ })).toBeTruthy();

@@ -138,8 +138,8 @@ export function SurveyScreen({ survey, today, drafts, api, onOpenRow, onChanged,
       ) : rows.length ? (
         <div className="flex flex-col gap-2">
           <div className="flex items-center justify-between gap-2 text-13 font-medium text-ds-secondary">
-            <span className="tabular-nums">
-              <span className="text-16 font-semibold text-heading">{done}</span> of {rows.length} {rows.length === 1 ? t.one : t.many} done
+            <span className="whitespace-nowrap tabular-nums">
+              <span className="text-16 font-semibold text-heading">{done}</span> of {rows.length} done
             </span>
             <span className="flex shrink-0 items-center gap-1.5">
             {duePill}
@@ -229,7 +229,7 @@ export function SurveyScreen({ survey, today, drafts, api, onOpenRow, onChanged,
                       </StatusPill>
                       <Icon name="chevron-down" size="var(--fs-12)" className={cx('shrink-0 text-ds-muted transition-transform', on && 'rotate-180')} />
                     </button>
-                    {on && form ? <div className="border-t border-line bg-page px-2 pb-3 pt-2.5">{cloneElement(form, { inList: true })}</div> : null}
+                    {on && form ? <div className="border-t border-line px-3 pb-3.5 pt-3">{cloneElement(form, { inList: true })}</div> : null}
                   </li>
                 );
               })}

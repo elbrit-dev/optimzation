@@ -257,6 +257,8 @@ export function SubjectForm({ survey, row, rows, me, draft, api, onBack, onDraft
           index={numberOf[q.id] ?? 0}
           value={answers[q.id]}
           readOnly={!editable}
+          flat={inList}
+          hideTitle={inList && answerable.length === 1 && String(q.label || '').trim().toLowerCase() === String(survey.title || '').trim().toLowerCase()}
           disabled={Boolean(busy)}
           error={tried ? problems[q.id] : null}
           onUpload={upload}
