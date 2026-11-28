@@ -28,10 +28,10 @@ describe('Show from ERP', () => {
 });
 
 describe('Photo and the AI', () => {
-  it('a camera photo says "Take a photo" and what the AI reads', () => {
+  it('a camera photo says "Take a photo", without the long "We read" line', () => {
     render(<QuestionCard q={photo} index={0} value={[]} onChange={() => {}} onUpload={() => Promise.resolve({})} />);
     expect(screen.getByText('Take a photo')).toBeTruthy();
-    expect(screen.getByText(/We read this automatically: Board visible\. You can correct the values before you submit\. It is checked on your phone first\./)).toBeTruthy();
+    expect(screen.queryByText(/We read this automatically/)).toBeNull();
   });
 
   it('Redo: a file that is not Clear blocks Submit until it is replaced; what was read is shown to check', () => {
@@ -142,10 +142,10 @@ describe('Repeated group', () => {
     expect(answerText(grp, [{ c1: 'Cardio 10 mg', c2: 40 }, { c1: 'Derma Soft', c2: 12 }])).toBe('1. Cardio 10 mg · 40\n2. Derma Soft · 12');
   });
 
-  it('reads a photo inside the group with the AI, and says so', () => {
+  it('reads a photo inside the group with the AI, without the long "We read" line', () => {
     const withPhoto = { ...grp, fields: [grp.fields[0], { id: 'c4', type: 'file_upload', label: 'Photo of the shelf', required: 1, accept: 'image', max_files: 1, ai: { schema: { type: 'object', properties: { batch_no: { type: 'string' } } }, fields: ['Batch no'] } }] };
     render(<QuestionCard q={withPhoto} index={1} value={undefined} onChange={() => {}} onUpload={() => Promise.resolve({})} />);
-    expect(screen.getByText(/We read this automatically: Batch no/)).toBeTruthy();
+    expect(screen.queryByText(/We read this automatically/)).toBeNull();
     expect(answerProblem(withPhoto, [{ c1: 'Cardio', c4: [{ url: '/private/files/a.jpg', name: 'a.jpg', ai: { redo: 1 } }] }])).toBe('Product 1 · Photo of the shelf: A file is not clear — remove it and upload it again.');
   });
 

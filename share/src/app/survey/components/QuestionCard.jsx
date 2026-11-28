@@ -943,14 +943,6 @@ function RepeatInput({ q, value: raw, onChange, disabled, onUpload, api, respons
                   </span>
                 ) : null}
                 <Input q={kidQ(k)} value={r[k.id]} onChange={(v) => setOne(i, k.id, v)} disabled={disabled} onUpload={onUpload} api={api} response={response} />
-                {k.type === 'file_upload' && k.ai?.schema && aiReads(k) && !disabled ? (
-                  <span className="flex items-start gap-1.5 text-11 text-ds-muted">
-                    <Icon name="eye" size="sm" className="mt-px shrink-0" />
-                    <span>
-                      We read this automatically: {aiReads(k)}{Array.isArray(k.ai?.lines) && k.ai.lines.length ? `, and every line (${k.ai.lines.join(', ')})` : ''}. You can correct the values before you submit.
-                    </span>
-                  </span>
-                ) : null}
                 {p ? <span className="text-11 font-medium text-danger-text">{p}</span> : null}
               </div>
             );
@@ -1045,13 +1037,8 @@ function Rate5({ q, value, onChange, disabled }) {
   );
 }
 
-/* the fields the AI reads from a photo / file, as words ("Invoice total, Party") */
-function aiReads(q) {
-  if (Array.isArray(q.ai?.fields) && q.ai.fields.length) return q.ai.fields.join(', ');
-  const tags = Array.isArray(q.ai?.tags) ? q.ai.tags.map((t) => t.label).filter(Boolean) : [];
-  if (tags.length) return tags.join(', ');
-  return Object.keys(q.ai?.schema?.properties ?? {}).map(readWord).join(', ');
-}
+/* 28 Nov 2026 · the "We read this automatically: …" line under a photo / file question is gone (the user: too much
+   text); what was read still shows after the upload ("We read · check and correct") */
 
 export function QuestionCard(props) {
   if (props.q.type === 'erp_info') return <ErpInfoCard q={props.q} />;
@@ -1098,14 +1085,6 @@ function AnswerCard({ q, index, value, onChange, onUpload, api, response, answer
         <Input q={q} value={value} onChange={onChange} disabled={disabled} onUpload={onUpload} api={api} response={response} answers={answers} onBusy={setBusy} showErrors={Boolean(error)} />
       )}
       {helpBelow && !readOnly ? <p className="-mt-1 text-13 text-ds-muted">{q.description}</p> : null}
-      {!readOnly && q.type === 'file_upload' && q.ai?.schema && aiReads(q) ? (
-        <p className="flex items-start gap-1.5 text-11 text-ds-muted">
-          <Icon name="eye" size="sm" className="mt-px shrink-0" />
-          <span>
-            We read this automatically: {aiReads(q)}{Array.isArray(q.ai?.lines) && q.ai.lines.length ? `, and every line (${q.ai.lines.join(', ')})` : ''}. You can correct the values before you submit.{q.ai.check_phone ? ' It is checked on your phone first.' : ''}
-          </span>
-        </p>
-      ) : null}
       {shownError ? (
         <p role="alert" className="flex items-center gap-1.5 text-11 font-medium text-danger-text">
           <Icon name="exclamation-circle" size="var(--fs-12)" />
