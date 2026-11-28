@@ -542,32 +542,41 @@ export function MapLocation({ q, value, onChange, disabled, api, response, searc
     /* nothing close to the saved location: zoom out to the nearest few */
     if (fitRef.current && start && near.places.length) {
       fitRef.current = false;
-      map.setZoom(fitZoom(start, Math.max(...near.places.slice(0, 4).map((p) => mapMeters(start, p))), boxRef.current));
+      if (!chosen.length) map.setZoom(fitZoom(start, Math.max(...near.places.slice(0, 4).map((p) => mapMeters(start, p))), boxRef.current));
     }
     labels();
   }, [chosen.map((c) => c.place_id).join('|'), near.places, res, showRes, mapErr, labels]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  /* without a saved point the map goes where the answer / results / searched point are */
+  /* 28 Nov 2026 · where the map looks, in one place: the search results while they are listed; else the chosen
+     place(s) — the pin; else the nearby list's centre. (Two effects used to fight: choosing a search result panned to
+     the pin, then the list closing panned back to the area, so the pin was off screen.) A saved answer opens on its pin. */
+  const viewKey = showRes
+    ? `r:${res.map((p) => p.id).join(',')}`
+    : chosen.length
+      ? `c:${chosen.map((c) => `${c.lat},${c.lng}`).join('|')}`
+      : near.center
+        ? `n:${near.center.lat},${near.center.lng}`
+        : '';
+  const mapOn = Boolean(mapRef.current);
   useEffect(() => {
     const map = mapRef.current;
     const gm = window.google?.maps;
-    if (!map || !gm || lockRef.current) return;
-    if (showRes) {
+    if (!map || !gm || lockRef.current || !viewKey) return;
+    const L = live.current;
+    const pts = (showRes ? res : L.chosen).map((p) => ({ lat: +p.lat, lng: +p.lng }));
+    if (pts.length === 1) {
+      map.panTo(pts[0]);
+      if ((map.getZoom() || 0) < 16) map.setZoom(17);
+    } else if (pts.length > 1) {
       const bd = new gm.LatLngBounds();
-      res.forEach((p) => bd.extend({ lat: +p.lat, lng: +p.lng }));
-      map.fitBounds(bd, 40);
-    } else if (near.center) {
-      map.panTo(near.center);
+      pts.forEach((x) => bd.extend(x));
+      map.fitBounds(bd, 48);
+    } else if (L.near.center) {
+      map.panTo(L.near.center);
       if ((map.getZoom() || 0) < 15) map.setZoom(16);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [showRes, res.length, near.center?.lat, near.center?.lng]);
-  useEffect(() => {
-    const map = mapRef.current;
-    if (!map || lockRef.current || !cur) return;
-    map.panTo({ lat: +cur.lat, lng: +cur.lng });
-    if ((map.getZoom() || 0) < 16) map.setZoom(17);
-  }, [cur?.place_id]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [viewKey, mapOn]);
 
   const nearMe = () => {
     if (!navigator.geolocation) return setFindErr('This phone can’t share its location.');
