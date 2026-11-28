@@ -665,8 +665,9 @@ export function MapLocation({ q, value, onChange, disabled, api, response }) {
   /* 27 Nov 2026 · when the matches open, the search goes to the top of the screen so the list fits above the
      Save / Submit bar */
   const shownRef = useRef(false);
+  const searchRef = useRef(null);
   useEffect(() => {
-    if (showMatches) boxRef.current?.scrollIntoView?.({ block: 'start', behavior: 'smooth' });
+    if (showMatches) searchRef.current?.scrollIntoView?.({ block: 'start', behavior: 'smooth' });
     else if (shownRef.current) quietRef.current = Date.now() + 600;
     shownRef.current = showMatches;
   }, [showMatches]);
@@ -702,48 +703,49 @@ export function MapLocation({ q, value, onChange, disabled, api, response }) {
         </p>
       )}
 
-      {/* 27 Nov 2026 · while matches are listed the box grows to fit them (inside 230 px on a phone only 2 showed) */}
-      <div className={cx('relative overflow-hidden rounded-lg border border-line bg-sunken', showMatches ? 'min-h-[300px] max-sm:min-h-[230px]' : 'h-[300px] max-sm:h-[230px]')}>
-        <div ref={boxRef} className="absolute inset-0 scroll-mt-2" role="region" aria-label={`Map of ${n1} — tap one to choose it`} />
-        {/* 27 Nov 2026 · a doctor with a saved location: no search, just the map and the places around it */}
-        {disabled || start ? null : (
-          <div className="absolute inset-x-2 top-2 flex gap-2">
-            <label className="relative min-w-0 flex-1">
-              <span className="sr-only">Search {n1}</span>
-              <Icon name="search" size="sm" className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-ds-muted" />
-              <input
-                type="search"
-                value={term}
-                autoComplete="off"
-                placeholder={start ? 'Can’t see it? Search by name' : `Search a ${n0}`}
-                onChange={(e) => setTerm(e.target.value)}
-                className="h-10 w-full rounded-lg bg-surface pl-9 pr-3 text-14 text-body shadow-md placeholder:text-placeholder focus:outline-none"
-              />
-            </label>
-            {start ? null : (
-              <button type="button" onClick={nearMe} className="flex h-10 shrink-0 items-center gap-1.5 rounded-lg bg-surface px-3 text-12 font-semibold text-heading shadow-md">
-                <Icon name="compass" size="sm" />
-                Near me
-              </button>
-            )}
-          </div>
-        )}
-        {showMatches ? (
-          <div role="region" aria-label={`Matching ${n1}`} className="relative mx-2 mb-2 mt-14 flex flex-col overflow-hidden rounded-lg bg-surface shadow-md">
-            <p className="shrink-0 border-b border-line px-3 py-1.5 text-12 font-semibold text-body">{recHead}</p>
-            <ul role="listbox" className="flex max-h-[max(11rem,calc(100dvh-22rem))] min-h-0 flex-col overflow-y-auto p-1">
-              {res.map((x) => row(x, false))}
-              {searching ? (
-                <li className="flex items-center gap-1.5 px-2.5 py-2 text-12 text-ds-muted">
-                  <Icon name="spinner pi-spin" size="sm" />
-                  Looking on Google Maps too…
-                </li>
-              ) : null}
-            </ul>
-          </div>
-        ) : null}
+      {/* 28 Nov 2026 · a small search bar ABOVE the map on every map (also when the doctor has a saved location — reps
+         asked for it), matches listed under it; nothing covers the map any more */}
+      {disabled ? null : (
+        <div ref={searchRef} className="flex scroll-mt-2 gap-2">
+          <label className="relative min-w-0 flex-1">
+            <span className="sr-only">Search {n1}</span>
+            <Icon name="search" size="sm" className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-ds-muted" />
+            <input
+              type="search"
+              value={term}
+              autoComplete="off"
+              placeholder={start ? `Can’t see it? Search a ${n0}` : `Search a ${n0}`}
+              onChange={(e) => setTerm(e.target.value)}
+              className="h-9 w-full rounded-lg border border-line-strong bg-surface pl-9 pr-3 text-13 text-body placeholder:text-placeholder focus:border-brand focus:outline-none"
+            />
+          </label>
+          {start ? null : (
+            <button type="button" onClick={nearMe} className="flex h-9 shrink-0 items-center gap-1.5 rounded-lg border border-line-strong bg-surface px-3 text-12 font-semibold text-heading">
+              <Icon name="compass" size="sm" />
+              Near me
+            </button>
+          )}
+        </div>
+      )}
+      {showMatches ? (
+        <div role="region" aria-label={`Matching ${n1}`} className="flex flex-col overflow-hidden rounded-lg border border-line bg-surface shadow-sm">
+          <p className="shrink-0 border-b border-line px-3 py-1.5 text-12 font-semibold text-body">{recHead}</p>
+          <ul role="listbox" className="flex max-h-[min(50dvh,360px)] min-h-0 flex-col overflow-y-auto p-1">
+            {res.map((x) => row(x, false))}
+            {searching ? (
+              <li className="flex items-center gap-1.5 px-2.5 py-2 text-12 text-ds-muted">
+                <Icon name="spinner pi-spin" size="sm" />
+                Looking on Google Maps too…
+              </li>
+            ) : null}
+          </ul>
+        </div>
+      ) : null}
+
+      <div className="relative h-[300px] overflow-hidden rounded-lg border border-line bg-sunken max-sm:h-[230px]">
+        <div ref={boxRef} className="absolute inset-0" role="region" aria-label={`Map of ${n1} — tap one to choose it`} />
         {mapErr ? (
-          <div className="absolute inset-x-0 bottom-0 top-14 flex items-center justify-center gap-2 p-4 text-center text-12 text-ds-muted">
+          <div className="absolute inset-0 flex items-center justify-center gap-2 p-4 text-center text-12 text-ds-muted">
             <Icon name="map" size="lg" className="shrink-0" />
             <span>{mapErr} You can still search and choose from the list.</span>
           </div>
@@ -765,7 +767,7 @@ export function MapLocation({ q, value, onChange, disabled, api, response }) {
           </div>
         ) : null}
         {hint ? (
-          <div role="status" className="absolute left-1/2 top-14 max-w-[90%] -translate-x-1/2 rounded-lg bg-heading px-3 py-2 text-center text-12 text-surface shadow-md">
+          <div role="status" className="absolute left-1/2 top-2 max-w-[90%] -translate-x-1/2 rounded-lg bg-heading px-3 py-2 text-center text-12 text-surface shadow-md">
             {hint}
           </div>
         ) : null}
