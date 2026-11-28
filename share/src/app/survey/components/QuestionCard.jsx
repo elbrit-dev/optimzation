@@ -1036,7 +1036,7 @@ function RepeatInput({ q, value: raw, onChange, disabled, onUpload, api, respons
                     {k.required ? <span className="text-danger-text"> *</span> : null}
                   </span>
                 ) : null}
-                <Input q={kidQ(k)} value={r[k.id]} onChange={(v) => setOne(i, k.id, v)} disabled={disabled} onUpload={onUpload} api={api} response={response} />
+                <Input q={kidQ(k)} value={r[k.id]} onChange={(v) => setOne(i, k.id, v)} disabled={disabled} onUpload={onUpload} api={api} response={response} answers={r} />
                 {p ? <span className="text-11 font-medium text-danger-text">{p}</span> : null}
               </div>
             );

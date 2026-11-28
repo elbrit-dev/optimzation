@@ -347,7 +347,7 @@ function repeatProblem(q, v) {
     if (!filled.includes(r)) continue;
     n += 1;
     for (const k of q.fields ?? []) {
-      const p = answerProblem(k, r[k.id]);
+      const p = answerProblem(k, r[k.id], r); /* 28 Nov 2026: the entry itself, for timings linked to its map */
       if (p) return `${noun.charAt(0).toUpperCase()}${noun.slice(1)} ${n} · ${k.label}: ${p}`;
     }
   }
