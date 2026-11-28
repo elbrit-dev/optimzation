@@ -876,6 +876,12 @@ def own_file(url, user):
     # (a private URL an approver once saw): never a second bill from it
     for o in frappe.get_all("File", filters={"file_url": url}, fields=["owner", "attached_to_doctype", "attached_to_name"], limit_page_length=20):
         if o.owner != user or o.attached_to_name:
+            # 28 Nov 2026 (the user): a reject is final, and the rep adds the same
+            # bill again as a NEW one -- the photo of their OWN Rejected bill is free
+            if o.attached_to_doctype == "Settlement Expense" and o.attached_to_name:
+                old = frappe.db.get_value("Settlement Expense", o.attached_to_name, ["user", "status"], as_dict=True)
+                if old and old.status == "Rejected" and old.user == user:
+                    continue
             if o.attached_to_doctype == "Settlement Expense" and frappe.db.get_value("Settlement Expense", o.attached_to_name, "user") == user:
                 # the same bill sent twice (a retry after a lost answer)
                 frappe.throw("This bill is already added -- it is on your Settlements page.")
