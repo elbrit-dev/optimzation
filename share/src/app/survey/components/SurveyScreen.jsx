@@ -208,13 +208,14 @@ export function SurveyScreen({ survey, today, drafts, api, onOpenRow, onChanged,
             <span className="text-13 font-medium text-ds-muted">{tabRows.length} submitted</span>
           </div>
           {tabRows.length ? (
-            <ul aria-label={`${t.Many}: submitted`} className="flex flex-col divide-y divide-line overflow-hidden rounded-xl border border-line bg-surface">
+            <ul aria-label={`${t.Many}: submitted`} className="flex flex-col gap-3">
               {tabRows.map((r) => {
                 const on = r.response === openResponse && !shut;
                 const ap = r.approval?.status;
                 const pill = ap === 'Approved' ? ['success', r.approval?.auto ? 'Approved · AI' : 'Approved'] : r.approval ? ['warning', 'Waiting approval'] : ['neutral', 'Submitted'];
                 return (
-                  <li key={r.response} className="flex flex-col">
+                  /* 28 Nov 2026 · each doctor its own card, with room between them */
+                  <li key={r.response} className={cx('flex flex-col overflow-hidden rounded-xl border bg-surface shadow-sm', on ? 'border-line-strong' : 'border-line')}>
                     <button
                       type="button"
                       aria-expanded={on}
