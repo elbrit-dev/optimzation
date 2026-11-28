@@ -1192,6 +1192,12 @@ export async function approveSettlements(conn, ids) {
   const m = (await settleCall(conn, "POST", { action: "approve_many", names: ids.join(",") })).message || {};
   return { approved: m.approved || 0, toCeo: m.to_ceo || 0, batch: m.batch || "", skipped: m.skipped || [] };
 }
+/* Reject several at once with one reason (28 Nov 2026): final -- the bills
+   cannot be sent again. -> { rejected, skipped } */
+export async function rejectSettlements(conn, ids, note) {
+  const m = (await settleCall(conn, "POST", { action: "reject_many", names: ids.join(","), note: note || "" })).message || {};
+  return { rejected: m.rejected || 0, skipped: m.skipped || [] };
+}
 /* The CEO's batches (from the GM / SM): waiting, and the last 30 days. */
 export async function fetchCeoBatches(conn) {
   const m = (await settleCall(conn, "GET", { action: "ceo_batches" })).message || {};
