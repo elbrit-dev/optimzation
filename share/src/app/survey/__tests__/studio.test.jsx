@@ -38,9 +38,10 @@ describe('Photo and the AI', () => {
     const bad = [{ url: '/private/files/a.jpg', name: 'a.jpg', size: 10, ai: { state: 'clerk', why: 'Not met: board', redo: 1, fields: { board: false } } }];
     expect(formProblems([photo], { p1: bad })).toEqual({ p1: 'A file is not clear — remove it and upload it again.' });
     render(<QuestionCard q={photo} index={0} value={bad} onChange={() => {}} onUpload={() => Promise.resolve({})} />);
-    expect(screen.getByRole('alert').textContent).toMatch(/Not clear — Not met: board\. Remove it and upload it again\./);
-    expect(screen.getByText('We read · check and correct')).toBeTruthy();
+    expect(screen.getAllByRole('alert')[0].textContent).toMatch(/Not clear — Not met: board\. Remove it and upload it again\./);
+    expect(screen.getByText('We read · correct anything wrong')).toBeTruthy();
     expect(screen.getByDisplayValue('No')).toBeTruthy();
+    expect(screen.getByText(/AI check: Not met: board/)).toBeTruthy();
     const ok = [{ url: '/private/files/b.jpg', name: 'b.jpg', size: 10, ai: { state: 'clear', why: '', redo: 0 } }];
     expect(formProblems([photo], { p1: ok })).toEqual({});
     expect(toPayload([photo], { p1: ok })).toEqual({ p1: [{ url: '/private/files/b.jpg', name: 'b.jpg', size: 10 }] });
@@ -49,15 +50,14 @@ describe('Photo and the AI', () => {
 
 /* 27 Nov 2026 · "Also read every line of a table": the medicines the AI read show as a table, not as text to edit */
 describe('Lines the AI read', () => {
-  it('a prescription shows each medicine as a row; the single values stay editable', () => {
+  it('a prescription shows each medicine as a row; values and lines can be corrected', () => {
     const rx = [{ url: '/private/files/rx.jpg', name: 'rx.jpg', size: 10, ai: { state: 'clerk', why: 'Not met: readable', redo: 1,
       fields: { doctor_name: 'Dr A K Jaiswal', rows: [{ medicine: 'Cardio 10', dose: '1-0-1' }, { medicine: 'Derma Soft', dose: '0-0-1' }] } } }];
     render(<QuestionCard q={photo} index={0} value={rx} onChange={() => {}} onUpload={() => Promise.resolve({})} />);
     expect(screen.getByDisplayValue('Dr A K Jaiswal')).toBeTruthy();
     expect(screen.getByText('2 lines read')).toBeTruthy();
-    expect(screen.getByText('Cardio 10')).toBeTruthy();
-    expect(screen.getByText('0-0-1')).toBeTruthy();
-    expect(screen.queryByDisplayValue(/Cardio 10/)).toBeNull();
+    expect(screen.getByDisplayValue('Cardio 10')).toBeTruthy();
+    expect(screen.getByDisplayValue('0-0-1')).toBeTruthy();
   });
 });
 

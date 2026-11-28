@@ -155,7 +155,9 @@ export function mapText(v) {
   if (v.how === 'same') return 'Location on record is correct';
   const nm = v.name || 'Pinned on the map';
   const kind = v.kind && !nm.toLowerCase().includes(String(v.kind).toLowerCase().split(' ')[0]) ? ` (${v.kind})` : '';
-  return `${nm}${kind}${v.address ? ` — ${v.address}` : ''}`;
+  /* 28 Nov 2026 · pharmacy mapping: the distributor the rep chose */
+  const sv = v.serving ? ` · Distributor: ${v.serving.none ? 'not sure' : v.serving.label || v.serving.customer}` : '';
+  return `${nm}${kind}${v.address ? ` — ${v.address}` : ''}${sv}`;
 }
 export const mapUrl = (v) =>
   v.url && v.how === 'place'
@@ -248,8 +250,87 @@ export function answerProblem(q, v, answers) {
   if (q.type === 'file_upload' && v.length > fileRules(q).maxFiles) return `You can add up to ${fileRules(q).maxFiles} file(s) here.`;
   /* 26 Nov 2026 · Survey Studio "Redo": a file the AI found not Clear must be uploaded again */
   if (q.type === 'file_upload' && v.some((f) => f?.ai?.redo)) return 'A file is not clear — remove it and upload it again.';
+  /* 28 Nov 2026 · the AI check flagged something on a file: say why */
+  if (q.type === 'file_upload' && v.some((f) => aiFlags(f).length && !String(f?.ai?.reason ?? '').trim())) return 'Write why for the flags on the file.';
+  /* 28 Nov 2026 · pharmacy mapping: which distributor serves the pharmacy */
+  if (q.type === 'map_location' && q.serving && q.places === 'pharmacy' && (Array.isArray(v) ? v : [v]).some((x) => mapIsPoint(x) && !x.serving)) return 'Choose which distributor serves the pharmacy.';
   return null;
 }
+
+/* 28 Nov 2026 · every upload the AI reads: the rep sees what was read and can correct it (no reason needed); the AI
+   check's FLAGS — lines that aren't Elbrit (or no Elbrit medicine), a check that didn't pass, something not found —
+   need a reason ("Why?") before Submit. The flags, the reason and the corrections go with the file as `check`. */
+const AI_HIDDEN = (k) => k.startsWith('_') || k === 'elbrit_summary' || k === 'parts_failed' || /^check_/.test(k);
+const aiWord = (k) => String(k).replace(/_/g, ' ');
+export function aiFlags(f) {
+  const ai = f?.ai;
+  if (!ai || !ai.fields || typeof ai.fields !== 'object') return [];
+  const fields = ai.fields;
+  const out = [];
+  const el = fields.elbrit_summary && typeof fields.elbrit_summary === 'object' ? fields.elbrit_summary : null;
+  if (el && el.lines) {
+    if (!el.elbrit) out.push(`No Elbrit medicine found (${el.lines} ${el.lines === 1 ? 'line' : 'lines'} read)`);
+    else if (el.others) {
+      const names = [];
+      for (const [k, rows] of Object.entries(fields)) {
+        if (AI_HIDDEN(k) || !Array.isArray(rows)) continue;
+        for (const r of rows) {
+          if (!r || typeof r !== 'object' || r.elbrit_product) continue;
+          const t = Object.entries(r).find(([c, x]) => c !== 'elbrit_product' && typeof x === 'string' && /[A-Za-z]/.test(x));
+          if (t && names.length < 6) names.push(t[1]);
+        }
+      }
+      out.push(`${el.others} ${el.others === 1 ? "line isn't" : "lines aren't"} Elbrit${names.length ? `: ${names.join(', ')}` : ''}`);
+    }
+  }
+  if (ai.state === 'clerk' && String(ai.why || '').trim()) out.push(`AI check: ${String(ai.why).trim()}`);
+  const missing = Object.entries(fields).filter(([k, x]) => !AI_HIDDEN(k) && !Array.isArray(x) && (x == null || String(x).trim() === '')).map(([k]) => aiWord(k));
+  if (missing.length) out.push(`Not found: ${missing.join(', ')}`);
+  return out;
+}
+/* what the rep corrected: {fields: {key: [old, new]}, rows: [[index, product, column, old, new]]} */
+export function aiEdits(f) {
+  const ai = f?.ai;
+  const now = ai?.fields, was = ai?.orig;
+  if (!now || !was) return null;
+  const fields = {};
+  const rows = [];
+  for (const [k, v] of Object.entries(now)) {
+    if (AI_HIDDEN(k)) continue;
+    if (Array.isArray(v)) {
+      const old = Array.isArray(was[k]) ? was[k] : [];
+      v.forEach((r, i) => {
+        if (!r || typeof r !== 'object') return;
+        const o = old[i] && typeof old[i] === 'object' ? old[i] : {};
+        const name = r.elbrit_product || Object.values(r).find((x) => typeof x === 'string' && /[A-Za-z]/.test(x)) || '';
+        for (const c of Object.keys(r)) {
+          if (c === 'elbrit_product') continue;
+          const a = o[c] == null ? '' : String(o[c]), b = r[c] == null ? '' : String(r[c]);
+          if (a !== b) rows.push([i, String(name), c, a, b]);
+        }
+      });
+    } else {
+      const a = was[k] == null ? '' : String(was[k]), b = v == null ? '' : String(v);
+      if (a !== b) fields[k] = [a, b];
+    }
+  }
+  return Object.keys(fields).length || rows.length ? { fields, rows } : null;
+}
+export function aiCheck(f) {
+  if (!f?.ai) return null;
+  const flags = aiFlags(f);
+  const reason = String(f.ai.reason ?? '').trim();
+  const edits = aiEdits(f);
+  const out = {};
+  if (flags.length) out.flags = flags;
+  if (reason) out.reason = reason;
+  if (edits) out.edits = edits;
+  return Object.keys(out).length ? out : null;
+}
+const fileOut = (f) => {
+  const c = aiCheck(f);
+  return { url: f.url, name: f.name, size: f.size || 0, ...(c ? { check: c } : {}) };
+};
 
 /* 27 Nov 2026 · a Repeated group: enough entries, and every required question in every entry answered */
 function repeatProblem(q, v) {
@@ -290,7 +371,7 @@ export function toPayload(questions, answers) {
   for (const q of questions) {
     const v = answers?.[q.id];
     if (isEmpty(v)) continue;
-    if (q.type === 'file_upload') out[q.id] = v.map((f) => ({ url: f.url, name: f.name, size: f.size || 0 }));
+    if (q.type === 'file_upload') out[q.id] = v.map(fileOut);
     else if (q.type === 'number') out[q.id] = Number(v);
     else if (q.type === 'repeat') {
       const rows = repeatRows(repeatList(q, v)).map((r) => {
@@ -298,7 +379,7 @@ export function toPayload(questions, answers) {
         for (const k of q.fields ?? []) {
           const x = r[k.id];
           if (isEmpty(x)) continue;
-          one[k.id] = k.type === 'file_upload' ? x.map((f) => ({ url: f.url, name: f.name, size: f.size || 0 })) : k.type === 'number' ? Number(x) : x;
+          one[k.id] = k.type === 'file_upload' ? x.map(fileOut) : k.type === 'number' ? Number(x) : x;
         }
         return one;
       });
@@ -325,7 +406,7 @@ export function answerText(q, v) {
       .map((r, i) => `${i + 1}. ${(q.fields ?? []).map((k) => (isEmpty(r[k.id]) ? '' : answerText(k, r[k.id]))).filter(Boolean).join(' · ')}`)
       .join('\n');
   }
-  if (q.type === 'file_upload') return v.map((f) => f.name).join(', ');
+  if (q.type === 'file_upload') return v.map((f) => f.name + (f.check?.reason ? ` (why: ${f.check.reason})` : '')).join(', ');
   if (q.type === 'map_location') return Array.isArray(v) ? v.map(mapText).filter(Boolean).join('\n') : mapText(v); /* 26 Nov 2026: Separated — a list */
   if (q.type === 'rating') return `${v} of ${scaleRange(q).max} stars`;
   if (q.type === 'linear_scale') return `${v} (scale ${scaleRange(q).min}–${scaleRange(q).max})`;

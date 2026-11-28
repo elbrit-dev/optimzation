@@ -170,6 +170,14 @@ export function createMockApi({ role = 'BE', scenario = 'normal', today = MOCK_T
       };
     },
 
+    /* 28 Nov 2026 · pharmacy mapping: distributors around the pharmacy */
+    async servingDistributors({ pin }) {
+      await wait(200);
+      return { pin: pin || '', hq: 'HQ-Chennai', items: [
+        { customer: 'Mock Pharma Distributors', label: 'Mock Pharma Distributors', pin: pin || '600002', hq: 'HQ-Chennai', why: 'Same PIN' },
+        { customer: 'Chennai Medical Agencies', label: 'Chennai Medical Agencies', pin: '600017', hq: 'HQ-Chennai', why: 'Same HQ' },
+      ] };
+    },
     /* hospitals / clinics (survey_places): three around any point, two by name */
     async places({ mode, lat, lng, q, id }) {
       await wait(300);

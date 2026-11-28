@@ -2,7 +2,7 @@
 
 import { useEffect, useRef, useState } from 'react';
 import { Card, Icon, ProgressBar, cx } from '@/design-system';
-import { LOGIN_EXCEPTIONS, TIMING_DAYS, answerProblem, answerText, fileProblem, fileRules, isAnswered, isEmpty, loginExceptions, mapParseLatLng, repeatList, repeatNoun, scaleRange, timingDayError } from '../data/shape';
+import { LOGIN_EXCEPTIONS, TIMING_DAYS, aiFlags, answerProblem, answerText, fileProblem, fileRules, isAnswered, isEmpty, loginExceptions, mapIsPoint, mapParseLatLng, repeatList, repeatNoun, scaleRange, timingDayError } from '../data/shape';
 import { MapLocation } from './MapLocation';
 
 /* One question, by its type (SURVEYS_CONTEXT.md §3) — answered, or shown
@@ -553,75 +553,165 @@ function sizeText(bytes) {
 /* Pick → check type and size against the question → upload (private) with
    a progress bar → a chip with remove. `value` holds only finished uploads,
    as {url, name, size} — exactly what survey_submit_response takes. */
-/* 26 Nov 2026 · Survey Studio "check on the phone": what the AI read from the file, for the rep to check before
-   Submit (if it is wrong, they replace the file). */
+/* 28 Nov 2026 · every AI-read upload, in every survey: what was read is shown under the file and the rep can correct
+   any value or line (no reason needed; a changed cell is marked, the AI's original stays with the file). The AI check's
+   flags (lines that aren't Elbrit, a check that didn't pass, something not found) are listed under it with "Why?",
+   which is required while any flag is there. Only Elbrit lines are shown when the lines were matched to Elbrit. */
 /* the reader's own notes (the Elbrit summary, failed parts) are not values to show or correct */
 const hideReadKey = (k) => k.startsWith('_') || k === 'elbrit_summary' || k === 'parts_failed';
 const readWord = (k) => String(k).replace(/_/g, ' ').replace(/^./, (c) => c.toUpperCase());
-const readText = (v) => (v == null || v === '' ? '—' : Array.isArray(v) ? `${v.length} row${v.length === 1 ? '' : 's'}` : typeof v === 'object' ? Object.values(v).filter((x) => x != null && x !== '').join(' · ') : v === true ? 'Yes' : v === false ? 'No' : String(v));
-/* 27 Nov 2026 · Survey Studio "Also read every line of a table": the lines the AI read (medicines, products), read only */
-/* 28 Nov 2026 · lines matched to Elbrit's products (fields.elbrit_summary): only the Elbrit lines are shown and counted */
+const showVal = (v) => (v === true ? 'Yes' : v === false ? 'No' : v == null ? '' : String(v));
 const inr = (n) => `₹${Number(n).toLocaleString('en-IN', { maximumFractionDigits: 2 })}`;
-function ReadLines({ fields }) {
+function AiCheck({ f, disabled, onPatch }) {
+  const ai = f.ai || {};
+  const fields = ai.fields && typeof ai.fields === 'object' ? ai.fields : null;
+  if (!fields) return null;
+  const flags = aiFlags(f);
   const el = fields.elbrit_summary && typeof fields.elbrit_summary === 'object' ? fields.elbrit_summary : null;
+  const values = Object.entries(fields).filter(([k, v]) => !hideReadKey(k) && !/^check_/.test(k) && !Array.isArray(v) && (v == null || typeof v !== 'object'));
   const lists = Object.entries(fields).filter(([k, v]) => !hideReadKey(k) && Array.isArray(v) && v.length && v.every((x) => x && typeof x === 'object'));
-  if (!lists.length) return null;
-  return lists.map(([k, all]) => {
-    const rows = el ? all.filter((x) => x.elbrit_product) : all;
-    const cols = [...new Set(rows.flatMap((x) => Object.keys(x)))].filter((c) => c !== 'elbrit_product').slice(0, 7);
-    if (el) cols.unshift('elbrit_product');
-    if (el && !rows.length) return <span key={k} className="text-11 text-ds-muted">No Elbrit medicine found ({all.length} {all.length === 1 ? 'line' : 'lines'} read)</span>;
-    return (
-      <div key={k} className="flex flex-col gap-1">
-        <span className="text-10 font-semibold uppercase tracking-wide text-ds-muted">
-          {el ? `${rows.length} Elbrit ${rows.length === 1 ? 'line' : 'lines'} of ${all.length}${el.value != null ? ` · ${inr(el.value)}` : ''}` : `${rows.length} ${rows.length === 1 ? 'line' : 'lines'} read`}
-        </span>
-        <div className="overflow-x-auto rounded-md border border-line bg-surface">
-          <table className="w-full text-11">
-            <thead>
-              <tr>{cols.map((c) => <th key={c} className="whitespace-nowrap px-2 py-1 text-left font-medium text-ds-muted">{c === 'elbrit_product' ? 'Elbrit product' : readWord(c)}</th>)}</tr>
-            </thead>
-            <tbody>
-              {rows.slice(0, 50).map((x, i) => (
-                <tr key={i} className="border-t border-line">{cols.map((c) => <td key={c} className="px-2 py-1 text-heading">{x[c] == null ? '' : String(x[c])}</td>)}</tr>
-              ))}
-            </tbody>
-          </table>
+  const was = (k, i, c) => (i == null ? ai.orig?.[k] : ai.orig?.[k]?.[i]?.[c]);
+  const changed = (k, i, c) => !!ai.orig && String(was(k, i, c) ?? '') !== String((i == null ? fields[k] : fields[k]?.[i]?.[c]) ?? '');
+  const setField = (k, val) => onPatch((a) => ({ ...a, fields: { ...a.fields, [k]: val } }));
+  const setCell = (k, i, c, val) => onPatch((a) => ({ ...a, fields: { ...a.fields, [k]: a.fields[k].map((r, j) => (j === i ? { ...r, [c]: val } : r)) } }));
+  return (
+    <div className="flex flex-col gap-2 rounded-md bg-sunken px-2.5 py-2">
+      {values.length ? (
+        <div className="flex flex-col gap-1.5">
+          <span className="text-10 font-semibold uppercase tracking-wide text-ds-muted">{disabled ? 'We read' : 'We read · correct anything wrong'}</span>
+          {values.slice(0, 20).map(([k, v]) => (
+            <label key={k} className="flex items-center gap-2 text-12">
+              <span className="w-28 shrink-0 text-ds-muted">{readWord(k)}</span>
+              {disabled ? (
+                <span className="min-w-0 flex-1 break-words font-semibold text-heading">{showVal(v) || '—'}</span>
+              ) : (
+                <input type="text" aria-label={readWord(k)} value={showVal(v)} onChange={(e) => setField(k, e.target.value)} className={cx('h-8 min-w-0 flex-1 rounded-md border bg-surface px-2 text-12 text-heading', changed(k) ? 'border-brand' : 'border-line-strong')} />
+              )}
+            </label>
+          ))}
         </div>
-      </div>
-    );
-  });
+      ) : null}
+      {lists.map(([k, all]) => {
+        const idx = all.map((r, i) => i).filter((i) => !el || all[i].elbrit_product);
+        const cols = [...new Set(idx.flatMap((i) => Object.keys(all[i])))].filter((c) => c !== 'elbrit_product').slice(0, 7);
+        return (
+          <div key={k} className="flex flex-col gap-1">
+            <span className="text-10 font-semibold uppercase tracking-wide text-ds-muted">
+              {el ? `Elbrit lines · ${idx.length} of ${all.length}${el.value != null ? ` · ${inr(el.value)}` : ''}` : `${all.length} ${all.length === 1 ? 'line' : 'lines'} read`}
+            </span>
+            {idx.length ? (
+              <div className="overflow-x-auto rounded-md border border-line bg-surface">
+                <table className="w-full text-11">
+                  <thead>
+                    <tr>
+                      {el ? <th className="whitespace-nowrap px-2 py-1 text-left font-medium text-ds-muted">Elbrit product</th> : null}
+                      {cols.map((c) => <th key={c} className="whitespace-nowrap px-2 py-1 text-left font-medium text-ds-muted">{readWord(c)}</th>)}
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {idx.slice(0, 80).map((i) => (
+                      <tr key={i} className="border-t border-line">
+                        {el ? <td className="whitespace-nowrap px-2 py-1 font-semibold text-heading">{all[i].elbrit_product}</td> : null}
+                        {cols.map((c) => (
+                          <td key={c} className="px-1 py-0.5">
+                            {disabled ? (
+                              <span className="px-1 text-heading">{all[i][c] == null ? '' : String(all[i][c])}</span>
+                            ) : (
+                              <input
+                                aria-label={`${readWord(c)}, line ${i + 1}`}
+                                value={all[i][c] == null ? '' : String(all[i][c])}
+                                onChange={(e) => setCell(k, i, c, e.target.value)}
+                                className={cx('h-7 w-full min-w-[56px] rounded border bg-surface px-1 text-11 text-heading', changed(k, i, c) ? 'border-brand' : 'border-line')}
+                              />
+                            )}
+                          </td>
+                        ))}
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            ) : null}
+          </div>
+        );
+      })}
+      {flags.length ? (
+        <div className="flex flex-col gap-1.5">
+          <div role="alert" className="flex flex-col gap-0.5 rounded-md border border-warning bg-warning-wash px-2.5 py-1.5">
+            <span className="text-10 font-semibold uppercase tracking-wide text-warning-text">Flagged by the AI check</span>
+            {flags.map((x) => (
+              <span key={x} className="text-12 text-heading">✕ {x}</span>
+            ))}
+          </div>
+          <label className="flex flex-col gap-1 text-12">
+            <span className="font-semibold text-heading">
+              Why? <span className="text-danger-text">*</span>
+            </span>
+            {disabled ? (
+              <span className="text-heading">{ai.reason || '—'}</span>
+            ) : (
+              <textarea
+                value={ai.reason ?? ''}
+                rows={3}
+                onChange={(e) => onPatch((a) => ({ ...a, reason: e.target.value }))}
+                placeholder="Say why, e.g. other companies' lines on the same statement"
+                className={cx('min-h-[64px] w-full rounded-md border bg-surface px-2 py-1.5 text-12 text-heading', String(ai.reason ?? '').trim() ? 'border-line-strong' : 'border-danger-border')}
+              />
+            )}
+          </label>
+        </div>
+      ) : null}
+    </div>
+  );
 }
 
-function ReadValues({ fields, onEdit }) {
-  /* 27 Nov 2026 · Survey Studio: "You can correct the values before you submit" */
-  if (onEdit) {
-    return (
-      <div className="flex flex-col gap-1.5 rounded-md bg-sunken px-2.5 py-2">
-        <span className="text-10 font-semibold uppercase tracking-wide text-ds-muted">We read · check and correct</span>
-        {Object.entries(fields).slice(0, 20).filter(([k, v]) => !/^check_/.test(k) && !hideReadKey(k) && !Array.isArray(v)).map(([k, v]) => (
-          <label key={k} className="flex items-center gap-2 text-12">
-            <span className="w-28 shrink-0 text-ds-muted">{readWord(k)}</span>
-            <input type="text" value={v == null ? '' : typeof v === 'boolean' ? (v ? 'Yes' : 'No') : typeof v === 'object' ? JSON.stringify(v) : String(v)} onChange={(e) => onEdit(k, e.target.value)} className="h-8 min-w-0 flex-1 rounded-md border border-line-strong bg-surface px-2 text-12 text-heading" />
-          </label>
-        ))}
-        <ReadLines fields={fields} />
-      </div>
-    );
-  }
+/* 28 Nov 2026 · pharmacy mapping: after the pharmacy, the rep chooses the distributor that serves it — those with the
+   pharmacy's PIN first, then the HQ's (distributors have no map point in the ERP); "Not sure / another one" is allowed */
+function ServingPicker({ value, onChange, disabled, api, response }) {
+  const pin = (String(value?.address || '').match(/\b\d{6}\b/) || [''])[0];
+  const [list, setList] = useState(null);
+  useEffect(() => {
+    let gone = false;
+    if (disabled || typeof api?.servingDistributors !== 'function') return undefined;
+    setList(null);
+    api
+      .servingDistributors({ response, pin })
+      .then((r) => !gone && setList(Array.isArray(r?.items) ? r.items : []))
+      .catch(() => !gone && setList([]));
+    return () => {
+      gone = true;
+    };
+  }, [api, response, pin, disabled]);
+  const sv = value?.serving;
+  const pick = (x) => onChange({ ...value, serving: x });
+  if (disabled) return sv ? <p className="text-12 text-heading">Serving distributor: <b>{sv.none ? 'Not sure / another one' : sv.label || sv.customer}</b></p> : null;
   return (
-    <div className="flex flex-col gap-1 rounded-md bg-sunken px-2.5 py-2">
-      <span className="text-10 font-semibold uppercase tracking-wide text-ds-muted">We read</span>
-      <dl className="grid grid-cols-[auto_1fr] gap-x-3 gap-y-0.5 text-11">
-        {Object.entries(fields).slice(0, 12).filter(([k, v]) => !hideReadKey(k) && !Array.isArray(v)).map(([k, v]) => (
-          <div key={k} className="contents">
-            <dt className="text-ds-muted">{readWord(k)}</dt>
-            <dd className="min-w-0 break-words font-semibold text-heading">{readText(v)}</dd>
-          </div>
-        ))}
-      </dl>
-      <ReadLines fields={fields} />
-      <span className="text-10 text-ds-muted">Something wrong? Replace the file with a clearer one.</span>
+    <div className="flex flex-col gap-1.5" role="radiogroup" aria-label="Which distributor serves it?">
+      <span className="text-13 font-semibold text-heading">
+        Which distributor serves it? <span className="text-danger-text">*</span>
+      </span>
+      {list === null ? <span className="text-11 text-ds-muted">Finding the distributors for {pin ? `PIN ${pin}` : 'this area'}…</span> : null}
+      {(list || []).map((x) => {
+        const on = sv && !sv.none && sv.customer === x.customer;
+        return (
+          <button key={x.customer} type="button" role="radio" aria-checked={!!on} onClick={() => pick({ customer: x.customer, label: x.label, why: x.why })}
+            className={cx('flex min-h-11 items-center gap-2.5 rounded-lg border px-3 py-1.5 text-left', on ? 'border-brand bg-brand-tint-weak' : 'border-line bg-surface hover:border-line-strong')}>
+            <span className={cx('size-4 shrink-0 rounded-full border', on ? 'border-[5px] border-brand' : 'border-line-strong')} />
+            <span className="flex min-w-0 flex-1 flex-col">
+              <span className="text-13 font-semibold text-heading">{x.label}</span>
+              <span className="text-11 text-ds-muted">{[x.pin && `PIN ${x.pin}`, x.hq].filter(Boolean).join(' · ')}</span>
+            </span>
+            <span className="shrink-0 text-10 font-semibold text-ds-muted">{x.why}</span>
+          </button>
+        );
+      })}
+      {list !== null ? (
+        <button type="button" role="radio" aria-checked={!!sv?.none} onClick={() => pick({ none: 1 })}
+          className={cx('flex min-h-11 items-center gap-2.5 rounded-lg border px-3 py-1.5 text-left', sv?.none ? 'border-brand bg-brand-tint-weak' : 'border-line bg-surface hover:border-line-strong')}>
+          <span className={cx('size-4 shrink-0 rounded-full border', sv?.none ? 'border-[5px] border-brand' : 'border-line-strong')} />
+          <span className="text-13 text-heading">{list.length ? 'Not sure / another one' : 'No distributor found here: not sure / another one'}</span>
+        </button>
+      ) : null}
     </div>
   );
 }
@@ -669,7 +759,7 @@ function FileUpload({ q, value, onChange, disabled, onUpload }) {
               if (read && read.readable === false) setUnread((m) => ({ ...m, [res.file_url]: read.reason || 'The file could not be read.' }));
               /* 26 Nov 2026 · Survey Studio: this file's verdict (Redo blocks Submit) and, with "check on the phone", what was read */
               if (read && (read.state || read.fields)) {
-                const ai = { state: read.state || '', why: read.why || '', redo: read.redo ? 1 : 0, ...(read.fields ? { fields: read.fields } : {}) };
+                const ai = { state: read.state || '', why: read.why || '', redo: read.redo ? 1 : 0, ...(read.fields ? { fields: read.fields, orig: JSON.parse(JSON.stringify(read.fields)) } : {}) };
                 onChange(valueRef.current.map((x) => (x.url === res.file_url ? { ...x, ai } : x)));
               }
             });
@@ -772,17 +862,14 @@ function FileUpload({ q, value, onChange, disabled, onUpload }) {
               <Icon name="exclamation-circle" size="sm" className="mt-px shrink-0" />
               <span>Not clear{f.ai.why ? ` — ${f.ai.why}` : ''}. Remove it and upload it again.</span>
             </p>
-          ) : f.ai?.state === 'clear' ? (
+          ) : f.ai?.state === 'clear' && !aiFlags(f).length ? (
             <p role="status" className="flex items-center gap-1.5 text-11 font-medium text-success">
               <Icon name="check-circle" size="sm" className="shrink-0" />
               Checked — it looks right.
             </p>
           ) : null}
           {f.ai?.fields && Object.keys(f.ai.fields).length ? (
-            <ReadValues
-              fields={f.ai.fields}
-              onEdit={disabled ? null : (k, v) => onChange(valueRef.current.map((x) => (x.url === f.url ? { ...x, ai: { ...x.ai, fields: { ...x.ai.fields, [k]: v }, corrected: 1 } } : x)))}
-            />
+            <AiCheck f={f} disabled={disabled} onPatch={(fn) => onChange(valueRef.current.map((x) => (x.url === f.url ? { ...x, ai: fn(x.ai || {}) } : x)))} />
           ) : null}
           {unread[f.url] ? (
             <p role="status" className="flex items-start gap-1.5 text-11 font-medium text-warning-text">
@@ -799,7 +886,12 @@ function FileUpload({ q, value, onChange, disabled, onUpload }) {
 function Input({ q, value, onChange, disabled, onUpload, api, response, answers, onBusy, showErrors = false }) {
   switch (q.type) {
     case 'map_location':
-      return <MapLocation q={q} value={value} onChange={onChange} disabled={disabled} api={api} response={response} />;
+      return (
+        <>
+          <MapLocation q={q} value={value} onChange={onChange} disabled={disabled} api={api} response={response} />
+          {q.serving && q.places === 'pharmacy' && mapIsPoint(value) ? <ServingPicker value={value} onChange={onChange} disabled={disabled} api={api} response={response} /> : null}
+        </>
+      );
     case 'paragraph':
       return <textarea aria-label={q.label} rows={3} value={value ?? ''} disabled={disabled} placeholder="Your answer…" onChange={(e) => onChange(e.target.value)} className={cx(FIELD, 'w-full resize-y')} />;
     case 'number':

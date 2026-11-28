@@ -160,6 +160,9 @@ export function createErpApi({ endpointUrl, gqlEnvironment = 'ERP', gqlToken, al
        mode=nearby (lat, lng, radius_m, split) | text (q, lat?, lng?) | details (id)
        → { places: [{ id, title, address, lat, lng, url, kind }] } */
     places: (query) => call('GET', 'survey_places', { query }),
+    /* 28 Nov 2026 · pharmacy mapping: the distributors that may serve a pharmacy (same PIN, then the HQ)
+       → { pin, hq, items: [{ customer, label, pin, hq, why }] } */
+    servingDistributors: ({ response, pin }) => call('GET', 'survey_serving_distributors', { query: { response, pin } }),
     /* 25 Nov 2026 · the Login question's Verify: does the website open? → { ok, url, message } */
     checkUrl: (url) => call('GET', 'survey_check_url', { query: { url } }),
     /* 26 Nov 2026 · the Login question's Test login: the app's server signs in to the website (pages/api/survey/test-login)
