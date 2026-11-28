@@ -58,7 +58,7 @@ export function timingDayError(v, d) {
     const a = hm(s[0]);
     const b = hm(s[1]);
     if (a == null || b == null) return 'Enter both the start and the end time.';
-    if (a === 0 && b >= 1439) return 'Google shows 24 hours — enter the doctor’s actual timings.';
+    if (a === 0 && b >= 1439) return 'Google shows 24 hours — enter the actual timings.';
     if (b <= a) return 'End time is before the start time.';
   }
   const o = sl.map((s) => [hm(s[0]), hm(s[1])]).sort((p, q) => p[0] - q[0]);

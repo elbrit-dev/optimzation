@@ -218,7 +218,7 @@ export function SubjectForm({ survey, row, rows, me, draft, api, onBack, onDraft
 
       {/* the whole-form count — only when the questions have no sections (each section has its own); 28 Nov 2026: one
          slim line, without the survey's name again (the top bar has it) */}
-      {Object.keys(sections).length || !answerable.length ? null : <SectionHead title="Questions" done={answered} total={answerable.length} />}
+
 
       {editable && row.returned ? (
         <p role="alert" className="flex items-start gap-2 rounded-lg bg-warning-wash px-3 py-2.5 text-12 text-warning-text">
@@ -250,7 +250,7 @@ export function SubjectForm({ survey, row, rows, me, draft, api, onBack, onDraft
 
       {questions.map((q) => (
         <div key={q.id} className="contents">
-          {sections[q.id] ? <SectionHead title={sections[q.id].title} done={sections[q.id].ids.filter((id) => isAnswered(questions.find((x) => x.id === id), answers[id])).length} total={sections[q.id].ids.length} /> : null}
+          {sections[q.id] && Object.keys(sections).length > 1 ? <SectionHead title={sections[q.id].title} done={sections[q.id].ids.filter((id) => isAnswered(questions.find((x) => x.id === id), answers[id])).length} total={sections[q.id].ids.length} /> : null}
         <QuestionCard
           q={q}
           index={numberOf[q.id] ?? 0}

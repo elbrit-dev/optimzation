@@ -67,7 +67,8 @@ describe('Survey Studio controls', () => {
     const { fireEvent } = await import('@testing-library/react');
     const picked = [];
     render(<QuestionCard q={{ id: 'y', type: 'multiple_choice', studio_type: 'yesno', label: 'Display visible?', required: 1, options: ['Yes', 'No'] }} index={0} value="" onChange={(v) => picked.push(v)} />);
-    expect(screen.getByText('Q1 · Yes')).toBeTruthy();
+    expect(screen.getByText('Display visible?')).toBeTruthy();
+    expect(screen.queryByText(/Q1 ·/)).toBeNull(); // 28 Nov 2026: no type line over the question
     fireEvent.click(screen.getByRole('radio', { name: 'Yes' }));
     expect(picked).toEqual(['Yes']);
     render(<QuestionCard q={{ id: 'r', type: 'rating', studio_type: 'rating', label: 'Service', max: 5 }} index={1} value={4} onChange={() => {}} />);

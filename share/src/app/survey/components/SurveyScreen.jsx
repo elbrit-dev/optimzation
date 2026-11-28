@@ -81,7 +81,6 @@ export function SurveyScreen({ survey, today, drafts, api, onOpenRow, onChanged,
   const history = tab === 'done';
   const left = rows.length - done;
   const pct = rows.length ? Math.round((done / rows.length) * 100) : 0;
-  const nextRow = rowsOfTab(rows, 'todo').find((r) => r.response !== openResponse) ?? null;
   const chip = 'inline-flex h-10 shrink-0 items-center gap-1.5 rounded-full border px-3.5 text-13 font-medium transition-colors';
   const leading = multi && history ? (
     <button type="button" onClick={() => onTab?.('todo')} className={cx(chip, TAB_TONE.todo[0])}>
@@ -132,10 +131,7 @@ export function SurveyScreen({ survey, today, drafts, api, onOpenRow, onChanged,
             </span>
           </div>
           <div className="h-1.5 w-full overflow-hidden rounded-full bg-sunken" role="progressbar" aria-valuemin={0} aria-valuemax={100} aria-valuenow={0} />
-          <div className="flex justify-between gap-3 text-12 text-ds-muted">
-            <span>Add who you will report on{studio?.approval ? ' · your manager approves each one' : ''}</span>
-            <span className="tabular-nums">0%</span>
-          </div>
+          <p className="text-12 text-ds-muted">Add who you will report on{studio?.approval ? ' · your manager approves each one' : ''}</p>
         </div>
       ) : rows.length ? (
         <div className="flex flex-col gap-2">
@@ -162,12 +158,7 @@ export function SurveyScreen({ survey, today, drafts, api, onOpenRow, onChanged,
           <div className="flex h-1.5 w-full overflow-hidden rounded-full bg-sunken" role="progressbar" aria-valuemin={0} aria-valuemax={rows.length} aria-valuenow={done} aria-label={`${done} of ${rows.length} done`}>
             <span className="h-full rounded-full bg-success" style={{ width: `${pct}%`, minWidth: done ? 6 : 0 }} />
           </div>
-          <div className="flex items-center justify-between gap-3 text-12 text-ds-muted">
-            <span className="min-w-0 truncate">
-              {left} to do{left && nextRow?.subject?.label ? ` · next: ${nextRow.subject.label}` : ''}
-            </span>
-            <span className="shrink-0 tabular-nums">{pct}%</span>
-          </div>
+          {/* 28 Nov 2026 · no "N to do · next: … · N%" line: the count above and the tags below say it */}
         </div>
       ) : null}
 

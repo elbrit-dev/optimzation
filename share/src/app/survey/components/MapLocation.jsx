@@ -655,7 +655,7 @@ export function MapLocation({ q, value, onChange, disabled, api, response, searc
       <div key={v.place_id || 'cur'} className="flex items-center gap-2 rounded-lg border border-success bg-success-wash px-3 py-2">
         <Icon name="check-circle" size="sm" className="shrink-0 text-success" />
         <span className="flex min-w-0 flex-1 flex-col">
-          <span className="text-13 font-semibold text-heading [overflow-wrap:anywhere]">{v.name || 'Place'}</span>
+          <span className="line-clamp-2 text-13 font-semibold text-heading [overflow-wrap:anywhere]" title={v.name || 'Place'}>{v.name || 'Place'}</span>
           <span className="truncate text-12 text-ds-muted">
             {[v.kind, d != null ? (d <= SAME && !ph ? 'At the saved location' : `${mapDist(d)} from the saved location`) : '', v.address].filter(Boolean).join(' · ')}
           </span>

@@ -50,7 +50,7 @@ describe('SurveyPage — one page per survey', () => {
     expect(history().textContent).toBe('History · 1');
     expect(history().getAttribute('aria-pressed')).toBe('false');
     expect(screen.getByText(/of 4 doctors done/)).toBeTruthy();
-    expect(screen.getByText('3 to do · next: Dr. Meenakshi Sundar')).toBeTruthy();
+    expect(screen.queryByText(/to do · next/)).toBeNull(); // 28 Nov 2026: the count and the tags say it
     expect(tagTitles()).toEqual(['Dr. Joseph Prabhu', 'Dr. Meenakshi Sundar', 'Dr. Arul Selvan']);
     expect(screen.getByRole('button', { name: /^Done · 1$/ })).toBeTruthy();
     expect(screen.getByRole('radio', { name: 'Ticagrelor' })).toBeTruthy(); // the doctor's questions, on this page

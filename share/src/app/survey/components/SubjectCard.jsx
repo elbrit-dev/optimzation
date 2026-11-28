@@ -25,6 +25,46 @@ export function SubjectCard({ subject, me, state, note, onOpen, className, field
   const hq = hqLabel(subject?.hq);
   const canOpen = typeof onOpen === 'function';
   const pill = state ? ROW_LABEL[state] : null;
+  /* 28 Nov 2026 · on the form (not a list to open) the record is one slim line: its name, code, city and state — the
+     page's top bar and the tags already name it; head office's other fields show only when they have a value */
+  if (!canOpen) {
+    const code = idF ? idF.v : subject?.code;
+    const city = cityF ? String(cityF.v || '').replace(/^HQ[-\s]*/i, '') : hq;
+    const more = restF.filter((f) => String(f.v ?? '').trim() && String(f.v).trim() !== '—');
+    return (
+      <div className={cx('flex min-w-0 flex-col gap-1 rounded-lg border border-line bg-surface px-3 py-2', className)}>
+        <div className="flex min-w-0 items-center gap-2">
+          <span className="min-w-0 truncate text-14 font-semibold text-heading">{subject ? name : 'Your answers'}</span>
+          {code ? <span className={CHIP}>{code}</span> : null}
+          <span className="flex-1" />
+          {city ? (
+            <span className="flex min-w-0 shrink items-center gap-1 truncate text-12 text-ds-muted">
+              <Icon name="map-marker" size="var(--fs-12)" className="shrink-0" />
+              <span className="truncate">{city}</span>
+            </span>
+          ) : null}
+          {pill ? (
+            <StatusPill status={ROW_TONE[state]} className="shrink-0 gap-1">
+              {state === 'done' ? <Icon name="check" size="var(--fs-8)" /> : null}
+              {pill}
+            </StatusPill>
+          ) : null}
+        </div>
+        {more.length ? (
+          <dl className="flex flex-wrap gap-x-3 gap-y-0.5 text-12">
+            {more.map((f) => (
+              <div key={f.k} className="flex min-w-0 gap-1">
+                <dt className="text-ds-muted">{f.l}</dt>
+                <dd className="min-w-0 break-words font-medium text-heading">{f.v}</dd>
+              </div>
+            ))}
+          </dl>
+        ) : null}
+        {added ? <span className="text-12 text-ds-muted">Added by you</span> : null}
+        {note ? <span className="truncate text-11 text-ds-muted">{note}</span> : null}
+      </div>
+    );
+  }
   return (
     <Card
       variant="hairline"

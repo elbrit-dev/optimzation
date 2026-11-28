@@ -24,26 +24,6 @@ const OFF = 'border-line bg-surface text-body hover:border-line-strong';
 const FIELD =
   'rounded-lg bg-surface px-3 py-2 text-13 text-body shadow-field placeholder:text-placeholder focus:outline-none disabled:bg-sunken';
 
-/* 27 Nov 2026 · Survey Studio's own names for the answer types (the artifact's "Q1 · Location") */
-const STUDIO_LABEL = { location: 'Location', text: 'Short', number: 'Number', single: 'Single', multi: 'Multiple', yesno: 'Yes', rating: 'Rating', photo: 'Photo', date: 'Date', file: 'File', group: 'Repeated' };
-const TYPE_LABEL = {
-  short_text: 'Short answer',
-  paragraph: 'Paragraph',
-  number: 'Number',
-  date: 'Date',
-  multiple_choice: 'Pick one',
-  dropdown: 'Pick one',
-  checkboxes: 'Pick any',
-  linear_scale: 'Scale',
-  rating: 'Rating',
-  file_upload: 'File',
-  map_location: 'Location',
-  time: 'Time',
-  days: 'Days',
-  login: 'Login',
-  timings: 'Visiting timings',
-  repeat: 'Repeated',
-};
 
 /* 25 Nov 2026 · Days: Monday … Sunday, pick any */
 const WEEK = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'];
@@ -300,11 +280,11 @@ function TimingsOne({ q, mapAns, value, onChange, disabled, api, showErrors = fa
   const src = v.source === 'google' ? 'From Google — check and correct' : v.source === 'edited' ? 'From Google, edited' : 'No timings on Google — please fill them';
   return (
     <div className="flex flex-col gap-2">
-      <p className="flex items-start gap-2 rounded-lg bg-brand-tint-weak px-3 py-2.5">
-        <Icon name="map-marker" size="sm" className="mt-0.5 shrink-0 text-danger-text" />
-        <span className="flex min-w-0 flex-col">
-          <span className="text-13 font-semibold text-heading [overflow-wrap:anywhere]">{v.place_name || mapAns?.name || 'Chosen place'}</span>
-          <span className="text-11 text-ds-muted">{src}</span>
+      {/* 28 Nov 2026 · one line (the place's full name is right above, in the map question) */}
+      <p className="flex min-w-0 items-center gap-1.5 text-12 text-ds-muted">
+        <Icon name="map-marker" size="sm" className="shrink-0 text-danger-text" />
+        <span className="min-w-0 truncate">
+          <b className="font-semibold text-heading">{v.place_name || mapAns?.name || 'Chosen place'}</b> · {src}
         </span>
       </p>
       {note ? <p className="flex items-center gap-1.5 text-12 text-body"><Icon name="info-circle" size="sm" />{note}</p> : null}
@@ -314,87 +294,90 @@ function TimingsOne({ q, mapAns, value, onChange, disabled, api, showErrors = fa
           Google shows special hours on {v.special.join(', ')} (e.g. a festival) — the usual weekly timings are filled.
         </p>
       ) : null}
-      {TIMING_DAYS.map((d) => {
-        const x = v.days[d] || { state: 'closed', slots: [] };
-        /* 28 Nov 2026 · a day Google shows as 24 hours is warned at once (before, it was only refused) */
-        const er0 = timingDayError(v, d);
-        const er = touched[d] || showErrors || /24 hours/.test(er0) ? er0 : '';
-        return (
-          <div key={d} onChangeCapture={() => !touched[d] && setTouched((t) => ({ ...t, [d]: true }))} className={cx('flex flex-col gap-2 rounded-lg border px-3 py-2.5', er ? 'border-danger-border bg-danger-wash' : 'border-line bg-surface')}>
-            <div className="flex items-center justify-between gap-2">
-              <b className="text-13 text-heading">{d}</b>
-              <select
-                aria-label={d}
-                value={x.state}
-                disabled={disabled}
-                onChange={(e) =>
-                  edit((n) => {
-                    const y = n.days[d];
-                    y.state = e.target.value;
-                    if (y.state === 'open' && !(y.slots || []).length) y.slots = [['', '']];
-                    if (y.state !== 'open') y.slots = [];
-                  })
-                }
-                className={cx(FIELD, 'h-10 w-40')}
-              >
-                <option value="open">Open</option>
-                <option value="closed">Closed</option>
-                <option value="na">Not available</option>
-              </select>
-            </div>
-            {x.state === 'open' ? (
-              <div className="flex flex-col gap-1.5">
-                {(x.slots || []).map((s, k) => (
-                  <div key={k} className="flex items-center gap-1.5">
-                    <input
-                      aria-label={`${d} start`}
-                      type="time"
-                      value={s[0] || ''}
-                      disabled={disabled}
-                      onChange={(e) => edit((n) => (n.days[d].slots[k][0] = e.target.value))}
-                      className={cx(FIELD, 'h-10 min-w-0 flex-1')}
-                    />
-                    <span className="text-ds-muted">–</span>
-                    <input
-                      aria-label={`${d} end`}
-                      type="time"
-                      value={s[1] || ''}
-                      disabled={disabled}
-                      onChange={(e) => edit((n) => (n.days[d].slots[k][1] = e.target.value))}
-                      className={cx(FIELD, 'h-10 min-w-0 flex-1')}
-                    />
-                    <button
-                      type="button"
-                      aria-label="Remove this timing"
-                      disabled={disabled}
-                      onClick={() => edit((n) => n.days[d].slots.splice(k, 1))}
-                      className="flex size-10 shrink-0 items-center justify-center rounded-md text-ds-muted hover:bg-sunken"
-                    >
-                      <Icon name="times" size="sm" />
-                    </button>
-                  </div>
-                ))}
-                {(x.slots || []).length < 3 && !disabled ? (
+      {/* 28 Nov 2026 · the week as one list: a day is its name, the + and Open / Closed on one line, its timings under
+          it, and a one-line warning (each day was a card with its own "Add a timing" line — a week took 3 screens) */}
+      <div className="flex flex-col divide-y divide-line overflow-hidden rounded-lg border border-line bg-surface">
+        {TIMING_DAYS.map((d) => {
+          const x = v.days[d] || { state: 'closed', slots: [] };
+          /* 28 Nov 2026 · a day Google shows as 24 hours is warned at once (before, it was only refused) */
+          const er0 = timingDayError(v, d);
+          const er = touched[d] || showErrors || /24 hours/.test(er0) ? er0 : '';
+          const canAdd = x.state === 'open' && (x.slots || []).length < 3 && !disabled;
+          return (
+            <div key={d} onChangeCapture={() => !touched[d] && setTouched((t) => ({ ...t, [d]: true }))} className={cx('flex flex-col gap-1.5 px-2.5 py-2', er ? 'bg-danger-wash' : '')}>
+              <div className="flex items-center gap-2">
+                <b className="min-w-0 flex-1 text-13 text-heading">{d}</b>
+                {canAdd ? (
                   <button
                     type="button"
+                    aria-label={`Add a timing on ${d}`}
                     onClick={() => edit((n) => (n.days[d].slots = (n.days[d].slots || []).concat([['', '']]).slice(0, 3)))}
-                    className="flex items-center gap-1 self-start text-12 font-semibold text-brand-text"
+                    className="flex size-9 shrink-0 items-center justify-center rounded-md text-brand-text hover:bg-brand-tint-weak"
                   >
                     <Icon name="plus" size="sm" />
-                    Add a timing
                   </button>
                 ) : null}
+                <select
+                  aria-label={d}
+                  value={x.state}
+                  disabled={disabled}
+                  onChange={(e) =>
+                    edit((n) => {
+                      const y = n.days[d];
+                      y.state = e.target.value;
+                      if (y.state === 'open' && !(y.slots || []).length) y.slots = [['', '']];
+                      if (y.state !== 'open') y.slots = [];
+                    })
+                  }
+                  className={cx(FIELD, 'h-9 w-32 py-1')}
+                >
+                  <option value="open">Open</option>
+                  <option value="closed">Closed</option>
+                  <option value="na">Not available</option>
+                </select>
               </div>
-            ) : null}
-            {er ? (
-              <p role="alert" className="flex items-center gap-1.5 text-12 font-semibold text-danger-text">
-                <Icon name="exclamation-circle" size="sm" />
-                {er}
-              </p>
-            ) : null}
-          </div>
-        );
-      })}
+              {x.state === 'open'
+                ? (x.slots || []).map((s, k) => (
+                    <div key={k} className="flex items-center gap-1.5">
+                      <input
+                        aria-label={`${d} start`}
+                        type="time"
+                        value={s[0] || ''}
+                        disabled={disabled}
+                        onChange={(e) => edit((n) => (n.days[d].slots[k][0] = e.target.value))}
+                        className={cx(FIELD, 'h-9 min-w-0 flex-1 py-1')}
+                      />
+                      <span className="text-ds-muted">–</span>
+                      <input
+                        aria-label={`${d} end`}
+                        type="time"
+                        value={s[1] || ''}
+                        disabled={disabled}
+                        onChange={(e) => edit((n) => (n.days[d].slots[k][1] = e.target.value))}
+                        className={cx(FIELD, 'h-9 min-w-0 flex-1 py-1')}
+                      />
+                      <button
+                        type="button"
+                        aria-label="Remove this timing"
+                        disabled={disabled}
+                        onClick={() => edit((n) => n.days[d].slots.splice(k, 1))}
+                        className="flex size-9 shrink-0 items-center justify-center rounded-md text-ds-muted hover:bg-sunken"
+                      >
+                        <Icon name="times" size="sm" />
+                      </button>
+                    </div>
+                  ))
+                : null}
+              {er ? (
+                <p role="alert" className="flex items-center gap-1.5 text-11 font-semibold text-danger-text">
+                  <Icon name="exclamation-circle" size="var(--fs-12)" className="shrink-0" />
+                  {er}
+                </p>
+              ) : null}
+            </div>
+          );
+        })}
+      </div>
     </div>
   );
 }
@@ -1081,7 +1064,7 @@ function RepeatInput({ q, value: raw, onChange, disabled, onUpload, api, respons
             </button>
           </div>
         ) : (
-        <div key={i} className="flex flex-col gap-2.5 rounded-[10px] border border-line bg-sunken p-3" role="group" aria-label={`${Noun} ${i + 1}`}>
+        <div key={i} className="flex flex-col gap-2.5 rounded-[10px] border border-line bg-sunken p-2.5 sm:p-3" role="group" aria-label={`${Noun} ${i + 1}`}>
           <div className="flex items-center justify-between gap-2">
             <span className="shrink-0 text-13 font-semibold text-heading">
               {Noun} {i + 1}
@@ -1099,7 +1082,8 @@ function RepeatInput({ q, value: raw, onChange, disabled, onUpload, api, respons
             return (
               <div key={k.id} className="flex flex-col gap-1.5">
                 {/* one question in the group: the entry title already names it ("Hospital or clinic 1") */}
-                {kids.length > 1 ? (
+                {/* 28 Nov 2026 · nor when it is the group's own title again ("Doctor Visit Time" inside "Doctor Visit Time") */}
+                {kids.length > 1 && String(k.label || '').trim().toLowerCase() !== String(q.label || '').trim().toLowerCase() ? (
                   <span className="text-13 font-medium text-heading">
                     {k.label}
                     {k.required ? <span className="text-danger-text"> *</span> : null}
@@ -1217,26 +1201,22 @@ function AnswerCard({ q, index, value, onChange, onUpload, api, response, answer
   const [busy, setBusy] = useState(false);
   const shownError = busy ? null : error;
   return (
-    <Card variant="hairline" className={cx('flex scroll-mt-20 flex-col gap-3 rounded-xl p-4', shownError && 'border-danger-border')} data-question={q.id}>
-      <div className="flex flex-col gap-1.5">
-        <div className="flex items-center justify-between gap-3">
-          <span className="text-11 font-medium uppercase tracking-[0.06em] text-ds-muted">
-            Q{index + 1} · {(q.studio_type && STUDIO_LABEL[q.studio_type]) || TYPE_LABEL[q.type] || 'Answer'}
-            {q.required || q.studio_type ? '' : ' · Optional'}
-          </span>
+    <Card variant="hairline" className={cx('flex scroll-mt-20 flex-col gap-3 rounded-xl p-3 sm:p-4', shownError && 'border-danger-border')} data-question={q.id}>
+      {/* 28 Nov 2026 · one line: the number, the question and its * (the "Q1 · FILE / REPEATED" line and the word
+          "Required" next to the * only repeated it); a tick once it is answered, "Optional" when it may be skipped */}
+      <div className="flex flex-col gap-1">
+        <div className="flex items-start justify-between gap-2">
+          <p className="min-w-0 text-15 font-semibold leading-[21px] text-heading">
+            <span className="font-medium text-ds-muted">{index + 1}. </span>
+            {q.label}
+            {q.required && !readOnly ? <span className="text-danger-text"> *</span> : null}
+          </p>
           {answered ? (
-            <span className="flex items-center gap-1 text-10 font-semibold text-success">
-              <Icon name="check-circle" size="var(--fs-10)" />
-              Answered
-            </span>
-          ) : q.required && !readOnly ? (
-            <span className="text-13 text-ds-muted">Required</span>
+            <Icon name="check-circle" size="var(--fs-16)" className="mt-0.5 shrink-0 text-success" aria-label="Answered" />
+          ) : !q.required && !readOnly ? (
+            <span className="mt-0.5 shrink-0 text-11 text-ds-muted">Optional</span>
           ) : null}
         </div>
-        <p className="text-16 font-semibold leading-[22px] text-heading">
-          {q.label}
-          {q.required && !readOnly ? <span className="text-danger-text"> *</span> : null}
-        </p>
         {q.description && !readOnly && !helpBelow && !helpRepeats ? <p className="text-13 text-ds-muted">{q.description}</p> : null}
       </div>
       {readOnly ? (
