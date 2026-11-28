@@ -33,7 +33,7 @@ describe('Visiting timings inside a Repeated group', () => {
   it('a day Google shows as 24 hours is warned at once (not only refused)', () => {
     const all = { p: place, p_t: { place_id: 'gp-1', place_name: 'Sagar Dispensary', days: week(day('open', [['00:00', '23:59']])), source: 'google' } };
     render(<QuestionCard q={grp} index={0} value={[all]} onChange={() => {}} api={{ mapsKey: async () => ({}), places: async () => ({ places: [] }) }} response="SR-1" />);
-    expect(screen.getByText(/Google shows this place open 24 hours on Monday/)).toBeTruthy();
+    expect(screen.queryByText(/Google shows this place open 24 hours/)).toBeNull();
     expect(screen.getByText('Google shows 24 hours — enter the doctor’s actual timings.')).toBeTruthy();
     expect(answerProblem(grp, [all])).toMatch(/Fix the timings in red/);
   });

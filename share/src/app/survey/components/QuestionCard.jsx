@@ -298,9 +298,6 @@ function TimingsOne({ q, mapAns, value, onChange, disabled, api, showErrors = fa
     onChange(next);
   };
   const src = v.source === 'google' ? 'From Google — check and correct' : v.source === 'edited' ? 'From Google, edited' : 'No timings on Google — please fill them';
-  /* 28 Nov 2026 · days Google shows as open 24 hours can't be sent as they are: say so at once, on top and on each day
-     (before, the day was only refused — the warning waited for a tap on that day or for Submit) */
-  const allDay = TIMING_DAYS.filter((d) => /24 hours/.test(timingDayError(v, d)));
   return (
     <div className="flex flex-col gap-2">
       <p className="flex items-start gap-2 rounded-lg bg-brand-tint-weak px-3 py-2.5">
@@ -311,15 +308,6 @@ function TimingsOne({ q, mapAns, value, onChange, disabled, api, showErrors = fa
         </span>
       </p>
       {note ? <p className="flex items-center gap-1.5 text-12 text-body"><Icon name="info-circle" size="sm" />{note}</p> : null}
-      {allDay.length ? (
-        <p role="alert" className="flex items-start gap-1.5 rounded-lg bg-danger-wash px-3 py-2.5 text-12 font-medium text-danger-text">
-          <Icon name="exclamation-circle" size="sm" className="mt-px shrink-0" />
-          <span>
-            Google shows this place open 24 hours on {allDay.length === 7 ? 'every day' : allDay.join(', ')}. That can’t be sent — enter the doctor’s
-            actual visiting timings, or mark the day Closed / Not available.
-          </span>
-        </p>
-      ) : null}
       {(v.special || []).length ? (
         <p className="flex items-center gap-1.5 text-12 text-body">
           <Icon name="calendar" size="sm" />
@@ -328,6 +316,7 @@ function TimingsOne({ q, mapAns, value, onChange, disabled, api, showErrors = fa
       ) : null}
       {TIMING_DAYS.map((d) => {
         const x = v.days[d] || { state: 'closed', slots: [] };
+        /* 28 Nov 2026 · a day Google shows as 24 hours is warned at once (before, it was only refused) */
         const er0 = timingDayError(v, d);
         const er = touched[d] || showErrors || /24 hours/.test(er0) ? er0 : '';
         return (
