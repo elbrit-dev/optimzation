@@ -41,12 +41,16 @@ else:
                         "content": sc.script, "is_private": 1, "attached_to_doctype": "Server Script", "attached_to_name": "Settlement API"}).insert(ignore_permissions=True)
         for p in PAIRS:
             src = src.replace(p[0], p[1])
+        # (28 Nov, first run: frappe.clear_cache is not allowed in the console -- saving
+        # the DocType clears its cache anyway; the status option went in on that run)
         dt = frappe.get_doc("DocType", "Settlement Expense")
+        add = False
         for f in dt.fields:
             if f.fieldname == "status" and "Rejected" not in str(f.options or "").split("\n"):
                 f.options = str(f.options or "").rstrip("\n") + "\nRejected"
-        dt.save(ignore_permissions=True)
+                add = True
+        if add:
+            dt.save(ignore_permissions=True)
         sc.script = src
         sc.save(ignore_permissions=True)
-        frappe.clear_cache(doctype="Settlement Expense")
         print("done: Settlement Expense status has Rejected; Settlement API patched (" + str(len(PAIRS)) + " changes). Saved only if Commit was ticked.")
