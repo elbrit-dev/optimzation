@@ -770,55 +770,12 @@ export function CarCabSheetV2({ cab }) {
       </div>
 
       <div className="flex min-h-0 flex-1 flex-col gap-1 overflow-y-auto overscroll-contain px-4 pb-3 [&>*]:shrink-0">
+        {/* own car (28 Nov 2026): every request with its dates, limit and own fuel bills; a fuel row opens
+            its bill (not the trip); another request can always be asked -- OwnCarSection */}
         {f.canCar && (
-          <>
-            <span className="mx-1 mb-1.5 mt-3.5 flex items-center gap-2">
-              <span className="grid h-[22px] w-[22px] place-items-center rounded-[7px] bg-cyan-50 text-cyan-700">
-                <Car className="h-3.5 w-3.5" aria-hidden />
-              </span>
-              <b className="text-[12px] font-bold uppercase tracking-wide text-gray-600">Own car</b>
-              <span className={cn("ml-auto text-[12px] font-semibold", !req ? "text-gray-500" : req.status === "approved" ? "text-green-700" : "text-amber-700")}>
-                {!req ? "Not requested" : req.status === "approved" ? "Approved" : "Car requested"}
-              </span>
-            </span>
-            <div className="overflow-hidden rounded-2xl bg-white shadow-[0_1px_2px_rgba(16,24,40,.04)]">
-              {!req ? (
-                <div className="flex items-center justify-between gap-3 px-3.5 py-3">
-                  <b className="text-[14px] font-semibold text-gray-900">Own car this month?</b>
-                  <button type="button" onClick={() => f.openCarRequest({ pick: true })} className="flex h-9 items-center gap-1.5 rounded-[10px] bg-gray-900 px-3.5 text-[13px] font-semibold text-white">
-                    <Car className="h-3.5 w-3.5" aria-hidden /> Request
-                  </button>
-                </div>
-              ) : (
-                <button type="button" onClick={() => f.openRequest(req.id)} className="flex w-full flex-col px-3.5 py-3 text-left">
-                  <span className="flex items-baseline justify-between text-[13px] text-gray-600">
-                    <span>Fuel limit</span>
-                    <span>
-                      <b className="text-[14px] text-gray-900">{inr(c.fuel)}</b> of {inr(cap)}
-                    </span>
-                  </span>
-                  <span className="mt-2 block h-[5px] overflow-hidden rounded-full bg-gray-100">
-                    <i className="block h-full rounded-full bg-green-600" style={{ width: `${Math.min(100, Math.round((c.fuel / (cap || 1)) * 100))}%` }} />
-                  </span>
-                </button>
-              )}
-              {c.fuelBills.map((b) => (
-                <Row
-                  key={b.id}
-                  badge={
-                    <span className="grid h-8 w-8 shrink-0 place-items-center rounded-[10px] bg-orange-500 text-white">
-                      <Fuel className="h-4 w-4" aria-hidden />
-                    </span>
-                  }
-                  title={b.vendor || "Fuel bill"}
-                  sub={`${day(b.date)} ${mon(b.date)} · ${String(b.item.trip.name).split(" · ")[0]}`}
-                  amount={b.amount}
-                  st={fuelState(b.item.claim.status)}
-                  onClick={() => f.openTrip(b.item.trip.id)}
-                />
-              ))}
-            </div>
-          </>
+          <div className="mt-3.5">
+            <OwnCarSection c={c} />
+          </div>
         )}
 
         {f.canCab && (
