@@ -172,6 +172,21 @@ export default async function handler(req, res) {
   }
   const base = { response, question, file_url: fileUrl, user };
 
+  // 28 Nov 2026 · saved=1: a form opened again (the rep saved for later while the file was being read) asks for the
+  // read kept on the response, in the same shape as right after a read; { pending: 1 } while it isn't there yet
+  if (String(form.get("saved") || "") === "1") {
+    try {
+      const g = await erpCall(origin, service, "survey_ai_read", { ...base, step: "get" });
+      if (!g || g.skip) return res.status(200).json({ skipped: "no AI on this question" });
+      if (g.pending) return res.status(200).json({ pending: 1 });
+      if (g.failed) return res.status(200).json({ failed: 1 });
+      const gx = { state: g.state || "", why: g.why || "", redo: g.unclear === "redo" && g.state === "clerk" ? 1 : 0, ...(g.fields ? { fields: g.fields } : {}) };
+      return res.status(200).json(g.readable === false ? { readable: false, reason: g.reason || "", ...gx } : { readable: true, ...gx });
+    } catch (e) {
+      return res.status(e.status === 403 || e.status === 417 ? 403 : 502).json({ error: e.message });
+    }
+  }
+
   // 2. the question's schema (the ERP checks the response and the file are the rep's)
   let info;
   try {

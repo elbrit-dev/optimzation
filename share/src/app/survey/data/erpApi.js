@@ -191,6 +191,30 @@ export function createErpApi({ endpointUrl, gqlEnvironment = 'ERP', gqlToken, al
       return call('GET', 'survey_approval', { query: args });
     },
 
+    /* 28 Nov 2026 · the read kept for a file (a form opened again while its file was being read) */
+    async savedRead({ response, question, file_url }) {
+      try {
+        needAuth();
+        const base = await origin();
+        const form = new FormData();
+        form.append('response', response);
+        form.append('question', question);
+        form.append('file_url', file_url);
+        form.append('saved', '1');
+        const res = await doFetch('/api/survey/read-file', {
+          method: 'POST',
+          headers: { 'x-erp-token': auth, 'x-erp-endpoint': base },
+          body: form,
+          signal: AbortSignal.timeout(30000),
+        });
+        const json = await res.json().catch(() => ({}));
+        if (!res.ok) return { pending: 1, error: json.error || `HTTP ${res.status}` };
+        return json;
+      } catch (e) {
+        return { pending: 1, error: e?.message || 'failed' };
+      }
+    },
+
     async readFile({ response, question, file_url, file }) {
       try {
         needAuth();

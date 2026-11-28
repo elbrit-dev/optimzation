@@ -106,3 +106,29 @@ describe('Submit waits for the AI check', () => {
     expect(aiWaiting([grp], { g: [{ ph: [{ url: '/a.jpg', name: 'a.jpg', size: 1, reading: Date.now() }] }] })).toBe(1);
   });
 });
+
+/* 28 Nov 2026 · saved for later while the file was being read, then opened again: the kept read is fetched — the
+   file no longer stays "checking…" with Submit shut */
+describe('A file saved while it was being read', () => {
+  it('gets the read kept on the response when the form is opened again', async () => {
+    let got = null;
+    const asked = [];
+    const api = { savedRead: (a) => { asked.push(a); return Promise.resolve({ readable: true, state: 'none', why: '', redo: 0, fields: { distributor_name: 'FOCUS' } }); } };
+    const v = [{ url: '/private/files/s.pdf', name: 's.pdf', size: 9, reading: Date.now() - 20000 }];
+    render(<QuestionCard q={file} index={0} value={v} onChange={(x) => { got = x; }} onUpload={() => Promise.resolve({})} api={api} response="SR-1" />);
+    await waitFor(() => expect(got).not.toBeNull());
+    expect(asked).toEqual([{ response: 'SR-1', question: 'q5', file_url: '/private/files/s.pdf' }]);
+    expect(got[0].reading).toBeUndefined();
+    expect(got[0].ai.fields).toEqual({ distributor_name: 'FOCUS' });
+  });
+
+  it('a read still not there after 5 minutes counts as not finished (the rep says why)', async () => {
+    let got = null;
+    const api = { savedRead: () => Promise.resolve({ pending: 1 }) };
+    const v = [{ url: '/private/files/s.pdf', name: 's.pdf', size: 9, reading: Date.now() - 400000 }];
+    render(<QuestionCard q={file} index={0} value={v} onChange={(x) => { got = x; }} onUpload={() => Promise.resolve({})} api={api} response="SR-1" />);
+    await waitFor(() => expect(got).not.toBeNull());
+    expect(got[0].ai).toEqual({ failed: 1 });
+    expect(answerProblem(file, got)).toMatch(/didn’t finish/);
+  });
+});

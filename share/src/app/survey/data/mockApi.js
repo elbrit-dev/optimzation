@@ -231,6 +231,10 @@ export function createMockApi({ role = 'BE', scenario = 'normal', today = MOCK_T
       return /\./.test(u) ? { ok: 1, url: u, message: 'The website opens.' } : { ok: 0, url: u, message: 'The website does not open. Check the address.' };
     },
 
+    async savedRead() {
+      return { failed: 1 };
+    },
+
     async readFile({ file }) {
       await wait(400);
       return /blurr?y/i.test(file?.name || '') ? { readable: false, reason: 'The photo is blurry.' } : { readable: true };

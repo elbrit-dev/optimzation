@@ -716,7 +716,17 @@ function ServingPicker({ value, onChange, disabled, api, response }) {
   );
 }
 
-function FileUpload({ q, value, onChange, disabled, onUpload }) {
+/* 28 Nov 2026 · what the phone keeps of a file's AI read (right after the read, or the saved one fetched later) */
+function aiOfRead(read) {
+  if (read && (read.state || read.fields)) return { state: read.state || '', why: read.why || '', redo: read.redo ? 1 : 0, ...(read.fields ? { fields: read.fields, orig: JSON.parse(JSON.stringify(read.fields)) } : {}) };
+  if (read && read.readable === false) return { state: '', why: read.reason || '', redo: 0, unreadable: 1 };
+  if (read && read.skipped && /no AI on this question|reader off|not a photo or PDF/i.test(String(read.skipped))) return { skipped: 1 };
+  return { failed: 1 }; // no answer in time, or the reader failed: the rep says what the file shows
+}
+/* how long a saved-for-later file's read may still be running on the server (then: "the check didn't finish") */
+const SAVED_WAIT_MS = 300000;
+
+function FileUpload({ q, value, onChange, disabled, onUpload, api, response }) {
   const rules = fileRules(q);
   const files = value ?? [];
   const inputRef = useRef(null);
@@ -732,6 +742,55 @@ function FileUpload({ q, value, onChange, disabled, onUpload }) {
   const room = rules.maxFiles - files.length - ups.filter((u) => !u.error).length;
   const valueRef = useRef(files);
   valueRef.current = files;
+
+  /* 28 Nov 2026 · a file still marked "being checked" that this screen isn't waiting for (saved for later while it
+     was read, then opened again): the read kept on the response is fetched — again every 10 s while it may still be
+     running; after SAVED_WAIT_MS it counts as not finished (the rep says why, or replaces the file). Before, the file
+     stayed "checking…" and Submit stayed shut. */
+  const staleOf = (f) => Boolean(f?.reading && !f.ai && !reading[f.url]);
+  const staleKey = files.filter(staleOf).map((f) => f.url).join('|');
+  useEffect(() => {
+    if (!staleKey) return undefined;
+    let gone = false;
+    let timer = 0;
+    const look = () => {
+      const now = valueRef.current.filter(staleOf);
+      if (!now.length) return;
+      Promise.all(
+        now.map((f) =>
+          (typeof api?.savedRead === 'function' && response ? api.savedRead({ response, question: q.id, file_url: f.url }) : Promise.resolve({ failed: 1 }))
+            .catch(() => ({ pending: 1 }))
+            .then((r) => [f, r]),
+        ),
+      ).then((got) => {
+        if (gone) return;
+        const done = {};
+        for (const [f, r] of got) {
+          if (r && !r.pending) done[f.url] = r;
+          else if (Date.now() - Number(f.reading || 0) > SAVED_WAIT_MS) done[f.url] = { failed: 1 };
+        }
+        const urls = Object.keys(done);
+        if (urls.length) {
+          urls.forEach((u) => done[u].readable === false && setUnread((m) => ({ ...m, [u]: done[u].reason || 'The file could not be read.' })));
+          onChange(
+            valueRef.current.map((x) => {
+              if (!done[x.url] || x.ai) return x;
+              const rest = { ...x };
+              delete rest.reading;
+              return { ...rest, ai: aiOfRead(done[x.url]) };
+            }),
+          );
+        }
+        if (got.some(([f]) => !done[f.url])) timer = setTimeout(look, 10000);
+      });
+    };
+    look();
+    return () => {
+      gone = true;
+      clearTimeout(timer);
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [staleKey]);
 
   const start = (list, replace) => {
     for (const file of list) {
@@ -759,16 +818,7 @@ function FileUpload({ q, value, onChange, disabled, onUpload }) {
               });
               if (read && read.readable === false) setUnread((m) => ({ ...m, [res.file_url]: read.reason || 'The file could not be read.' }));
               /* 26 Nov 2026 · Survey Studio: this file's verdict (Redo blocks Submit) and, with "check on the phone", what was read */
-              let ai;
-              if (read && (read.state || read.fields)) {
-                ai = { state: read.state || '', why: read.why || '', redo: read.redo ? 1 : 0, ...(read.fields ? { fields: read.fields, orig: JSON.parse(JSON.stringify(read.fields)) } : {}) };
-              } else if (read && read.readable === false) {
-                ai = { state: '', why: read.reason || '', redo: 0, unreadable: 1 };
-              } else if (read && read.skipped && /no AI on this question|reader off|not a photo or PDF/i.test(String(read.skipped))) {
-                ai = { skipped: 1 };
-              } else {
-                ai = { failed: 1 }; // no answer in time, or the reader failed: the rep says what the file shows
-              }
+              const ai = aiOfRead(read);
               onChange(valueRef.current.map((x) => {
                 if (x.url !== res.file_url) return x;
                 const rest = { ...x };
@@ -932,7 +982,7 @@ function Input({ q, value, onChange, disabled, onUpload, api, response, answers,
       if (q.studio_type === 'rating') return <Rate5 q={q} value={value} onChange={onChange} disabled={disabled} />;
       return <Stars q={q} value={value} onChange={onChange} disabled={disabled} />;
     case 'file_upload':
-      return <FileUpload q={q} value={value} onChange={onChange} disabled={disabled} onUpload={onUpload} />;
+      return <FileUpload q={q} value={value} onChange={onChange} disabled={disabled} onUpload={onUpload} api={api} response={response} />;
     case 'repeat':
       return <RepeatInput q={q} value={value} onChange={onChange} disabled={disabled} onUpload={onUpload} api={api} response={response} showErrors={showErrors} />;
     default:
