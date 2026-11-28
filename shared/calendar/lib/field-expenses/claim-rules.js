@@ -142,6 +142,8 @@ export function carPools(items, requests, role) {
     if (!mine.length) continue;
     const dates = mine.flatMap((x) => x.ds).sort();
     const fuel = mine.reduce((s, { claim }) => s + sum(claim?.fuels), 0);
+    // every fuel bill of the range, with the trip it is on -- for the car box only (28 Nov 2026)
+    const bills = mine.flatMap(({ trip, claim }) => (claim?.fuels || []).map((b) => ({ kind: "fuels", b, tripId: trip.id, tripFrom: trip.from, tripTo: trip.to })));
     const cap = Math.round(Number(req.ask) || 0);
     const paid = Math.min(fuel, cap);
     const each = Math.floor(paid / dates.length);
@@ -151,7 +153,7 @@ export function carPools(items, requests, role) {
       const carDays = {};
       x.ds.forEach((d) => (carDays[d] = shareOf[d]));
       const amount = x.ds.reduce((s, d) => s + shareOf[d], 0);
-      out.set(x.trip.id, { req, from: req.from, to: req.to, fuel, cap, paid, amount, carDays, days: x.ds.length, totalDays: dates.length, trips: mine.length });
+      out.set(x.trip.id, { req, from: req.from, to: req.to, fuel, cap, paid, amount, carDays, days: x.ds.length, totalDays: dates.length, trips: mine.length, bills });
     }
   }
   return out;

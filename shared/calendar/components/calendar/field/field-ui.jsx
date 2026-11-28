@@ -2304,22 +2304,25 @@ function TripSheet({ item }) {
 const nightsAny = (calc) => calc.nights.length > 0;
 
 const BILL_MON = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+const billSpan = (a, b) => (!a ? "" : a === b || !b ? billDay(a) : a.slice(5, 7) === b.slice(5, 7) ? `${Number(a.slice(8, 10))}–${billDay(b)}` : `${billDay(a)}–${billDay(b)}`);
 const billDay = (iso) => (iso ? `${Number(iso.slice(8, 10))} ${BILL_MON[Number(iso.slice(5, 7)) - 1]}` : "no date");
 
 /* The own car's bills in the car box (28 Nov 2026): one row per fuel / toll bill -- icon,
    date, vendor, amount -- and under them the fuel against the limit. Presentation only:
    the numbers are calc's own (carPool.fuel or fuel + tolls, cap). */
 function CarBillRows({ claim, calc, editing, editable, onPick }) {
-  const rows = ["fuels", "tolls"]
-    .flatMap((kind) => (claim[kind] || []).map((b) => ({ kind, b })))
-    .sort((x, y) => String(x.b.date || "").localeCompare(String(y.b.date || "")));
+  const own = ["fuels", "tolls"].flatMap((kind) => (claim[kind] || []).map((b) => ({ kind, b })));
+  const ownIds = new Set(own.map((x) => x.b.id));
+  // the range's other trips' fuel bills too (they count in the same limit), not tappable here
+  const pooled = (calc.carPool?.bills || []).filter((x) => !ownIds.has(x.b.id)).map((x) => ({ ...x, other: true }));
+  const rows = own.concat(pooled).sort((x, y) => String(x.b.date || "").localeCompare(String(y.b.date || "")));
   const used = calc.carPool ? calc.carPool.fuel : calc.fuel + calc.tolls;
   const others = calc.carPool && calc.carPool.trips > 1;
   return (
     <div className="mt-3">
       {rows.length ? (
         <ul className="divide-y divide-gray-100 overflow-hidden rounded-xl border border-gray-200 bg-white">
-          {rows.map(({ kind, b }) => {
+          {rows.map(({ kind, b, other, tripFrom, tripTo }) => {
             const Icon = kind === "tolls" ? RouteIcon : Fuel;
             const amt = Number(b.billed ?? b.amount) || 0;
             const warn = b.flag || b.manual;
@@ -2330,14 +2333,15 @@ function CarBillRows({ claim, calc, editing, editable, onPick }) {
                 <span className="min-w-0 flex-1 truncate text-gray-600">
                   {b.vendor || (kind === "tolls" ? "Toll" : "Fuel")}
                   {warn ? <span className="ml-1 font-semibold text-amber-700">· {b.manual ? "by hand" : "check"}</span> : null}
+                  {other ? <span className="ml-1 text-gray-400">· on the {billSpan(tripFrom, tripTo)} trip</span> : null}
                 </span>
                 <b className="shrink-0 tabular-nums text-gray-900">{inr(amt)}</b>
               </>
             );
             const cls = cn("flex w-full items-center gap-2 px-3 py-2 text-left text-[12.5px]", editing?.id === b.id && "bg-blue-50");
             return (
-              <li key={b.id}>
-                {editable ? (
+              <li key={`${other ? "o" : "t"}-${b.id}`}>
+                {editable && !other ? (
                   <button type="button" className={cls} aria-pressed={editing?.id === b.id} onClick={() => onPick(kind, b.id)} aria-label={`${BILL_NAME[kind]} ${inr(amt)} — tap for details`}>
                     {inner}
                   </button>
@@ -2349,7 +2353,7 @@ function CarBillRows({ claim, calc, editing, editable, onPick }) {
           })}
         </ul>
       ) : (
-        <p className="text-gray-500">No fuel bill on this trip yet.</p>
+        <p className="mt-2 text-gray-500">No fuel bill yet.</p>
       )}
       <p className="mt-2 flex items-baseline justify-between gap-2">
         <span className="text-gray-600">

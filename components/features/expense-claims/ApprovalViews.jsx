@@ -547,8 +547,15 @@ function BillTile({ conn, bill, onOpen }) {
   );
 }
 
-function TripBody({ conn, trip, office = [], busy, onAccept, onBack }) {
+function TripBody({ conn, trip: trip0, office = [], busy, onAccept, onBack }) {
   const [full, setFull] = useState(null);
+  // the office's own-car lines over this trip (28 Nov 2026): their bills sit with the trip's bills
+  const trip = useMemo(() => {
+    const have = new Set(trip0.bills.map((b) => b.url));
+    const extra = office.flatMap((o) => o.lines.filter((l) => l.custom_bill && !have.has(l.custom_bill))
+      .map((l) => ({ url: l.custom_bill, kind: l.expense_type === "Fuel" ? "Fuel" : l.expense_type, amount: Number(l.custom_bill_amount) || Number(l.amount) || 0, vendor: l.custom_bill_vendor || "" })));
+    return extra.length ? { ...trip0, bills: trip0.bills.concat(extra) } : trip0;
+  }, [trip0, office]);
   const files = useMemo(() => trip.bills.map((b) => billFile(b.url)).filter(Boolean), [trip.bills]);
   const lineOf = (date, type) => trip.lines.filter((l) => String(l.expense_date).slice(0, 10) === date && l.expense_type === type).reduce((a, l) => a + (Number(l.amount) || 0), 0);
   const billTotal = trip.bills.reduce((a, b) => a + b.amount, 0);
@@ -612,11 +619,11 @@ function TripBody({ conn, trip, office = [], busy, onAccept, onBack }) {
           <span className="min-w-0 flex-1 text-gray-700">
             <b className="text-gray-900">Own car</b>
             {fuelTotal != null ? <> · fuel {inr(fuelTotal)}</> : null}
-            <span className="block text-[11px] text-gray-500">TA on car days ₹0 — paid from fuel</span>
-            {/* the office's own car lines over this trip's days: named here, listed on their own card */}
+            {/* the office's own-car lines over this trip: one plain line each (28 Nov 2026) */}
             {office.map((o) => (
-              <span key={o.id} className="block text-[11px] text-gray-500">
-                Fuel for {rangeWords(o.from, o.to)} {inr(o.amount)} · added by the office, on its own card
+              <span key={o.id} className="mt-0.5 flex justify-between gap-2 text-[11.5px] text-gray-600">
+                <span>{o.lines.every((l) => l.expense_type === "Fuel") ? "Fuel" : o.title} · {rangeWords(o.from, o.to)}{/local km/i.test(o.tag || o.id) ? " · local km" : ""}</span>
+                <b className="text-gray-900">{inr(o.amount)}</b>
               </span>
             ))}
           </span>
@@ -629,7 +636,7 @@ function TripBody({ conn, trip, office = [], busy, onAccept, onBack }) {
           </p>
           <div className="-mx-1 flex gap-2 overflow-x-auto px-1 pb-1">
             {trip.bills.map((b) => (
-              <BillTile key={b.url} conn={conn} bill={b} onOpen={() => setFull(billFile(b.url))} />
+              <BillTile key={b.url} conn={conn} bill={b} onOpen={() => setFull(files.find((f) => f.url === b.url) || billFile(b.url))} />
             ))}
           </div>
         </>
@@ -687,7 +694,7 @@ function OfficeBody({ conn, group: g }) {
       {bills.length > 0 && (
         <div className="-mx-1 mt-2 flex gap-2 overflow-x-auto px-1 pb-1">
           {bills.map((b) => (
-            <BillTile key={b.url} conn={conn} bill={b} onOpen={() => setFull(billFile(b.url))} />
+            <BillTile key={b.url} conn={conn} bill={b} onOpen={() => setFull(files.find((f) => f.url === b.url) || billFile(b.url))} />
           ))}
         </div>
       )}
@@ -756,7 +763,7 @@ function CabBody({ conn, claim: c, canAct, busy, onApprove, onBack }) {
         <span className="text-right">Bill</span>
       </div>
       {lines.map((l) => (
-        <CabRow key={l.id} conn={conn} line={l} onOpen={() => setFull(billFile(l.bill))} />
+        <CabRow key={l.id} conn={conn} line={l} onOpen={() => setFull(files.find((f) => f.url === l.bill) || billFile(l.bill))} />
       ))}
       <div className="mt-2 flex justify-between border-t border-dashed border-gray-200 pt-2 text-[12.5px]">
         <span className="text-gray-600">
@@ -947,11 +954,19 @@ function TaDaView({ conn }) {
 
   const trips = rep ? rep.blocks : [];
   const extras = rep ? rep.extras || [] : [];
-  const officeOver = (t) => extras.filter((o) => o.car && o.from && o.from <= t.to && o.to >= t.from);
+  // an own-car group goes under the FIRST trip it overlaps (28 Nov 2026), as one line; the rest keep a card
+  const carHome = {};
+  for (const o of extras) {
+    if (!o.car || !o.from) continue;
+    const t = trips.find((x) => o.from <= x.to && o.to >= x.from);
+    if (t) (carHome[t.id] = carHome[t.id] || []).push(o);
+  }
+  const homed = new Set(Object.values(carHome).flat().map((o) => o.id));
+  const officeOver = (t) => carHome[t.id] || [];
   // no trip actions on them: under All, and Accepted once decided -- never "To accept"
   const fltOk = (st) => flt === "all" || (flt === "accepted" && st === "accepted") || (flt === "notsent" && st === "back");
   const officeItems = extras
-    .filter((o) => fltOk(o.state))
+    .filter((o) => !homed.has(o.id) && fltOk(o.state))
     .map((o) => ({
       id: o.id,
       from: o.from,
@@ -970,7 +985,7 @@ function TaDaView({ conn }) {
       },
       body: <OfficeBody conn={conn} group={o} />,
     }));
-  const exSt = extras.map((o) => o.state);
+  const exSt = extras.filter((o) => !homed.has(o.id)).map((o) => o.state);
   const cabSt = cabList.map((c) => cabState(c.status));
   const counts = {
     all: trips.length + cabSt.length + exSt.length,
