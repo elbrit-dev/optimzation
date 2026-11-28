@@ -1901,9 +1901,6 @@ function TripSheet({ item }) {
                     style={{ width: `${Math.min(100, Math.round(((calc.carPool ? calc.carPool.fuel : calc.fuel + calc.tolls) / (calc.cap || 1)) * 100))}%` }}
                   />
                 </span>
-                <b className={cn("shrink-0", calc.capped ? "text-amber-700" : "text-gray-900")}>
-                  {inr(calc.carPool ? calc.carPool.fuel : calc.fuel + calc.tolls)} / {inr(calc.cap)}
-                </b>
               </span>
 
               {/* every fuel / toll bill as a row, seen without a tap (28 Nov 2026); a tap

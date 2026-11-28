@@ -12,8 +12,11 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { BedDouble, Car, Check, ChevronDown, ChevronLeft, ChevronRight, Fuel, Loader2, Lock, MessageSquare, Receipt, TrainFront, UtensilsCrossed, CalendarDays } from "lucide-react";
 import {
+  CAB_REMARK,
   addClaimComment,
   applyAction,
+  approveCabClaim,
+  cabBillCheck,
   decideCarRequest,
   decideNonReport,
   decideTrip,
@@ -22,6 +25,7 @@ import {
   fetchNonReportQueue,
   fetchTeamMonth,
   makeConn,
+  sendBackCabClaim,
 } from "./data/claimsApi";
 import { parseTripTag } from "./fieldTrips";
 import { FilePreview, billFile, useFileUrl } from "./ui";
@@ -357,6 +361,9 @@ function tripsOfRep(rep) {
   const lines = (rep.claims || []).flatMap((c) => (c.lines || []).map((l) => ({ ...l, claim: c.name, claimState: c.workflow_state })));
   const byTag = new Map();
   for (const l of lines) {
+    // a line the office added with a tag of its own ("Own car · 16–24 Oct · local km", 28 Nov 2026):
+    // not a trip -- shown on its own card (extrasOfRep), never decided with a trip
+    if (isOfficeTag(l.custom_trip)) continue;
     const t = parseTripTag(l.custom_trip) || { from: String(l.expense_date).slice(0, 10), to: String(l.expense_date).slice(0, 10), name: "" };
     const k = `${t.from}..${t.to}`;
     if (!byTag.has(k)) byTag.set(k, { ...t, lines: [] });
@@ -433,6 +440,49 @@ function tripsOfRep(rep) {
     });
 }
 
+/* a tag that is set but is not "from..to · name": the office's own lines (28 Nov 2026) */
+const isOfficeTag = (tag) => !!String(tag || "").trim() && !parseTripTag(tag);
+/* "Own car · 16–24 Oct · local km" (or "28 Sep–2 Oct") -> { from, to } in the line's year */
+const rangeOfTag = (tag, year) => {
+  const m = /(\d{1,2})(?:\s+([A-Z][a-z]{2}))?\s*[–-]\s*(\d{1,2})\s+([A-Z][a-z]{2})/.exec(String(tag || ""));
+  if (!m) return null;
+  const mi = (w) => MON.indexOf(w) + 1;
+  const m2 = mi(m[4]);
+  const m1 = m[2] ? mi(m[2]) : m2;
+  if (!m1 || !m2) return null;
+  const iso = (mo, d) => `${year}-${String(mo).padStart(2, "0")}-${String(d).padStart(2, "0")}`;
+  return { from: iso(m1, m[1]), to: iso(m2, m[3]) };
+};
+/* the office's lines of a rep's month, one group per tag: "Own car · 16–24 Oct · local km" */
+function extrasOfRep(rep) {
+  const groups = new Map();
+  for (const c of rep.claims || [])
+    for (const l of c.lines || []) {
+      if (!isOfficeTag(l.custom_trip)) continue;
+      const tag = String(l.custom_trip).trim();
+      if (!groups.has(tag)) groups.set(tag, { tag, lines: [], claimState: c.workflow_state });
+      groups.get(tag).lines.push({ ...l, claim: c.name, claimState: c.workflow_state });
+    }
+  return [...groups.values()].map((g) => {
+    const ds = g.lines.map((l) => String(l.expense_date).slice(0, 10)).sort();
+    const r = rangeOfTag(g.tag, (ds[0] || "").slice(0, 4)) || { from: ds[0], to: ds[ds.length - 1] };
+    const parts = g.tag.split(" · ").map((x) => x.trim()).filter(Boolean);
+    const decisions = g.lines.map((l) => l.custom_trip_decision || "");
+    const done = g.lines.every((l) => ["Approved", "Verified", "Paid"].includes(l.claimState));
+    const state = decisions.includes("Rejected") ? "back" : done || decisions.every((x) => x === "Approved") ? "accepted" : "sent";
+    return {
+      id: `office:${g.tag}`,
+      ...r,
+      car: /own car/i.test(g.tag) || g.lines.every((l) => l.expense_type === "Fuel"),
+      title: parts[0] || "Added by the office",
+      sub: [parts.slice(1).join(" · "), "added by the office"].filter(Boolean).join(" · "),
+      lines: g.lines,
+      state,
+      amount: g.lines.reduce((a, l) => a + (Number(l.amount) || 0), 0),
+    };
+  });
+}
+
 /* the local days between outstation trips as ONE HQ & EQ block (27 Nov 2026, as the rep's own
    HQ & EQ card): a row per day with its own state; accept / send back covers its sent days */
 function blocksOf(trips) {
@@ -497,7 +547,7 @@ function BillTile({ conn, bill, onOpen }) {
   );
 }
 
-function TripBody({ conn, trip, busy, onAccept, onBack }) {
+function TripBody({ conn, trip, office = [], busy, onAccept, onBack }) {
   const [full, setFull] = useState(null);
   const files = useMemo(() => trip.bills.map((b) => billFile(b.url)).filter(Boolean), [trip.bills]);
   const lineOf = (date, type) => trip.lines.filter((l) => String(l.expense_date).slice(0, 10) === date && l.expense_type === type).reduce((a, l) => a + (Number(l.amount) || 0), 0);
@@ -556,12 +606,19 @@ function TripBody({ conn, trip, busy, onAccept, onBack }) {
           </div>
         );
       })}
-      {fuelTotal != null && (
-        <div className="mt-2 flex items-center gap-2 rounded-lg border border-gray-200 bg-gray-50 px-2.5 py-1.5 text-[12px]">
-          <Car className="h-4 w-4 flex-none text-gray-500" aria-hidden />
+      {(fuelTotal != null || office.length > 0) && (
+        <div className="mt-2 flex items-start gap-2 rounded-lg border border-gray-200 bg-gray-50 px-2.5 py-1.5 text-[12px]">
+          <Car className="mt-0.5 h-4 w-4 flex-none text-gray-500" aria-hidden />
           <span className="min-w-0 flex-1 text-gray-700">
-            <b className="text-gray-900">Own car</b> · fuel {inr(fuelTotal)}
+            <b className="text-gray-900">Own car</b>
+            {fuelTotal != null ? <> · fuel {inr(fuelTotal)}</> : null}
             <span className="block text-[11px] text-gray-500">TA on car days ₹0 — paid from fuel</span>
+            {/* the office's own car lines over this trip's days: named here, listed on their own card */}
+            {office.map((o) => (
+              <span key={o.id} className="block text-[11px] text-gray-500">
+                Fuel for {rangeWords(o.from, o.to)} {inr(o.amount)} · added by the office, on its own card
+              </span>
+            ))}
           </span>
         </div>
       )}
@@ -595,15 +652,63 @@ function TripBody({ conn, trip, busy, onAccept, onBack }) {
   );
 }
 
+const rangeWords = (from, to) => (!from ? "" : from === to ? dd(from) : from.slice(5, 7) === to.slice(5, 7) ? `${Number(from.slice(8))}–${dd(to)}` : `${dd(from)}–${dd(to)}`);
+
+/* Lines the office added to the rep's claim under a tag of their own (28 Nov 2026), e.g. the
+   own car's fuel "Own car · 16–24 Oct · local km": listed here, no trip actions -- they go
+   with the month's approval. */
+function OfficeBody({ conn, group: g }) {
+  const [full, setFull] = useState(null);
+  const lines = useMemo(() => [...g.lines].sort((a, b) => String(a.expense_date).localeCompare(String(b.expense_date))), [g.lines]);
+  const files = useMemo(() => lines.map((l) => (l.custom_bill ? billFile(l.custom_bill) : null)).filter(Boolean), [lines]);
+  const bills = lines.filter((l) => l.custom_bill).map((l) => ({ url: l.custom_bill, kind: l.expense_type, amount: Number(l.custom_bill_amount) || Number(l.amount) || 0, vendor: l.custom_bill_vendor || "" }));
+  return (
+    <>
+      {g.car && (
+        <p className="mb-2 flex items-start gap-2 rounded-lg border border-gray-200 bg-gray-50 px-2.5 py-1.5 text-[12px] text-gray-700">
+          <Car className="mt-0.5 h-4 w-4 flex-none text-gray-500" aria-hidden />
+          <span>
+            <b className="text-gray-900">Own car</b> · {rangeWords(g.from, g.to)}
+            <span className="block text-[11px] text-gray-500">TA on car days ₹0 — paid from fuel</span>
+          </span>
+        </p>
+      )}
+      {lines.map((l) => {
+        const Icon = l.expense_type === "Fuel" ? Fuel : Receipt;
+        return (
+          <div key={l.name || `${l.expense_date}-${l.amount}`} className="flex items-center gap-2 border-b border-gray-100 py-1.5 text-[12px] last:border-b-0">
+            <Icon className="h-4 w-4 flex-none text-gray-500" aria-hidden />
+            <b className="w-12 flex-none text-gray-800">{dd(l.expense_date)}</b>
+            <span className="min-w-0 flex-1 truncate text-gray-600">{[l.expense_type, l.custom_bill_vendor].filter(Boolean).join(" · ")}</span>
+            <b className="tabular-nums">{inr(l.amount)}</b>
+          </div>
+        );
+      })}
+      {bills.length > 0 && (
+        <div className="-mx-1 mt-2 flex gap-2 overflow-x-auto px-1 pb-1">
+          {bills.map((b) => (
+            <BillTile key={b.url} conn={conn} bill={b} onOpen={() => setFull(billFile(b.url))} />
+          ))}
+        </div>
+      )}
+      <div className="mt-2 flex justify-between border-t border-dashed border-gray-200 pt-2 text-[12.5px]">
+        <span className="text-gray-600">Added by the office</span>
+        <b>{inr(g.amount)}</b>
+      </div>
+      <p className="mt-2 text-[11.5px] text-gray-500">On the TA/DA claim — approved with the month, not trip by trip.</p>
+      {full && conn ? <FilePreview conn={conn} file={full} files={files} onClose={() => setFull(null)} /> : null}
+    </>
+  );
+}
+
 /* A manager's (SM / ZSM) monthly CAB claim (28 Nov 2026): remark "Field Cab · YYYY-MM",
    bills paid by Accounts outside payroll -- decided on its own, never with the TA/DA month.
    Same two steps as the combined page's CabClaimPanel: Approve, or a comment + Reject. */
-const CAB_REMARK = (month) => `Field Cab · ${month}`;
-const cabCheck = (ai) =>
-  !ai ? ["not checked", "text-amber-700"]
-    : /entered by hand/i.test(ai.reason || "") ? ["handwritten", "text-amber-700"]
-      : ai.score != null && ai.score < 90 ? ["possible repeat", "text-red-700"]
-        : ["checked", "text-green-700"];
+const CAB_TONE = { "not checked": "text-amber-700", handwritten: "text-amber-700", "possible repeat": "text-red-700", checked: "text-green-700" };
+const cabCheck = (ai) => {
+  const w = cabBillCheck(ai);
+  return [w, CAB_TONE[w]];
+};
 const cabState = (st) => (st === "Waiting for Approval" ? "sent" : ["Approved", "Verified", "Paid"].includes(st) ? "approved" : st === "Rejected" ? "rejected" : "notsent");
 const CAB_LABEL = { sent: "To approve", approved: "Approved", rejected: "Sent back", notsent: "Not sent yet" };
 
@@ -702,7 +807,7 @@ function TaDaView({ conn }) {
           const blocks = blocksOf(trips);
           const dayN = (st) => trips.filter(st).reduce((a, t) => a + t.days.filter((d) => Number(d.total) > 0).length, 0);
           const card = { n: dayN(() => true), sent: dayN((t) => t.sent), acc: dayN((t) => t.state === "accepted"), toAccept: blocks.filter((b) => b.state === "sent").length };
-          return { ...r, trips, blocks, card, sent, acc, toAccept: card.toAccept, waiting, done };
+          return { ...r, trips, blocks, extras: extrasOfRep(r), card, sent, acc, toAccept: card.toAccept, waiting, done };
         })
         .filter((r) => r.trips.length)
         .sort((a, b) => b.toAccept - a.toAccept || a.done - b.done || String(a.name).localeCompare(String(b.name))),
@@ -729,7 +834,7 @@ function TaDaView({ conn }) {
     if (!repId) return undefined;
     let alive = true;
     const key = `${repId}|${month}`;
-    fetchClaimsByRemark(conn, repId, CAB_REMARK(month), 20)
+    fetchClaimsByRemark(conn, repId, `${CAB_REMARK}${month}`, 20)
       .then((list) => alive && setCabs({ key, list: (list || []).filter((c) => c.lines.length) }))
       .catch(() => alive && setCabs({ key, list: [] }));
     return () => {
@@ -794,15 +899,12 @@ function TaDaView({ conn }) {
     }
   };
   const cabTotal = (c) => c.lines.reduce((a, l) => a + (Number(l.amount) || 0), 0);
-  const approveCabs = (c) => cabRun(c, "ok", () => applyAction(conn, c.id, "Approve"), `${firstName(c.employeeName || rep?.name)}'s cabs approved — ${inr(cabTotal(c))}, a record for Accounts (not TA/DA, not payroll)`);
+  const approveCabs = (c) => cabRun(c, "ok", () => approveCabClaim(conn, c.id), `${firstName(c.employeeName || rep?.name)}'s cabs approved — ${inr(cabTotal(c))}, a record for Accounts (not TA/DA, not payroll)`);
   const sendBackCabs = (c, why) =>
     cabRun(
       c,
       "back",
-      async () => {
-        await addClaimComment(conn, c.id, why);
-        await applyAction(conn, c.id, "Reject");
-      },
+      () => sendBackCabClaim(conn, c.id, why),
       `${firstName(c.employeeName || rep?.name)}'s cabs sent back`
     );
   const cabItems = cabList
@@ -844,12 +946,37 @@ function TaDaView({ conn }) {
     );
 
   const trips = rep ? rep.blocks : [];
+  const extras = rep ? rep.extras || [] : [];
+  const officeOver = (t) => extras.filter((o) => o.car && o.from && o.from <= t.to && o.to >= t.from);
+  // no trip actions on them: under All, and Accepted once decided -- never "To accept"
+  const fltOk = (st) => flt === "all" || (flt === "accepted" && st === "accepted") || (flt === "notsent" && st === "back");
+  const officeItems = extras
+    .filter((o) => fltOk(o.state))
+    .map((o) => ({
+      id: o.id,
+      from: o.from,
+      to: o.to,
+      card: {
+        state: o.state === "sent" ? "waiting" : o.state,
+        label: o.state === "accepted" ? "Accepted" : o.state === "back" ? "Sent back" : "With the month",
+        title: (
+          <>
+            {o.car ? <Car className="mr-1 inline h-4 w-4 align-[-3px] text-gray-500" aria-hidden /> : null}
+            {o.title}
+          </>
+        ),
+        sub: o.sub,
+        amount: o.amount,
+      },
+      body: <OfficeBody conn={conn} group={o} />,
+    }));
+  const exSt = extras.map((o) => o.state);
   const cabSt = cabList.map((c) => cabState(c.status));
   const counts = {
-    all: trips.length + cabSt.length,
+    all: trips.length + cabSt.length + exSt.length,
     accept: trips.filter((t) => t.state === "sent").length + cabSt.filter((x) => x === "sent").length,
-    notsent: trips.filter((t) => t.state === "notsent" || t.state === "back" || t.state === "partial").length + cabSt.filter((x) => x === "notsent" || x === "rejected").length,
-    accepted: trips.filter((t) => t.state === "accepted").length + cabSt.filter((x) => x === "approved").length,
+    notsent: trips.filter((t) => t.state === "notsent" || t.state === "back" || t.state === "partial").length + cabSt.filter((x) => x === "notsent" || x === "rejected").length + exSt.filter((x) => x === "back").length,
+    accepted: trips.filter((t) => t.state === "accepted").length + cabSt.filter((x) => x === "approved").length + exSt.filter((x) => x === "accepted").length,
   };
   const shown = trips.filter((t) => flt === "all" || (flt === "accept" ? t.state === "sent" : flt === "notsent" ? t.state === "notsent" || t.state === "back" || t.state === "partial" : t.state === "accepted"));
   const canApprove = rep && rep.sent === rep.trips.length && rep.acc === rep.trips.length && rep.waiting.length > 0;
@@ -903,8 +1030,8 @@ function TaDaView({ conn }) {
               from: t.from,
               to: t.to,
               card: { state: t.state, label: t.state === "partial" ? t.partialLabel : STATE_LABEL[t.state], tag: t.os ? "OS" : "HQ", title: t.title, sub: t.sub, amount: t.amount },
-              body: <TripBody conn={conn} trip={t} busy={busy?.trip === t.id ? busy.what : null} onAccept={() => accept(t)} onBack={(why) => sendBack(t, why)} />,
-            })).concat(cabItems)}
+              body: <TripBody conn={conn} trip={t} office={officeOver(t)} busy={busy?.trip === t.id ? busy.what : null} onAccept={() => accept(t)} onBack={(why) => sendBack(t, why)} />,
+            })).concat(officeItems).sort((a, b) => String(a.from).localeCompare(String(b.from))).concat(cabItems)}
           />
           {!rep.done && (
             <div className="sticky bottom-0 mt-3 flex items-center gap-2 border-t border-gray-200 bg-white px-4 py-3">
