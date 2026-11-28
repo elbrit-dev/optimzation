@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { addClaimComment, adjustTripTA, applyAction, decideCarRequest, decideNonReport, decideTrip, fetchCarQueue, fetchClaimDepartments, fetchClaimVisits, fetchCeoBatches, fetchMe, fetchNonReportQueue, fetchQueue, fetchSettlementQueue, makeConn, saveSanctioned, withTripMarks } from "./data/claimsApi";
+import { CAB_REMARK, addClaimComment, adjustTripTA, applyAction, approveCabClaim, cabBillCheck, decideCarRequest, decideNonReport, decideTrip, fetchCarQueue, fetchClaimDepartments, fetchClaimVisits, fetchCeoBatches, fetchMe, fetchNonReportQueue, fetchQueue, fetchSettlementQueue, makeConn, saveSanctioned, sendBackCabClaim, withTripMarks } from "./data/claimsApi";
 import { SettleQueue, SettleSheet } from "./settlement";
 import ApprovalView, { viewOfUrl } from "./ApprovalViews";
 import { CeoBatches } from "./ceoBatches";
@@ -71,7 +71,7 @@ export const VERIFIERS = ["sathish.admin@elbrit.org"];
 const FIELD = "Field TA/DA \u00b7 ";
 export const isField = (c) => String(c?.remark || "").startsWith(FIELD);
 // a manager's (SM / ZSM) cab bills of the month (20 Nov 2026): approval is final, record only
-const CAB = "Field Cab · ";
+const CAB = CAB_REMARK;
 export const isCab = (c) => String(c?.remark || "").startsWith(CAB);
 const fieldMonth = (c) => {
   const m = String(c.remark).slice(FIELD.length, FIELD.length + 7);
@@ -648,11 +648,11 @@ const handOf = (l) => {
 const isHand = (l) => !!(l.bill && (/· handwritten: /.test(l.note || "") || /entered by hand/i.test(l.ai?.reason || "")));
 
 /* a bill's check in two words, and its colour */
-const checkOf = (ai) =>
-  !ai ? ["not checked", "#b54708"]
-    : /entered by hand/i.test(ai.reason || "") ? ["handwritten", "#b54708"]
-      : ai.score != null && ai.score < 90 ? ["possible repeat", "#b42318"]
-        : ["checked", "#067647"];
+const CHECK_COLOR = { "not checked": "#b54708", handwritten: "#b54708", "possible repeat": "#b42318", checked: "#067647" };
+const checkOf = (ai) => {
+  const w = cabBillCheck(ai);
+  return [w, CHECK_COLOR[w]];
+};
 
 /* a trip's bills, once each (a hotel bill is one line per night) */
 function billsOf(t) {
@@ -715,14 +715,13 @@ function CabClaimPanel({ conn, claim: c, canAct, history, desk, onBill, onDone }
   };
   const approve = () =>
     act("Approving…", async () => {
-      await applyAction(conn, c.id, "Approve");
+      await approveCabClaim(conn, c.id);
       onDone(`${c.employeeName || c.id}: cab bills approved — ${inr(total)}, a record for Accounts (not TA/DA, not payroll)`);
     });
   const sendBack = () => {
     if (!reason.trim()) return setError("Say why — the employee sees this.");
     return act("Sending back…", async () => {
-      await addClaimComment(conn, c.id, reason.trim());
-      await applyAction(conn, c.id, "Reject");
+      await sendBackCabClaim(conn, c.id, reason.trim());
       onDone(`${c.employeeName || c.id}: cab bills sent back`);
     });
   };

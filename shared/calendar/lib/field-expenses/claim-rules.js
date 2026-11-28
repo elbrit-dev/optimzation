@@ -142,6 +142,8 @@ export function carPools(items, requests, role) {
     if (!mine.length) continue;
     const dates = mine.flatMap((x) => x.ds).sort();
     const fuel = mine.reduce((s, { claim }) => s + sum(claim?.fuels), 0);
+    // every fuel bill of the range, with the trip it is on -- for the car box only (28 Nov 2026)
+    const bills = mine.flatMap(({ trip, claim }) => (claim?.fuels || []).map((b) => ({ kind: "fuels", b, tripId: trip.id, tripFrom: trip.from, tripTo: trip.to })));
     const cap = Math.round(Number(req.ask) || 0);
     const paid = Math.min(fuel, cap);
     const each = Math.floor(paid / dates.length);
@@ -151,7 +153,7 @@ export function carPools(items, requests, role) {
       const carDays = {};
       x.ds.forEach((d) => (carDays[d] = shareOf[d]));
       const amount = x.ds.reduce((s, d) => s + shareOf[d], 0);
-      out.set(x.trip.id, { req, from: req.from, to: req.to, fuel, cap, paid, amount, carDays, days: x.ds.length, totalDays: dates.length, trips: mine.length });
+      out.set(x.trip.id, { req, from: req.from, to: req.to, fuel, cap, paid, amount, carDays, days: x.ds.length, totalDays: dates.length, trips: mine.length, bills });
     }
   }
   return out;
@@ -358,7 +360,8 @@ export function tripClaim(trip, claim, { role, requests, eqKm, carPool = null } 
   const travelBilled = travelExtra > 0;
   // the car's shares sit on its days; the trip's other days keep their own fare
   const restFare = carBilled ? (trip.days || []).filter((d) => d.payable && cpool.carDays[d.date] == null).reduce((s, d) => s + (Number(d.ta) || 0), 0) : 0;
-  const ta = carBilled ? cpool.amount + restFare : fare + travelExtra;
+  // own car (28 Nov 2026): the car's fuel is NOT the trip's -- sent from the Car sheet; the trip keeps its other days' fare
+  const ta = carBilled ? restFare : fare + travelExtra;
   // stay and food come under DA (RBM and SM and above attach the bills): the
   // outstation days' 50 % swapped for what the pool pays
   const food = sum(foods);
@@ -426,7 +429,7 @@ export function tripChecks(trip, claim, calc) {
     if (p) {
       // the range: the pool, the cap, this trip's days of it
       if (!p.fuel) out.push({ ok: true, text: `No fuel bill yet for ${p.from.slice(8)}–${p.to.slice(8)} · fare ₹${fmt(calc.fare)} paid.` });
-      else out.push({ ok: true, text: `Fuel bills ₹${fmt(p.fuel)} for ${p.from.slice(8)}–${p.to.slice(8)} · paid ₹${fmt(p.paid)}${calc.capped ? " (approved max)" : ""} over ${p.totalDays} EQ / OS days · this trip ${p.days} = ₹${fmt(p.amount)}.` });
+      // 28 Nov 2026: the pool's sums are on the Car sheet, not here
     } else if (!calc.fuel && !calc.tolls) out.push({ ok: true, text: `No car bill yet · fare ₹${fmt(calc.fare)} paid.` });
     else if (calc.capped) out.push({ ok: true, text: `Car bills ₹${fmt(calc.fuel + calc.tolls)} → ₹${fmt(calc.cap)} (approved max).` });
     else out.push({ ok: true, text: `Car bills ₹${fmt(calc.fuel + calc.tolls)} paid · up to ₹${fmt(calc.cap)}.` });

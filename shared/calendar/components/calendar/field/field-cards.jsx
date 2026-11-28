@@ -24,6 +24,8 @@ import { helpState, helpSummary, helpSeen } from "@calendar/lib/field-expenses/t
 import { cabTotals, useCabs } from "@calendar/lib/field-expenses/cab-claims";
 import { readTripBill } from "@calendar/lib/field-expenses/bill-reader";
 import { ManualBill, useBillPicker } from "@calendar/components/calendar/field/field-bills";
+import { BillViewer } from "@calendar/components/calendar/field/field-bill-view";
+import { carTag } from "@calendar/lib/field-expenses/erp-claim";
 
 const MON = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
 const day = (iso) => Number(String(iso).slice(8, 10));
@@ -111,9 +113,11 @@ export function BlockCard({ block, onOpen }) {
   const S = STATE[k];
   const days = items.flatMap((x) => x.trip.days);
   const paid = days.filter((d) => d.payable);
-  const ta = items.reduce((a, x) => a + x.calc.ta, 0);
+  // own car (28 Nov 2026): the trip card shows TA / total WITHOUT the car's fuel share -- that is on the Car card
+  const carOf = () => 0;   // the trip's TA no longer holds the car's fuel (claim-rules, 28 Nov 2026)
+  const ta = items.reduce((a, x) => a + x.calc.ta - carOf(x.calc), 0);
   const da = items.reduce((a, x) => a + x.calc.da, 0);
-  const total = items.reduce((a, x) => a + x.calc.total, 0);
+  const total = items.reduce((a, x) => a + x.calc.total - carOf(x.calc), 0);
   // the DA's full limit while bills can still add to it
   const one = items.length === 1 ? items[0].calc : null;
   const gap = S.act && one && one.billsAllowed && one.nights.length > 0 && !one.fullNoBill ? Math.max(0, (one.pool?.full || 0) - (one.pool?.paid || 0)) : 0;
@@ -300,19 +304,25 @@ export function CarCabCard() {
           </b>
         </span>
       </span>
-      {showCap && c.cap > 0 && <Meter p={(c.fuel / c.cap) * 100} />}
     </button>
   );
 }
 
 /* the Own car part of the Car · Ola · Uber sheet: the request, the limit, and
    the fuel bills (added here, onto the car's first trip still to send) */
-export function OwnCarSection({ c, onAddFuel }) {
+export function OwnCarSection({ c, onAddFuel, sentTags = null }) {
   const f = useFieldExpenses();
+  // a fuel bill row opens the BILL itself (28 Nov 2026) -- not its trip or the request
+  const [openBill, setOpenBill] = useState(null);
   if (!f.canCar) return null;
-  const req = c.approved[0] || c.reqs.find((r) => r.status === "pending") || c.reqs[0] || null;
+  // every request of the month (28 Nov 2026): each with its dates, limit and its own fuel bills; more can be asked
+  const reqs = [...c.reqs].sort((a, b) => String(a.from || "").localeCompare(String(b.from || "")));
+  const req = c.approved[0] || reqs.find((r) => r.status === "pending") || reqs[0] || null;
   const tone = !req ? "text-gray-500" : req.status === "approved" ? "text-green-700" : req.status === "pending" ? "text-amber-700" : "text-red-700";
-  const word = !req ? "Not requested" : req.status === "approved" ? "Approved" : req.status === "pending" ? "Car requested" : "Not approved";
+  const word = !req ? "Not requested" : reqs.length > 1 ? `${reqs.length} requests` : req.status === "approved" ? "Approved" : req.status === "pending" ? "Car requested" : "Not approved";
+  const inReq = (r, b) => r.from && r.to && b.date >= r.from && b.date <= r.to;
+  const STATUS = { approved: ["Approved", "text-green-700"], pending: ["Waiting", "text-amber-700"], rejected: ["Not approved", "text-red-700"] };
+
   return (
     <section className="flex flex-col gap-2">
       <span className="flex items-center gap-2 px-1">
@@ -323,41 +333,70 @@ export function OwnCarSection({ c, onAddFuel }) {
         <span className={cn("ml-auto text-[12px] font-semibold", tone)}>{word}</span>
       </span>
       <div className="overflow-hidden rounded-2xl bg-white shadow-[0_1px_2px_rgba(16,24,40,.04)] ring-1 ring-gray-100">
-        {!req || req.status === "rejected" ? (
-          <div className="flex items-center justify-between gap-3 px-3.5 py-3">
-            <b className="text-[14px] font-semibold text-gray-900">Own car this month?</b>
-            <button type="button" onClick={() => f.openCarRequest({ pick: true })} className="flex h-9 items-center gap-1.5 rounded-[10px] bg-gray-900 px-3.5 text-[13px] font-semibold text-white">
-              <Car className="h-3.5 w-3.5" aria-hidden /> Request
-            </button>
-          </div>
-        ) : (
-          <button type="button" onClick={() => f.openRequest(req.id)} className="flex w-full flex-col px-3.5 py-3 text-left">
-            <span className="flex items-baseline justify-between text-[13px] text-gray-600">
-              <span>Fuel limit</span>
-              <span>
-                <b className="text-[14px] text-gray-900">{inr(c.fuel)}</b> of {inr(c.cap || req.ask || 0)}
-              </span>
-            </span>
-            <span className="mt-2 block h-[5px] overflow-hidden rounded-full bg-gray-100">
-              <i className="block h-full rounded-full bg-green-600" style={{ width: `${Math.min(100, Math.round((c.fuel / (c.cap || req.ask || 1)) * 100))}%` }} />
-            </span>
-          </button>
-        )}
-        {c.fuelBills.map((b) => (
-          <div key={b.id} className="flex items-center gap-3 border-t border-gray-100 px-3.5 py-2.5">
-            <span className="grid h-8 w-8 shrink-0 place-items-center rounded-[10px] bg-orange-500 text-white">
-              <Fuel className="h-4 w-4" aria-hidden />
-            </span>
+        {reqs.map((r, i) => {
+          const bills = c.fuelBills.filter((b) => inReq(r, b));
+          const used = bills.reduce((a, b) => a + (Number(b.amount) || 0), 0);
+          const lim = Number(r.approvedAmount ?? r.ask) || 0;
+          const [sw, sc] = STATUS[r.status] || [r.status, "text-gray-500"];
+          return (
+            <div key={r.id || i} className={cn(i > 0 && "border-t-4 border-gray-50")}>
+              <button type="button" onClick={() => f.openRequest(r.id)} className="flex w-full flex-col px-3.5 py-3 text-left">
+                <span className="flex items-baseline justify-between gap-2">
+                  <b className="min-w-0 truncate text-[13.5px] font-semibold text-gray-900">
+                    {r.from ? `${day(r.from)} ${mon(r.from)}${r.to && r.to !== r.from ? ` – ${day(r.to)} ${mon(r.to)}` : ""}` : "Own car"}
+                    {r.places ? <span className="font-normal text-gray-500"> · {r.places}</span> : null}
+                  </b>
+                  <span className={cn("shrink-0 text-[12px] font-semibold", sc)}>{sw}</span>
+                </span>
+                {r.status === "approved" && (
+                  <span className="mt-1 flex items-baseline justify-between text-[12.5px] text-gray-600">
+                    <span>
+                      Fuel
+                      {sentTags && bills.length ? (
+                        sentTags.has(carTag(r)) ? <span className="ml-1.5 font-semibold text-green-700">· sent</span> : <span className="ml-1.5 font-semibold text-orange-600">· not sent</span>
+                      ) : null}
+                    </span>
+                    <span>
+                      <b className="text-[13.5px] text-gray-900">{inr(used)}</b> of {inr(lim)}
+                    </span>
+                  </span>
+                )}
+              </button>
+              {bills.map((b) => (
+                <button type="button" key={b.id} onClick={() => setOpenBill(b.id)} className="flex w-full items-center gap-3 border-t border-gray-100 px-3.5 py-2 text-left active:bg-gray-50">
+                  <Fuel className="h-4 w-4 shrink-0 text-gray-500" aria-hidden />
+                  <span className="flex min-w-0 flex-1 flex-col">
+                    <span className="truncate text-[13px] font-semibold text-gray-900">{b.vendor || "Fuel bill"}</span>
+                    <small className="text-[11.5px] text-gray-400">
+                      {day(b.date)} {mon(b.date)} · {b.item.trip.name}
+                    </small>
+                  </span>
+                  <b className="shrink-0 text-[13.5px] font-bold tabular-nums text-gray-900">{inr(b.amount)}</b>
+                </button>
+              ))}
+            </div>
+          );
+        })}
+        {/* a fuel bill outside every request's dates: still listed, so nothing is hidden */}
+        {c.fuelBills.filter((b) => !reqs.some((r) => inReq(r, b))).map((b) => (
+          <button type="button" key={b.id} onClick={() => setOpenBill(b.id)} className="flex w-full items-center gap-3 border-t border-gray-100 px-3.5 py-2 text-left active:bg-gray-50">
+            <Fuel className="h-4 w-4 shrink-0 text-amber-600" aria-hidden />
             <span className="flex min-w-0 flex-1 flex-col">
-              <b className="truncate text-[14px] font-semibold text-gray-900">{b.vendor || "Fuel bill"}</b>
-              <small className="text-[12px] text-gray-400">
-                {day(b.date)} {mon(b.date)} · {b.item.trip.name}
-              </small>
+              <span className="truncate text-[13px] font-semibold text-gray-900">{b.vendor || "Fuel bill"}</span>
+              <small className="text-[11.5px] text-amber-700">{day(b.date)} {mon(b.date)} · outside your car requests</small>
             </span>
-            <b className="shrink-0 text-[14px] font-bold tabular-nums text-gray-900">{inr(b.amount)}</b>
-          </div>
+            <b className="shrink-0 text-[13.5px] font-bold tabular-nums text-gray-900">{inr(b.amount)}</b>
+          </button>
         ))}
+        {/* more than one request a month (28 Nov 2026): always offered */}
+        <div className={cn("flex items-center justify-between gap-3 px-3.5 py-3", reqs.length > 0 && "border-t border-gray-100")}>
+          <b className="text-[13.5px] font-semibold text-gray-900">{reqs.length ? "Own car on other days?" : "Own car this month?"}</b>
+          <button type="button" onClick={() => f.openCarRequest({ pick: true })} className="flex h-9 items-center gap-1.5 rounded-[10px] bg-gray-900 px-3.5 text-[13px] font-semibold text-white">
+            <Car className="h-3.5 w-3.5" aria-hidden /> {reqs.length ? "Request another" : "Request"}
+          </button>
+        </div>
       </div>
+      <BillViewer claim={{ fuels: c.fuelBills }} kinds={["fuels"]} editable={false} onRemove={async () => {}} open={openBill} setOpen={setOpenBill} />
       {onAddFuel && c.approved.length > 0 && !f.canCab && (
         <button type="button" onClick={onAddFuel} className="flex min-h-12 items-center justify-center gap-1.5 rounded-2xl bg-blue-600 text-[15px] font-bold text-white">
           <Plus className="h-4 w-4" aria-hidden /> Add fuel bill
@@ -653,6 +692,26 @@ export function CarCabSheetV2({ cab }) {
   const S = STATE[c.k];
   const req = c.approved[0] || c.reqs.find((r) => r.status === "pending") || null;
   const cap = c.cap || (req && req.ask) || 0;
+  // the own car's fuel, sent from HERE (28 Nov 2026), not with the trips: per approved request, its
+  // bills not sent yet (no line in the month's claim carries the request's tag)
+  const sentTags = new Set(((f.monthClaim?.claim?.all) || []).flatMap((x) => (x.lines || []).map((l) => String(l.trip || ""))));
+  const fuelDue = c.approved
+    .map((r) => {
+      const bills = c.fuelBills.filter((b) => r.from && r.to && b.date >= r.from && b.date <= r.to);
+      const lim = Math.round(Number(r.approvedAmount ?? r.ask) || 0);
+      const amt = Math.min(lim, bills.reduce((a, b) => a + (Number(b.amount) || 0), 0));
+      return { r, bills, amt, sent: sentTags.has(carTag(r)) };
+    })
+    .filter((x) => x.bills.length && !x.sent);
+  const fuelTotalDue = fuelDue.reduce((a, x) => a + x.amt, 0);
+  const sendAll = async () => {
+    if (c.t.draft.count || c.t.sentBack) await cab.send();
+    for (const x of fuelDue) {
+      const r = await f.actions.sendCar(x.r, x.bills);
+      if (r?.warning) toast.message(r.warning, { duration: 8000 });
+    }
+    toast.success("Sent to " + f.manager);
+  };
   const run = async (what, fn) => {
     setBusy(what);
     try {
@@ -690,9 +749,9 @@ export function CarCabSheetV2({ cab }) {
     </button>
   );
   const primary = c.t.sentBack
-    ? { label: "Resend", amt: c.t.draft.total || null, cls: "bg-red-600", go: () => run("send", () => cab.send()) }
-    : c.t.draft.count
-      ? { label: "Send", amt: c.t.draft.total, cls: "bg-blue-600", go: () => setConfirm(true) }
+    ? { label: "Resend", amt: (c.t.draft.total || 0) + fuelTotalDue || null, cls: "bg-red-600", go: () => run("send", sendAll) }
+    : c.t.draft.count || fuelTotalDue > 0
+      ? { label: "Send", amt: (c.t.draft.count ? c.t.draft.total : 0) + fuelTotalDue, cls: "bg-blue-600", go: () => setConfirm(true) }
       : c.t.waiting.count
         ? { label: "Recall", amt: null, cls: "border border-gray-300 bg-white text-gray-800", go: () => run("recall", () => cab.recall()) }
         : null;
@@ -739,55 +798,12 @@ export function CarCabSheetV2({ cab }) {
       </div>
 
       <div className="flex min-h-0 flex-1 flex-col gap-1 overflow-y-auto overscroll-contain px-4 pb-3 [&>*]:shrink-0">
+        {/* own car (28 Nov 2026): every request with its dates, limit and own fuel bills; a fuel row opens
+            its bill (not the trip); another request can always be asked -- OwnCarSection */}
         {f.canCar && (
-          <>
-            <span className="mx-1 mb-1.5 mt-3.5 flex items-center gap-2">
-              <span className="grid h-[22px] w-[22px] place-items-center rounded-[7px] bg-cyan-50 text-cyan-700">
-                <Car className="h-3.5 w-3.5" aria-hidden />
-              </span>
-              <b className="text-[12px] font-bold uppercase tracking-wide text-gray-600">Own car</b>
-              <span className={cn("ml-auto text-[12px] font-semibold", !req ? "text-gray-500" : req.status === "approved" ? "text-green-700" : "text-amber-700")}>
-                {!req ? "Not requested" : req.status === "approved" ? "Approved" : "Car requested"}
-              </span>
-            </span>
-            <div className="overflow-hidden rounded-2xl bg-white shadow-[0_1px_2px_rgba(16,24,40,.04)]">
-              {!req ? (
-                <div className="flex items-center justify-between gap-3 px-3.5 py-3">
-                  <b className="text-[14px] font-semibold text-gray-900">Own car this month?</b>
-                  <button type="button" onClick={() => f.openCarRequest({ pick: true })} className="flex h-9 items-center gap-1.5 rounded-[10px] bg-gray-900 px-3.5 text-[13px] font-semibold text-white">
-                    <Car className="h-3.5 w-3.5" aria-hidden /> Request
-                  </button>
-                </div>
-              ) : (
-                <button type="button" onClick={() => f.openRequest(req.id)} className="flex w-full flex-col px-3.5 py-3 text-left">
-                  <span className="flex items-baseline justify-between text-[13px] text-gray-600">
-                    <span>Fuel limit</span>
-                    <span>
-                      <b className="text-[14px] text-gray-900">{inr(c.fuel)}</b> of {inr(cap)}
-                    </span>
-                  </span>
-                  <span className="mt-2 block h-[5px] overflow-hidden rounded-full bg-gray-100">
-                    <i className="block h-full rounded-full bg-green-600" style={{ width: `${Math.min(100, Math.round((c.fuel / (cap || 1)) * 100))}%` }} />
-                  </span>
-                </button>
-              )}
-              {c.fuelBills.map((b) => (
-                <Row
-                  key={b.id}
-                  badge={
-                    <span className="grid h-8 w-8 shrink-0 place-items-center rounded-[10px] bg-orange-500 text-white">
-                      <Fuel className="h-4 w-4" aria-hidden />
-                    </span>
-                  }
-                  title={b.vendor || "Fuel bill"}
-                  sub={`${day(b.date)} ${mon(b.date)} · ${String(b.item.trip.name).split(" · ")[0]}`}
-                  amount={b.amount}
-                  st={fuelState(b.item.claim.status)}
-                  onClick={() => f.openTrip(b.item.trip.id)}
-                />
-              ))}
-            </div>
-          </>
+          <div className="mt-3.5">
+            <OwnCarSection c={c} sentTags={sentTags} />
+          </div>
         )}
 
         {f.canCab && (
@@ -849,12 +865,17 @@ export function CarCabSheetV2({ cab }) {
         {confirm ? (
           <div className="flex items-center gap-2">
             <span className="flex-1 text-[13px] font-semibold text-gray-700">
-              Send {inr(c.t.draft.total)} to {f.manager}?
+              Send {inr((c.t.draft.count ? c.t.draft.total : 0) + fuelTotalDue)} to {f.manager}?
+              {c.t.draft.count && fuelTotalDue > 0 ? (
+                <span className="block text-[11.5px] font-normal text-gray-500">
+                  rides {inr(c.t.draft.total)} · fuel {inr(fuelTotalDue)}
+                </span>
+              ) : null}
             </span>
             <button type="button" disabled={!!busy} onClick={() => setConfirm(false)} className="h-11 rounded-xl border border-gray-300 bg-white px-4 text-[14px] font-bold text-gray-800">
               Cancel
             </button>
-            <button type="button" disabled={!!busy} onClick={() => run("send", () => cab.send())} className="h-11 rounded-xl bg-blue-600 px-5 text-[14px] font-bold text-white">
+            <button type="button" disabled={!!busy} onClick={() => run("send", sendAll)} className="h-11 rounded-xl bg-blue-600 px-5 text-[14px] font-bold text-white">
               Send
             </button>
           </div>

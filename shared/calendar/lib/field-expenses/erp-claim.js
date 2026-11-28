@@ -45,6 +45,9 @@ export const isOpen = (c) => !c || (c.docstatus === 0 && ["Draft", "Rejected"].i
 
 const stops = (d) => (d.route || []).map((s) => s.place).filter(Boolean).join(" → ");
 const inTrip = (trip) => (date) => date >= trip.from && date <= trip.to;
+/* a line with a tag that is not a trip's ("Own car · 18–24 Oct · …", the office's own lines): never a
+   trip's line -- a trip sent / recalled again keeps it (28 Nov 2026) */
+export const isOwnLine = (l) => !!String(l?.trip || "").trim() && !parseTripTag(l.trip);
 
 /* Bills as claim rows, each with its ERP file, the last ones trimmed so the
    rows add up to `pay` (a cap). -> [{ date, type, sub, note, amount, bill, signed }] */
@@ -158,28 +161,7 @@ export function tripClaimRows(trip, claim, calc, data) {
     });
   }
 
-  // own car, with bills: paid as billed up to the approved amount
-  if (calc.carBilled) {
-    const bills = [
-      ...(claim.fuels || []).map((b) => ({ b, type: "Fuel", note: `Own car · fuel · ${trip.name}` })),
-    ];
-    const p = calc.carPool;
-    const carTotal = Object.values(calc.carDays || {}).reduce((s, x) => s + x, 0);
-    const own = billRows(bills, carTotal, `this trip's ${p.days} day${p.days > 1 ? "s" : ""} of the fuel bills for ${p.from.slice(8)}–${p.to.slice(8)} (approved up to ₹${p.cap})`);
-    rows.push(...own);
-    // the range's other trips' bills pay this trip's days too (25 Nov 2026): the rest, no bill of its own
-    const rest = Math.round(carTotal - own.reduce((s, r) => s + r.amount, 0));
-    if (rest > 0) {
-      const d = Object.keys(calc.carDays).sort()[0];
-      rows.push({
-        date: d,
-        type: "Travel",
-        sub: "",
-        note: `TA · own car · ${trip.name} · share of the fuel bills for ${p.from.slice(8)}–${p.to.slice(8)} (${p.days} of ${p.totalDays} EQ / OS days; bills ₹${p.fuel}, approved up to ₹${p.cap})`,
-        amount: rest,
-      });
-    }
-  }
+  // own car (28 Nov 2026): NOT on the trip -- its fuel is sent from the Car sheet (addCarToMonth)
   // every line carries its trip, so the officer can decide trip by trip
   const tag = tripTag(trip);
   return rows.map((r) => ({ ...r, trip: tag }));
@@ -230,6 +212,7 @@ export async function loadMonthClaim(employee, month) {
 export function tripLinesOf(lines, trip, trips = null) {
   const live = trips ? new Set(trips.map((x) => `${x.from}..${x.to}`)) : null;
   return (lines || []).filter((l) => {
+    if (isOwnLine(l)) return false;
     const t = parseTripTag(l.trip);
     if (t && (!live || live.has(`${t.from}..${t.to}`))) return t.from === trip.from && t.to === trip.to;
     return l.date >= trip.from && l.date <= trip.to;
@@ -358,7 +341,7 @@ export async function addTripToMonth({ employee, month, trip, claim, calc, data 
   if (!rows.length) throw new Error("Nothing to claim on this trip.");
   const name = await m.retryOnConflict(async () => {
     const { current } = await openForChange(m, conn, employee, month);
-    const others = (current?.lines || []).filter((l) => !inTrip(trip)(l.date)).map(keep);
+    const others = (current?.lines || []).filter((l) => !inTrip(trip)(l.date) || isOwnLine(l)).map(keep);
     // eslint-disable-next-line no-unused-vars
     const mine = rows.map(({ signed, file, proofFile, fromSent, ...r }) => ({ ...r, bill: r.bill || "" }));
     return writeMonth(m, conn, employee, month, current, [...others, ...mine]);
@@ -407,6 +390,59 @@ export async function addTripToMonth({ employee, month, trip, claim, calc, data 
   }
 }
 
+/* An approved own-car request's fuel (28 Nov 2026), sent from the Car sheet -- decoupled from the trips:
+   one Fuel line per fuel bill dated inside the request, paid as billed up to its approved amount,
+   tagged "Own car · 18–24 Oct · places" (not a trip's tag, so trips sent later keep it). Re-sending
+   replaces that request's lines. Bills onto the claim and scored, then the claim to the officer, as a trip.
+   req: { id, from, to, places, ask, approvedAmount }  bills: the request's fuel bills (with url / signed / fileName)
+   -> { name, sent, warning, amount } */
+export const carTag = (req) => {
+  const MON = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+  const d = (x) => `${Number(x.slice(8, 10))} ${MON[Number(x.slice(5, 7)) - 1]}`;
+  const span = req.from === req.to ? d(req.from) : req.from.slice(5, 7) === req.to.slice(5, 7) ? `${Number(req.from.slice(8, 10))}–${d(req.to)}` : `${d(req.from)}–${d(req.to)}`;
+  return `Own car · ${span}${req.places ? ` · ${req.places}` : ""}`.slice(0, 140);
+};
+export async function addCarToMonth({ employee, month, req, bills }) {
+  const m = await api();
+  const conn = connOf(m);
+  const cap = Math.round(Number(req.approvedAmount ?? req.ask) || 0);
+  const tag = carTag(req);
+  const rows = billRows(bills.map((b) => ({ b, type: "Fuel", note: `Own car · fuel · ${tag.replace(/^Own car · /, "")}` })), cap, `car approved up to ₹${cap}`)
+    .map((r) => ({ ...r, trip: tag }));
+  if (!rows.length) throw new Error("No fuel bill inside this car request.");
+  const name = await m.retryOnConflict(async () => {
+    const { current } = await openForChange(m, conn, employee, month);
+    const others = (current?.lines || []).filter((l) => String(l.trip || "") !== tag).map(keep);
+    // eslint-disable-next-line no-unused-vars
+    const mine = rows.map(({ signed, file, proofFile, fromSent, ...r }) => ({ ...r, bill: r.bill || "" }));
+    return writeMonth(m, conn, employee, month, current, [...others, ...mine]);
+  });
+  if (!name) throw new Error("The claim could not be saved.");
+  let warning = null;
+  try {
+    const files = [...new Set(rows.map((r) => r.file).filter(Boolean))];
+    await Promise.all(files.map((f) => m.attachFileTo(conn, f, name)));
+    const saved = await m.fetchClaimByRemark(conn, employee, monthRemark(month));
+    const reads = {};
+    for (const r of rows) {
+      const line = (saved?.lines || []).find((l) => l.bill === r.bill && l.type === "Fuel" && l.date === r.date);
+      if (line && r.signed?.sig) reads[line.id] = r.signed;
+    }
+    const ids = Object.keys(reads);
+    if (ids.length) await m.checkClaim(conn, name, ids, reads);
+    else await rescore(m, conn, name);
+  } catch (e) {
+    warning = `The fuel bills were added, but their check did not finish (${e?.message || e}).`;
+  }
+  const amount = rows.reduce((a, r) => a + (Number(r.amount) || 0), 0);
+  try {
+    await m.applyAction(conn, name, "Send for Approval");
+    return { name, sent: true, warning, amount };
+  } catch (e) {
+    return { name, sent: false, amount, warning: `Added to your ${monthWord(month)} claim, but it could not be sent (${e?.message || e}).` };
+  }
+}
+
 /* Several HQ / EQ trips (no bills) into the month's claim in ONE save, then
    one risk score and one send -- the "claim all" of the HQ & EQ days card
    (13 Nov 2026). -> { name, sent, warning } */
@@ -448,7 +484,7 @@ export async function removeTripFromMonth({ employee, month, trip }) {
       if (closed) throw new Error(`Your ${monthWord(month)} claim is already approved — this trip can't be changed any more.`);
       return null;
     }
-    const left = current.lines.filter((l) => !inTrip(trip)(l.date)).map(keep);
+    const left = current.lines.filter((l) => !inTrip(trip)(l.date) || isOwnLine(l)).map(keep);
     return writeMonth(m, conn, employee, month, current, left);
   });
   // what is left: its risk score again (any change to the lines clears it)

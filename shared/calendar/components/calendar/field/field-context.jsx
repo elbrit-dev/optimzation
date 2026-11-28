@@ -173,7 +173,11 @@ export function FieldExpensesProvider({ children }) {
       }
       // this browser has no record of the trip but the ERP has its lines: it
       // was claimed elsewhere (another phone or site) -- the ERP's word stands
-      const claim = local.status === "unclaimed" && mine.length ? monthErp.claimFromErp(mine) : local;
+      // 28 Nov 2026 (the owner: "we drive the UI"): a trip the ERP holds shows the ERP's lines and bills,
+      // on every device -- an office fix to a sent trip reaches the rep's own phone, whose copy no longer wins
+      const claim = mine.length
+        ? { ...local, ...monthErp.claimFromErp(mine), status: local.status === "unclaimed" ? "submitted" : local.status, recalled: false }
+        : local;
       if (claim.status !== "submitted" && claim.status !== "review") return claim;
       if (!holder) return claim;
       let s = ERP_STATUS[holder.status];
@@ -387,6 +391,8 @@ export function FieldExpensesProvider({ children }) {
       recallTrip: (tripId) => store.recallTrip(emp, tripId),
       // own car: to the GM through the ERP, and back
       requestOwnCar: (req) => monthErp.requestCar(req).finally(refreshCarRequests),
+      // an approved car's fuel into the month's claim, sent from the Car sheet (28 Nov 2026)
+      sendCar: (req, bills) => monthErp.addCarToMonth({ employee: emp, month, req, bills }).finally(refreshMonthClaim),
       withdrawRequest: (id) => monthErp.withdrawCar(id).finally(refreshCarRequests),
       refreshCarRequests,
       // after a help request / reply is sent, or one is opened (its dot goes)

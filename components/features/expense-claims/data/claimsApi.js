@@ -627,6 +627,19 @@ export async function addClaimComment(conn, name, text) {
   return rest(conn, "/api/method/frappe.desk.form.utils.add_comment", { method: "POST", headers: { "Content-Type": "application/x-www-form-urlencoded" }, body });
 }
 
+/* A manager's monthly cab claim (remark "Field Cab · YYYY-MM"), decided as ONE
+   (28 Nov 2026: shared by the combined page's CabClaimPanel and the TA/DA page's
+   Cabs card): Approve is final; Send back leaves the reason on the timeline and rejects. */
+export const CAB_REMARK = "Field Cab · ";
+export const approveCabClaim = (conn, name) => applyAction(conn, name, "Approve");
+export async function sendBackCabClaim(conn, name, reason) {
+  await addClaimComment(conn, name, reason);
+  await applyAction(conn, name, "Reject");
+}
+/* a cab bill's check, in words: "checked" | "handwritten" | "possible repeat" | "not checked" */
+export const cabBillCheck = (ai) =>
+  !ai ? "not checked" : /entered by hand/i.test(ai.reason || "") ? "handwritten" : ai.score != null && ai.score < 90 ? "possible repeat" : "checked";
+
 /* The latest comments on a claim (why it was rejected), newest first. */
 export async function fetchClaimComments(conn, name) {
   const q = new URLSearchParams({
