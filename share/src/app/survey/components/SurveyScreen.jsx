@@ -276,10 +276,8 @@ export function SurveyScreen({ survey, today, drafts, api, onOpenRow, onChanged,
                       }}
                       className={cx('flex min-h-14 w-full items-center gap-3 px-3 py-2.5 text-left transition-colors hover:bg-sunken disabled:opacity-50', on && 'bg-sunken')}
                     >
-                      <span className="relative shrink-0">
-                        <span className="flex size-10 items-center justify-center rounded-full border border-line-strong bg-surface text-13 font-semibold text-heading">{initialsOf(r.subject?.label)}</span>
-                        <CircleBadge n={n} />
-                      </span>
+                      {/* 28 Nov 2026 · the count is on the circles at the top only; here it is the line under the name */}
+                      <span className="flex size-10 shrink-0 items-center justify-center rounded-full border border-line-strong bg-surface text-13 font-semibold text-heading">{initialsOf(r.subject?.label)}</span>
                       <span className="flex min-w-0 flex-1 flex-col">
                         <span className="truncate text-14 font-semibold text-heading">{r.subject?.label || 'Your answers'}</span>
                         <span className="truncate text-12 tabular-nums text-ds-muted">
