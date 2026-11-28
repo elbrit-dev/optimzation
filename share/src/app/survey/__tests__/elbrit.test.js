@@ -107,3 +107,21 @@ describe('what the AI reader saves', () => {
     expect(f.elbrit_summary).toMatchObject({ elbrit: 1, month: { period: '2026-November' } });
   });
 });
+
+/* 28 Nov 2026 · Focus Medisales' statement prints Item, Pack, Op.Qty/Val, P.Qty/Val, S.Qty, S.Val, Cls.Qty, Cls.Val —
+   no rate: it is worked out as value ÷ quantity (sales first, closing when nothing was sold), never added up */
+describe('rate on a secondary statement', () => {
+  it('works the rate out from value ÷ qty when the statement prints none', () => {
+    const P = ['BRITVIT', 'BRITVOG 0.3', 'CALBRIT CT'];
+    const f = { rows: [
+      { product: 'BRITVIT TAB', sales_qty: '16', sales_value: '1219.04', closing_qty: '15', closing_value: '1142.85', rate: null },
+      { product: 'BRITVOG 0.3MG TAB', sales_qty: '0', sales_value: '-', closing_qty: '14', closing_value: '1400.00', rate: null },
+      { product: 'CALBRIT CT TAB', sales_qty: '4', sales_value: '542.40', closing_qty: '10', closing_value: '1356.00', rate: '135.60' },
+    ] };
+    tagElbrit(f, P);
+    expect(f.rows.map((r) => r.rate)).toEqual(['76.19', '100', '135.60']);
+    expect(f.elbrit_summary.rates_worked_out).toBe(2);
+    expect(f.elbrit_summary.totals.rate).toBeUndefined();
+    expect(f.elbrit_summary.totals).toMatchObject({ sales_qty: 20, sales_value: 1761.44, closing_qty: 39 });
+  });
+});
