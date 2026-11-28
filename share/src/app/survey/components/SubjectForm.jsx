@@ -43,8 +43,9 @@ function SectionHead({ title, done, total }) {
 }
 
 /* 27 Nov 2026 · the app's bottom navigation is fixed at the bottom of the screen; its height is measured so the end of
-   the form (Save for later / Submit) can be scrolled clear of it. No nav (desktop, a fullscreen page): just the gap. */
-function useBottomNavGap(gap) {
+   the page can be scrolled clear of it. No nav (desktop, a fullscreen page): just the gap. 28 Nov 2026: used by the
+   survey screen for every view (History's last answers were stuck under the nav and could not be scrolled to). */
+export function useBottomNavGap(gap) {
   const [nav, setNav] = useState(0);
   useEffect(() => {
     if (typeof window === 'undefined') return undefined;
@@ -67,8 +68,7 @@ function useBottomNavGap(gap) {
   return nav ? `calc(${nav}px + ${gap})` : gap;
 }
 
-export function SubjectForm({ survey, row, rows, me, draft, api, onBack, onDraft, onSubmitted, onDirtyChange, onAnswersChange, onSwitchRow, bottomGap: bottomGapProp = 'var(--space-12)', inList = false }) {
-  const bottomGap = useBottomNavGap(bottomGapProp);
+export function SubjectForm({ survey, row, rows, me, draft, api, onBack, onDraft, onSubmitted, onDirtyChange, onAnswersChange, onSwitchRow, inList = false }) {
   /* The questions with this record's values in their {#fields} (data/view.js). */
   const questions = useMemo(() => filledQuestions(survey, row), [survey, row]);
   const rootRef = useRef(null);
@@ -272,7 +272,7 @@ export function SubjectForm({ survey, row, rows, me, draft, api, onBack, onDraft
 
       {/* 28 Nov 2026 · Save for later / Submit at the end of the form (it was pinned over every screen of questions) */}
       {editable ? (
-        <div className="pt-1" style={{ paddingBottom: bottomGap }}>
+        <div className="pt-1">
             <Card className="flex flex-col gap-2" role="region" aria-label="Send this survey">
               {error ? (
                 <p role="alert" className="flex items-start gap-2 rounded-lg bg-danger-wash px-3 py-2 text-11 text-danger-text">

@@ -6,6 +6,7 @@ import { daysLeft, dueText, rowState, shortDate, targetOf } from '../data/shape'
 import { AddSubjectsSheet } from './AddSubjectsSheet';
 import { AnnouncementScreen } from './AnnouncementScreen';
 import { RecordTabs, StateBar, rowsOfTab } from './RecordTabs';
+import { useBottomNavGap } from './SubjectForm';
 
 /* 26 Nov 2026 (later) · SURVEY STUDIO layout (the artifact the user designed): the progress says "N of M doctors
  * done" with a "History · N" button and "X to do · next: Dr …"; the strip shows the ones still TO DO (unfilled
@@ -43,6 +44,8 @@ export function SurveyScreen({ survey, today, drafts, api, onOpenRow, onChanged,
   const [notice, setNotice] = useState(null);
   /* 28 Nov 2026 · History as a list: the open doctor's answers show under its row; a tap on it again closes them */
   const [shut, setShut] = useState(false);
+  /* 28 Nov 2026 · room under the last thing on every view (To do, History) for the app's fixed bottom navigation */
+  const navGap = useBottomNavGap('var(--space-8)');
 
   const rows = useMemo(() => survey.rows.map((r) => ({ ...r, view: rowState(r, drafts) })), [survey.rows, drafts]);
   const done = rows.filter((r) => r.view === 'done').length;
@@ -85,7 +88,7 @@ export function SurveyScreen({ survey, today, drafts, api, onOpenRow, onChanged,
   const pct = rows.length ? Math.round((done / rows.length) * 100) : 0;
   const chip = 'inline-flex h-10 shrink-0 items-center gap-1.5 rounded-full border px-3.5 text-13 font-medium transition-colors';
   const leading = multi && history ? (
-    <button type="button" onClick={() => onTab?.('todo')} className={cx(chip, TAB_TONE.todo[0])}>
+    <button type="button" onClick={() => onTab?.('todo')} className={cx(chip, history ? 'border-line-strong bg-surface text-heading hover:bg-sunken' : TAB_TONE.todo[0])}>
       <Icon name="arrow-left" size="var(--fs-10)" />
       To do · {left}
     </button>
@@ -114,10 +117,16 @@ export function SurveyScreen({ survey, today, drafts, api, onOpenRow, onChanged,
   );
 
   /* An announcement: the message to read, not rows to answer. */
-  if (survey.kind === 'announcement') return <AnnouncementScreen survey={survey} api={api} onChanged={onChanged} />;
+  if (survey.kind === 'announcement') {
+    return (
+      <div style={{ paddingBottom: navGap }}>
+        <AnnouncementScreen survey={survey} api={api} onChanged={onChanged} />
+      </div>
+    );
+  }
 
   return (
-    <div className="flex flex-col gap-3">
+    <div className="flex flex-col gap-3" style={{ paddingBottom: navGap }}>
       {/* 28 Nov 2026 · no second big title: the top bar already names the survey. The due date sits in the progress line. */}
       {survey.description ? <p className="text-13 leading-5 text-ds-secondary">{survey.description}</p> : null}
       {selfEmpty || rows.length ? null : <div className="flex justify-end">{duePill}</div>}
